@@ -1,0 +1,26 @@
+digraph {
+    rankdir=TB;
+    size="16,10";
+    dpi=70;
+    splines=true;
+
+    // State nodes
+    state_fields [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="fields", fontsize=12];
+    state_fields__acetate [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="acetate", fontsize=12];
+    state_fields__biomass [shape=circle, style=filled, fillcolor="#E4CF77", color="#b1a15c", penwidth=1, label="biomass", fontsize=12];
+    state_fields__glucose [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="glucose", fontsize=12];
+
+    // Process nodes
+    proc_monod_kinetics [shape=box, style=filled, fillcolor="#D9A4A6", color="#D9A4A6", penwidth=0, label="monod_kinetics", fontsize=12];
+
+    // Wiring
+    state_fields__acetate -> proc_monod_kinetics [style=dashed, penwidth=1, dir=both, label="substrates.acetate", fontsize=10];
+    state_fields__glucose -> proc_monod_kinetics [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
+    state_fields__biomass -> proc_monod_kinetics [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+
+    // Hierarchy
+    state_fields -> state_fields__acetate [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__biomass [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__glucose [arrowhead=none, penwidth=2];
+    // Nested process hierarchy
+}

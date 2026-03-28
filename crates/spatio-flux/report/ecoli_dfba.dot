@@ -1,0 +1,26 @@
+digraph {
+    rankdir=TB;
+    size="16,10";
+    dpi=70;
+    splines=true;
+
+    // State nodes
+    state_fields [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="fields", fontsize=12];
+    state_fields__biomass [shape=circle, style=filled, fillcolor="#E4CF77", color="#b1a15c", penwidth=1, label="biomass", fontsize=12];
+    state_fields__formate [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="formate", fontsize=12];
+    state_fields__glucose [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="glucose", fontsize=12];
+
+    // Process nodes
+    proc_ecoli_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="ecoli dFBA", fontsize=12];
+
+    // Wiring
+    state_fields__glucose -> proc_ecoli_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
+    state_fields__biomass -> proc_ecoli_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__formate -> proc_ecoli_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.formate", fontsize=10];
+
+    // Hierarchy
+    state_fields -> state_fields__biomass [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__formate [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__glucose [arrowhead=none, penwidth=2];
+    // Nested process hierarchy
+}

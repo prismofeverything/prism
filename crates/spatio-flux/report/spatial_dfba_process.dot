@@ -1,0 +1,41 @@
+digraph {
+    rankdir=TB;
+    size="16,10";
+    dpi=70;
+    splines=true;
+
+    // State nodes
+    state_fields [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="fields", fontsize=12];
+    state_fields__acetate [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="acetate", fontsize=12];
+    state_fields__ammonium [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="ammonium", fontsize=12];
+    state_fields__dissolved_biomass [shape=circle, style=filled, fillcolor="#E4CF77", color="#b1a15c", penwidth=1, label="dissolved biomass", fontsize=12];
+    state_fields__formate [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="formate", fontsize=12];
+    state_fields__glucose [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="glucose", fontsize=12];
+    state_fields__glutamate [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="glutamate", fontsize=12];
+    state_fields__glycolate [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="glycolate", fontsize=12];
+    state_fields__serine [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="serine", fontsize=12];
+
+    // Process nodes
+    proc_spatial_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="spatial_dFBA", fontsize=12];
+
+    // Wiring
+    state_fields__glucose -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.glucose", fontsize=10];
+    state_fields__dissolved_biomass -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__acetate -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.acetate", fontsize=10];
+    state_fields__ammonium -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.ammonium", fontsize=10];
+    state_fields__formate -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.formate", fontsize=10];
+    state_fields__glutamate -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.glutamate", fontsize=10];
+    state_fields__serine -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.serine", fontsize=10];
+    state_fields__glycolate -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.glycolate", fontsize=10];
+
+    // Hierarchy
+    state_fields -> state_fields__acetate [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__ammonium [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__dissolved_biomass [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__formate [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__glucose [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__glutamate [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__glycolate [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__serine [arrowhead=none, penwidth=2];
+    // Nested process hierarchy
+}

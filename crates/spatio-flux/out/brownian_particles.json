@@ -1,0 +1,33 @@
+{
+  "state": {
+    "particles": {
+      "p0": {
+        "id": "Jf9ZQOgy",
+        "position": [
+          25.0,
+          25.0
+        ],
+        "mass": 0.5,
+        "local": {},
+        "exchange": {}
+      }
+    }
+  },
+  "processes": {
+    "movement": {
+      "type": "brownian_movement",
+      "config": null,
+      "inputs": {
+        "particles": [
+          "particles"
+        ]
+      },
+      "outputs": {
+        "particles": [
+          "particles"
+        ]
+      },
+      "interval": 1.0
+    }
+  }
+}

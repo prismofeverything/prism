@@ -1,0 +1,78 @@
+{
+  "state": {
+    "global_time": 0.0,
+    "particles": {
+      "p0": {
+        "id": "abc123",
+        "position": [
+          25.0,
+          25.0
+        ],
+        "mass": 0.162,
+        "local": {},
+        "exchange": {},
+        "sub_masses": {}
+      }
+    }
+  },
+  "processes": {
+    "brownian_movement": {
+      "type": "BrownianMovement",
+      "config": {
+        "interval": 0.1,
+        "bounds": [
+          50.0,
+          50.0
+        ],
+        "diffusion_rate": 0.5,
+        "n_bins": [
+          0,
+          0
+        ],
+        "advection_rate": [
+          0.0,
+          0.0
+        ]
+      },
+      "inputs": {
+        "particles": [
+          "particles"
+        ]
+      },
+      "outputs": {
+        "particles": [
+          "particles"
+        ]
+      },
+      "interval": 0.1
+    },
+    "enforce_boundaries": {
+      "type": "ManageBoundaries",
+      "config": {
+        "buffer": 0.0001,
+        "bounds": [
+          50.0,
+          50.0
+        ],
+        "add_rate": 0.01,
+        "boundary_to_add": [],
+        "clamp_survivors": true,
+        "mass_range": [
+          0.001,
+          1.0
+        ],
+        "boundary_to_remove": []
+      },
+      "inputs": {
+        "particles": [
+          "particles"
+        ]
+      },
+      "outputs": {
+        "particles": [
+          "particles"
+        ]
+      }
+    }
+  }
+}

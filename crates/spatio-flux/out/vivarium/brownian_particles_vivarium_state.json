@@ -1,0 +1,16 @@
+{
+  "global_time": 0.0,
+  "particles": {
+    "p0": {
+      "id": "abc123",
+      "position": [
+        25.0,
+        25.0
+      ],
+      "mass": 0.162,
+      "local": {},
+      "exchange": {},
+      "sub_masses": {}
+    }
+  }
+}

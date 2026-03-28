@@ -1,0 +1,16 @@
+[package]
+name = "prism-bigraph"
+description = "Composable multi-scale simulation engine based on process bigraphs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+prism-schema = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+indexmap = { workspace = true }
+ordered-float = { workspace = true }
+petgraph = { workspace = true }
+rand = { workspace = true }

@@ -1,0 +1,35 @@
+digraph {
+    rankdir=TB;
+    size="16,10";
+    dpi=70;
+    splines=true;
+
+    // State nodes
+    state_brownian_movement__interval [shape=circle, style=filled, fillcolor="#C9CED6", color="#9ca0a6", penwidth=1, label="interval", fontsize=12];
+    state_particles [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="particles", fontsize=12];
+    state_particles__3xGAb5_A [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="3xGAb5-A", fontsize=12];
+    state_particles__3xGAb5_A__exchange [shape=circle, style=filled, fillcolor="#EEC06F", color="#b99556", penwidth=1, label="exchange", fontsize=12];
+    state_particles__3xGAb5_A__local [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="local", fontsize=12];
+    state_particles__3xGAb5_A__mass [shape=circle, style=filled, fillcolor="#E4CF77", color="#b1a15c", penwidth=1, label="mass", fontsize=12];
+    state_particles__3xGAb5_A__position [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="position", fontsize=12];
+    state_particles__3xGAb5_A__sub_masses [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="sub_masses", fontsize=12];
+
+    // Process nodes
+    proc_brownian_movement [shape=box, style=filled, fillcolor="#C3E1D6", color="#C3E1D6", penwidth=0, label="brownian_movement", fontsize=12];
+    proc_enforce_boundaries [shape=box, style=filled, fillcolor="#9FD8DF", color="#9FD8DF", penwidth=0, label="enforce_boundaries", fontsize=12];
+
+    // Wiring
+    state_particles -> proc_brownian_movement [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
+    state_brownian_movement__interval -> proc_enforce_boundaries [style=dashed, penwidth=1, arrowhead=normal, label="process_interval", fontsize=10];
+    state_particles -> proc_enforce_boundaries [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
+
+    // Hierarchy
+    proc_brownian_movement -> state_brownian_movement__interval [arrowhead=none, penwidth=2];
+    state_particles -> state_particles__3xGAb5_A [arrowhead=none, penwidth=2];
+    state_particles__3xGAb5_A -> state_particles__3xGAb5_A__exchange [arrowhead=none, penwidth=2];
+    state_particles__3xGAb5_A -> state_particles__3xGAb5_A__local [arrowhead=none, penwidth=2];
+    state_particles__3xGAb5_A -> state_particles__3xGAb5_A__mass [arrowhead=none, penwidth=2];
+    state_particles__3xGAb5_A -> state_particles__3xGAb5_A__position [arrowhead=none, penwidth=2];
+    state_particles__3xGAb5_A -> state_particles__3xGAb5_A__sub_masses [arrowhead=none, penwidth=2];
+    // Nested process hierarchy
+}

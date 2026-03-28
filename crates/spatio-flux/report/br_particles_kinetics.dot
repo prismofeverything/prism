@@ -1,0 +1,86 @@
+digraph {
+    rankdir=TB;
+    size="16,10";
+    dpi=70;
+    splines=true;
+
+    // State nodes
+    state_brownian_movement__interval [shape=circle, style=filled, fillcolor="#C9CED6", color="#9ca0a6", penwidth=1, label="interval", fontsize=12];
+    state_fields [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="fields", fontsize=12];
+    state_fields__acetate [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="acetate", fontsize=12];
+    state_fields__glucose [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="glucose", fontsize=12];
+    state_particles [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="particles", fontsize=12];
+    state_particles__Vj2FtpZF [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="Vj2FtpZF", fontsize=12];
+    state_particles__Vj2FtpZF__exchange [shape=circle, style=filled, fillcolor="#EEC06F", color="#b99556", penwidth=1, label="exchange", fontsize=12];
+    state_particles__Vj2FtpZF__exchange__acetate [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="acetate", fontsize=12];
+    state_particles__Vj2FtpZF__exchange__glucose [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="glucose", fontsize=12];
+    state_particles__Vj2FtpZF__local [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="local", fontsize=12];
+    state_particles__Vj2FtpZF__local__acetate [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="acetate", fontsize=12];
+    state_particles__Vj2FtpZF__local__glucose [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="glucose", fontsize=12];
+    state_particles__Vj2FtpZF__mass [shape=circle, style=filled, fillcolor="#E4CF77", color="#b1a15c", penwidth=1, label="mass", fontsize=12];
+    state_particles__Vj2FtpZF__monod_kinetics [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="monod_kinetics", fontsize=12];
+    state_particles__Vj2FtpZF__monod_kinetics___inputs [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="_inputs", fontsize=12];
+    state_particles__Vj2FtpZF__monod_kinetics___outputs [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="_outputs", fontsize=12];
+    state_particles__Vj2FtpZF__monod_kinetics__address [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="address", fontsize=12];
+    state_particles__Vj2FtpZF__monod_kinetics__address__data [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="data", fontsize=12];
+    state_particles__Vj2FtpZF__monod_kinetics__address__protocol [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="protocol", fontsize=12];
+    state_particles__Vj2FtpZF__monod_kinetics__config [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="config", fontsize=12];
+    state_particles__Vj2FtpZF__monod_kinetics__config__reactions [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="reactions", fontsize=12];
+    state_particles__Vj2FtpZF__monod_kinetics__inputs [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="inputs", fontsize=12];
+    state_particles__Vj2FtpZF__monod_kinetics__inputs__biomass [shape=circle, style=filled, fillcolor="#E4CF77", color="#b1a15c", penwidth=1, label="biomass", fontsize=12];
+    state_particles__Vj2FtpZF__monod_kinetics__inputs__substrates [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="substrates", fontsize=12];
+    state_particles__Vj2FtpZF__monod_kinetics__outputs [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="outputs", fontsize=12];
+    state_particles__Vj2FtpZF__monod_kinetics__outputs__biomass [shape=circle, style=filled, fillcolor="#E4CF77", color="#b1a15c", penwidth=1, label="biomass", fontsize=12];
+    state_particles__Vj2FtpZF__monod_kinetics__outputs__substrates [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="substrates", fontsize=12];
+    state_particles__Vj2FtpZF__position [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="position", fontsize=12];
+    state_particles__Vj2FtpZF__sub_masses [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="sub_masses", fontsize=12];
+
+    // Process nodes
+    proc_particles_Vj2FtpZF_monod_kinetics [shape=box, style=filled, fillcolor="#D9A4A6", color="#D9A4A6", penwidth=0, label="monod_kinetics", fontsize=12];
+    proc_brownian_movement [shape=box, style=filled, fillcolor="#C3E1D6", color="#C3E1D6", penwidth=0, label="brownian_movement", fontsize=12];
+    proc_enforce_boundaries [shape=box, style=filled, fillcolor="#9FD8DF", color="#9FD8DF", penwidth=0, label="enforce_boundaries", fontsize=12];
+    proc_particle_exchange [shape=box, style=filled, fillcolor="#C6D780", color="#C6D780", penwidth=0, label="particle_exchange", fontsize=12];
+    proc_particle_division [shape=box, style=filled, fillcolor="#9FD8DF", color="#9FD8DF", penwidth=0, label="particle_division", fontsize=12];
+
+    // Wiring
+    state_particles__Vj2FtpZF__local -> proc_particles_Vj2FtpZF_monod_kinetics [style=dashed, penwidth=1, arrowhead=normal, label="substrates", fontsize=10];
+    proc_particles_Vj2FtpZF_monod_kinetics -> state_particles__Vj2FtpZF__exchange [style=dashed, penwidth=1, arrowhead=normal, label="substrates", fontsize=10];
+    state_particles__Vj2FtpZF__mass -> proc_particles_Vj2FtpZF_monod_kinetics [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_particles -> proc_brownian_movement [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
+    state_brownian_movement__interval -> proc_enforce_boundaries [style=dashed, penwidth=1, arrowhead=normal, label="process_interval", fontsize=10];
+    state_particles -> proc_enforce_boundaries [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
+    state_particles -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
+    state_fields -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
+    state_particles -> proc_particle_division [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
+
+    // Hierarchy
+    proc_brownian_movement -> state_brownian_movement__interval [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__acetate [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__glucose [arrowhead=none, penwidth=2];
+    state_particles -> state_particles__Vj2FtpZF [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF -> state_particles__Vj2FtpZF__exchange [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__exchange -> state_particles__Vj2FtpZF__exchange__acetate [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__exchange -> state_particles__Vj2FtpZF__exchange__glucose [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF -> state_particles__Vj2FtpZF__local [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__local -> state_particles__Vj2FtpZF__local__acetate [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__local -> state_particles__Vj2FtpZF__local__glucose [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF -> state_particles__Vj2FtpZF__mass [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF -> state_particles__Vj2FtpZF__monod_kinetics [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__monod_kinetics -> state_particles__Vj2FtpZF__monod_kinetics___inputs [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__monod_kinetics -> state_particles__Vj2FtpZF__monod_kinetics___outputs [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__monod_kinetics -> state_particles__Vj2FtpZF__monod_kinetics__address [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__monod_kinetics__address -> state_particles__Vj2FtpZF__monod_kinetics__address__data [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__monod_kinetics__address -> state_particles__Vj2FtpZF__monod_kinetics__address__protocol [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__monod_kinetics -> state_particles__Vj2FtpZF__monod_kinetics__config [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__monod_kinetics__config -> state_particles__Vj2FtpZF__monod_kinetics__config__reactions [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__monod_kinetics -> state_particles__Vj2FtpZF__monod_kinetics__inputs [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__monod_kinetics__inputs -> state_particles__Vj2FtpZF__monod_kinetics__inputs__biomass [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__monod_kinetics__inputs -> state_particles__Vj2FtpZF__monod_kinetics__inputs__substrates [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__monod_kinetics -> state_particles__Vj2FtpZF__monod_kinetics__outputs [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__monod_kinetics__outputs -> state_particles__Vj2FtpZF__monod_kinetics__outputs__biomass [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF__monod_kinetics__outputs -> state_particles__Vj2FtpZF__monod_kinetics__outputs__substrates [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF -> state_particles__Vj2FtpZF__position [arrowhead=none, penwidth=2];
+    state_particles__Vj2FtpZF -> state_particles__Vj2FtpZF__sub_masses [arrowhead=none, penwidth=2];
+    // Nested process hierarchy
+    state_particles__Vj2FtpZF -> proc_particles_Vj2FtpZF_monod_kinetics [arrowhead=none, penwidth=2];
+}

@@ -1,0 +1,7 @@
+{
+  "biomass": 0.1,
+  "substrates": {
+    "glucose": 10.0,
+    "acetate": 0.0
+  }
+}

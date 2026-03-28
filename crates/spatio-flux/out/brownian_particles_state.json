@@ -1,0 +1,14 @@
+{
+  "particles": {
+    "p0": {
+      "id": "Jf9ZQOgy",
+      "position": [
+        25.0,
+        25.0
+      ],
+      "mass": 0.5,
+      "local": {},
+      "exchange": {}
+    }
+  }
+}

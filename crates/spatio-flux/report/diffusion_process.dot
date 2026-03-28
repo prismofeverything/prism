@@ -1,0 +1,22 @@
+digraph {
+    rankdir=TB;
+    size="16,10";
+    dpi=70;
+    splines=true;
+
+    // State nodes
+    state_fields [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="fields", fontsize=12];
+    state_fields__dissolved_biomass [shape=circle, style=filled, fillcolor="#E4CF77", color="#b1a15c", penwidth=1, label="dissolved biomass", fontsize=12];
+    state_fields__glucose [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="glucose", fontsize=12];
+
+    // Process nodes
+    proc_diffusion [shape=box, style=filled, fillcolor="#D1BE56", color="#D1BE56", penwidth=0, label="diffusion", fontsize=12];
+
+    // Wiring
+    state_fields -> proc_diffusion [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
+
+    // Hierarchy
+    state_fields -> state_fields__dissolved_biomass [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__glucose [arrowhead=none, penwidth=2];
+    // Nested process hierarchy
+}

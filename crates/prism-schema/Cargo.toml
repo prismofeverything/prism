@@ -1,0 +1,13 @@
+[package]
+name = "prism-schema"
+description = "Hierarchical type system for composable multi-scale simulation state"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+indexmap = { workspace = true }
+ordered-float = { workspace = true }

@@ -1,0 +1,73 @@
+digraph {
+    rankdir=TB;
+    size="16,10";
+    dpi=70;
+    splines=true;
+
+    // State nodes
+    state_fields [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="fields", fontsize=12];
+    state_fields__acetate [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="acetate", fontsize=12];
+    state_fields__ammonium [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="ammonium", fontsize=12];
+    state_fields__cdiff [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="cdiff", fontsize=12];
+    state_fields__ecoli [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="ecoli", fontsize=12];
+    state_fields__ecoli_core [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="ecoli core", fontsize=12];
+    state_fields__formate [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="formate", fontsize=12];
+    state_fields__glucose [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="glucose", fontsize=12];
+    state_fields__glutamate [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="glutamate", fontsize=12];
+    state_fields__glycolate [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="glycolate", fontsize=12];
+    state_fields__llactis [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="llactis", fontsize=12];
+    state_fields__monod_biomass [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="monod biomass", fontsize=12];
+    state_fields__pputida [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="pputida", fontsize=12];
+    state_fields__serine [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="serine", fontsize=12];
+    state_fields__yeast [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="yeast", fontsize=12];
+
+    // Process nodes
+    proc_ecoli_core_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="ecoli core dFBA", fontsize=12];
+    proc_ecoli_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="ecoli dFBA", fontsize=12];
+    proc_cdiff_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="cdiff dFBA", fontsize=12];
+    proc_pputida_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="pputida dFBA", fontsize=12];
+    proc_yeast_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="yeast dFBA", fontsize=12];
+    proc_llactis_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="llactis dFBA", fontsize=12];
+    proc_monod_kinetics [shape=box, style=filled, fillcolor="#D9A4A6", color="#D9A4A6", penwidth=0, label="monod_kinetics", fontsize=12];
+
+    // Wiring
+    state_fields__glucose -> proc_ecoli_core_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
+    state_fields__ecoli_core -> proc_ecoli_core_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__acetate -> proc_ecoli_core_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.acetate", fontsize=10];
+    state_fields__formate -> proc_ecoli_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.formate", fontsize=10];
+    state_fields__glucose -> proc_ecoli_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
+    state_fields__ecoli -> proc_ecoli_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__acetate -> proc_cdiff_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.acetate", fontsize=10];
+    state_fields__cdiff -> proc_cdiff_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__glucose -> proc_cdiff_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
+    state_fields__glucose -> proc_pputida_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
+    state_fields__ammonium -> proc_pputida_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.ammonium", fontsize=10];
+    state_fields__pputida -> proc_pputida_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__glycolate -> proc_pputida_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.glycolate", fontsize=10];
+    state_fields__yeast -> proc_yeast_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__ammonium -> proc_yeast_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.ammonium", fontsize=10];
+    state_fields__glucose -> proc_yeast_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
+    state_fields__glutamate -> proc_llactis_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.glutamate", fontsize=10];
+    state_fields__llactis -> proc_llactis_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__glucose -> proc_llactis_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
+    state_fields__serine -> proc_llactis_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.serine", fontsize=10];
+    state_fields__monod_biomass -> proc_monod_kinetics [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__acetate -> proc_monod_kinetics [style=dashed, penwidth=1, dir=both, label="substrates.acetate", fontsize=10];
+
+    // Hierarchy
+    state_fields -> state_fields__acetate [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__ammonium [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__cdiff [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__ecoli [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__ecoli_core [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__formate [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__glucose [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__glutamate [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__glycolate [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__llactis [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__monod_biomass [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__pputida [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__serine [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__yeast [arrowhead=none, penwidth=2];
+    // Nested process hierarchy
+}

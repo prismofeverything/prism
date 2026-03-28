@@ -1,0 +1,75 @@
+{
+  "state": {
+    "global_time": 0.0,
+    "fields": {
+      "glucose": 10.0,
+      "acetate": 0.0,
+      "biomass": 0.1
+    }
+  },
+  "processes": {
+    "monod_kinetics": {
+      "type": "MonodKinetics",
+      "config": {
+        "reactions": {
+          "assimilate_glucose": {
+            "reactant": "glucose",
+            "product": "mass",
+            "km": 0.5,
+            "vmax": 0.4,
+            "yield": 0.2
+          },
+          "maintenance_turnover": {
+            "reactant": "mass",
+            "product": "detritus",
+            "km": 1.0,
+            "vmax": 0.001,
+            "yield": 1.0
+          },
+          "overflow_to_acetate": {
+            "reactant": "glucose",
+            "product": "acetate",
+            "km": 0.5,
+            "vmax": 0.3,
+            "yield": 0.5
+          },
+          "assimilate_acetate": {
+            "reactant": "acetate",
+            "product": "mass",
+            "km": 0.6,
+            "vmax": 0.3,
+            "yield": 0.2
+          }
+        }
+      },
+      "inputs": {
+        "substrates.acetate": [
+          "fields",
+          "acetate"
+        ],
+        "substrates.glucose": [
+          "fields",
+          "glucose"
+        ],
+        "biomass": [
+          "fields",
+          "biomass"
+        ]
+      },
+      "outputs": {
+        "substrates.acetate": [
+          "fields",
+          "acetate"
+        ],
+        "substrates.glucose": [
+          "fields",
+          "glucose"
+        ],
+        "biomass": [
+          "fields",
+          "biomass"
+        ]
+      }
+    }
+  }
+}

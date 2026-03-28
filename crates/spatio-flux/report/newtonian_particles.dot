@@ -1,0 +1,49 @@
+digraph {
+    rankdir=TB;
+    size="16,10";
+    dpi=70;
+    splines=true;
+
+    // State nodes
+    state_newtonian_particles__interval [shape=circle, style=filled, fillcolor="#C9CED6", color="#9ca0a6", penwidth=1, label="interval", fontsize=12];
+    state_particles [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="particles", fontsize=12];
+    state_particles__p_b4437a [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="p_b4437a", fontsize=12];
+    state_particles__p_b4437a__elasticity [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="elasticity", fontsize=12];
+    state_particles__p_b4437a__exchange [shape=circle, style=filled, fillcolor="#EEC06F", color="#b99556", penwidth=1, label="exchange", fontsize=12];
+    state_particles__p_b4437a__friction [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="friction", fontsize=12];
+    state_particles__p_b4437a__id [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="id", fontsize=12];
+    state_particles__p_b4437a__inertia [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="inertia", fontsize=12];
+    state_particles__p_b4437a__local [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="local", fontsize=12];
+    state_particles__p_b4437a__mass [shape=circle, style=filled, fillcolor="#E4CF77", color="#b1a15c", penwidth=1, label="mass", fontsize=12];
+    state_particles__p_b4437a__position [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="position", fontsize=12];
+    state_particles__p_b4437a__radius [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="radius", fontsize=12];
+    state_particles__p_b4437a__shape [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="shape", fontsize=12];
+    state_particles__p_b4437a__sub_masses [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="sub_masses", fontsize=12];
+    state_particles__p_b4437a__velocity [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="velocity", fontsize=12];
+
+    // Process nodes
+    proc_newtonian_particles [shape=box, style=filled, fillcolor="#7FBFA8", color="#7FBFA8", penwidth=0, label="newtonian_particles", fontsize=12];
+    proc_enforce_boundaries [shape=box, style=filled, fillcolor="#9FD8DF", color="#9FD8DF", penwidth=0, label="enforce_boundaries", fontsize=12];
+
+    // Wiring
+    state_particles -> proc_newtonian_particles [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
+    state_newtonian_particles__interval -> proc_enforce_boundaries [style=dashed, penwidth=1, arrowhead=normal, label="process_interval", fontsize=10];
+    state_particles -> proc_enforce_boundaries [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
+
+    // Hierarchy
+    proc_newtonian_particles -> state_newtonian_particles__interval [arrowhead=none, penwidth=2];
+    state_particles -> state_particles__p_b4437a [arrowhead=none, penwidth=2];
+    state_particles__p_b4437a -> state_particles__p_b4437a__elasticity [arrowhead=none, penwidth=2];
+    state_particles__p_b4437a -> state_particles__p_b4437a__exchange [arrowhead=none, penwidth=2];
+    state_particles__p_b4437a -> state_particles__p_b4437a__friction [arrowhead=none, penwidth=2];
+    state_particles__p_b4437a -> state_particles__p_b4437a__id [arrowhead=none, penwidth=2];
+    state_particles__p_b4437a -> state_particles__p_b4437a__inertia [arrowhead=none, penwidth=2];
+    state_particles__p_b4437a -> state_particles__p_b4437a__local [arrowhead=none, penwidth=2];
+    state_particles__p_b4437a -> state_particles__p_b4437a__mass [arrowhead=none, penwidth=2];
+    state_particles__p_b4437a -> state_particles__p_b4437a__position [arrowhead=none, penwidth=2];
+    state_particles__p_b4437a -> state_particles__p_b4437a__radius [arrowhead=none, penwidth=2];
+    state_particles__p_b4437a -> state_particles__p_b4437a__shape [arrowhead=none, penwidth=2];
+    state_particles__p_b4437a -> state_particles__p_b4437a__sub_masses [arrowhead=none, penwidth=2];
+    state_particles__p_b4437a -> state_particles__p_b4437a__velocity [arrowhead=none, penwidth=2];
+    // Nested process hierarchy
+}

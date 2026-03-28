@@ -1,0 +1,22 @@
+[package]
+name = "spatio-flux"
+description = "Spatial whole-cell simulation processes: kinetics, diffusion, particles, FBA"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+prism-schema = { workspace = true }
+prism-bigraph = { workspace = true }
+prism-viz = { workspace = true }
+indexmap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }
+ordered-float = { workspace = true }
+plotters = { workspace = true }
+highs = { workspace = true }
+rapier2d = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }

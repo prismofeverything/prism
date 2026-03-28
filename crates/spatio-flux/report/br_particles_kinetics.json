@@ -1,0 +1,526 @@
+{
+    "state": {
+        "particles": {
+            "Vj2FtpZF": {
+                "monod_kinetics": {
+                    "address": {
+                        "protocol": "local",
+                        "data": "MonodKinetics"
+                    },
+                    "config": {
+                        "reactions": {
+                            "assimilate_glucose": {
+                                "product": "mass",
+                                "vmax": 0.4,
+                                "km": 0.5,
+                                "yield": 0.2,
+                                "reactant": "glucose"
+                            },
+                            "maintenance_turnover": {
+                                "reactant": "mass",
+                                "product": "detritus",
+                                "km": 1.0,
+                                "vmax": 0.001,
+                                "yield": 1.0
+                            },
+                            "overflow_to_acetate": {
+                                "reactant": "glucose",
+                                "product": "acetate",
+                                "km": 0.5,
+                                "vmax": 0.3,
+                                "yield": 0.5
+                            },
+                            "assimilate_acetate": {
+                                "reactant": "acetate",
+                                "product": "mass",
+                                "km": 0.6,
+                                "vmax": 0.3,
+                                "yield": 0.2
+                            }
+                        }
+                    },
+                    "_inputs": "biomass:mass|substrates:map[concentration]",
+                    "_outputs": "biomass:float|substrates:map[float]",
+                    "inputs": {
+                        "substrates": [
+                            "local"
+                        ],
+                        "biomass": [
+                            "mass"
+                        ]
+                    },
+                    "outputs": {
+                        "substrates": [
+                            "exchange"
+                        ],
+                        "biomass": [
+                            "mass"
+                        ]
+                    }
+                },
+                "id": null,
+                "position": [
+                    21.527257632647647,
+                    28.137254456256194
+                ],
+                "mass": 0.14268403018653178,
+                "local": {
+                    "acetate": 0.0,
+                    "glucose": 9.801855629483532
+                },
+                "exchange": {
+                    "acetate": 0.0,
+                    "glucose": 0.0
+                },
+                "sub_masses": {}
+            }
+        },
+        "global_time": 0.0,
+        "fields": {
+            "acetate": [
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            ],
+            "glucose": [
+                [
+                    7.4358524503122405,
+                    7.575437918683361,
+                    5.498562095573016,
+                    6.782839103229871,
+                    7.302928638034655,
+                    8.259931554171372,
+                    6.7368895549726915,
+                    8.595030812079264,
+                    9.997252104342532,
+                    6.542512311341071
+                ],
+                [
+                    8.471880674889459,
+                    6.8924651589248915,
+                    7.047410691765,
+                    8.402540485823906,
+                    6.248537149704858,
+                    8.073491904237688,
+                    5.341237260773682,
+                    9.78561627668089,
+                    9.460814581121763,
+                    6.593182921907372
+                ],
+                [
+                    8.535650418850048,
+                    6.25646493296864,
+                    6.474101993207976,
+                    5.906272380264934,
+                    7.7681679567849145,
+                    8.812762297853443,
+                    5.270756557619779,
+                    8.357510224201274,
+                    6.877705030450888,
+                    6.127619988173507
+                ],
+                [
+                    5.115531314124829,
+                    5.229191197574009,
+                    9.04812965206794,
+                    9.99450134503116,
+                    7.669278510463743,
+                    5.314408299569331,
+                    6.855326771233344,
+                    7.927006774784402,
+                    7.406418379268649,
+                    6.457627504333167
+                ],
+                [
+                    9.9712739906685,
+                    7.846463233867567,
+                    6.034901793083772,
+                    8.88911601096895,
+                    6.3031138222170435,
+                    7.573996385911969,
+                    9.986324622137982,
+                    9.958375950253195,
+                    8.487770133110057,
+                    6.758793792370849
+                ],
+                [
+                    9.678865224187453,
+                    5.049913673509254,
+                    6.736872556725521,
+                    5.82897486509771,
+                    9.801855629483532,
+                    9.188976560434643,
+                    8.647357096929657,
+                    7.884120443541333,
+                    8.429390408308869,
+                    9.4344202268094
+                ],
+                [
+                    8.520858215889193,
+                    5.527695637931191,
+                    8.995261206599691,
+                    5.01593429755914,
+                    8.72297276795522,
+                    9.782932360306928,
+                    6.3052174359180935,
+                    8.725250390818417,
+                    5.765337293034313,
+                    7.1578772004813
+                ],
+                [
+                    9.03446410876061,
+                    6.5272290356744875,
+                    6.757661344639494,
+                    5.8055184290008635,
+                    9.771722882970469,
+                    7.166642886419956,
+                    7.179122880060714,
+                    8.936029227456155,
+                    6.187505981831574,
+                    6.014899559432417
+                ],
+                [
+                    6.312520802950991,
+                    9.420798698429122,
+                    9.279818217562104,
+                    5.559713388112914,
+                    9.34574161792341,
+                    9.070400236718802,
+                    6.639558507566164,
+                    8.969744899704903,
+                    6.190480970602113,
+                    7.149690728258858
+                ],
+                [
+                    8.868061039417807,
+                    9.309378530944889,
+                    8.464931103809384,
+                    6.56280128310314,
+                    5.251574032360241,
+                    7.848680810651691,
+                    7.258840786527536,
+                    8.468012431817202,
+                    8.357271397562052,
+                    9.718358117136225
+                ]
+            ]
+        },
+        "brownian_movement": {
+            "address": {
+                "protocol": "local",
+                "data": "BrownianMovement"
+            },
+            "config": {
+                "interval": 1.0,
+                "bounds": [
+                    50.0,
+                    50.0
+                ],
+                "diffusion_rate": 0.25,
+                "n_bins": [
+                    0,
+                    0
+                ],
+                "advection_rate": [
+                    0.0,
+                    0.0
+                ]
+            },
+            "_inputs": "particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]]",
+            "_outputs": "particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]]",
+            "inputs": {
+                "particles": [
+                    "particles"
+                ]
+            },
+            "outputs": {
+                "particles": [
+                    "particles"
+                ]
+            }
+        },
+        "enforce_boundaries": {
+            "address": {
+                "protocol": "local",
+                "data": "ManageBoundaries"
+            },
+            "config": {
+                "buffer": 0.0001,
+                "bounds": [
+                    50.0,
+                    50.0
+                ],
+                "add_rate": 0.0,
+                "boundary_to_add": [
+                    "top",
+                    "top",
+                    "bottom",
+                    "left",
+                    "right"
+                ],
+                "clamp_survivors": true,
+                "mass_range": [
+                    0.001,
+                    1.0
+                ],
+                "boundary_to_remove": []
+            },
+            "_inputs": "particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]]|process_interval:float",
+            "_outputs": "particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]]",
+            "inputs": {
+                "particles": [
+                    "particles"
+                ],
+                "process_interval": [
+                    "brownian_movement",
+                    "interval"
+                ]
+            },
+            "outputs": {
+                "particles": [
+                    "particles"
+                ]
+            }
+        },
+        "particle_exchange": {
+            "address": {
+                "protocol": "local",
+                "data": "ParticleExchange"
+            },
+            "config": {
+                "rates_are_per_time": true,
+                "apply_mass_balance": false,
+                "bounds": [
+                    50.0,
+                    50.0
+                ],
+                "depth": 1.0,
+                "n_bins": [
+                    10,
+                    10
+                ]
+            },
+            "_inputs": "particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]]|fields:map[array[10|10,float]]",
+            "_outputs": "particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]]|fields:map[array[10|10,float]]",
+            "inputs": {
+                "particles": [
+                    "particles"
+                ],
+                "fields": [
+                    "fields"
+                ]
+            },
+            "outputs": {
+                "particles": [
+                    "particles"
+                ],
+                "fields": [
+                    "fields"
+                ]
+            }
+        },
+        "particle_division": {
+            "address": {
+                "protocol": "local",
+                "data": "ParticleDivision"
+            },
+            "config": {
+                "sub_mass_split": "equal",
+                "submass_split_mode": "equal",
+                "division_mass_threshold": 5.0,
+                "division_jitter": 0.001
+            },
+            "_inputs": "particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]]",
+            "_outputs": "particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]]",
+            "inputs": {
+                "particles": [
+                    "particles"
+                ]
+            },
+            "outputs": {
+                "particles": [
+                    "particles"
+                ]
+            }
+        },
+        "emitter": {
+            "address": {
+                "protocol": "local",
+                "data": "RAMEmitter"
+            },
+            "config": {
+                "emit": {
+                    "global_time": "node",
+                    "particles": "node",
+                    "fields": "node"
+                }
+            },
+            "_inputs": {
+                "global_time": {
+                    "_default": null
+                },
+                "particles": {
+                    "_default": null
+                },
+                "fields": {
+                    "_default": null
+                }
+            },
+            "_outputs": "",
+            "inputs": {
+                "global_time": [
+                    "global_time"
+                ],
+                "particles": [
+                    "particles"
+                ],
+                "fields": [
+                    "fields"
+                ]
+            }
+        }
+    },
+    "schema": {
+        "particles": "map[monod_kinetics:link[biomass:mass|substrates:map[concentration],biomass:float|substrates:map[float]]|id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]]",
+        "global_time": "float",
+        "fields": "map[array[10|10,float]]",
+        "brownian_movement": "link[particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]],particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]]]",
+        "enforce_boundaries": "link[particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]]|process_interval:float,particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]]]",
+        "particle_exchange": "link[particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]]|fields:map[array[10|10,float]],particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]]|fields:map[array[10|10,float]]]",
+        "particle_division": "link[particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]],particles:map[id:string|position:tuple[set_float,set_float]|mass:mass|local:map[concentration]|exchange:map[count]|sub_masses:map[mass]]]",
+        "emitter": {
+            "_type": "link",
+            "_inputs": {
+                "global_time": {
+                    "_default": null
+                },
+                "particles": {
+                    "_default": null
+                },
+                "fields": {
+                    "_default": null
+                }
+            },
+            "_outputs": "",
+            "inputs": "wires",
+            "outputs": "wires"
+        }
+    }
+}

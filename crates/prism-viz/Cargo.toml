@@ -1,0 +1,11 @@
+[package]
+name = "prism-viz"
+description = "Graphviz DOT visualization of process bigraph compositions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+prism-schema = { workspace = true }
+prism-bigraph = { workspace = true }
+indexmap = { workspace = true }
