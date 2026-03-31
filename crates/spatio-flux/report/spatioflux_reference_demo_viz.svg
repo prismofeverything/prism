@@ -303,7 +303,7 @@
 <text text-anchor="middle" x="3307.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[0,0]</text>
 </g>
 <!-- state_fields__acetate__0__0&#45;&gt;proc_monod_kinetics_0_0_ -->
-<g id="edge10" class="edge">
+<g id="edge11" class="edge">
 <title>state_fields__acetate__0__0&#45;&gt;proc_monod_kinetics_0_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M3681.66,-614.34C3676.46,-599.27 3667.65,-581.42 3653.37,-571.08 3608.97,-538.95 3583.67,-569.45 3531.37,-553.08 3461.56,-531.23 3386.6,-490.03 3343.51,-464.43"/>
 <polygon fill="black" stroke="black" points="3678.41,-615.68 3684.71,-624.2 3685.1,-613.61 3678.41,-615.68"/>
@@ -317,7 +317,7 @@
 <text text-anchor="middle" x="3609.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[1,0]</text>
 </g>
 <!-- state_fields__acetate__0__1&#45;&gt;proc_monod_kinetics_1_0_ -->
-<g id="edge39" class="edge">
+<g id="edge41" class="edge">
 <title>state_fields__acetate__0__1&#45;&gt;proc_monod_kinetics_1_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M3996.06,-616.16C3986.99,-600.62 3973.16,-581.6 3955.37,-571.08 3908.19,-543.17 3885.67,-569.45 3833.37,-553.08 3763.56,-531.23 3688.6,-490.03 3645.51,-464.43"/>
 <polygon fill="black" stroke="black" points="3993.19,-618.21 4001.08,-625.28 3999.32,-614.83 3993.19,-618.21"/>
@@ -345,7 +345,7 @@
 <text text-anchor="middle" x="4817.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[3,0]</text>
 </g>
 <!-- state_fields__acetate__0__3&#45;&gt;proc_monod_kinetics_3_0_ -->
-<g id="edge100" class="edge">
+<g id="edge99" class="edge">
 <title>state_fields__acetate__0__3&#45;&gt;proc_monod_kinetics_3_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M5159.44,-614.22C5160.09,-599.65 5158.04,-582.35 5147.37,-571.08 5114.51,-536.38 5086.81,-567.85 5041.37,-553.08 4972,-530.53 4897.18,-489.74 4853.96,-464.37"/>
 <polygon fill="black" stroke="black" points="5155.95,-613.96 5158.58,-624.22 5162.92,-614.56 5155.95,-613.96"/>
@@ -373,7 +373,7 @@
 <text text-anchor="middle" x="3122.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[5,0]</text>
 </g>
 <!-- state_fields__acetate__0__5&#45;&gt;proc_monod_kinetics_5_0_ -->
-<g id="edge160" class="edge">
+<g id="edge159" class="edge">
 <title>state_fields__acetate__0__5&#45;&gt;proc_monod_kinetics_5_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M3480.13,-622.86C3470.09,-615.01 3457.64,-606.23 3445.37,-600.08 3406.29,-580.48 3394.01,-580.74 3351.37,-571.08 3297.91,-558.96 3278.1,-578.15 3229.37,-553.08 3190.66,-533.16 3157.95,-493.74 3139.24,-467.63"/>
 <polygon fill="black" stroke="black" points="3477.95,-625.6 3487.94,-629.15 3482.35,-620.15 3477.95,-625.6"/>
@@ -387,7 +387,7 @@
 <text text-anchor="middle" x="5119.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[6,0]</text>
 </g>
 <!-- state_fields__acetate__0__6&#45;&gt;proc_monod_kinetics_6_0_ -->
-<g id="edge190" class="edge">
+<g id="edge189" class="edge">
 <title>state_fields__acetate__0__6&#45;&gt;proc_monod_kinetics_6_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M5475.65,-614.22C5471.06,-599.27 5463.04,-581.57 5449.37,-571.08 5411.46,-541.98 5388.81,-567.85 5343.37,-553.08 5274,-530.53 5199.18,-489.74 5155.96,-464.37"/>
 <polygon fill="black" stroke="black" points="5472.31,-615.28 5478.31,-624.01 5479.07,-613.44 5472.31,-615.28"/>
@@ -401,7 +401,7 @@
 <text text-anchor="middle" x="5421.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[7,0]</text>
 </g>
 <!-- state_fields__acetate__0__7&#45;&gt;proc_monod_kinetics_7_0_ -->
-<g id="edge220" class="edge">
+<g id="edge219" class="edge">
 <title>state_fields__acetate__0__7&#45;&gt;proc_monod_kinetics_7_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M5767.57,-613.61C5766.19,-598.99 5761.9,-581.84 5750.37,-571.08 5715.75,-538.77 5690.39,-567.75 5645.37,-553.08 5576.02,-530.48 5501.19,-489.7 5457.96,-464.35"/>
 <polygon fill="black" stroke="black" points="5764.08,-613.88 5768.13,-623.67 5771.07,-613.5 5764.08,-613.88"/>
@@ -415,7 +415,7 @@
 <text text-anchor="middle" x="3911.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[8,0]</text>
 </g>
 <!-- state_fields__acetate__0__8&#45;&gt;proc_monod_kinetics_8_0_ -->
-<g id="edge249" class="edge">
+<g id="edge250" class="edge">
 <title>state_fields__acetate__0__8&#45;&gt;proc_monod_kinetics_8_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M4308.2,-618.14C4296.33,-602.25 4278.34,-582 4257.37,-571.08 4208.76,-545.76 4187.67,-569.45 4135.37,-553.08 4065.56,-531.23 3990.6,-490.03 3947.51,-464.43"/>
 <polygon fill="black" stroke="black" points="4305.48,-620.35 4314.15,-626.44 4311.16,-616.27 4305.48,-620.35"/>
@@ -429,7 +429,7 @@
 <text text-anchor="middle" x="4213.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[9,0]</text>
 </g>
 <!-- state_fields__acetate__0__9&#45;&gt;proc_monod_kinetics_9_0_ -->
-<g id="edge279" class="edge">
+<g id="edge281" class="edge">
 <title>state_fields__acetate__0__9&#45;&gt;proc_monod_kinetics_9_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M4589.68,-614.73C4583.84,-599.55 4574.23,-581.45 4559.37,-571.08 4514.43,-539.7 4489.67,-569.45 4437.37,-553.08 4367.56,-531.23 4292.6,-490.03 4249.51,-464.43"/>
 <polygon fill="black" stroke="black" points="4586.37,-615.89 4592.99,-624.17 4592.98,-613.57 4586.37,-615.89"/>
@@ -553,7 +553,7 @@
 <text text-anchor="middle" x="6327.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[0,1]</text>
 </g>
 <!-- state_fields__acetate__1__0&#45;&gt;proc_monod_kinetics_0_1_ -->
-<g id="edge14" class="edge">
+<g id="edge12" class="edge">
 <title>state_fields__acetate__1__0&#45;&gt;proc_monod_kinetics_0_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M7010.43,-615.93C7006.23,-609.72 7000.9,-603.79 6994.37,-600.08 6938.99,-568.63 6770.98,-593.71 6708.37,-582.08 6692.34,-579.1 6689.26,-574.72 6673.37,-571.08 6619.95,-558.82 6603.67,-569.45 6551.37,-553.08 6481.56,-531.23 6406.6,-490.03 6363.51,-464.43"/>
 <polygon fill="black" stroke="black" points="7007.67,-618.15 7015.76,-625 7013.71,-614.6 7007.67,-618.15"/>
@@ -581,7 +581,7 @@
 <text text-anchor="middle" x="7535.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[2,1]</text>
 </g>
 <!-- state_fields__acetate__1__2&#45;&gt;proc_monod_kinetics_2_1_ -->
-<g id="edge74" class="edge">
+<g id="edge73" class="edge">
 <title>state_fields__acetate__1__2&#45;&gt;proc_monod_kinetics_2_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M7895.21,-614.84C7889.12,-599.7 7879.25,-581.61 7864.37,-571.08 7825.72,-543.73 7804.39,-567.75 7759.37,-553.08 7690.02,-530.48 7615.19,-489.7 7571.96,-464.35"/>
 <polygon fill="black" stroke="black" points="7891.94,-616.08 7898.68,-624.25 7898.51,-613.65 7891.94,-616.08"/>
@@ -595,7 +595,7 @@
 <text text-anchor="middle" x="7837.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[3,1]</text>
 </g>
 <!-- state_fields__acetate__1__3&#45;&gt;proc_monod_kinetics_3_1_ -->
-<g id="edge102" class="edge">
+<g id="edge103" class="edge">
 <title>state_fields__acetate__1__3&#45;&gt;proc_monod_kinetics_3_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M8179.44,-614.22C8180.09,-599.65 8178.04,-582.35 8167.37,-571.08 8134.51,-536.38 8106.81,-567.85 8061.37,-553.08 7992,-530.53 7917.18,-489.74 7873.96,-464.37"/>
 <polygon fill="black" stroke="black" points="8175.95,-613.96 8178.58,-624.22 8182.92,-614.56 8175.95,-613.96"/>
@@ -609,7 +609,7 @@
 <text text-anchor="middle" x="8743.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[4,1]</text>
 </g>
 <!-- state_fields__acetate__1__4&#45;&gt;proc_monod_kinetics_4_1_ -->
-<g id="edge132" class="edge">
+<g id="edge134" class="edge">
 <title>state_fields__acetate__1__4&#45;&gt;proc_monod_kinetics_4_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M8905.28,-615.38C8909.01,-601.65 8910.95,-584.78 8904.37,-571.08 8880.69,-521.75 8827.94,-485.35 8789.25,-464.01"/>
 <polygon fill="black" stroke="black" points="8901.87,-614.57 8902.19,-625.16 8908.54,-616.68 8901.87,-614.57"/>
@@ -637,7 +637,7 @@
 <text text-anchor="middle" x="8139.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[6,1]</text>
 </g>
 <!-- state_fields__acetate__1__6&#45;&gt;proc_monod_kinetics_6_1_ -->
-<g id="edge194" class="edge">
+<g id="edge192" class="edge">
 <title>state_fields__acetate__1__6&#45;&gt;proc_monod_kinetics_6_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M8481.44,-614.22C8482.09,-599.65 8480.04,-582.35 8469.37,-571.08 8436.51,-536.38 8408.81,-567.85 8363.37,-553.08 8294,-530.53 8219.18,-489.74 8175.96,-464.37"/>
 <polygon fill="black" stroke="black" points="8477.95,-613.96 8480.58,-624.22 8484.92,-614.56 8477.95,-613.96"/>
@@ -651,7 +651,7 @@
 <text text-anchor="middle" x="8441.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[7,1]</text>
 </g>
 <!-- state_fields__acetate__1__7&#45;&gt;proc_monod_kinetics_7_1_ -->
-<g id="edge222" class="edge">
+<g id="edge223" class="edge">
 <title>state_fields__acetate__1__7&#45;&gt;proc_monod_kinetics_7_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M8781.62,-614.45C8783.39,-599.95 8782.59,-582.65 8772.37,-571.08 8740.44,-534.93 8711.24,-567.95 8665.37,-553.08 8595.98,-530.59 8521.17,-489.78 8477.95,-464.39"/>
 <polygon fill="black" stroke="black" points="8778.16,-613.94 8779.97,-624.38 8785.06,-615.09 8778.16,-613.94"/>
@@ -679,7 +679,7 @@
 <text text-anchor="middle" x="7233.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[9,1]</text>
 </g>
 <!-- state_fields__acetate__1__9&#45;&gt;proc_monod_kinetics_9_1_ -->
-<g id="edge282" class="edge">
+<g id="edge283" class="edge">
 <title>state_fields__acetate__1__9&#45;&gt;proc_monod_kinetics_9_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M7609.68,-614.73C7603.84,-599.55 7594.23,-581.45 7579.37,-571.08 7534.43,-539.7 7509.67,-569.45 7457.37,-553.08 7387.56,-531.23 7312.6,-490.03 7269.51,-464.43"/>
 <polygon fill="black" stroke="black" points="7606.37,-615.89 7612.99,-624.17 7612.98,-613.57 7606.37,-615.89"/>
@@ -803,7 +803,7 @@
 <text text-anchor="middle" x="15387.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[0,2]</text>
 </g>
 <!-- state_fields__acetate__2__0&#45;&gt;proc_monod_kinetics_0_2_ -->
-<g id="edge15" class="edge">
+<g id="edge17" class="edge">
 <title>state_fields__acetate__2__0&#45;&gt;proc_monod_kinetics_0_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M15799.03,-620.46C15783.29,-604.28 15759.12,-582.58 15733.37,-571.08 15683.32,-548.72 15663.67,-569.45 15611.37,-553.08 15541.56,-531.23 15466.6,-490.03 15423.51,-464.43"/>
 <polygon fill="black" stroke="black" points="15796.64,-623.03 15806.05,-627.89 15801.73,-618.22 15796.64,-623.03"/>
@@ -817,7 +817,7 @@
 <text text-anchor="middle" x="15689.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[1,2]</text>
 </g>
 <!-- state_fields__acetate__2__1&#45;&gt;proc_monod_kinetics_1_2_ -->
-<g id="edge47" class="edge">
+<g id="edge46" class="edge">
 <title>state_fields__acetate__2__1&#45;&gt;proc_monod_kinetics_1_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M16070.34,-615.21C16062.99,-599.89 16051.48,-581.46 16035.37,-571.08 15989.3,-541.38 15965.67,-569.45 15913.37,-553.08 15843.56,-531.23 15768.6,-490.03 15725.51,-464.43"/>
 <polygon fill="black" stroke="black" points="16067.3,-617.01 16074.57,-624.72 16073.7,-614.16 16067.3,-617.01"/>
@@ -831,7 +831,7 @@
 <text text-anchor="middle" x="16595.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[2,2]</text>
 </g>
 <!-- state_fields__acetate__2__2&#45;&gt;proc_monod_kinetics_2_2_ -->
-<g id="edge77" class="edge">
+<g id="edge75" class="edge">
 <title>state_fields__acetate__2__2&#45;&gt;proc_monod_kinetics_2_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M16937.44,-614.22C16938.09,-599.65 16936.04,-582.35 16925.37,-571.08 16892.51,-536.38 16864.81,-567.85 16819.37,-553.08 16750,-530.53 16675.18,-489.74 16631.96,-464.37"/>
 <polygon fill="black" stroke="black" points="16933.95,-613.96 16936.58,-624.22 16940.92,-614.56 16933.95,-613.96"/>
@@ -887,7 +887,7 @@
 <text text-anchor="middle" x="17199.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[6,2]</text>
 </g>
 <!-- state_fields__acetate__2__6&#45;&gt;proc_monod_kinetics_6_2_ -->
-<g id="edge195" class="edge">
+<g id="edge197" class="edge">
 <title>state_fields__acetate__2__6&#45;&gt;proc_monod_kinetics_6_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M17539.62,-614.45C17541.39,-599.95 17540.59,-582.65 17530.37,-571.08 17498.44,-534.93 17469.24,-567.95 17423.37,-553.08 17353.98,-530.59 17279.17,-489.78 17235.95,-464.39"/>
 <polygon fill="black" stroke="black" points="17536.16,-613.94 17537.97,-624.38 17543.06,-615.09 17536.16,-613.94"/>
@@ -901,7 +901,7 @@
 <text text-anchor="middle" x="17501.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[7,2]</text>
 </g>
 <!-- state_fields__acetate__2__7&#45;&gt;proc_monod_kinetics_7_2_ -->
-<g id="edge225" class="edge">
+<g id="edge227" class="edge">
 <title>state_fields__acetate__2__7&#45;&gt;proc_monod_kinetics_7_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M17841.62,-614.45C17843.39,-599.95 17842.59,-582.65 17832.37,-571.08 17800.44,-534.93 17771.24,-567.95 17725.37,-553.08 17655.98,-530.59 17581.17,-489.78 17537.95,-464.39"/>
 <polygon fill="black" stroke="black" points="17838.16,-613.94 17839.97,-624.38 17845.06,-615.09 17838.16,-613.94"/>
@@ -915,7 +915,7 @@
 <text text-anchor="middle" x="15991.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[8,2]</text>
 </g>
 <!-- state_fields__acetate__2__8&#45;&gt;proc_monod_kinetics_8_2_ -->
-<g id="edge255" class="edge">
+<g id="edge256" class="edge">
 <title>state_fields__acetate__2__8&#45;&gt;proc_monod_kinetics_8_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M16369.67,-614.97C16363.19,-599.72 16352.77,-581.46 16337.37,-571.08 16291.92,-540.43 16267.67,-569.45 16215.37,-553.08 16145.56,-531.23 16070.6,-490.03 16027.51,-464.43"/>
 <polygon fill="black" stroke="black" points="16366.47,-616.41 16373.38,-624.45 16372.99,-613.86 16366.47,-616.41"/>
@@ -929,7 +929,7 @@
 <text text-anchor="middle" x="16293.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[9,2]</text>
 </g>
 <!-- state_fields__acetate__2__9&#45;&gt;proc_monod_kinetics_9_2_ -->
-<g id="edge285" class="edge">
+<g id="edge286" class="edge">
 <title>state_fields__acetate__2__9&#45;&gt;proc_monod_kinetics_9_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M16653.21,-614.84C16647.12,-599.7 16637.25,-581.61 16622.37,-571.08 16583.72,-543.73 16562.39,-567.75 16517.37,-553.08 16448.02,-530.48 16373.19,-489.7 16329.96,-464.35"/>
 <polygon fill="black" stroke="black" points="16649.94,-616.08 16656.68,-624.25 16656.51,-613.65 16649.94,-616.08"/>
@@ -1053,7 +1053,7 @@
 <text text-anchor="middle" x="18407.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[0,3]</text>
 </g>
 <!-- state_fields__acetate__3__0&#45;&gt;proc_monod_kinetics_0_3_ -->
-<g id="edge18" class="edge">
+<g id="edge19" class="edge">
 <title>state_fields__acetate__3__0&#45;&gt;proc_monod_kinetics_0_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M18784.41,-615C18778.37,-599.76 18768.47,-581.5 18753.37,-571.08 18708.26,-539.95 18683.67,-569.45 18631.37,-553.08 18561.56,-531.23 18486.6,-490.03 18443.51,-464.43"/>
 <polygon fill="black" stroke="black" points="18781.15,-616.26 18787.85,-624.46 18787.73,-613.87 18781.15,-616.26"/>
@@ -1067,7 +1067,7 @@
 <text text-anchor="middle" x="18709.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[1,3]</text>
 </g>
 <!-- state_fields__acetate__3__1&#45;&gt;proc_monod_kinetics_1_3_ -->
-<g id="edge49" class="edge">
+<g id="edge48" class="edge">
 <title>state_fields__acetate__3__1&#45;&gt;proc_monod_kinetics_1_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M19101.37,-617.14C19090.79,-601.41 19074.8,-581.79 19055.37,-571.08 19007.37,-544.62 18985.67,-569.45 18933.37,-553.08 18863.56,-531.23 18788.6,-490.03 18745.51,-464.43"/>
 <polygon fill="black" stroke="black" points="19098.61,-619.33 19106.95,-625.86 19104.5,-615.55 19098.61,-619.33"/>
@@ -1081,7 +1081,7 @@
 <text text-anchor="middle" x="19615.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[2,3]</text>
 </g>
 <!-- state_fields__acetate__3__2&#45;&gt;proc_monod_kinetics_2_3_ -->
-<g id="edge78" class="edge">
+<g id="edge80" class="edge">
 <title>state_fields__acetate__3__2&#45;&gt;proc_monod_kinetics_2_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M19956.87,-614.26C19957.74,-599.71 19955.95,-582.4 19945.37,-571.08 19912.75,-536.15 19884.81,-567.85 19839.37,-553.08 19770,-530.53 19695.18,-489.74 19651.96,-464.37"/>
 <polygon fill="black" stroke="black" points="19953.39,-613.95 19955.85,-624.25 19960.35,-614.66 19953.39,-613.95"/>
@@ -1123,7 +1123,7 @@
 <text text-anchor="middle" x="18222.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[5,3]</text>
 </g>
 <!-- state_fields__acetate__3__5&#45;&gt;proc_monod_kinetics_5_3_ -->
-<g id="edge168" class="edge">
+<g id="edge169" class="edge">
 <title>state_fields__acetate__3__5&#45;&gt;proc_monod_kinetics_5_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M18508.63,-619.15C18495.03,-603.12 18474.38,-582.24 18451.37,-571.08 18402.05,-547.16 18378.1,-578.15 18329.37,-553.08 18290.66,-533.16 18257.95,-493.74 18239.24,-467.63"/>
 <polygon fill="black" stroke="black" points="18506.03,-621.5 18515.07,-627.02 18511.45,-617.07 18506.03,-621.5"/>
@@ -1165,7 +1165,7 @@
 <text text-anchor="middle" x="19011.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[8,3]</text>
 </g>
 <!-- state_fields__acetate__3__8&#45;&gt;proc_monod_kinetics_8_3_ -->
-<g id="edge260" class="edge">
+<g id="edge258" class="edge">
 <title>state_fields__acetate__3__8&#45;&gt;proc_monod_kinetics_8_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M19387.68,-614.73C19381.84,-599.55 19372.23,-581.45 19357.37,-571.08 19312.43,-539.7 19287.67,-569.45 19235.37,-553.08 19165.56,-531.23 19090.6,-490.03 19047.51,-464.43"/>
 <polygon fill="black" stroke="black" points="19384.37,-615.89 19390.99,-624.17 19390.98,-613.57 19384.37,-615.89"/>
@@ -1179,7 +1179,7 @@
 <text text-anchor="middle" x="19313.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[9,3]</text>
 </g>
 <!-- state_fields__acetate__3__9&#45;&gt;proc_monod_kinetics_9_3_ -->
-<g id="edge290" class="edge">
+<g id="edge289" class="edge">
 <title>state_fields__acetate__3__9&#45;&gt;proc_monod_kinetics_9_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M19673.21,-614.84C19667.12,-599.7 19657.25,-581.61 19642.37,-571.08 19603.72,-543.73 19582.39,-567.75 19537.37,-553.08 19468.02,-530.48 19393.19,-489.7 19349.96,-464.35"/>
 <polygon fill="black" stroke="black" points="19669.94,-616.08 19676.68,-624.25 19676.51,-613.65 19669.94,-616.08"/>
@@ -1303,7 +1303,7 @@
 <text text-anchor="middle" x="27467.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[0,4]</text>
 </g>
 <!-- state_fields__acetate__4__0&#45;&gt;proc_monod_kinetics_0_4_ -->
-<g id="edge23" class="edge">
+<g id="edge21" class="edge">
 <title>state_fields__acetate__4__0&#45;&gt;proc_monod_kinetics_0_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M27914.53,-624.65C27890.53,-608.39 27851.1,-583.99 27813.37,-571.08 27761.51,-553.33 27743.67,-569.45 27691.37,-553.08 27621.56,-531.23 27546.6,-490.03 27503.51,-464.43"/>
 <polygon fill="black" stroke="black" points="27912.72,-627.66 27922.94,-630.45 27916.69,-621.89 27912.72,-627.66"/>
@@ -1317,7 +1317,7 @@
 <text text-anchor="middle" x="27769.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[1,4]</text>
 </g>
 <!-- state_fields__acetate__4__1&#45;&gt;proc_monod_kinetics_1_4_ -->
-<g id="edge51" class="edge">
+<g id="edge53" class="edge">
 <title>state_fields__acetate__4__1&#45;&gt;proc_monod_kinetics_1_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M28175.97,-618.91C28161.64,-602.55 28139.76,-581.37 28115.37,-571.08 28064.87,-549.78 28045.67,-569.45 27993.37,-553.08 27923.56,-531.23 27848.6,-490.03 27805.51,-464.43"/>
 <polygon fill="black" stroke="black" points="28173.63,-621.56 28182.75,-626.94 28178.98,-617.04 28173.63,-621.56"/>
@@ -1359,7 +1359,7 @@
 <text text-anchor="middle" x="29883.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[4,4]</text>
 </g>
 <!-- state_fields__acetate__4__4&#45;&gt;proc_monod_kinetics_4_4_ -->
-<g id="edge141" class="edge">
+<g id="edge143" class="edge">
 <title>state_fields__acetate__4__4&#45;&gt;proc_monod_kinetics_4_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M30039.16,-617.83C30046.13,-603.87 30051.51,-585.95 30044.37,-571.08 30020.69,-521.75 29967.94,-485.35 29929.25,-464.01"/>
 <polygon fill="black" stroke="black" points="30035.99,-616.34 30034.22,-626.78 30042.12,-619.72 30035.99,-616.34"/>
@@ -1373,7 +1373,7 @@
 <text text-anchor="middle" x="27282.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[5,4]</text>
 </g>
 <!-- state_fields__acetate__4__5&#45;&gt;proc_monod_kinetics_5_4_ -->
-<g id="edge172" class="edge">
+<g id="edge171" class="edge">
 <title>state_fields__acetate__4__5&#45;&gt;proc_monod_kinetics_5_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M27609.05,-624.42C27585.86,-608.13 27547.92,-583.88 27511.37,-571.08 27459.64,-552.96 27438.1,-578.15 27389.37,-553.08 27350.66,-533.16 27317.95,-493.74 27299.24,-467.63"/>
 <polygon fill="black" stroke="black" points="27607.29,-627.46 27617.46,-630.43 27611.37,-621.77 27607.29,-627.46"/>
@@ -1387,7 +1387,7 @@
 <text text-anchor="middle" x="29279.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[6,4]</text>
 </g>
 <!-- state_fields__acetate__4__6&#45;&gt;proc_monod_kinetics_6_4_ -->
-<g id="edge203" class="edge">
+<g id="edge201" class="edge">
 <title>state_fields__acetate__4__6&#45;&gt;proc_monod_kinetics_6_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M29625.57,-613.61C29624.19,-598.99 29619.9,-581.84 29608.37,-571.08 29573.75,-538.77 29548.39,-567.75 29503.37,-553.08 29434.02,-530.48 29359.19,-489.7 29315.96,-464.35"/>
 <polygon fill="black" stroke="black" points="29622.08,-613.88 29626.13,-623.67 29629.07,-613.5 29622.08,-613.88"/>
@@ -1401,7 +1401,7 @@
 <text text-anchor="middle" x="29581.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[7,4]</text>
 </g>
 <!-- state_fields__acetate__4__7&#45;&gt;proc_monod_kinetics_7_4_ -->
-<g id="edge233" class="edge">
+<g id="edge231" class="edge">
 <title>state_fields__acetate__4__7&#45;&gt;proc_monod_kinetics_7_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M29927.57,-613.61C29926.19,-598.99 29921.9,-581.84 29910.37,-571.08 29875.75,-538.77 29850.39,-567.75 29805.37,-553.08 29736.02,-530.48 29661.19,-489.7 29617.96,-464.35"/>
 <polygon fill="black" stroke="black" points="29924.08,-613.88 29928.13,-623.67 29931.07,-613.5 29924.08,-613.88"/>
@@ -1415,7 +1415,7 @@
 <text text-anchor="middle" x="28071.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[8,4]</text>
 </g>
 <!-- state_fields__acetate__4__8&#45;&gt;proc_monod_kinetics_8_4_ -->
-<g id="edge261" class="edge">
+<g id="edge262" class="edge">
 <title>state_fields__acetate__4__8&#45;&gt;proc_monod_kinetics_8_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M28446.89,-614.31C28441.25,-599.23 28431.94,-581.37 28417.37,-571.08 28372.6,-539.45 28347.67,-569.45 28295.37,-553.08 28225.56,-531.23 28150.6,-490.03 28107.51,-464.43"/>
 <polygon fill="black" stroke="black" points="28443.71,-615.83 28450.23,-624.18 28450.34,-613.58 28443.71,-615.83"/>
@@ -1553,7 +1553,7 @@
 <text text-anchor="middle" x="287.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[0,5]</text>
 </g>
 <!-- state_fields__acetate__5__0&#45;&gt;proc_monod_kinetics_0_5_ -->
-<g id="edge24" class="edge">
+<g id="edge26" class="edge">
 <title>state_fields__acetate__5__0&#45;&gt;proc_monod_kinetics_0_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M668.34,-615.21C660.99,-599.89 649.48,-581.46 633.37,-571.08 587.3,-541.38 563.67,-569.45 511.37,-553.08 441.56,-531.23 366.6,-490.03 323.51,-464.43"/>
 <polygon fill="black" stroke="black" points="665.3,-617.01 672.57,-624.72 671.7,-614.16 665.3,-617.01"/>
@@ -1567,7 +1567,7 @@
 <text text-anchor="middle" x="589.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[1,5]</text>
 </g>
 <!-- state_fields__acetate__5__1&#45;&gt;proc_monod_kinetics_1_5_ -->
-<g id="edge55" class="edge">
+<g id="edge56" class="edge">
 <title>state_fields__acetate__5__1&#45;&gt;proc_monod_kinetics_1_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M999.3,-620.17C983.98,-604.02 960.54,-582.5 935.37,-571.08 885.46,-548.43 865.67,-569.45 813.37,-553.08 743.56,-531.23 668.6,-490.03 625.51,-464.43"/>
 <polygon fill="black" stroke="black" points="996.79,-622.62 1006.14,-627.6 1001.94,-617.87 996.79,-622.62"/>
@@ -1581,7 +1581,7 @@
 <text text-anchor="middle" x="1495.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[2,5]</text>
 </g>
 <!-- state_fields__acetate__5__2&#45;&gt;proc_monod_kinetics_2_5_ -->
-<g id="edge86" class="edge">
+<g id="edge84" class="edge">
 <title>state_fields__acetate__5__2&#45;&gt;proc_monod_kinetics_2_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1855.43,-614.41C1849.54,-599.36 1839.97,-581.51 1825.37,-571.08 1786.49,-543.3 1764.81,-567.85 1719.37,-553.08 1650,-530.53 1575.18,-489.74 1531.96,-464.37"/>
 <polygon fill="black" stroke="black" points="1852.28,-616 1858.93,-624.25 1858.87,-613.66 1852.28,-616"/>
@@ -1609,7 +1609,7 @@
 <text text-anchor="middle" x="2703.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[4,5]</text>
 </g>
 <!-- state_fields__acetate__5__4&#45;&gt;proc_monod_kinetics_4_5_ -->
-<g id="edge145" class="edge">
+<g id="edge146" class="edge">
 <title>state_fields__acetate__5__4&#45;&gt;proc_monod_kinetics_4_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M2855.46,-619.28C2864.34,-605.26 2871.9,-586.77 2864.37,-571.08 2840.69,-521.75 2787.94,-485.35 2749.25,-464.01"/>
 <polygon fill="black" stroke="black" points="2852.4,-617.55 2849.59,-627.77 2858.16,-621.54 2852.4,-617.55"/>
@@ -1623,7 +1623,7 @@
 <text text-anchor="middle" x="102.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[5,5]</text>
 </g>
 <!-- state_fields__acetate__5__5&#45;&gt;proc_monod_kinetics_5_5_ -->
-<g id="edge174" class="edge">
+<g id="edge176" class="edge">
 <title>state_fields__acetate__5__5&#45;&gt;proc_monod_kinetics_5_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M392.3,-618.5C387.25,-612.19 381.4,-605.55 375.37,-600.08 358.03,-584.34 353.25,-579.43 331.37,-571.08 280.16,-551.53 258.1,-578.15 209.37,-553.08 170.66,-533.16 137.95,-493.74 119.24,-467.63"/>
 <polygon fill="black" stroke="black" points="389.77,-620.97 398.63,-626.78 395.33,-616.71 389.77,-620.97"/>
@@ -1651,7 +1651,7 @@
 <text text-anchor="middle" x="2401.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[7,5]</text>
 </g>
 <!-- state_fields__acetate__5__7&#45;&gt;proc_monod_kinetics_7_5_ -->
-<g id="edge236" class="edge">
+<g id="edge235" class="edge">
 <title>state_fields__acetate__5__7&#45;&gt;proc_monod_kinetics_7_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M2741.62,-614.45C2743.39,-599.95 2742.59,-582.65 2732.37,-571.08 2700.44,-534.93 2671.24,-567.95 2625.37,-553.08 2555.98,-530.59 2481.17,-489.78 2437.95,-464.39"/>
 <polygon fill="black" stroke="black" points="2738.16,-613.94 2739.97,-624.38 2745.06,-615.09 2738.16,-613.94"/>
@@ -1665,7 +1665,7 @@
 <text text-anchor="middle" x="891.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[8,5]</text>
 </g>
 <!-- state_fields__acetate__5__8&#45;&gt;proc_monod_kinetics_8_5_ -->
-<g id="edge264" class="edge">
+<g id="edge266" class="edge">
 <title>state_fields__acetate__5__8&#45;&gt;proc_monod_kinetics_8_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1278.72,-616.16C1269.44,-600.62 1255.33,-581.6 1237.37,-571.08 1190.07,-543.39 1167.67,-569.45 1115.37,-553.08 1045.56,-531.23 970.6,-490.03 927.51,-464.43"/>
 <polygon fill="black" stroke="black" points="1275.9,-618.29 1283.86,-625.28 1282,-614.85 1275.9,-618.29"/>
@@ -1679,7 +1679,7 @@
 <text text-anchor="middle" x="1193.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[9,5]</text>
 </g>
 <!-- state_fields__acetate__5__9&#45;&gt;proc_monod_kinetics_9_5_ -->
-<g id="edge296" class="edge">
+<g id="edge295" class="edge">
 <title>state_fields__acetate__5__9&#45;&gt;proc_monod_kinetics_9_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1568.89,-614.31C1563.25,-599.23 1553.94,-581.37 1539.37,-571.08 1494.6,-539.45 1469.67,-569.45 1417.37,-553.08 1347.56,-531.23 1272.6,-490.03 1229.51,-464.43"/>
 <polygon fill="black" stroke="black" points="1565.71,-615.83 1572.23,-624.18 1572.34,-613.58 1565.71,-615.83"/>
@@ -1817,7 +1817,7 @@
 <text text-anchor="middle" x="21729.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[1,6]</text>
 </g>
 <!-- state_fields__acetate__6__1&#45;&gt;proc_monod_kinetics_1_6_ -->
-<g id="edge59" class="edge">
+<g id="edge58" class="edge">
 <title>state_fields__acetate__6__1&#45;&gt;proc_monod_kinetics_1_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M22110.34,-615.21C22102.99,-599.89 22091.48,-581.46 22075.37,-571.08 22029.3,-541.38 22005.67,-569.45 21953.37,-553.08 21883.56,-531.23 21808.6,-490.03 21765.51,-464.43"/>
 <polygon fill="black" stroke="black" points="22107.3,-617.01 22114.57,-624.72 22113.7,-614.16 22107.3,-617.01"/>
@@ -1831,7 +1831,7 @@
 <text text-anchor="middle" x="22635.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[2,6]</text>
 </g>
 <!-- state_fields__acetate__6__2&#45;&gt;proc_monod_kinetics_2_6_ -->
-<g id="edge89" class="edge">
+<g id="edge88" class="edge">
 <title>state_fields__acetate__6__2&#45;&gt;proc_monod_kinetics_2_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M22976.87,-614.26C22977.74,-599.71 22975.95,-582.4 22965.37,-571.08 22932.75,-536.15 22904.81,-567.85 22859.37,-553.08 22790,-530.53 22715.18,-489.74 22671.96,-464.37"/>
 <polygon fill="black" stroke="black" points="22973.39,-613.95 22975.85,-624.25 22980.35,-614.66 22973.39,-613.95"/>
@@ -1845,7 +1845,7 @@
 <text text-anchor="middle" x="22937.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[3,6]</text>
 </g>
 <!-- state_fields__acetate__6__3&#45;&gt;proc_monod_kinetics_3_6_ -->
-<g id="edge117" class="edge">
+<g id="edge118" class="edge">
 <title>state_fields__acetate__6__3&#45;&gt;proc_monod_kinetics_3_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M23277.62,-614.45C23279.39,-599.95 23278.59,-582.65 23268.37,-571.08 23236.44,-534.93 23207.24,-567.95 23161.37,-553.08 23091.98,-530.59 23017.17,-489.78 22973.95,-464.39"/>
 <polygon fill="black" stroke="black" points="23274.16,-613.94 23275.97,-624.38 23281.06,-615.09 23274.16,-613.94"/>
@@ -1859,7 +1859,7 @@
 <text text-anchor="middle" x="23843.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[4,6]</text>
 </g>
 <!-- state_fields__acetate__6__4&#45;&gt;proc_monod_kinetics_4_6_ -->
-<g id="edge148" class="edge">
+<g id="edge149" class="edge">
 <title>state_fields__acetate__6__4&#45;&gt;proc_monod_kinetics_4_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M23995.46,-619.28C24004.34,-605.26 24011.9,-586.77 24004.37,-571.08 23980.69,-521.75 23927.94,-485.35 23889.25,-464.01"/>
 <polygon fill="black" stroke="black" points="23992.4,-617.55 23989.59,-627.77 23998.16,-621.54 23992.4,-617.55"/>
@@ -1901,7 +1901,7 @@
 <text text-anchor="middle" x="23541.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[7,6]</text>
 </g>
 <!-- state_fields__acetate__6__7&#45;&gt;proc_monod_kinetics_7_6_ -->
-<g id="edge238" class="edge">
+<g id="edge239" class="edge">
 <title>state_fields__acetate__6__7&#45;&gt;proc_monod_kinetics_7_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M23881.62,-614.45C23883.39,-599.95 23882.59,-582.65 23872.37,-571.08 23840.44,-534.93 23811.24,-567.95 23765.37,-553.08 23695.98,-530.59 23621.17,-489.78 23577.95,-464.39"/>
 <polygon fill="black" stroke="black" points="23878.16,-613.94 23879.97,-624.38 23885.06,-615.09 23878.16,-613.94"/>
@@ -2067,7 +2067,7 @@
 <text text-anchor="middle" x="24749.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[1,7]</text>
 </g>
 <!-- state_fields__acetate__7__1&#45;&gt;proc_monod_kinetics_1_7_ -->
-<g id="edge61" class="edge">
+<g id="edge62" class="edge">
 <title>state_fields__acetate__7__1&#45;&gt;proc_monod_kinetics_1_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M25163.78,-617.41C25159.32,-611.31 25154.06,-605.06 25148.37,-600.08 25128.16,-582.39 25120.83,-579.61 25095.37,-571.08 25043.4,-553.65 25025.67,-569.45 24973.37,-553.08 24903.56,-531.23 24828.6,-490.03 24785.51,-464.43"/>
 <polygon fill="black" stroke="black" points="25161.18,-619.8 25169.72,-626.07 25166.96,-615.85 25161.18,-619.8"/>
@@ -2095,7 +2095,7 @@
 <text text-anchor="middle" x="25957.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[3,7]</text>
 </g>
 <!-- state_fields__acetate__7__3&#45;&gt;proc_monod_kinetics_3_7_ -->
-<g id="edge120" class="edge">
+<g id="edge121" class="edge">
 <title>state_fields__acetate__7__3&#45;&gt;proc_monod_kinetics_3_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M26297.62,-614.45C26299.39,-599.95 26298.59,-582.65 26288.37,-571.08 26256.44,-534.93 26227.24,-567.95 26181.37,-553.08 26111.98,-530.59 26037.17,-489.78 25993.95,-464.39"/>
 <polygon fill="black" stroke="black" points="26294.16,-613.94 26295.97,-624.38 26301.06,-615.09 26294.16,-613.94"/>
@@ -2109,7 +2109,7 @@
 <text text-anchor="middle" x="26863.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[4,7]</text>
 </g>
 <!-- state_fields__acetate__7__4&#45;&gt;proc_monod_kinetics_4_7_ -->
-<g id="edge151" class="edge">
+<g id="edge152" class="edge">
 <title>state_fields__acetate__7__4&#45;&gt;proc_monod_kinetics_4_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M27025.28,-615.38C27029.01,-601.65 27030.95,-584.78 27024.37,-571.08 27000.69,-521.75 26947.94,-485.35 26909.25,-464.01"/>
 <polygon fill="black" stroke="black" points="27021.87,-614.57 27022.19,-625.16 27028.54,-616.68 27021.87,-614.57"/>
@@ -2123,7 +2123,7 @@
 <text text-anchor="middle" x="24262.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[5,7]</text>
 </g>
 <!-- state_fields__acetate__7__5&#45;&gt;proc_monod_kinetics_5_7_ -->
-<g id="edge182" class="edge">
+<g id="edge180" class="edge">
 <title>state_fields__acetate__7__5&#45;&gt;proc_monod_kinetics_5_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M24725.76,-631.78C24699.27,-622.88 24657.33,-609.39 24620.37,-600.08 24579.97,-589.9 24568.83,-592.03 24528.37,-582.08 24511.71,-577.98 24508.12,-574.78 24491.37,-571.08 24437.85,-559.24 24418.1,-578.15 24369.37,-553.08 24330.66,-533.16 24297.95,-493.74 24279.24,-467.63"/>
 <polygon fill="black" stroke="black" points="24724.85,-635.17 24735.45,-635.06 24727.1,-628.54 24724.85,-635.17"/>
@@ -2137,7 +2137,7 @@
 <text text-anchor="middle" x="26259.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[6,7]</text>
 </g>
 <!-- state_fields__acetate__7__6&#45;&gt;proc_monod_kinetics_6_7_ -->
-<g id="edge211" class="edge">
+<g id="edge212" class="edge">
 <title>state_fields__acetate__7__6&#45;&gt;proc_monod_kinetics_6_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M26599.62,-614.45C26601.39,-599.95 26600.59,-582.65 26590.37,-571.08 26558.44,-534.93 26529.24,-567.95 26483.37,-553.08 26413.98,-530.59 26339.17,-489.78 26295.95,-464.39"/>
 <polygon fill="black" stroke="black" points="26596.16,-613.94 26597.97,-624.38 26603.06,-615.09 26596.16,-613.94"/>
@@ -2165,7 +2165,7 @@
 <text text-anchor="middle" x="25051.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[8,7]</text>
 </g>
 <!-- state_fields__acetate__7__8&#45;&gt;proc_monod_kinetics_8_7_ -->
-<g id="edge272" class="edge">
+<g id="edge271" class="edge">
 <title>state_fields__acetate__7__8&#45;&gt;proc_monod_kinetics_8_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M25427.68,-614.73C25421.84,-599.55 25412.23,-581.45 25397.37,-571.08 25352.43,-539.7 25327.67,-569.45 25275.37,-553.08 25205.56,-531.23 25130.6,-490.03 25087.51,-464.43"/>
 <polygon fill="black" stroke="black" points="25424.37,-615.89 25430.99,-624.17 25430.98,-613.57 25424.37,-615.89"/>
@@ -2179,7 +2179,7 @@
 <text text-anchor="middle" x="25353.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[9,7]</text>
 </g>
 <!-- state_fields__acetate__7__9&#45;&gt;proc_monod_kinetics_9_7_ -->
-<g id="edge301" class="edge">
+<g id="edge302" class="edge">
 <title>state_fields__acetate__7__9&#45;&gt;proc_monod_kinetics_9_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M25713.43,-614.41C25707.54,-599.36 25697.97,-581.51 25683.37,-571.08 25644.49,-543.3 25622.81,-567.85 25577.37,-553.08 25508,-530.53 25433.18,-489.74 25389.96,-464.37"/>
 <polygon fill="black" stroke="black" points="25710.28,-616 25716.93,-624.25 25716.87,-613.66 25710.28,-616"/>
@@ -2345,7 +2345,7 @@
 <text text-anchor="middle" x="10857.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[3,8]</text>
 </g>
 <!-- state_fields__acetate__8__3&#45;&gt;proc_monod_kinetics_3_8_ -->
-<g id="edge125" class="edge">
+<g id="edge124" class="edge">
 <title>state_fields__acetate__8__3&#45;&gt;proc_monod_kinetics_3_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M11199.44,-614.22C11200.09,-599.65 11198.04,-582.35 11187.37,-571.08 11154.51,-536.38 11126.81,-567.85 11081.37,-553.08 11012,-530.53 10937.18,-489.74 10893.96,-464.37"/>
 <polygon fill="black" stroke="black" points="11195.95,-613.96 11198.58,-624.22 11202.92,-614.56 11195.95,-613.96"/>
@@ -2373,7 +2373,7 @@
 <text text-anchor="middle" x="9162.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[5,8]</text>
 </g>
 <!-- state_fields__acetate__8__5&#45;&gt;proc_monod_kinetics_5_8_ -->
-<g id="edge185" class="edge">
+<g id="edge184" class="edge">
 <title>state_fields__acetate__8__5&#45;&gt;proc_monod_kinetics_5_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M9448.63,-619.15C9435.03,-603.12 9414.38,-582.24 9391.37,-571.08 9342.05,-547.16 9318.1,-578.15 9269.37,-553.08 9230.66,-533.16 9197.95,-493.74 9179.24,-467.63"/>
 <polygon fill="black" stroke="black" points="9446.03,-621.5 9455.07,-627.02 9451.45,-617.07 9446.03,-621.5"/>
@@ -2401,7 +2401,7 @@
 <text text-anchor="middle" x="11461.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[7,8]</text>
 </g>
 <!-- state_fields__acetate__8__7&#45;&gt;proc_monod_kinetics_7_8_ -->
-<g id="edge244" class="edge">
+<g id="edge243" class="edge">
 <title>state_fields__acetate__8__7&#45;&gt;proc_monod_kinetics_7_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M11801.06,-614.5C11803.06,-600.02 11802.5,-582.71 11792.37,-571.08 11760.7,-534.71 11731.24,-567.95 11685.37,-553.08 11615.98,-530.59 11541.17,-489.78 11497.95,-464.39"/>
 <polygon fill="black" stroke="black" points="11797.6,-613.95 11799.25,-624.42 11804.49,-615.21 11797.6,-613.95"/>
@@ -2415,7 +2415,7 @@
 <text text-anchor="middle" x="9951.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[8,8]</text>
 </g>
 <!-- state_fields__acetate__8__8&#45;&gt;proc_monod_kinetics_8_8_ -->
-<g id="edge273" class="edge">
+<g id="edge274" class="edge">
 <title>state_fields__acetate__8__8&#45;&gt;proc_monod_kinetics_8_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M10338.72,-616.16C10329.44,-600.62 10315.33,-581.6 10297.37,-571.08 10250.07,-543.39 10227.67,-569.45 10175.37,-553.08 10105.56,-531.23 10030.6,-490.03 9987.51,-464.43"/>
 <polygon fill="black" stroke="black" points="10335.9,-618.29 10343.86,-625.28 10342,-614.85 10335.9,-618.29"/>
@@ -2429,7 +2429,7 @@
 <text text-anchor="middle" x="10253.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[9,8]</text>
 </g>
 <!-- state_fields__acetate__8__9&#45;&gt;proc_monod_kinetics_9_8_ -->
-<g id="edge303" class="edge">
+<g id="edge304" class="edge">
 <title>state_fields__acetate__8__9&#45;&gt;proc_monod_kinetics_9_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M10628.89,-614.31C10623.25,-599.23 10613.94,-581.37 10599.37,-571.08 10554.6,-539.45 10529.67,-569.45 10477.37,-553.08 10407.56,-531.23 10332.6,-490.03 10289.51,-464.43"/>
 <polygon fill="black" stroke="black" points="10625.71,-615.83 10632.23,-624.18 10632.34,-613.58 10625.71,-615.83"/>
@@ -2553,7 +2553,7 @@
 <text text-anchor="middle" x="12367.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[0,9]</text>
 </g>
 <!-- state_fields__acetate__9__0&#45;&gt;proc_monod_kinetics_0_9_ -->
-<g id="edge38" class="edge">
+<g id="edge36" class="edge">
 <title>state_fields__acetate__9__0&#45;&gt;proc_monod_kinetics_0_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M12765.59,-618.14C12753.28,-602.25 12734.73,-582 12713.37,-571.08 12664.57,-546.12 12643.67,-569.45 12591.37,-553.08 12521.56,-531.23 12446.6,-490.03 12403.51,-464.43"/>
 <polygon fill="black" stroke="black" points="12762.98,-620.5 12771.76,-626.44 12768.6,-616.32 12762.98,-620.5"/>
@@ -2567,7 +2567,7 @@
 <text text-anchor="middle" x="12669.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[1,9]</text>
 </g>
 <!-- state_fields__acetate__9__1&#45;&gt;proc_monod_kinetics_1_9_ -->
-<g id="edge67" class="edge">
+<g id="edge66" class="edge">
 <title>state_fields__acetate__9__1&#45;&gt;proc_monod_kinetics_1_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M13155.7,-623.68C13144.72,-615.61 13130.88,-606.4 13117.37,-600.08 13112.03,-597.58 13021.13,-572.32 13015.37,-571.08 12961.78,-559.56 12945.67,-569.45 12893.37,-553.08 12823.56,-531.23 12748.6,-490.03 12705.51,-464.43"/>
 <polygon fill="black" stroke="black" points="13153.75,-626.59 13163.83,-629.84 13157.98,-621.01 13153.75,-626.59"/>
@@ -2581,7 +2581,7 @@
 <text text-anchor="middle" x="13575.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[2,9]</text>
 </g>
 <!-- state_fields__acetate__9__2&#45;&gt;proc_monod_kinetics_2_9_ -->
-<g id="edge98" class="edge">
+<g id="edge97" class="edge">
 <title>state_fields__acetate__9__2&#45;&gt;proc_monod_kinetics_2_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M13935.43,-614.41C13929.54,-599.36 13919.97,-581.51 13905.37,-571.08 13866.49,-543.3 13844.81,-567.85 13799.37,-553.08 13730,-530.53 13655.18,-489.74 13611.96,-464.37"/>
 <polygon fill="black" stroke="black" points="13932.28,-616 13938.93,-624.25 13938.87,-613.66 13932.28,-616"/>
@@ -2595,7 +2595,7 @@
 <text text-anchor="middle" x="13877.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[3,9]</text>
 </g>
 <!-- state_fields__acetate__9__3&#45;&gt;proc_monod_kinetics_3_9_ -->
-<g id="edge126" class="edge">
+<g id="edge127" class="edge">
 <title>state_fields__acetate__9__3&#45;&gt;proc_monod_kinetics_3_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M14219.44,-614.22C14220.09,-599.65 14218.04,-582.35 14207.37,-571.08 14174.51,-536.38 14146.81,-567.85 14101.37,-553.08 14032,-530.53 13957.18,-489.74 13913.96,-464.37"/>
 <polygon fill="black" stroke="black" points="14215.95,-613.96 14218.58,-624.22 14222.92,-614.56 14215.95,-613.96"/>
@@ -2609,7 +2609,7 @@
 <text text-anchor="middle" x="14783.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[4,9]</text>
 </g>
 <!-- state_fields__acetate__9__4&#45;&gt;proc_monod_kinetics_4_9_ -->
-<g id="edge156" class="edge">
+<g id="edge157" class="edge">
 <title>state_fields__acetate__9__4&#45;&gt;proc_monod_kinetics_4_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M14934.95,-619.33C14944.1,-605.34 14951.94,-586.85 14944.37,-571.08 14920.69,-521.75 14867.94,-485.35 14829.25,-464.01"/>
 <polygon fill="black" stroke="black" points="14931.86,-617.63 14928.9,-627.8 14937.56,-621.7 14931.86,-617.63"/>
@@ -2623,7 +2623,7 @@
 <text text-anchor="middle" x="12182.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[5,9]</text>
 </g>
 <!-- state_fields__acetate__9__5&#45;&gt;proc_monod_kinetics_5_9_ -->
-<g id="edge188" class="edge">
+<g id="edge187" class="edge">
 <title>state_fields__acetate__9__5&#45;&gt;proc_monod_kinetics_5_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M12510.15,-624.64C12486.78,-608.35 12448.34,-583.95 12411.37,-571.08 12359.61,-553.06 12338.1,-578.15 12289.37,-553.08 12250.66,-533.16 12217.95,-493.74 12199.24,-467.63"/>
 <polygon fill="black" stroke="black" points="12508.15,-627.51 12518.33,-630.44 12512.2,-621.8 12508.15,-627.51"/>
@@ -2651,7 +2651,7 @@
 <text text-anchor="middle" x="14481.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[7,9]</text>
 </g>
 <!-- state_fields__acetate__9__7&#45;&gt;proc_monod_kinetics_7_9_ -->
-<g id="edge247" class="edge">
+<g id="edge246" class="edge">
 <title>state_fields__acetate__9__7&#45;&gt;proc_monod_kinetics_7_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M14821.62,-614.45C14823.39,-599.95 14822.59,-582.65 14812.37,-571.08 14780.44,-534.93 14751.24,-567.95 14705.37,-553.08 14635.98,-530.59 14561.17,-489.78 14517.95,-464.39"/>
 <polygon fill="black" stroke="black" points="14818.16,-613.94 14819.97,-624.38 14825.06,-615.09 14818.16,-613.94"/>
@@ -2665,7 +2665,7 @@
 <text text-anchor="middle" x="12971.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[8,9]</text>
 </g>
 <!-- state_fields__acetate__9__8&#45;&gt;proc_monod_kinetics_8_9_ -->
-<g id="edge277" class="edge">
+<g id="edge278" class="edge">
 <title>state_fields__acetate__9__8&#45;&gt;proc_monod_kinetics_8_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M13368.2,-618.14C13356.33,-602.25 13338.34,-582 13317.37,-571.08 13268.76,-545.76 13247.67,-569.45 13195.37,-553.08 13125.56,-531.23 13050.6,-490.03 13007.51,-464.43"/>
 <polygon fill="black" stroke="black" points="13365.48,-620.35 13374.15,-626.44 13371.16,-616.27 13365.48,-620.35"/>
@@ -2679,7 +2679,7 @@
 <text text-anchor="middle" x="13273.37" y="-437.94" font-family="Times,serif" font-size="12.00">monod_kinetics[9,9]</text>
 </g>
 <!-- state_fields__acetate__9__9&#45;&gt;proc_monod_kinetics_9_9_ -->
-<g id="edge307" class="edge">
+<g id="edge306" class="edge">
 <title>state_fields__acetate__9__9&#45;&gt;proc_monod_kinetics_9_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M13649.68,-614.73C13643.84,-599.55 13634.23,-581.45 13619.37,-571.08 13574.43,-539.7 13549.67,-569.45 13497.37,-553.08 13427.56,-531.23 13352.6,-490.03 13309.51,-464.43"/>
 <polygon fill="black" stroke="black" points="13646.37,-615.89 13652.99,-624.17 13652.98,-613.57 13646.37,-615.89"/>
@@ -2907,7 +2907,7 @@
 <path fill="none" stroke="black" stroke-width="2" d="M4502.83,-788.22C4486.13,-772.46 4455,-745.5 4423.37,-730.8 4390.32,-715.43 4377.12,-726.55 4343.37,-712.8 4320.64,-703.53 4317.16,-696.85 4296.37,-683.8 4279.4,-673.14 4260.02,-660.74 4247.07,-652.41"/>
 </g>
 <!-- state_fields__dissolved_biomass__0__0&#45;&gt;proc_monod_kinetics_0_0_ -->
-<g id="edge11" class="edge">
+<g id="edge9" class="edge">
 <title>state_fields__dissolved_biomass__0__0&#45;&gt;proc_monod_kinetics_0_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M3392.84,-628.98C3361.88,-614.23 3313.22,-590.11 3308.37,-582.08 3287.46,-547.45 3293.3,-498.68 3299.96,-468.78"/>
 <polygon fill="black" stroke="black" points="3391.65,-632.29 3402.19,-633.41 3394.65,-625.97 3391.65,-632.29"/>
@@ -2939,7 +2939,7 @@
 <text text-anchor="middle" x="4818.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__0__4&#45;&gt;proc_monod_kinetics_4_0_ -->
-<g id="edge130" class="edge">
+<g id="edge131" class="edge">
 <title>state_fields__dissolved_biomass__0__4&#45;&gt;proc_monod_kinetics_4_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M5696.05,-613.8C5697.75,-603.83 5699.67,-592.44 5701.37,-582.08 5707.78,-542.88 5714.85,-497.45 5719.2,-469.23"/>
 <polygon fill="black" stroke="black" points="5692.55,-613.5 5694.31,-623.95 5699.45,-614.68 5692.55,-613.5"/>
@@ -2955,7 +2955,7 @@
 <text text-anchor="middle" x="3155.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__0__6&#45;&gt;proc_monod_kinetics_6_0_ -->
-<g id="edge189" class="edge">
+<g id="edge191" class="edge">
 <title>state_fields__dissolved_biomass__0__6&#45;&gt;proc_monod_kinetics_6_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M5084.03,-616.16C5088.84,-605.85 5093.98,-593.61 5097.37,-582.08 5108.63,-543.76 5114.45,-497.76 5117.21,-469.2"/>
 <polygon fill="black" stroke="black" points="5080.78,-614.84 5079.58,-625.37 5087.08,-617.89 5080.78,-614.84"/>
@@ -2963,7 +2963,7 @@
 <text text-anchor="middle" x="5121.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__0__7&#45;&gt;proc_monod_kinetics_7_0_ -->
-<g id="edge221" class="edge">
+<g id="edge220" class="edge">
 <title>state_fields__dissolved_biomass__0__7&#45;&gt;proc_monod_kinetics_7_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M5386.03,-616.16C5390.84,-605.85 5395.98,-593.61 5399.37,-582.08 5410.63,-543.76 5416.45,-497.76 5419.21,-469.2"/>
 <polygon fill="black" stroke="black" points="5382.78,-614.84 5381.58,-625.37 5389.08,-617.89 5382.78,-614.84"/>
@@ -2971,7 +2971,7 @@
 <text text-anchor="middle" x="5423.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__0__8&#45;&gt;proc_monod_kinetics_8_0_ -->
-<g id="edge251" class="edge">
+<g id="edge249" class="edge">
 <title>state_fields__dissolved_biomass__0__8&#45;&gt;proc_monod_kinetics_8_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M3931.19,-619.27C3923.88,-608.69 3916.17,-595.4 3912.37,-582.08 3901.54,-544.14 3904.04,-498.03 3907.32,-469.35"/>
 <polygon fill="black" stroke="black" points="3928.44,-621.42 3937.15,-627.45 3934.1,-617.31 3928.44,-621.42"/>
@@ -3097,7 +3097,7 @@
 <path fill="none" stroke="black" stroke-width="2" d="M7522.84,-788.21C7506.15,-772.43 7475.02,-745.46 7443.37,-730.8 7409.91,-715.3 7394.7,-730.54 7362.37,-712.8 7339.88,-700.46 7323.12,-675 7314.04,-658.47"/>
 </g>
 <!-- state_fields__dissolved_biomass__1__0&#45;&gt;proc_monod_kinetics_0_1_ -->
-<g id="edge12" class="edge">
+<g id="edge14" class="edge">
 <title>state_fields__dissolved_biomass__1__0&#45;&gt;proc_monod_kinetics_0_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M6653.25,-633.2C6619.89,-623.96 6561.41,-608.69 6510.37,-600.08 6470.29,-593.31 6355.76,-612.1 6328.37,-582.08 6300.69,-551.74 6309.1,-500.48 6318.02,-469.1"/>
 <polygon fill="black" stroke="black" points="6652.58,-636.65 6663.15,-635.97 6654.47,-629.9 6652.58,-636.65"/>
@@ -3113,7 +3113,7 @@
 <text text-anchor="middle" x="6651.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__1__2&#45;&gt;proc_monod_kinetics_2_1_ -->
-<g id="edge72" class="edge">
+<g id="edge74" class="edge">
 <title>state_fields__dissolved_biomass__1__2&#45;&gt;proc_monod_kinetics_2_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M7535.37,-613.37C7535.37,-575.38 7535.37,-507.35 7535.37,-469.45"/>
 <polygon fill="black" stroke="black" points="7531.87,-613.63 7535.37,-623.63 7538.87,-613.63 7531.87,-613.63"/>
@@ -3129,7 +3129,7 @@
 <text text-anchor="middle" x="7838.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__1__4&#45;&gt;proc_monod_kinetics_4_1_ -->
-<g id="edge134" class="edge">
+<g id="edge132" class="edge">
 <title>state_fields__dissolved_biomass__1__4&#45;&gt;proc_monod_kinetics_4_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M8703.2,-618.1C8709.79,-607.57 8716.93,-594.64 8721.37,-582.08 8734.68,-544.43 8739.95,-498.24 8742.03,-469.47"/>
 <polygon fill="black" stroke="black" points="8700.14,-616.38 8697.62,-626.67 8706.01,-620.2 8700.14,-616.38"/>
@@ -3145,7 +3145,7 @@
 <text text-anchor="middle" x="6164.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__1__6&#45;&gt;proc_monod_kinetics_6_1_ -->
-<g id="edge192" class="edge">
+<g id="edge194" class="edge">
 <title>state_fields__dissolved_biomass__1__6&#45;&gt;proc_monod_kinetics_6_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M8104.03,-616.16C8108.84,-605.85 8113.98,-593.61 8117.37,-582.08 8128.63,-543.76 8134.45,-497.76 8137.21,-469.2"/>
 <polygon fill="black" stroke="black" points="8100.78,-614.84 8099.58,-625.37 8107.08,-617.89 8100.78,-614.84"/>
@@ -3153,7 +3153,7 @@
 <text text-anchor="middle" x="8141.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__1__7&#45;&gt;proc_monod_kinetics_7_1_ -->
-<g id="edge223" class="edge">
+<g id="edge222" class="edge">
 <title>state_fields__dissolved_biomass__1__7&#45;&gt;proc_monod_kinetics_7_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M8406.03,-616.16C8410.84,-605.85 8415.98,-593.61 8419.37,-582.08 8430.63,-543.76 8436.45,-497.76 8439.21,-469.2"/>
 <polygon fill="black" stroke="black" points="8402.78,-614.84 8401.58,-625.37 8409.08,-617.89 8402.78,-614.84"/>
@@ -3169,7 +3169,7 @@
 <text text-anchor="middle" x="6953.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__1__9&#45;&gt;proc_monod_kinetics_9_1_ -->
-<g id="edge283" class="edge">
+<g id="edge284" class="edge">
 <title>state_fields__dissolved_biomass__1__9&#45;&gt;proc_monod_kinetics_9_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M7293.77,-616.64C7289.79,-610.63 7284.95,-604.62 7279.37,-600.08 7262.67,-586.47 7246.51,-599.87 7234.37,-582.08 7211.57,-548.66 7217.98,-499.53 7225.27,-469.22"/>
 <polygon fill="black" stroke="black" points="7290.81,-618.51 7298.98,-625.26 7296.81,-614.89 7290.81,-618.51"/>
@@ -3295,7 +3295,7 @@
 <text text-anchor="middle" x="15409.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__2__1&#45;&gt;proc_monod_kinetics_1_2_ -->
-<g id="edge46" class="edge">
+<g id="edge45" class="edge">
 <title>state_fields__dissolved_biomass__2__1&#45;&gt;proc_monod_kinetics_1_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M15709.72,-619.34C15702.21,-608.78 15694.28,-595.47 15690.37,-582.08 15679.31,-544.21 15681.87,-498.08 15685.22,-469.38"/>
 <polygon fill="black" stroke="black" points="15707.05,-621.6 15715.84,-627.5 15712.65,-617.4 15707.05,-621.6"/>
@@ -3303,7 +3303,7 @@
 <text text-anchor="middle" x="15711.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__2__2&#45;&gt;proc_monod_kinetics_2_2_ -->
-<g id="edge75" class="edge">
+<g id="edge77" class="edge">
 <title>state_fields__dissolved_biomass__2__2&#45;&gt;proc_monod_kinetics_2_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M16564.14,-615.07C16567.37,-604.88 16570.85,-593.01 16573.37,-582.08 16582.28,-543.37 16588.7,-497.82 16592.23,-469.43"/>
 <polygon fill="black" stroke="black" points="16560.8,-614.02 16561.04,-624.61 16567.46,-616.19 16560.8,-614.02"/>
@@ -3319,7 +3319,7 @@
 <text text-anchor="middle" x="16899.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__2__4&#45;&gt;proc_monod_kinetics_4_2_ -->
-<g id="edge137" class="edge">
+<g id="edge135" class="edge">
 <title>state_fields__dissolved_biomass__2__4&#45;&gt;proc_monod_kinetics_4_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M17763.2,-618.1C17769.79,-607.57 17776.93,-594.64 17781.37,-582.08 17794.68,-544.43 17799.95,-498.24 17802.03,-469.47"/>
 <polygon fill="black" stroke="black" points="17760.14,-616.38 17757.62,-626.67 17766.01,-620.2 17760.14,-616.38"/>
@@ -3343,7 +3343,7 @@
 <text text-anchor="middle" x="17202.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__2__7&#45;&gt;proc_monod_kinetics_7_2_ -->
-<g id="edge226" class="edge">
+<g id="edge225" class="edge">
 <title>state_fields__dissolved_biomass__2__7&#45;&gt;proc_monod_kinetics_7_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M17461.2,-618.1C17467.79,-607.57 17474.93,-594.64 17479.37,-582.08 17492.68,-544.43 17497.95,-498.24 17500.03,-469.47"/>
 <polygon fill="black" stroke="black" points="17458.14,-616.38 17455.62,-626.67 17464.01,-620.2 17458.14,-616.38"/>
@@ -3351,7 +3351,7 @@
 <text text-anchor="middle" x="17504.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__2__8&#45;&gt;proc_monod_kinetics_8_2_ -->
-<g id="edge256" class="edge">
+<g id="edge257" class="edge">
 <title>state_fields__dissolved_biomass__2__8&#45;&gt;proc_monod_kinetics_8_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M15999.72,-614.84C15996.78,-604.73 15993.86,-592.98 15992.37,-582.08 15987.06,-543.38 15988.02,-498.09 15989.47,-469.73"/>
 <polygon fill="black" stroke="black" points="15996.46,-616.14 16002.73,-624.68 16003.15,-614.09 15996.46,-616.14"/>
@@ -3477,7 +3477,7 @@
 <path fill="none" stroke="black" stroke-width="2" d="M19313.37,-783.42C19313.37,-753.09 19313.37,-690.4 19313.37,-660.09"/>
 </g>
 <!-- state_fields__dissolved_biomass__3__0&#45;&gt;proc_monod_kinetics_0_3_ -->
-<g id="edge19" class="edge">
+<g id="edge20" class="edge">
 <title>state_fields__dissolved_biomass__3__0&#45;&gt;proc_monod_kinetics_0_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M18410.62,-613.81C18409.73,-603.85 18408.85,-592.46 18408.37,-582.08 18406.57,-543.06 18406.64,-497.85 18406.93,-469.6"/>
 <polygon fill="black" stroke="black" points="18407.15,-614.33 18411.57,-623.96 18414.12,-613.68 18407.15,-614.33"/>
@@ -3485,7 +3485,7 @@
 <text text-anchor="middle" x="18429.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__3__1&#45;&gt;proc_monod_kinetics_1_3_ -->
-<g id="edge50" class="edge">
+<g id="edge49" class="edge">
 <title>state_fields__dissolved_biomass__3__1&#45;&gt;proc_monod_kinetics_1_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M18714.39,-613.88C18712.78,-603.92 18711.2,-592.52 18710.37,-582.08 18707.27,-543.14 18707.67,-497.91 18708.39,-469.63"/>
 <polygon fill="black" stroke="black" points="18710.99,-614.74 18716.12,-624.01 18717.89,-613.57 18710.99,-614.74"/>
@@ -3493,7 +3493,7 @@
 <text text-anchor="middle" x="18731.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__3__2&#45;&gt;proc_monod_kinetics_2_3_ -->
-<g id="edge79" class="edge">
+<g id="edge78" class="edge">
 <title>state_fields__dissolved_biomass__3__2&#45;&gt;proc_monod_kinetics_2_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M19588.05,-613.8C19589.75,-603.83 19591.67,-592.44 19593.37,-582.08 19599.78,-542.88 19606.85,-497.45 19611.2,-469.23"/>
 <polygon fill="black" stroke="black" points="19584.55,-613.5 19586.31,-623.95 19591.45,-614.68 19584.55,-613.5"/>
@@ -3501,7 +3501,7 @@
 <text text-anchor="middle" x="19616.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__3__3&#45;&gt;proc_monod_kinetics_3_3_ -->
-<g id="edge108" class="edge">
+<g id="edge109" class="edge">
 <title>state_fields__dissolved_biomass__3__3&#45;&gt;proc_monod_kinetics_3_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M19881.18,-616.96C19886.28,-606.51 19891.79,-593.94 19895.37,-582.08 19906.9,-543.84 19912.65,-497.82 19915.32,-469.24"/>
 <polygon fill="black" stroke="black" points="19878.05,-615.39 19876.67,-625.9 19884.3,-618.55 19878.05,-615.39"/>
@@ -3509,7 +3509,7 @@
 <text text-anchor="middle" x="19919.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__3__4&#45;&gt;proc_monod_kinetics_4_3_ -->
-<g id="edge138" class="edge">
+<g id="edge139" class="edge">
 <title>state_fields__dissolved_biomass__3__4&#45;&gt;proc_monod_kinetics_4_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M20782.68,-618.17C20789.47,-607.65 20796.81,-594.71 20801.37,-582.08 20814.92,-544.51 20820.13,-498.3 20822.13,-469.5"/>
 <polygon fill="black" stroke="black" points="20779.6,-616.46 20776.94,-626.72 20785.42,-620.36 20779.6,-616.46"/>
@@ -3517,7 +3517,7 @@
 <text text-anchor="middle" x="20826.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__3__5&#45;&gt;proc_monod_kinetics_5_3_ -->
-<g id="edge169" class="edge">
+<g id="edge168" class="edge">
 <title>state_fields__dissolved_biomass__3__5&#45;&gt;proc_monod_kinetics_5_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M18232.67,-615.32C18228.96,-605.16 18225.26,-593.25 18223.37,-582.08 18216.83,-543.39 18218.14,-497.83 18220,-469.43"/>
 <polygon fill="black" stroke="black" points="18229.46,-616.73 18236.32,-624.81 18236,-614.22 18229.46,-616.73"/>
@@ -3533,7 +3533,7 @@
 <text text-anchor="middle" x="20222.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__3__7&#45;&gt;proc_monod_kinetics_7_3_ -->
-<g id="edge230" class="edge">
+<g id="edge229" class="edge">
 <title>state_fields__dissolved_biomass__3__7&#45;&gt;proc_monod_kinetics_7_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M20480.68,-618.17C20487.47,-607.65 20494.81,-594.71 20499.37,-582.08 20512.92,-544.51 20518.13,-498.3 20520.13,-469.5"/>
 <polygon fill="black" stroke="black" points="20477.6,-616.46 20474.94,-626.72 20483.42,-620.36 20477.6,-616.46"/>
@@ -3541,7 +3541,7 @@
 <text text-anchor="middle" x="20524.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__3__8&#45;&gt;proc_monod_kinetics_8_3_ -->
-<g id="edge258" class="edge">
+<g id="edge260" class="edge">
 <title>state_fields__dissolved_biomass__3__8&#45;&gt;proc_monod_kinetics_8_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M19033.88,-620.3C19025.6,-609.67 19016.72,-596.04 19012.37,-582.08 19000.63,-544.41 19003.37,-498.23 19006.95,-469.46"/>
 <polygon fill="black" stroke="black" points="19031.26,-622.61 19040.31,-628.12 19036.67,-618.17 19031.26,-622.61"/>
@@ -3549,7 +3549,7 @@
 <text text-anchor="middle" x="19033.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__3__9&#45;&gt;proc_monod_kinetics_9_3_ -->
-<g id="edge289" class="edge">
+<g id="edge290" class="edge">
 <title>state_fields__dissolved_biomass__3__9&#45;&gt;proc_monod_kinetics_9_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M19313.37,-613.37C19313.37,-575.38 19313.37,-507.35 19313.37,-469.45"/>
 <polygon fill="black" stroke="black" points="19309.87,-613.63 19313.37,-623.63 19316.87,-613.63 19309.87,-613.63"/>
@@ -3667,7 +3667,7 @@
 <path fill="none" stroke="black" stroke-width="2" d="M28373.37,-783.42C28373.37,-753.09 28373.37,-690.4 28373.37,-660.09"/>
 </g>
 <!-- state_fields__dissolved_biomass__4__0&#45;&gt;proc_monod_kinetics_0_4_ -->
-<g id="edge21" class="edge">
+<g id="edge22" class="edge">
 <title>state_fields__dissolved_biomass__4__0&#45;&gt;proc_monod_kinetics_0_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M27499.3,-623.5C27487.73,-612.91 27474.67,-598.33 27468.37,-582.08 27454.02,-545.1 27457.55,-498.37 27462.01,-469.34"/>
 <polygon fill="black" stroke="black" points="27497.13,-626.25 27506.98,-630.16 27501.72,-620.97 27497.13,-626.25"/>
@@ -3675,7 +3675,7 @@
 <text text-anchor="middle" x="27489.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__4__1&#45;&gt;proc_monod_kinetics_1_4_ -->
-<g id="edge53" class="edge">
+<g id="edge51" class="edge">
 <title>state_fields__dissolved_biomass__4__1&#45;&gt;proc_monod_kinetics_1_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M27773.06,-613.83C27771.99,-603.86 27770.93,-592.47 27770.37,-582.08 27768.25,-543.07 27768.39,-497.87 27768.8,-469.61"/>
 <polygon fill="black" stroke="black" points="27769.61,-614.43 27774.21,-623.97 27776.56,-613.64 27769.61,-614.43"/>
@@ -3683,7 +3683,7 @@
 <text text-anchor="middle" x="27791.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__4__2&#45;&gt;proc_monod_kinetics_2_4_ -->
-<g id="edge83" class="edge">
+<g id="edge81" class="edge">
 <title>state_fields__dissolved_biomass__4__2&#45;&gt;proc_monod_kinetics_2_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M28640.03,-616.16C28644.84,-605.85 28649.98,-593.61 28653.37,-582.08 28664.63,-543.76 28670.45,-497.76 28673.21,-469.2"/>
 <polygon fill="black" stroke="black" points="28636.78,-614.84 28635.58,-625.37 28643.08,-617.89 28636.78,-614.84"/>
@@ -3691,7 +3691,7 @@
 <text text-anchor="middle" x="28677.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__4__3&#45;&gt;proc_monod_kinetics_3_4_ -->
-<g id="edge113" class="edge">
+<g id="edge112" class="edge">
 <title>state_fields__dissolved_biomass__4__3&#45;&gt;proc_monod_kinetics_3_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M28921.27,-623.74C28933.3,-613.07 28947.36,-598.32 28955.37,-582.08 28973.13,-546.07 28977.19,-499.08 28977.79,-469.73"/>
 <polygon fill="black" stroke="black" points="28918.73,-621.31 28913.37,-630.45 28923.26,-626.65 28918.73,-621.31"/>
@@ -3699,7 +3699,7 @@
 <text text-anchor="middle" x="28981.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__4__4&#45;&gt;proc_monod_kinetics_4_4_ -->
-<g id="edge143" class="edge">
+<g id="edge142" class="edge">
 <title>state_fields__dissolved_biomass__4__4&#45;&gt;proc_monod_kinetics_4_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M29856.05,-613.8C29857.75,-603.83 29859.67,-592.44 29861.37,-582.08 29867.78,-542.88 29874.85,-497.45 29879.2,-469.23"/>
 <polygon fill="black" stroke="black" points="29852.55,-613.5 29854.31,-623.95 29859.45,-614.68 29852.55,-613.5"/>
@@ -3707,7 +3707,7 @@
 <text text-anchor="middle" x="29884.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__4__5&#45;&gt;proc_monod_kinetics_5_4_ -->
-<g id="edge171" class="edge">
+<g id="edge172" class="edge">
 <title>state_fields__dissolved_biomass__4__5&#45;&gt;proc_monod_kinetics_5_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M27295.35,-616.33C27290.6,-606.04 27285.79,-593.78 27283.37,-582.08 27275.36,-543.45 27277.1,-497.52 27279.45,-469.08"/>
 <polygon fill="black" stroke="black" points="27292.29,-618.04 27299.81,-625.5 27298.59,-614.98 27292.29,-618.04"/>
@@ -3715,7 +3715,7 @@
 <text text-anchor="middle" x="27304.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__4__6&#45;&gt;proc_monod_kinetics_6_4_ -->
-<g id="edge201" class="edge">
+<g id="edge203" class="edge">
 <title>state_fields__dissolved_biomass__4__6&#45;&gt;proc_monod_kinetics_6_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M29252.05,-613.8C29253.75,-603.83 29255.67,-592.44 29257.37,-582.08 29263.78,-542.88 29270.85,-497.45 29275.2,-469.23"/>
 <polygon fill="black" stroke="black" points="29248.55,-613.5 29250.31,-623.95 29255.45,-614.68 29248.55,-613.5"/>
@@ -3723,7 +3723,7 @@
 <text text-anchor="middle" x="29280.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__4__7&#45;&gt;proc_monod_kinetics_7_4_ -->
-<g id="edge231" class="edge">
+<g id="edge233" class="edge">
 <title>state_fields__dissolved_biomass__4__7&#45;&gt;proc_monod_kinetics_7_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M29554.05,-613.8C29555.75,-603.83 29557.67,-592.44 29559.37,-582.08 29565.78,-542.88 29572.85,-497.45 29577.2,-469.23"/>
 <polygon fill="black" stroke="black" points="29550.55,-613.5 29552.31,-623.95 29557.45,-614.68 29550.55,-613.5"/>
@@ -3857,7 +3857,7 @@
 <path fill="none" stroke="black" stroke-width="2" d="M1483.2,-788.32C1466.66,-772.41 1435.44,-745.01 1403.37,-730.8 1363.68,-713.21 1347.53,-729.28 1307.37,-712.8 1286.04,-704.05 1282.8,-697.64 1264.37,-683.8 1251.79,-674.35 1238.09,-662.81 1228.38,-654.41"/>
 </g>
 <!-- state_fields__dissolved_biomass__5__0&#45;&gt;proc_monod_kinetics_0_5_ -->
-<g id="edge25" class="edge">
+<g id="edge24" class="edge">
 <title>state_fields__dissolved_biomass__5__0&#45;&gt;proc_monod_kinetics_0_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M325.09,-625.38C311.62,-614.92 295.89,-599.82 288.37,-582.08 272.81,-545.4 276.76,-498.29 281.62,-469.14"/>
 <polygon fill="black" stroke="black" points="323.37,-628.47 333.5,-631.57 327.52,-622.83 323.37,-628.47"/>
@@ -3873,7 +3873,7 @@
 <text text-anchor="middle" x="611.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__5__2&#45;&gt;proc_monod_kinetics_2_5_ -->
-<g id="edge84" class="edge">
+<g id="edge86" class="edge">
 <title>state_fields__dissolved_biomass__5__2&#45;&gt;proc_monod_kinetics_2_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1495.37,-613.37C1495.37,-575.38 1495.37,-507.35 1495.37,-469.45"/>
 <polygon fill="black" stroke="black" points="1491.87,-613.63 1495.37,-623.63 1498.87,-613.63 1491.87,-613.63"/>
@@ -3889,7 +3889,7 @@
 <text text-anchor="middle" x="1799.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__5__4&#45;&gt;proc_monod_kinetics_4_5_ -->
-<g id="edge144" class="edge">
+<g id="edge145" class="edge">
 <title>state_fields__dissolved_biomass__5__4&#45;&gt;proc_monod_kinetics_4_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M2662.68,-618.17C2669.47,-607.65 2676.81,-594.71 2681.37,-582.08 2694.92,-544.51 2700.13,-498.3 2702.13,-469.5"/>
 <polygon fill="black" stroke="black" points="2659.6,-616.46 2656.94,-626.72 2665.42,-620.36 2659.6,-616.46"/>
@@ -3897,7 +3897,7 @@
 <text text-anchor="middle" x="2706.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__5__5&#45;&gt;proc_monod_kinetics_5_5_ -->
-<g id="edge176" class="edge">
+<g id="edge175" class="edge">
 <title>state_fields__dissolved_biomass__5__5&#45;&gt;proc_monod_kinetics_5_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M120.93,-618.81C114.08,-608.26 106.91,-595.11 103.37,-582.08 93.02,-544.01 95.39,-497.94 98.51,-469.3"/>
 <polygon fill="black" stroke="black" points="118.23,-621.07 126.77,-627.35 124.01,-617.12 118.23,-621.07"/>
@@ -3913,7 +3913,7 @@
 <text text-anchor="middle" x="2101.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__5__7&#45;&gt;proc_monod_kinetics_7_5_ -->
-<g id="edge234" class="edge">
+<g id="edge236" class="edge">
 <title>state_fields__dissolved_biomass__5__7&#45;&gt;proc_monod_kinetics_7_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M2361.2,-618.1C2367.79,-607.57 2374.93,-594.64 2379.37,-582.08 2392.68,-544.43 2397.95,-498.24 2400.03,-469.47"/>
 <polygon fill="black" stroke="black" points="2358.14,-616.38 2355.62,-626.67 2364.01,-620.2 2358.14,-616.38"/>
@@ -3921,7 +3921,7 @@
 <text text-anchor="middle" x="2404.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__5__8&#45;&gt;proc_monod_kinetics_8_5_ -->
-<g id="edge266" class="edge">
+<g id="edge264" class="edge">
 <title>state_fields__dissolved_biomass__5__8&#45;&gt;proc_monod_kinetics_8_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M902.3,-615.8C898.35,-605.55 894.38,-593.46 892.37,-582.08 885.54,-543.44 886.92,-497.87 888.88,-469.45"/>
 <polygon fill="black" stroke="black" points="899.17,-617.39 906.18,-625.34 905.66,-614.76 899.17,-617.39"/>
@@ -3929,7 +3929,7 @@
 <text text-anchor="middle" x="913.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__5__9&#45;&gt;proc_monod_kinetics_9_5_ -->
-<g id="edge294" class="edge">
+<g id="edge296" class="edge">
 <title>state_fields__dissolved_biomass__5__9&#45;&gt;proc_monod_kinetics_9_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1204.3,-615.8C1200.35,-605.55 1196.38,-593.46 1194.37,-582.08 1187.54,-543.44 1188.92,-497.87 1190.88,-469.45"/>
 <polygon fill="black" stroke="black" points="1201.17,-617.39 1208.18,-625.34 1207.66,-614.76 1201.17,-617.39"/>
@@ -4055,7 +4055,7 @@
 <text text-anchor="middle" x="21449.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__6__1&#45;&gt;proc_monod_kinetics_1_6_ -->
-<g id="edge58" class="edge">
+<g id="edge59" class="edge">
 <title>state_fields__dissolved_biomass__6__1&#45;&gt;proc_monod_kinetics_1_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M21766.22,-625.1C21753.03,-614.62 21737.71,-599.59 21730.37,-582.08 21714.97,-545.33 21718.87,-498.25 21723.68,-469.12"/>
 <polygon fill="black" stroke="black" points="21764.38,-628.1 21774.47,-631.32 21768.59,-622.51 21764.38,-628.1"/>
@@ -4063,7 +4063,7 @@
 <text text-anchor="middle" x="21751.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__6__2&#45;&gt;proc_monod_kinetics_2_6_ -->
-<g id="edge87" class="edge">
+<g id="edge89" class="edge">
 <title>state_fields__dissolved_biomass__6__2&#45;&gt;proc_monod_kinetics_2_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M22600.03,-616.16C22604.84,-605.85 22609.98,-593.61 22613.37,-582.08 22624.63,-543.76 22630.45,-497.76 22633.21,-469.2"/>
 <polygon fill="black" stroke="black" points="22596.78,-614.84 22595.58,-625.37 22603.08,-617.89 22596.78,-614.84"/>
@@ -4071,7 +4071,7 @@
 <text text-anchor="middle" x="22637.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__6__3&#45;&gt;proc_monod_kinetics_3_6_ -->
-<g id="edge118" class="edge">
+<g id="edge119" class="edge">
 <title>state_fields__dissolved_biomass__6__3&#45;&gt;proc_monod_kinetics_3_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M22901.18,-616.96C22906.28,-606.51 22911.79,-593.94 22915.37,-582.08 22926.9,-543.84 22932.65,-497.82 22935.32,-469.24"/>
 <polygon fill="black" stroke="black" points="22898.05,-615.39 22896.67,-625.9 22904.3,-618.55 22898.05,-615.39"/>
@@ -4095,7 +4095,7 @@
 <text text-anchor="middle" x="21264.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__6__6&#45;&gt;proc_monod_kinetics_6_6_ -->
-<g id="edge208" class="edge">
+<g id="edge209" class="edge">
 <title>state_fields__dissolved_biomass__6__6&#45;&gt;proc_monod_kinetics_6_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M23199.2,-618.1C23205.79,-607.57 23212.93,-594.64 23217.37,-582.08 23230.68,-544.43 23235.95,-498.24 23238.03,-469.47"/>
 <polygon fill="black" stroke="black" points="23196.14,-616.38 23193.62,-626.67 23202.01,-620.2 23196.14,-616.38"/>
@@ -4103,7 +4103,7 @@
 <text text-anchor="middle" x="23242.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__6__7&#45;&gt;proc_monod_kinetics_7_6_ -->
-<g id="edge239" class="edge">
+<g id="edge237" class="edge">
 <title>state_fields__dissolved_biomass__6__7&#45;&gt;proc_monod_kinetics_7_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M23500.68,-618.17C23507.47,-607.65 23514.81,-594.71 23519.37,-582.08 23532.92,-544.51 23538.13,-498.3 23540.13,-469.5"/>
 <polygon fill="black" stroke="black" points="23497.6,-616.46 23494.94,-626.72 23503.42,-620.36 23497.6,-616.46"/>
@@ -4119,7 +4119,7 @@
 <text text-anchor="middle" x="22053.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__6__9&#45;&gt;proc_monod_kinetics_9_6_ -->
-<g id="edge297" class="edge">
+<g id="edge299" class="edge">
 <title>state_fields__dissolved_biomass__6__9&#45;&gt;proc_monod_kinetics_9_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M22333.37,-613.37C22333.37,-575.38 22333.37,-507.35 22333.37,-469.45"/>
 <polygon fill="black" stroke="black" points="22329.87,-613.63 22333.37,-623.63 22336.87,-613.63 22329.87,-613.63"/>
@@ -4237,7 +4237,7 @@
 <path fill="none" stroke="black" stroke-width="2" d="M25353.37,-783.42C25353.37,-753.09 25353.37,-690.4 25353.37,-660.09"/>
 </g>
 <!-- state_fields__dissolved_biomass__7__0&#45;&gt;proc_monod_kinetics_0_7_ -->
-<g id="edge30" class="edge">
+<g id="edge32" class="edge">
 <title>state_fields__dissolved_biomass__7__0&#45;&gt;proc_monod_kinetics_0_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M24565.19,-638.57C24530.97,-634.01 24474.59,-620.72 24448.37,-582.08 24425.66,-548.6 24432.04,-499.49 24439.3,-469.2"/>
 <polygon fill="black" stroke="black" points="24565.12,-642.08 24575.46,-639.76 24565.93,-635.13 24565.12,-642.08"/>
@@ -4245,7 +4245,7 @@
 <text text-anchor="middle" x="24469.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__7__1&#45;&gt;proc_monod_kinetics_1_7_ -->
-<g id="edge62" class="edge">
+<g id="edge61" class="edge">
 <title>state_fields__dissolved_biomass__7__1&#45;&gt;proc_monod_kinetics_1_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M24918.56,-621.64C24909.22,-613.67 24897.48,-605.12 24885.37,-600.08 24857.43,-588.44 24770.39,-604.78 24750.37,-582.08 24723.21,-551.28 24731.45,-500.16 24740.21,-468.94"/>
 <polygon fill="black" stroke="black" points="24916.31,-624.33 24926.09,-628.4 24920.99,-619.12 24916.31,-624.33"/>
@@ -4253,7 +4253,7 @@
 <text text-anchor="middle" x="24771.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__7__2&#45;&gt;proc_monod_kinetics_2_7_ -->
-<g id="edge91" class="edge">
+<g id="edge90" class="edge">
 <title>state_fields__dissolved_biomass__7__2&#45;&gt;proc_monod_kinetics_2_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M25620.03,-616.16C25624.84,-605.85 25629.98,-593.61 25633.37,-582.08 25644.63,-543.76 25650.45,-497.76 25653.21,-469.2"/>
 <polygon fill="black" stroke="black" points="25616.78,-614.84 25615.58,-625.37 25623.08,-617.89 25616.78,-614.84"/>
@@ -4277,7 +4277,7 @@
 <text text-anchor="middle" x="26866.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__7__5&#45;&gt;proc_monod_kinetics_5_7_ -->
-<g id="edge181" class="edge">
+<g id="edge182" class="edge">
 <title>state_fields__dissolved_biomass__7__5&#45;&gt;proc_monod_kinetics_5_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M24266.06,-613.83C24264.99,-603.86 24263.93,-592.47 24263.37,-582.08 24261.25,-543.07 24261.39,-497.87 24261.8,-469.61"/>
 <polygon fill="black" stroke="black" points="24262.61,-614.43 24267.21,-623.97 24269.56,-613.64 24262.61,-614.43"/>
@@ -4285,7 +4285,7 @@
 <text text-anchor="middle" x="24284.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__7__6&#45;&gt;proc_monod_kinetics_6_7_ -->
-<g id="edge210" class="edge">
+<g id="edge211" class="edge">
 <title>state_fields__dissolved_biomass__7__6&#45;&gt;proc_monod_kinetics_6_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M26219.2,-618.1C26225.79,-607.57 26232.93,-594.64 26237.37,-582.08 26250.68,-544.43 26255.95,-498.24 26258.03,-469.47"/>
 <polygon fill="black" stroke="black" points="26216.14,-616.38 26213.62,-626.67 26222.01,-620.2 26216.14,-616.38"/>
@@ -4293,7 +4293,7 @@
 <text text-anchor="middle" x="26262.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__7__7&#45;&gt;proc_monod_kinetics_7_7_ -->
-<g id="edge241" class="edge">
+<g id="edge242" class="edge">
 <title>state_fields__dissolved_biomass__7__7&#45;&gt;proc_monod_kinetics_7_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M26520.68,-618.17C26527.47,-607.65 26534.81,-594.71 26539.37,-582.08 26552.92,-544.51 26558.13,-498.3 26560.13,-469.5"/>
 <polygon fill="black" stroke="black" points="26517.6,-616.46 26514.94,-626.72 26523.42,-620.36 26517.6,-616.46"/>
@@ -4309,7 +4309,7 @@
 <text text-anchor="middle" x="25073.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__7__9&#45;&gt;proc_monod_kinetics_9_7_ -->
-<g id="edge300" class="edge">
+<g id="edge301" class="edge">
 <title>state_fields__dissolved_biomass__7__9&#45;&gt;proc_monod_kinetics_9_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M25353.37,-613.37C25353.37,-575.38 25353.37,-507.35 25353.37,-469.45"/>
 <polygon fill="black" stroke="black" points="25349.87,-613.63 25353.37,-623.63 25356.87,-613.63 25349.87,-613.63"/>
@@ -4435,7 +4435,7 @@
 <text text-anchor="middle" x="9369.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__8__1&#45;&gt;proc_monod_kinetics_1_8_ -->
-<g id="edge64" class="edge">
+<g id="edge63" class="edge">
 <title>state_fields__dissolved_biomass__8__1&#45;&gt;proc_monod_kinetics_1_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M9671.88,-620.3C9663.6,-609.67 9654.72,-596.04 9650.37,-582.08 9638.63,-544.41 9641.37,-498.23 9644.95,-469.46"/>
 <polygon fill="black" stroke="black" points="9669.26,-622.61 9678.31,-628.12 9674.67,-618.17 9669.26,-622.61"/>
@@ -4451,7 +4451,7 @@
 <text text-anchor="middle" x="10576.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__8__3&#45;&gt;proc_monod_kinetics_3_8_ -->
-<g id="edge123" class="edge">
+<g id="edge125" class="edge">
 <title>state_fields__dissolved_biomass__8__3&#45;&gt;proc_monod_kinetics_3_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M10822.03,-616.16C10826.84,-605.85 10831.98,-593.61 10835.37,-582.08 10846.63,-543.76 10852.45,-497.76 10855.21,-469.2"/>
 <polygon fill="black" stroke="black" points="10818.78,-614.84 10817.58,-625.37 10825.08,-617.89 10818.78,-614.84"/>
@@ -4459,7 +4459,7 @@
 <text text-anchor="middle" x="10859.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__8__4&#45;&gt;proc_monod_kinetics_4_8_ -->
-<g id="edge155" class="edge">
+<g id="edge154" class="edge">
 <title>state_fields__dissolved_biomass__8__4&#45;&gt;proc_monod_kinetics_4_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M11722.68,-618.17C11729.47,-607.65 11736.81,-594.71 11741.37,-582.08 11754.92,-544.51 11760.13,-498.3 11762.13,-469.5"/>
 <polygon fill="black" stroke="black" points="11719.6,-616.46 11716.94,-626.72 11725.42,-620.36 11719.6,-616.46"/>
@@ -4467,7 +4467,7 @@
 <text text-anchor="middle" x="11766.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__8__5&#45;&gt;proc_monod_kinetics_5_8_ -->
-<g id="edge184" class="edge">
+<g id="edge185" class="edge">
 <title>state_fields__dissolved_biomass__8__5&#45;&gt;proc_monod_kinetics_5_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M9172.21,-615.28C9168.68,-605.11 9165.16,-593.21 9163.37,-582.08 9157.13,-543.34 9158.36,-497.79 9160.12,-469.41"/>
 <polygon fill="black" stroke="black" points="9168.96,-616.58 9175.67,-624.78 9175.53,-614.18 9168.96,-616.58"/>
@@ -4483,7 +4483,7 @@
 <text text-anchor="middle" x="11161.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__8__7&#45;&gt;proc_monod_kinetics_7_8_ -->
-<g id="edge245" class="edge">
+<g id="edge244" class="edge">
 <title>state_fields__dissolved_biomass__8__7&#45;&gt;proc_monod_kinetics_7_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M11421.2,-618.1C11427.79,-607.57 11434.93,-594.64 11439.37,-582.08 11452.68,-544.43 11457.95,-498.24 11460.03,-469.47"/>
 <polygon fill="black" stroke="black" points="11418.14,-616.38 11415.62,-626.67 11424.01,-620.2 11418.14,-616.38"/>
@@ -4491,7 +4491,7 @@
 <text text-anchor="middle" x="11464.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__8__8&#45;&gt;proc_monod_kinetics_8_8_ -->
-<g id="edge274" class="edge">
+<g id="edge275" class="edge">
 <title>state_fields__dissolved_biomass__8__8&#45;&gt;proc_monod_kinetics_8_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M9962.3,-615.8C9958.35,-605.55 9954.38,-593.46 9952.37,-582.08 9945.54,-543.44 9946.92,-497.87 9948.88,-469.45"/>
 <polygon fill="black" stroke="black" points="9959.17,-617.39 9966.18,-625.34 9965.66,-614.76 9959.17,-617.39"/>
@@ -4499,7 +4499,7 @@
 <text text-anchor="middle" x="9973.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__8__9&#45;&gt;proc_monod_kinetics_9_8_ -->
-<g id="edge305" class="edge">
+<g id="edge303" class="edge">
 <title>state_fields__dissolved_biomass__8__9&#45;&gt;proc_monod_kinetics_9_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M10271.14,-618.31C10264.58,-607.82 10257.76,-594.86 10254.37,-582.08 10244.26,-543.94 10246.57,-497.89 10249.61,-469.27"/>
 <polygon fill="black" stroke="black" points="10268.33,-620.41 10276.75,-626.83 10274.17,-616.56 10268.33,-620.41"/>
@@ -4617,7 +4617,7 @@
 <path fill="none" stroke="black" stroke-width="2" d="M13562.89,-788.1C13546.25,-772.22 13515.17,-745.12 13483.37,-730.8 13446.17,-714.04 13430.43,-729.84 13393.37,-712.8 13374.39,-704.07 13372.41,-697.19 13356.37,-683.8 13345.05,-674.35 13332.57,-663.22 13323.46,-654.96"/>
 </g>
 <!-- state_fields__dissolved_biomass__9__0&#45;&gt;proc_monod_kinetics_0_9_ -->
-<g id="edge36" class="edge">
+<g id="edge37" class="edge">
 <title>state_fields__dissolved_biomass__9__0&#45;&gt;proc_monod_kinetics_0_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M12389.88,-620.3C12381.6,-609.67 12372.72,-596.04 12368.37,-582.08 12356.63,-544.41 12359.37,-498.23 12362.95,-469.46"/>
 <polygon fill="black" stroke="black" points="12387.26,-622.61 12396.31,-628.12 12392.67,-618.17 12387.26,-622.61"/>
@@ -4625,7 +4625,7 @@
 <text text-anchor="middle" x="12389.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__9__1&#45;&gt;proc_monod_kinetics_1_9_ -->
-<g id="edge68" class="edge">
+<g id="edge67" class="edge">
 <title>state_fields__dissolved_biomass__9__1&#45;&gt;proc_monod_kinetics_1_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M12684.19,-617.25C12678.74,-606.84 12673.16,-594.24 12670.37,-582.08 12661.54,-543.62 12663.5,-497.66 12666.12,-469.15"/>
 <polygon fill="black" stroke="black" points="12681.18,-619.05 12689.07,-626.12 12687.31,-615.67 12681.18,-619.05"/>
@@ -4633,7 +4633,7 @@
 <text text-anchor="middle" x="12691.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__9__2&#45;&gt;proc_monod_kinetics_2_9_ -->
-<g id="edge96" class="edge">
+<g id="edge98" class="edge">
 <title>state_fields__dissolved_biomass__9__2&#45;&gt;proc_monod_kinetics_2_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M13575.37,-613.37C13575.37,-575.38 13575.37,-507.35 13575.37,-469.45"/>
 <polygon fill="black" stroke="black" points="13571.87,-613.63 13575.37,-623.63 13578.87,-613.63 13571.87,-613.63"/>
@@ -4641,7 +4641,7 @@
 <text text-anchor="middle" x="13596.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__9__3&#45;&gt;proc_monod_kinetics_3_9_ -->
-<g id="edge127" class="edge">
+<g id="edge128" class="edge">
 <title>state_fields__dissolved_biomass__9__3&#45;&gt;proc_monod_kinetics_3_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M13842.03,-616.16C13846.84,-605.85 13851.98,-593.61 13855.37,-582.08 13866.63,-543.76 13872.45,-497.76 13875.21,-469.2"/>
 <polygon fill="black" stroke="black" points="13838.78,-614.84 13837.58,-625.37 13845.08,-617.89 13838.78,-614.84"/>
@@ -4657,7 +4657,7 @@
 <text text-anchor="middle" x="14786.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__9__5&#45;&gt;proc_monod_kinetics_5_9_ -->
-<g id="edge187" class="edge">
+<g id="edge188" class="edge">
 <title>state_fields__dissolved_biomass__9__5&#45;&gt;proc_monod_kinetics_5_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M12199.12,-618.18C12192.95,-607.67 12186.54,-594.73 12183.37,-582.08 12173.76,-543.81 12175.93,-497.79 12178.81,-469.22"/>
 <polygon fill="black" stroke="black" points="12196.16,-620.06 12204.39,-626.73 12202.12,-616.38 12196.16,-620.06"/>
@@ -4665,7 +4665,7 @@
 <text text-anchor="middle" x="12204.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__9__6&#45;&gt;proc_monod_kinetics_6_9_ -->
-<g id="edge217" class="edge">
+<g id="edge218" class="edge">
 <title>state_fields__dissolved_biomass__9__6&#45;&gt;proc_monod_kinetics_6_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M14143.18,-616.96C14148.28,-606.51 14153.79,-593.94 14157.37,-582.08 14168.9,-543.84 14174.65,-497.82 14177.32,-469.24"/>
 <polygon fill="black" stroke="black" points="14140.05,-615.39 14138.67,-625.9 14146.3,-618.55 14140.05,-615.39"/>
@@ -4673,7 +4673,7 @@
 <text text-anchor="middle" x="14181.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__9__7&#45;&gt;proc_monod_kinetics_7_9_ -->
-<g id="edge248" class="edge">
+<g id="edge247" class="edge">
 <title>state_fields__dissolved_biomass__9__7&#45;&gt;proc_monod_kinetics_7_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M14441.2,-618.1C14447.79,-607.57 14454.93,-594.64 14459.37,-582.08 14472.68,-544.43 14477.95,-498.24 14480.03,-469.47"/>
 <polygon fill="black" stroke="black" points="14438.14,-616.38 14435.62,-626.67 14444.01,-620.2 14438.14,-616.38"/>
@@ -4681,7 +4681,7 @@
 <text text-anchor="middle" x="14484.87" y="-574.08" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__dissolved_biomass__9__8&#45;&gt;proc_monod_kinetics_8_9_ -->
-<g id="edge278" class="edge">
+<g id="edge276" class="edge">
 <title>state_fields__dissolved_biomass__9__8&#45;&gt;proc_monod_kinetics_8_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M13064.46,-629.74C13031.36,-615.19 12977.69,-590.62 12972.37,-582.08 12950.96,-547.75 12956.96,-498.89 12963.78,-468.89"/>
 <polygon fill="black" stroke="black" points="13063.43,-633.11 13073.99,-633.91 13066.23,-626.7 13063.43,-633.11"/>
@@ -4917,7 +4917,7 @@
 <path fill="none" stroke="black" stroke-width="2" d="M4381.21,-791.43C4335.08,-763.57 4196.76,-680.02 4150.57,-652.12"/>
 </g>
 <!-- state_fields__glucose__0__0&#45;&gt;proc_monod_kinetics_0_0_ -->
-<g id="edge9" class="edge">
+<g id="edge10" class="edge">
 <title>state_fields__glucose__0__0&#45;&gt;proc_monod_kinetics_0_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M3279.36,-635.75C3251.09,-628.86 3208.91,-613.67 3189.37,-582.08 3186.8,-577.92 3187.6,-575.63 3189.37,-571.08 3194.3,-558.38 3250.28,-500.09 3283.34,-466.36"/>
 <polygon fill="black" stroke="black" points="3278.91,-639.24 3289.43,-638 3280.44,-632.4 3278.91,-639.24"/>
@@ -4925,7 +4925,7 @@
 <text text-anchor="middle" x="3237.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__0__1&#45;&gt;proc_monod_kinetics_1_0_ -->
-<g id="edge41" class="edge">
+<g id="edge39" class="edge">
 <title>state_fields__glucose__0__1&#45;&gt;proc_monod_kinetics_1_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M3549.51,-620.95C3542.83,-614.28 3535.31,-606.82 3528.37,-600.08 3520.03,-591.97 3513.96,-592.76 3509.37,-582.08 3507.44,-577.59 3507.79,-575.7 3509.37,-571.08 3523.69,-529.22 3557.73,-490.43 3582.11,-466.53"/>
 <polygon fill="black" stroke="black" points="3547.35,-623.73 3556.89,-628.34 3552.3,-618.79 3547.35,-623.73"/>
@@ -4941,7 +4941,7 @@
 <text text-anchor="middle" x="4463.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__0__3&#45;&gt;proc_monod_kinetics_3_0_ -->
-<g id="edge99" class="edge">
+<g id="edge100" class="edge">
 <title>state_fields__glucose__0__3&#45;&gt;proc_monod_kinetics_3_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M4683.83,-613.62C4685.42,-600.22 4688.7,-584.18 4695.37,-571.08 4717.25,-528.06 4757.99,-489.4 4786.35,-465.86"/>
 <polygon fill="black" stroke="black" points="4680.33,-613.41 4682.87,-623.7 4687.3,-614.07 4680.33,-613.41"/>
@@ -4949,7 +4949,7 @@
 <text text-anchor="middle" x="4743.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__0__4&#45;&gt;proc_monod_kinetics_4_0_ -->
-<g id="edge131" class="edge">
+<g id="edge130" class="edge">
 <title>state_fields__glucose__0__4&#45;&gt;proc_monod_kinetics_4_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M5579.49,-614.87C5584.85,-601.24 5592.34,-584.63 5601.37,-571.08 5628.59,-530.21 5669.16,-490.24 5695.94,-465.88"/>
 <polygon fill="black" stroke="black" points="5576.07,-614.01 5575.82,-624.6 5582.62,-616.48 5576.07,-614.01"/>
@@ -4957,7 +4957,7 @@
 <text text-anchor="middle" x="5649.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__0__5&#45;&gt;proc_monod_kinetics_5_0_ -->
-<g id="edge159" class="edge">
+<g id="edge160" class="edge">
 <title>state_fields__glucose__0__5&#45;&gt;proc_monod_kinetics_5_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M3035.29,-614.87C3031.98,-601.55 3030.01,-585.21 3034.37,-571.08 3046.87,-530.57 3076.91,-491.42 3098.42,-467.07"/>
 <polygon fill="black" stroke="black" points="3032.02,-616.16 3038.13,-624.81 3038.75,-614.23 3032.02,-616.16"/>
@@ -4965,7 +4965,7 @@
 <text text-anchor="middle" x="3082.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__0__6&#45;&gt;proc_monod_kinetics_6_0_ -->
-<g id="edge191" class="edge">
+<g id="edge190" class="edge">
 <title>state_fields__glucose__0__6&#45;&gt;proc_monod_kinetics_6_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M4976.63,-614.84C4981.57,-601.21 4988.6,-584.6 4997.37,-571.08 5023.94,-530.12 5064.32,-490.45 5091.26,-466.16"/>
 <polygon fill="black" stroke="black" points="4973.22,-613.99 4973.27,-624.58 4979.84,-616.27 4973.22,-613.99"/>
@@ -4973,7 +4973,7 @@
 <text text-anchor="middle" x="5045.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__0__7&#45;&gt;proc_monod_kinetics_7_0_ -->
-<g id="edge219" class="edge">
+<g id="edge221" class="edge">
 <title>state_fields__glucose__0__7&#45;&gt;proc_monod_kinetics_7_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M5279.3,-614.56C5284.02,-600.98 5290.78,-584.5 5299.37,-571.08 5325.69,-529.95 5366.13,-490.33 5393.15,-466.09"/>
 <polygon fill="black" stroke="black" points="5275.9,-613.69 5276.09,-624.29 5282.55,-615.89 5275.9,-613.69"/>
@@ -4981,7 +4981,7 @@
 <text text-anchor="middle" x="5347.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__0__8&#45;&gt;proc_monod_kinetics_8_0_ -->
-<g id="edge250" class="edge">
+<g id="edge251" class="edge">
 <title>state_fields__glucose__0__8&#45;&gt;proc_monod_kinetics_8_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M3824.45,-620.59C3814.08,-606.91 3804.43,-588.3 3810.37,-571.08 3824.91,-528.91 3859.52,-490 3884.17,-466.16"/>
 <polygon fill="black" stroke="black" points="3821.82,-622.9 3830.87,-628.41 3827.23,-618.46 3821.82,-622.9"/>
@@ -4989,7 +4989,7 @@
 <text text-anchor="middle" x="3858.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__0__9&#45;&gt;proc_monod_kinetics_9_0_ -->
-<g id="edge281" class="edge">
+<g id="edge279" class="edge">
 <title>state_fields__glucose__0__9&#45;&gt;proc_monod_kinetics_9_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M4120.61,-617.93C4113.7,-604.27 4108.05,-586.62 4113.37,-571.08 4127.69,-529.22 4161.73,-490.43 4186.11,-466.53"/>
 <polygon fill="black" stroke="black" points="4117.55,-619.64 4125.47,-626.69 4123.67,-616.25 4117.55,-619.64"/>
@@ -5123,7 +5123,7 @@
 <text text-anchor="middle" x="6559.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__1__2&#45;&gt;proc_monod_kinetics_2_1_ -->
-<g id="edge73" class="edge">
+<g id="edge72" class="edge">
 <title>state_fields__glucose__1__2&#45;&gt;proc_monod_kinetics_2_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M7421.12,-613.88C7424.11,-600.54 7428.69,-584.48 7435.37,-571.08 7455.33,-531.02 7488.72,-491.29 7511.37,-466.71"/>
 <polygon fill="black" stroke="black" points="7417.65,-613.39 7419.06,-623.89 7424.51,-614.8 7417.65,-613.39"/>
@@ -5131,7 +5131,7 @@
 <text text-anchor="middle" x="7483.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__1__3&#45;&gt;proc_monod_kinetics_3_1_ -->
-<g id="edge103" class="edge">
+<g id="edge102" class="edge">
 <title>state_fields__glucose__1__3&#45;&gt;proc_monod_kinetics_3_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M7703.83,-613.62C7705.42,-600.22 7708.7,-584.18 7715.37,-571.08 7737.25,-528.06 7777.99,-489.4 7806.35,-465.86"/>
 <polygon fill="black" stroke="black" points="7700.33,-613.41 7702.87,-623.7 7707.3,-614.07 7700.33,-613.41"/>
@@ -5179,7 +5179,7 @@
 <text text-anchor="middle" x="6861.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__1__9&#45;&gt;proc_monod_kinetics_9_1_ -->
-<g id="edge284" class="edge">
+<g id="edge282" class="edge">
 <title>state_fields__glucose__1__9&#45;&gt;proc_monod_kinetics_9_1_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M7238.71,-616.78C7234.01,-610.43 7228.17,-604.2 7221.37,-600.08 7180.5,-575.31 7146.2,-618.59 7115.37,-582.08 7080.2,-540.43 7145.06,-491.76 7191.75,-464.15"/>
 <polygon fill="black" stroke="black" points="7235.96,-618.97 7244.42,-625.35 7241.79,-615.09 7235.96,-618.97"/>
@@ -5297,7 +5297,7 @@
 <path fill="none" stroke="black" stroke-width="2" d="M16174.37,-783.42C16174.37,-753.09 16174.37,-690.4 16174.37,-660.09"/>
 </g>
 <!-- state_fields__glucose__2__0&#45;&gt;proc_monod_kinetics_0_2_ -->
-<g id="edge17" class="edge">
+<g id="edge15" class="edge">
 <title>state_fields__glucose__2__0&#45;&gt;proc_monod_kinetics_0_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M15281.65,-614.36C15279.91,-601.02 15279.56,-584.82 15284.37,-571.08 15299.22,-528.66 15334.51,-489.8 15359.64,-466.05"/>
 <polygon fill="black" stroke="black" points="15278.21,-615.03 15283.27,-624.34 15285.12,-613.91 15278.21,-615.03"/>
@@ -5305,7 +5305,7 @@
 <text text-anchor="middle" x="15332.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__2__1&#45;&gt;proc_monod_kinetics_1_2_ -->
-<g id="edge45" class="edge">
+<g id="edge47" class="edge">
 <title>state_fields__glucose__2__1&#45;&gt;proc_monod_kinetics_1_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M15616.59,-620.46C15604.83,-607.1 15591.36,-590.61 15588.37,-582.08 15586.75,-577.46 15586.77,-575.7 15588.37,-571.08 15602.91,-528.91 15637.52,-490 15662.17,-466.16"/>
 <polygon fill="black" stroke="black" points="15614.31,-623.16 15623.58,-628.28 15619.53,-618.49 15614.31,-623.16"/>
@@ -5329,7 +5329,7 @@
 <text text-anchor="middle" x="16823.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__2__4&#45;&gt;proc_monod_kinetics_4_2_ -->
-<g id="edge135" class="edge">
+<g id="edge137" class="edge">
 <title>state_fields__glucose__2__4&#45;&gt;proc_monod_kinetics_4_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M17650.25,-617.03C17658.66,-603.18 17669.94,-585.65 17681.37,-571.08 17711.88,-532.16 17752.05,-491.35 17777.8,-466.3"/>
 <polygon fill="black" stroke="black" points="17647.04,-615.57 17644.92,-625.95 17653.05,-619.16 17647.04,-615.57"/>
@@ -5345,7 +5345,7 @@
 <text text-anchor="middle" x="15150.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__2__6&#45;&gt;proc_monod_kinetics_6_2_ -->
-<g id="edge197" class="edge">
+<g id="edge195" class="edge">
 <title>state_fields__glucose__2__6&#45;&gt;proc_monod_kinetics_6_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M17047.63,-616.71C17055.59,-602.88 17066.31,-585.49 17077.37,-571.08 17107.31,-532.07 17147.3,-491.58 17173.19,-466.59"/>
 <polygon fill="black" stroke="black" points="17044.46,-615.21 17042.58,-625.63 17050.55,-618.65 17044.46,-615.21"/>
@@ -5353,7 +5353,7 @@
 <text text-anchor="middle" x="17125.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__2__7&#45;&gt;proc_monod_kinetics_7_2_ -->
-<g id="edge227" class="edge">
+<g id="edge226" class="edge">
 <title>state_fields__glucose__2__7&#45;&gt;proc_monod_kinetics_7_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M17348.25,-617.03C17356.66,-603.18 17367.94,-585.65 17379.37,-571.08 17409.88,-532.16 17450.05,-491.35 17475.8,-466.3"/>
 <polygon fill="black" stroke="black" points="17345.04,-615.57 17342.92,-625.95 17351.05,-619.16 17345.04,-615.57"/>
@@ -5361,7 +5361,7 @@
 <text text-anchor="middle" x="17427.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__2__8&#45;&gt;proc_monod_kinetics_8_2_ -->
-<g id="edge257" class="edge">
+<g id="edge255" class="edge">
 <title>state_fields__glucose__2__8&#45;&gt;proc_monod_kinetics_8_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M15913.93,-623.52C15900.09,-610.02 15885.8,-590.42 15892.37,-571.08 15906.53,-529.34 15940.24,-490.52 15964.38,-466.58"/>
 <polygon fill="black" stroke="black" points="15911.68,-626.2 15921.44,-630.34 15916.39,-621.03 15911.68,-626.2"/>
@@ -5369,7 +5369,7 @@
 <text text-anchor="middle" x="15940.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__2__9&#45;&gt;proc_monod_kinetics_9_2_ -->
-<g id="edge286" class="edge">
+<g id="edge285" class="edge">
 <title>state_fields__glucose__2__9&#45;&gt;proc_monod_kinetics_9_2_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M16179.61,-613.9C16182.81,-600.56 16187.61,-584.5 16194.37,-571.08 16214.43,-531.26 16247.41,-491.46 16269.74,-466.82"/>
 <polygon fill="black" stroke="black" points="16176.13,-613.39 16177.38,-623.91 16182.97,-614.91 16176.13,-613.39"/>
@@ -5487,7 +5487,7 @@
 <path fill="none" stroke="black" stroke-width="2" d="M19194.37,-783.42C19194.37,-753.09 19194.37,-690.4 19194.37,-660.09"/>
 </g>
 <!-- state_fields__glucose__3__0&#45;&gt;proc_monod_kinetics_0_3_ -->
-<g id="edge20" class="edge">
+<g id="edge18" class="edge">
 <title>state_fields__glucose__3__0&#45;&gt;proc_monod_kinetics_0_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M18309.13,-615.42C18305.63,-601.96 18303.54,-585.32 18308.37,-571.08 18322.53,-529.34 18356.24,-490.52 18380.38,-466.58"/>
 <polygon fill="black" stroke="black" points="18305.78,-616.43 18311.98,-625.01 18312.48,-614.43 18305.78,-616.43"/>
@@ -5495,7 +5495,7 @@
 <text text-anchor="middle" x="18356.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__3__1&#45;&gt;proc_monod_kinetics_1_3_ -->
-<g id="edge48" class="edge">
+<g id="edge50" class="edge">
 <title>state_fields__glucose__3__1&#45;&gt;proc_monod_kinetics_1_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M18612.59,-615.77C18608.33,-602.27 18605.47,-585.51 18610.37,-571.08 18624.53,-529.34 18658.24,-490.52 18682.38,-466.58"/>
 <polygon fill="black" stroke="black" points="18609.36,-617.12 18616.02,-625.35 18615.95,-614.76 18609.36,-617.12"/>
@@ -5503,7 +5503,7 @@
 <text text-anchor="middle" x="18658.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__3__2&#45;&gt;proc_monod_kinetics_2_3_ -->
-<g id="edge80" class="edge">
+<g id="edge79" class="edge">
 <title>state_fields__glucose__3__2&#45;&gt;proc_monod_kinetics_2_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M19481.83,-613.62C19483.42,-600.22 19486.7,-584.18 19493.37,-571.08 19515.25,-528.06 19555.99,-489.4 19584.35,-465.86"/>
 <polygon fill="black" stroke="black" points="19478.33,-613.41 19480.87,-623.7 19485.3,-614.07 19478.33,-613.41"/>
@@ -5511,7 +5511,7 @@
 <text text-anchor="middle" x="19541.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__3__3&#45;&gt;proc_monod_kinetics_3_3_ -->
-<g id="edge109" class="edge">
+<g id="edge108" class="edge">
 <title>state_fields__glucose__3__3&#45;&gt;proc_monod_kinetics_3_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M19774.63,-614.84C19779.57,-601.21 19786.6,-584.6 19795.37,-571.08 19821.94,-530.12 19862.32,-490.45 19889.26,-466.16"/>
 <polygon fill="black" stroke="black" points="19771.22,-613.99 19771.27,-624.58 19777.84,-616.27 19771.22,-613.99"/>
@@ -5519,7 +5519,7 @@
 <text text-anchor="middle" x="19843.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__3__4&#45;&gt;proc_monod_kinetics_4_3_ -->
-<g id="edge139" class="edge">
+<g id="edge138" class="edge">
 <title>state_fields__glucose__3__4&#45;&gt;proc_monod_kinetics_4_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M20669.64,-617.06C20678.26,-603.22 20689.79,-585.69 20701.37,-571.08 20732.07,-532.31 20772.2,-491.46 20797.88,-466.36"/>
 <polygon fill="black" stroke="black" points="20666.41,-615.62 20664.17,-625.97 20672.38,-619.28 20666.41,-615.62"/>
@@ -5543,7 +5543,7 @@
 <text text-anchor="middle" x="20145.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__3__7&#45;&gt;proc_monod_kinetics_7_3_ -->
-<g id="edge229" class="edge">
+<g id="edge230" class="edge">
 <title>state_fields__glucose__3__7&#45;&gt;proc_monod_kinetics_7_3_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M20367.64,-617.06C20376.26,-603.22 20387.79,-585.69 20399.37,-571.08 20430.07,-532.31 20470.2,-491.46 20495.88,-466.36"/>
 <polygon fill="black" stroke="black" points="20364.41,-615.62 20362.17,-625.97 20370.38,-619.28 20364.41,-615.62"/>
@@ -5677,7 +5677,7 @@
 <path fill="none" stroke="black" stroke-width="2" d="M28254.37,-783.42C28254.37,-753.09 28254.37,-690.4 28254.37,-660.09"/>
 </g>
 <!-- state_fields__glucose__4__0&#45;&gt;proc_monod_kinetics_0_4_ -->
-<g id="edge22" class="edge">
+<g id="edge23" class="edge">
 <title>state_fields__glucose__4__0&#45;&gt;proc_monod_kinetics_0_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M27362.68,-614.37C27360.95,-601.03 27360.59,-584.83 27365.37,-571.08 27380.06,-528.79 27415.02,-489.9 27439.9,-466.11"/>
 <polygon fill="black" stroke="black" points="27359.24,-615.03 27364.29,-624.35 27366.15,-613.92 27359.24,-615.03"/>
@@ -5693,7 +5693,7 @@
 <text text-anchor="middle" x="27718.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__4__2&#45;&gt;proc_monod_kinetics_2_4_ -->
-<g id="edge81" class="edge">
+<g id="edge83" class="edge">
 <title>state_fields__glucose__4__2&#45;&gt;proc_monod_kinetics_2_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M28533.3,-614.56C28538.02,-600.98 28544.78,-584.5 28553.37,-571.08 28579.69,-529.95 28620.13,-490.33 28647.15,-466.09"/>
 <polygon fill="black" stroke="black" points="28529.9,-613.69 28530.09,-624.29 28536.55,-615.89 28529.9,-613.69"/>
@@ -5701,7 +5701,7 @@
 <text text-anchor="middle" x="28601.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__4__3&#45;&gt;proc_monod_kinetics_3_4_ -->
-<g id="edge112" class="edge">
+<g id="edge113" class="edge">
 <title>state_fields__glucose__4__3&#45;&gt;proc_monod_kinetics_3_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M28834.63,-614.84C28839.57,-601.21 28846.6,-584.6 28855.37,-571.08 28881.94,-530.12 28922.32,-490.45 28949.26,-466.16"/>
 <polygon fill="black" stroke="black" points="28831.22,-613.99 28831.27,-624.58 28837.84,-616.27 28831.22,-613.99"/>
@@ -5709,7 +5709,7 @@
 <text text-anchor="middle" x="28903.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__4__4&#45;&gt;proc_monod_kinetics_4_4_ -->
-<g id="edge142" class="edge">
+<g id="edge141" class="edge">
 <title>state_fields__glucose__4__4&#45;&gt;proc_monod_kinetics_4_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M29734.39,-615.95C29741.47,-602.2 29751.05,-585.13 29761.37,-571.08 29790.59,-531.27 29831.01,-490.76 29857.17,-466.01"/>
 <polygon fill="black" stroke="black" points="29731.06,-614.77 29729.7,-625.28 29737.32,-617.92 29731.06,-614.77"/>
@@ -5741,7 +5741,7 @@
 <text text-anchor="middle" x="29507.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__4__8&#45;&gt;proc_monod_kinetics_8_4_ -->
-<g id="edge262" class="edge">
+<g id="edge261" class="edge">
 <title>state_fields__glucose__4__8&#45;&gt;proc_monod_kinetics_8_4_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M28018.9,-632.16C27996.95,-623.32 27967.18,-607.32 27953.37,-582.08 27951.02,-577.79 27951.6,-575.63 27953.37,-571.08 27970.52,-526.91 28010.62,-488.63 28039.32,-465.48"/>
 <polygon fill="black" stroke="black" points="28017.76,-635.47 28028.35,-635.73 28020.23,-628.92 28017.76,-635.47"/>
@@ -5867,7 +5867,7 @@
 <path fill="none" stroke="black" stroke-width="2" d="M1360.85,-791.66C1312.62,-763.91 1165.71,-679.38 1117.71,-651.77"/>
 </g>
 <!-- state_fields__glucose__5__0&#45;&gt;proc_monod_kinetics_0_5_ -->
-<g id="edge26" class="edge">
+<g id="edge25" class="edge">
 <title>state_fields__glucose__5__0&#45;&gt;proc_monod_kinetics_0_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M187.04,-615.71C183,-602.2 180.38,-585.44 185.37,-571.08 200.06,-528.79 235.02,-489.9 259.9,-466.11"/>
 <polygon fill="black" stroke="black" points="183.78,-616.97 190.31,-625.31 190.4,-614.71 183.78,-616.97"/>
@@ -5875,7 +5875,7 @@
 <text text-anchor="middle" x="233.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__5__1&#45;&gt;proc_monod_kinetics_1_5_ -->
-<g id="edge56" class="edge">
+<g id="edge55" class="edge">
 <title>state_fields__glucose__5__1&#45;&gt;proc_monod_kinetics_1_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M500.27,-619.41C491.51,-605.7 483.75,-587.51 489.37,-571.08 503.69,-529.22 537.73,-490.43 562.11,-466.53"/>
 <polygon fill="black" stroke="black" points="497.46,-621.49 506.04,-627.7 503.2,-617.49 497.46,-621.49"/>
@@ -5899,7 +5899,7 @@
 <text text-anchor="middle" x="1723.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__5__4&#45;&gt;proc_monod_kinetics_4_5_ -->
-<g id="edge146" class="edge">
+<g id="edge144" class="edge">
 <title>state_fields__glucose__5__4&#45;&gt;proc_monod_kinetics_4_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M2549.64,-617.06C2558.26,-603.22 2569.79,-585.69 2581.37,-571.08 2612.07,-532.31 2652.2,-491.46 2677.88,-466.36"/>
 <polygon fill="black" stroke="black" points="2546.41,-615.62 2544.17,-625.97 2552.38,-619.28 2546.41,-615.62"/>
@@ -5907,7 +5907,7 @@
 <text text-anchor="middle" x="2629.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__5__5&#45;&gt;proc_monod_kinetics_5_5_ -->
-<g id="edge175" class="edge">
+<g id="edge174" class="edge">
 <title>state_fields__glucose__5__5&#45;&gt;proc_monod_kinetics_5_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M7.84,-617.15C1.85,-603.53 -2.81,-586.2 2.37,-571.08 16.69,-529.22 50.73,-490.43 75.11,-466.53"/>
 <polygon fill="black" stroke="black" points="4.79,-618.87 12.32,-626.32 11.08,-615.8 4.79,-618.87"/>
@@ -5923,7 +5923,7 @@
 <text text-anchor="middle" x="2025.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__5__7&#45;&gt;proc_monod_kinetics_7_5_ -->
-<g id="edge235" class="edge">
+<g id="edge234" class="edge">
 <title>state_fields__glucose__5__7&#45;&gt;proc_monod_kinetics_7_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M2248.86,-617C2257.06,-603.14 2268.09,-585.62 2279.37,-571.08 2309.51,-532.22 2349.45,-491.69 2375.28,-466.66"/>
 <polygon fill="black" stroke="black" points="2245.67,-615.53 2243.67,-625.93 2251.72,-619.04 2245.67,-615.53"/>
@@ -5939,7 +5939,7 @@
 <text text-anchor="middle" x="839.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__5__9&#45;&gt;proc_monod_kinetics_9_5_ -->
-<g id="edge295" class="edge">
+<g id="edge294" class="edge">
 <title>state_fields__glucose__5__9&#45;&gt;proc_monod_kinetics_9_5_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1093.48,-614.73C1090.32,-601.38 1088.59,-585.05 1093.37,-571.08 1107.69,-529.22 1141.73,-490.43 1166.11,-466.53"/>
 <polygon fill="black" stroke="black" points="1090.2,-616 1096.23,-624.71 1096.95,-614.14 1090.2,-616"/>
@@ -6073,7 +6073,7 @@
 <text text-anchor="middle" x="21659.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__6__2&#45;&gt;proc_monod_kinetics_2_6_ -->
-<g id="edge88" class="edge">
+<g id="edge87" class="edge">
 <title>state_fields__glucose__6__2&#45;&gt;proc_monod_kinetics_2_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M22493.3,-614.56C22498.02,-600.98 22504.78,-584.5 22513.37,-571.08 22539.69,-529.95 22580.13,-490.33 22607.15,-466.09"/>
 <polygon fill="black" stroke="black" points="22489.9,-613.69 22490.09,-624.29 22496.55,-615.89 22489.9,-613.69"/>
@@ -6081,7 +6081,7 @@
 <text text-anchor="middle" x="22561.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__6__3&#45;&gt;proc_monod_kinetics_3_6_ -->
-<g id="edge119" class="edge">
+<g id="edge117" class="edge">
 <title>state_fields__glucose__6__3&#45;&gt;proc_monod_kinetics_3_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M22794.63,-614.84C22799.57,-601.21 22806.6,-584.6 22815.37,-571.08 22841.94,-530.12 22882.32,-490.45 22909.26,-466.16"/>
 <polygon fill="black" stroke="black" points="22791.22,-613.99 22791.27,-624.58 22797.84,-616.27 22791.22,-613.99"/>
@@ -6089,7 +6089,7 @@
 <text text-anchor="middle" x="22863.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__6__4&#45;&gt;proc_monod_kinetics_4_6_ -->
-<g id="edge149" class="edge">
+<g id="edge148" class="edge">
 <title>state_fields__glucose__6__4&#45;&gt;proc_monod_kinetics_4_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M23689.64,-617.06C23698.26,-603.22 23709.79,-585.69 23721.37,-571.08 23752.07,-532.31 23792.2,-491.46 23817.88,-466.36"/>
 <polygon fill="black" stroke="black" points="23686.41,-615.62 23684.17,-625.97 23692.38,-619.28 23686.41,-615.62"/>
@@ -6105,7 +6105,7 @@
 <text text-anchor="middle" x="21190.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__6__6&#45;&gt;proc_monod_kinetics_6_6_ -->
-<g id="edge209" class="edge">
+<g id="edge208" class="edge">
 <title>state_fields__glucose__6__6&#45;&gt;proc_monod_kinetics_6_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M23086.86,-617C23095.06,-603.14 23106.09,-585.62 23117.37,-571.08 23147.51,-532.22 23187.45,-491.69 23213.28,-466.66"/>
 <polygon fill="black" stroke="black" points="23083.67,-615.53 23081.67,-625.93 23089.72,-619.04 23083.67,-615.53"/>
@@ -6113,7 +6113,7 @@
 <text text-anchor="middle" x="23165.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__6__7&#45;&gt;proc_monod_kinetics_7_6_ -->
-<g id="edge237" class="edge">
+<g id="edge238" class="edge">
 <title>state_fields__glucose__6__7&#45;&gt;proc_monod_kinetics_7_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M23387.64,-617.06C23396.26,-603.22 23407.79,-585.69 23419.37,-571.08 23450.07,-532.31 23490.2,-491.46 23515.88,-466.36"/>
 <polygon fill="black" stroke="black" points="23384.41,-615.62 23382.17,-625.97 23390.38,-619.28 23384.41,-615.62"/>
@@ -6129,7 +6129,7 @@
 <text text-anchor="middle" x="21980.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__6__9&#45;&gt;proc_monod_kinetics_9_6_ -->
-<g id="edge299" class="edge">
+<g id="edge297" class="edge">
 <title>state_fields__glucose__6__9&#45;&gt;proc_monod_kinetics_9_6_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M22219.12,-613.88C22222.11,-600.54 22226.69,-584.48 22233.37,-571.08 22253.33,-531.02 22286.72,-491.29 22309.37,-466.71"/>
 <polygon fill="black" stroke="black" points="22215.65,-613.39 22217.06,-623.89 22222.51,-614.8 22215.65,-613.39"/>
@@ -6247,7 +6247,7 @@
 <path fill="none" stroke="black" stroke-width="2" d="M25234.37,-783.42C25234.37,-753.09 25234.37,-690.4 25234.37,-660.09"/>
 </g>
 <!-- state_fields__glucose__7__0&#45;&gt;proc_monod_kinetics_0_7_ -->
-<g id="edge32" class="edge">
+<g id="edge30" class="edge">
 <title>state_fields__glucose__7__0&#45;&gt;proc_monod_kinetics_0_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M24324.91,-614.2C24323.77,-600.83 24324.1,-584.64 24329.37,-571.08 24334.3,-558.38 24390.28,-500.09 24423.34,-466.36"/>
 <polygon fill="black" stroke="black" points="24321.44,-614.69 24326.06,-624.22 24328.39,-613.89 24321.44,-614.69"/>
@@ -6263,7 +6263,7 @@
 <text text-anchor="middle" x="24679.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__7__2&#45;&gt;proc_monod_kinetics_2_7_ -->
-<g id="edge90" class="edge">
+<g id="edge91" class="edge">
 <title>state_fields__glucose__7__2&#45;&gt;proc_monod_kinetics_2_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M25521.83,-613.62C25523.42,-600.22 25526.7,-584.18 25533.37,-571.08 25555.25,-528.06 25595.99,-489.4 25624.35,-465.86"/>
 <polygon fill="black" stroke="black" points="25518.33,-613.41 25520.87,-623.7 25525.3,-614.07 25518.33,-613.41"/>
@@ -6271,7 +6271,7 @@
 <text text-anchor="middle" x="25581.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__7__3&#45;&gt;proc_monod_kinetics_3_7_ -->
-<g id="edge121" class="edge">
+<g id="edge120" class="edge">
 <title>state_fields__glucose__7__3&#45;&gt;proc_monod_kinetics_3_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M25815.3,-614.56C25820.02,-600.98 25826.78,-584.5 25835.37,-571.08 25861.69,-529.95 25902.13,-490.33 25929.15,-466.09"/>
 <polygon fill="black" stroke="black" points="25811.9,-613.69 25812.09,-624.29 25818.55,-615.89 25811.9,-613.69"/>
@@ -6279,7 +6279,7 @@
 <text text-anchor="middle" x="25883.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__7__4&#45;&gt;proc_monod_kinetics_4_7_ -->
-<g id="edge152" class="edge">
+<g id="edge151" class="edge">
 <title>state_fields__glucose__7__4&#45;&gt;proc_monod_kinetics_4_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M26710.25,-617.03C26718.66,-603.18 26729.94,-585.65 26741.37,-571.08 26771.88,-532.16 26812.05,-491.35 26837.8,-466.3"/>
 <polygon fill="black" stroke="black" points="26707.04,-615.57 26704.92,-625.95 26713.05,-619.16 26707.04,-615.57"/>
@@ -6287,7 +6287,7 @@
 <text text-anchor="middle" x="26789.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__7__5&#45;&gt;proc_monod_kinetics_5_7_ -->
-<g id="edge180" class="edge">
+<g id="edge181" class="edge">
 <title>state_fields__glucose__7__5&#45;&gt;proc_monod_kinetics_5_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M24165.13,-615.74C24161.1,-602.24 24158.48,-585.47 24163.37,-571.08 24177.53,-529.34 24211.24,-490.52 24235.38,-466.58"/>
 <polygon fill="black" stroke="black" points="24161.85,-616.98 24168.38,-625.33 24168.48,-614.74 24161.85,-616.98"/>
@@ -6295,7 +6295,7 @@
 <text text-anchor="middle" x="24211.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__7__6&#45;&gt;proc_monod_kinetics_6_7_ -->
-<g id="edge212" class="edge">
+<g id="edge210" class="edge">
 <title>state_fields__glucose__7__6&#45;&gt;proc_monod_kinetics_6_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M26106.86,-617C26115.06,-603.14 26126.09,-585.62 26137.37,-571.08 26167.51,-532.22 26207.45,-491.69 26233.28,-466.66"/>
 <polygon fill="black" stroke="black" points="26103.67,-615.53 26101.67,-625.93 26109.72,-619.04 26103.67,-615.53"/>
@@ -6303,7 +6303,7 @@
 <text text-anchor="middle" x="26185.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__7__7&#45;&gt;proc_monod_kinetics_7_7_ -->
-<g id="edge242" class="edge">
+<g id="edge241" class="edge">
 <title>state_fields__glucose__7__7&#45;&gt;proc_monod_kinetics_7_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M26407.64,-617.06C26416.26,-603.22 26427.79,-585.69 26439.37,-571.08 26470.07,-532.31 26510.2,-491.46 26535.88,-466.36"/>
 <polygon fill="black" stroke="black" points="26404.41,-615.62 26402.17,-625.97 26410.38,-619.28 26404.41,-615.62"/>
@@ -6311,7 +6311,7 @@
 <text text-anchor="middle" x="26487.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__7__8&#45;&gt;proc_monod_kinetics_8_7_ -->
-<g id="edge271" class="edge">
+<g id="edge272" class="edge">
 <title>state_fields__glucose__7__8&#45;&gt;proc_monod_kinetics_8_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M25043.17,-618.73C25036.73,-611.79 25028.88,-604.73 25020.37,-600.08 24985.72,-581.15 24958.3,-612.7 24933.37,-582.08 24899.04,-539.93 24963.21,-491.61 25009.61,-464.17"/>
 <polygon fill="black" stroke="black" points="25040.86,-621.41 25050.05,-626.69 25046.16,-616.83 25040.86,-621.41"/>
@@ -6319,7 +6319,7 @@
 <text text-anchor="middle" x="24981.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__7__9&#45;&gt;proc_monod_kinetics_9_7_ -->
-<g id="edge302" class="edge">
+<g id="edge300" class="edge">
 <title>state_fields__glucose__7__9&#45;&gt;proc_monod_kinetics_9_7_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M25239.12,-613.88C25242.11,-600.54 25246.69,-584.48 25253.37,-571.08 25273.33,-531.02 25306.72,-491.29 25329.37,-466.71"/>
 <polygon fill="black" stroke="black" points="25235.65,-613.39 25237.06,-623.89 25242.51,-614.8 25235.65,-613.39"/>
@@ -6445,7 +6445,7 @@
 <text text-anchor="middle" x="9296.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__8__1&#45;&gt;proc_monod_kinetics_1_8_ -->
-<g id="edge63" class="edge">
+<g id="edge64" class="edge">
 <title>state_fields__glucose__8__1&#45;&gt;proc_monod_kinetics_1_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M9571.83,-623.95C9557.02,-610.56 9541.54,-590.88 9548.37,-571.08 9562.91,-528.91 9597.52,-490 9622.17,-466.16"/>
 <polygon fill="black" stroke="black" points="9569.94,-626.94 9579.84,-630.71 9574.46,-621.59 9569.94,-626.94"/>
@@ -6461,7 +6461,7 @@
 <text text-anchor="middle" x="10503.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__8__3&#45;&gt;proc_monod_kinetics_3_8_ -->
-<g id="edge124" class="edge">
+<g id="edge123" class="edge">
 <title>state_fields__glucose__8__3&#45;&gt;proc_monod_kinetics_3_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M10715.3,-614.56C10720.02,-600.98 10726.78,-584.5 10735.37,-571.08 10761.69,-529.95 10802.13,-490.33 10829.15,-466.09"/>
 <polygon fill="black" stroke="black" points="10711.9,-613.69 10712.09,-624.29 10718.55,-615.89 10711.9,-613.69"/>
@@ -6469,7 +6469,7 @@
 <text text-anchor="middle" x="10783.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__8__4&#45;&gt;proc_monod_kinetics_4_8_ -->
-<g id="edge154" class="edge">
+<g id="edge155" class="edge">
 <title>state_fields__glucose__8__4&#45;&gt;proc_monod_kinetics_4_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M11610.25,-617.03C11618.66,-603.18 11629.94,-585.65 11641.37,-571.08 11671.88,-532.16 11712.05,-491.35 11737.8,-466.3"/>
 <polygon fill="black" stroke="black" points="11607.04,-615.57 11604.92,-625.95 11613.05,-619.16 11607.04,-615.57"/>
@@ -6493,7 +6493,7 @@
 <text text-anchor="middle" x="11085.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__8__7&#45;&gt;proc_monod_kinetics_7_8_ -->
-<g id="edge243" class="edge">
+<g id="edge245" class="edge">
 <title>state_fields__glucose__8__7&#45;&gt;proc_monod_kinetics_7_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M11309.63,-616.71C11317.59,-602.88 11328.31,-585.49 11339.37,-571.08 11369.31,-532.07 11409.3,-491.58 11435.19,-466.59"/>
 <polygon fill="black" stroke="black" points="11306.46,-615.21 11304.58,-625.63 11312.55,-618.65 11306.46,-615.21"/>
@@ -6501,7 +6501,7 @@
 <text text-anchor="middle" x="11387.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__8__8&#45;&gt;proc_monod_kinetics_8_8_ -->
-<g id="edge275" class="edge">
+<g id="edge273" class="edge">
 <title>state_fields__glucose__8__8&#45;&gt;proc_monod_kinetics_8_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M9867.46,-621.29C9856.13,-607.66 9845.3,-588.82 9851.37,-571.08 9865.69,-529.22 9899.73,-490.43 9924.11,-466.53"/>
 <polygon fill="black" stroke="black" points="9865.14,-623.95 9874.43,-629.05 9870.35,-619.27 9865.14,-623.95"/>
@@ -6509,7 +6509,7 @@
 <text text-anchor="middle" x="9899.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__8__9&#45;&gt;proc_monod_kinetics_9_8_ -->
-<g id="edge304" class="edge">
+<g id="edge305" class="edge">
 <title>state_fields__glucose__8__9&#45;&gt;proc_monod_kinetics_9_8_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M10150.25,-614.12C10148.8,-600.83 10148.69,-584.76 10153.37,-571.08 10167.69,-529.22 10201.73,-490.43 10226.11,-466.53"/>
 <polygon fill="black" stroke="black" points="10146.79,-614.65 10151.64,-624.07 10153.73,-613.68 10146.79,-614.65"/>
@@ -6627,7 +6627,7 @@
 <path fill="none" stroke="black" stroke-width="2" d="M13440.57,-791.87C13408.88,-773.97 13336.11,-730.82 13283.37,-683.8 13274.3,-675.72 13265.42,-665.31 13258.87,-657.02"/>
 </g>
 <!-- state_fields__glucose__9__0&#45;&gt;proc_monod_kinetics_0_9_ -->
-<g id="edge37" class="edge">
+<g id="edge38" class="edge">
 <title>state_fields__glucose__9__0&#45;&gt;proc_monod_kinetics_0_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M12280.97,-620.65C12270.33,-607 12260.4,-588.4 12266.37,-571.08 12280.91,-528.91 12315.52,-490 12340.17,-466.16"/>
 <polygon fill="black" stroke="black" points="12278.43,-623.07 12287.56,-628.46 12283.78,-618.56 12278.43,-623.07"/>
@@ -6635,7 +6635,7 @@
 <text text-anchor="middle" x="12314.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__9__1&#45;&gt;proc_monod_kinetics_1_9_ -->
-<g id="edge66" class="edge">
+<g id="edge68" class="edge">
 <title>state_fields__glucose__9__1&#45;&gt;proc_monod_kinetics_1_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M12590.9,-623.51C12577.05,-610.01 12562.76,-590.41 12569.37,-571.08 12583.69,-529.22 12617.73,-490.43 12642.11,-466.53"/>
 <polygon fill="black" stroke="black" points="12588.66,-626.2 12598.42,-630.34 12593.37,-621.02 12588.66,-626.2"/>
@@ -6643,7 +6643,7 @@
 <text text-anchor="middle" x="12617.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__9__2&#45;&gt;proc_monod_kinetics_2_9_ -->
-<g id="edge97" class="edge">
+<g id="edge96" class="edge">
 <title>state_fields__glucose__9__2&#45;&gt;proc_monod_kinetics_2_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M13461.12,-613.88C13464.11,-600.54 13468.69,-584.48 13475.37,-571.08 13495.33,-531.02 13528.72,-491.29 13551.37,-466.71"/>
 <polygon fill="black" stroke="black" points="13457.65,-613.39 13459.06,-623.89 13464.51,-614.8 13457.65,-613.39"/>
@@ -6651,7 +6651,7 @@
 <text text-anchor="middle" x="13523.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__9__3&#45;&gt;proc_monod_kinetics_3_9_ -->
-<g id="edge128" class="edge">
+<g id="edge126" class="edge">
 <title>state_fields__glucose__9__3&#45;&gt;proc_monod_kinetics_3_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M13735.3,-614.56C13740.02,-600.98 13746.78,-584.5 13755.37,-571.08 13781.69,-529.95 13822.13,-490.33 13849.15,-466.09"/>
 <polygon fill="black" stroke="black" points="13731.9,-613.69 13732.09,-624.29 13738.55,-615.89 13731.9,-613.69"/>
@@ -6659,7 +6659,7 @@
 <text text-anchor="middle" x="13803.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__9__4&#45;&gt;proc_monod_kinetics_4_9_ -->
-<g id="edge157" class="edge">
+<g id="edge156" class="edge">
 <title>state_fields__glucose__9__4&#45;&gt;proc_monod_kinetics_4_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M14630.25,-617.03C14638.66,-603.18 14649.94,-585.65 14661.37,-571.08 14691.88,-532.16 14732.05,-491.35 14757.8,-466.3"/>
 <polygon fill="black" stroke="black" points="14627.04,-615.57 14624.92,-625.95 14633.05,-619.16 14627.04,-615.57"/>
@@ -6675,7 +6675,7 @@
 <text text-anchor="middle" x="12130.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__9__6&#45;&gt;proc_monod_kinetics_6_9_ -->
-<g id="edge218" class="edge">
+<g id="edge217" class="edge">
 <title>state_fields__glucose__9__6&#45;&gt;proc_monod_kinetics_6_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M14036.63,-614.84C14041.57,-601.21 14048.6,-584.6 14057.37,-571.08 14083.94,-530.12 14124.32,-490.45 14151.26,-466.16"/>
 <polygon fill="black" stroke="black" points="14033.22,-613.99 14033.27,-624.58 14039.84,-616.27 14033.22,-613.99"/>
@@ -6683,7 +6683,7 @@
 <text text-anchor="middle" x="14105.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__9__7&#45;&gt;proc_monod_kinetics_7_9_ -->
-<g id="edge246" class="edge">
+<g id="edge248" class="edge">
 <title>state_fields__glucose__9__7&#45;&gt;proc_monod_kinetics_7_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M14328.86,-617C14337.06,-603.14 14348.09,-585.62 14359.37,-571.08 14389.51,-532.22 14429.45,-491.69 14455.28,-466.66"/>
 <polygon fill="black" stroke="black" points="14325.67,-615.53 14323.67,-625.93 14331.72,-619.04 14325.67,-615.53"/>
@@ -6691,7 +6691,7 @@
 <text text-anchor="middle" x="14407.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__9__8&#45;&gt;proc_monod_kinetics_8_9_ -->
-<g id="edge276" class="edge">
+<g id="edge277" class="edge">
 <title>state_fields__glucose__9__8&#45;&gt;proc_monod_kinetics_8_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M12941.36,-636.67C12902.32,-629.24 12837.97,-610.74 12853.37,-571.08 12870.52,-526.91 12910.62,-488.63 12939.32,-465.48"/>
 <polygon fill="black" stroke="black" points="12941.15,-640.19 12951.61,-638.49 12942.37,-633.3 12941.15,-640.19"/>
@@ -6699,7 +6699,7 @@
 <text text-anchor="middle" x="12901.37" y="-574.08" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose__9__9&#45;&gt;proc_monod_kinetics_9_9_ -->
-<g id="edge306" class="edge">
+<g id="edge307" class="edge">
 <title>state_fields__glucose__9__9&#45;&gt;proc_monod_kinetics_9_9_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M13229.45,-620.27C13222.14,-613.16 13213.37,-605.6 13204.37,-600.08 13182.8,-586.85 13146.21,-594.67 13155.37,-571.08 13172.52,-526.91 13212.62,-488.63 13241.32,-465.48"/>
 <polygon fill="black" stroke="black" points="13227.25,-623.02 13236.76,-627.69 13232.24,-618.11 13227.25,-623.02"/>

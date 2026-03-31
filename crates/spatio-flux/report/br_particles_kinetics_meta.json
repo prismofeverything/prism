@@ -1,0 +1,22 @@
+{
+  "duration": 200.0,
+  "has_particles": true,
+  "has_probes": false,
+  "has_scalar_fields": false,
+  "n_processes": 5,
+  "n_steps": 200,
+  "name": "br_particles_kinetics",
+  "process_types": [
+    "BrownianMovement",
+    "ManageBoundaries",
+    "MonodKinetics",
+    "ParticleDivision",
+    "ParticleExchange"
+  ],
+  "runtime_ms": 1630,
+  "spatial_field_names": [
+    "acetate",
+    "glucose"
+  ],
+  "status": "ok"
+}

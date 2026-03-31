@@ -184,12 +184,13 @@ impl Process for SpatialDFBA {
             }
         }
 
-        // Build output
+        // Build output preserving original 2D structure
         let mut result_fields: IndexMap<String, Value> = IndexMap::new();
         for (mol_id, arr) in &substrate_arrays {
+            let original = fields_map.get(mol_id).unwrap_or(&Value::None);
             result_fields.insert(
                 mol_id.clone(),
-                Value::List(arr.iter().map(|&v| Value::float(v)).collect()),
+                crate::processes::fields::rebuild_field(arr, original),
             );
         }
         // Pass through fields we don't manage
@@ -199,7 +200,8 @@ impl Process for SpatialDFBA {
             }
         }
 
-        let biomass_out = Value::List(biomass_arr.iter().map(|&v| Value::float(v)).collect());
+        let biomass_original = biomass_key.unwrap_or(&Value::None);
+        let biomass_out = crate::processes::fields::rebuild_field(&biomass_arr, biomass_original);
 
         Update::value(Value::tree([
             ("fields", Value::Map(result_fields)),

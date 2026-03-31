@@ -1,0 +1,15 @@
+{
+  "duration": 60.0,
+  "has_particles": false,
+  "has_probes": false,
+  "has_scalar_fields": true,
+  "n_processes": 1,
+  "n_steps": 60,
+  "name": "ecoli_core_dfba",
+  "process_types": [
+    "DynamicFBA"
+  ],
+  "runtime_ms": 62,
+  "spatial_field_names": [],
+  "status": "ok"
+}

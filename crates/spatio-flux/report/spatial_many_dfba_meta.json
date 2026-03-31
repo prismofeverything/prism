@@ -1,0 +1,19 @@
+{
+  "duration": 60.0,
+  "has_particles": false,
+  "has_probes": true,
+  "has_scalar_fields": false,
+  "n_processes": 8,
+  "n_steps": 60,
+  "name": "spatial_many_dfba",
+  "process_types": [
+    "DynamicFBA"
+  ],
+  "runtime_ms": 406,
+  "spatial_field_names": [
+    "acetate",
+    "dissolved biomass",
+    "glucose"
+  ],
+  "status": "ok"
+}

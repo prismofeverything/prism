@@ -225,9 +225,10 @@ impl Process for DiffusionAdvection {
                 current = self.advect(&current, vx, vy, interval);
             }
 
+            // Rebuild preserving original 2D structure
             result_fields.insert(
                 mol_id.clone(),
-                Value::List(current.into_iter().map(Value::float).collect()),
+                super::fields::rebuild_field(&current, field_val),
             );
         }
 

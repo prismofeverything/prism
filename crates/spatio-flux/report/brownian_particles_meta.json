@@ -1,0 +1,16 @@
+{
+  "duration": 200.0,
+  "has_particles": true,
+  "has_probes": false,
+  "has_scalar_fields": false,
+  "n_processes": 2,
+  "n_steps": 200,
+  "name": "brownian_particles",
+  "process_types": [
+    "BrownianMovement",
+    "ManageBoundaries"
+  ],
+  "runtime_ms": 549,
+  "spatial_field_names": [],
+  "status": "ok"
+}

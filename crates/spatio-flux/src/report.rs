@@ -69,6 +69,214 @@ impl ReportScale {
     }
 }
 
+/// Canonical simulation order matching Python spatio-flux test suite.
+pub const CANONICAL_ORDER: &[&str] = &[
+    "monod_kinetics",
+    "ecoli_core_dfba",
+    "ecoli_dfba",
+    "yeast_dfba",
+    "community_dfba",
+    "dfba_kinetics_community",
+    "spatial_many_dfba",
+    "spatial_dfba_process",
+    "diffusion_process",
+    "brownian_particles",
+    "br_particles_kinetics",
+    "br_particles_dfba",
+    "comets_diffusion",
+    "comets_br_particles_kinetics",
+    "comets_br_particles_dfba",
+    "newtonian_particles",
+    "comets_nt_particles_dfba",
+    "spatioflux_reference_demo",
+];
+
+/// Run a single simulation, save plots and metadata to output_dir.
+/// Returns runtime in ms.
+pub fn run_single_sim(
+    name: &str,
+    fixture_dir: impl AsRef<Path>,
+    output_dir: impl AsRef<Path>,
+    registry: &ProcessRegistry,
+) -> Result<u128, String> {
+    let fixture_dir = fixture_dir.as_ref();
+    let output_dir = output_dir.as_ref();
+    std::fs::create_dir_all(output_dir).map_err(|e| e.to_string())?;
+
+    let path = fixture_dir.join(format!("{name}.json"));
+    let json = std::fs::read_to_string(&path)
+        .map_err(|e| format!("{name}: {e}"))?;
+
+    let vdoc = VivariumDocument::from_json(&json)
+        .map_err(|e| format!("{name}: parse error: {e}"))?;
+
+    let process_types: Vec<String> = vdoc.processes.values()
+        .map(|p| p.class_name.clone()).collect();
+    let n_processes = vdoc.processes.len();
+
+    // Copy source JSON
+    let _ = std::fs::copy(&path, output_dir.join(format!("{name}.json")));
+
+    // Generate bigraph viz
+    let topology = vdoc.to_topology();
+    let doc = Document::from_topology(&topology);
+    let dot = render_dot(&doc, &DotOptions::default());
+    let _ = std::fs::write(output_dir.join(format!("{name}.dot")), &dot);
+    let _ = prism_viz::render_to_file(&dot, output_dir.join(format!("{name}_viz.svg")), "svg");
+
+    let start = Instant::now();
+    let duration = determine_duration(name, ReportScale::Standard);
+
+    // Build a fresh registry for the engine (needs Arc for dynamic discovery)
+    let engine_registry = std::sync::Arc::new(crate::from_config::build_registry());
+    match instantiate_vivarium(&vdoc, engine_registry) {
+        Ok((mut engine, _)) => {
+            let emit_interval = 1.0;
+            let n_steps = (duration / emit_interval).ceil() as usize;
+            let mut times = vec![0.0];
+            let mut states = vec![engine.state().clone()];
+
+            for _ in 0..n_steps {
+                let result = std::panic::catch_unwind(
+                    std::panic::AssertUnwindSafe(|| engine.run(emit_interval))
+                );
+                if result.is_err() {
+                    eprintln!("  {name}: panicked at t={:.0}", engine.time());
+                    break;
+                }
+                times.push(engine.time());
+                states.push(engine.state().clone());
+            }
+
+            let runtime_ms = start.elapsed().as_millis();
+            println!("  {name}: {n_processes} procs, {duration:.0}s, {runtime_ms}ms");
+
+            // Generate plots
+            let (has_scalar, has_probes, spatial_names, has_particles) =
+                generate_plots(name, &times, &states, output_dir);
+
+            // Save metadata
+            let mut unique_types = process_types.clone();
+            unique_types.sort();
+            unique_types.dedup();
+            let meta = serde_json::json!({
+                "name": name,
+                "n_processes": n_processes,
+                "process_types": unique_types,
+                "runtime_ms": runtime_ms,
+                "duration": *times.last().unwrap_or(&0.0),
+                "n_steps": times.len() - 1,
+                "has_scalar_fields": has_scalar,
+                "has_probes": has_probes,
+                "spatial_field_names": spatial_names,
+                "has_particles": has_particles,
+                "status": "ok",
+            });
+            let _ = std::fs::write(
+                output_dir.join(format!("{name}_meta.json")),
+                serde_json::to_string_pretty(&meta).unwrap_or_default(),
+            );
+
+            Ok(runtime_ms)
+        }
+        Err(e) => {
+            // Save skipped metadata
+            let meta = serde_json::json!({
+                "name": name,
+                "n_processes": n_processes,
+                "process_types": process_types,
+                "runtime_ms": 0,
+                "status": "skipped",
+                "reason": e,
+            });
+            let _ = std::fs::write(
+                output_dir.join(format!("{name}_meta.json")),
+                serde_json::to_string_pretty(&meta).unwrap_or_default(),
+            );
+            Err(e)
+        }
+    }
+}
+
+/// Run all simulations.
+pub fn run_all_sims(
+    fixture_dir: impl AsRef<Path>,
+    output_dir: impl AsRef<Path>,
+    registry: &ProcessRegistry,
+) -> Result<(), String> {
+    let fixture_dir = fixture_dir.as_ref();
+    for name in CANONICAL_ORDER {
+        if fixture_dir.join(format!("{name}.json")).exists() {
+            let _ = run_single_sim(name, fixture_dir, output_dir.as_ref(), registry);
+        }
+    }
+    Ok(())
+}
+
+/// Assemble HTML report from cached results (metadata + plots in output_dir).
+pub fn assemble_report(
+    _fixture_dir: impl AsRef<Path>,
+    output_dir: impl AsRef<Path>,
+) -> Result<(), String> {
+    let output_dir = output_dir.as_ref();
+
+    let mut results: Vec<SimResult> = Vec::new();
+
+    for name in CANONICAL_ORDER {
+        let meta_path = output_dir.join(format!("{name}_meta.json"));
+        if !meta_path.exists() {
+            continue;
+        }
+        let meta_str = std::fs::read_to_string(&meta_path).map_err(|e| e.to_string())?;
+        let meta: serde_json::Value = serde_json::from_str(&meta_str).map_err(|e| e.to_string())?;
+
+        let n_processes = meta["n_processes"].as_u64().unwrap_or(0) as usize;
+        let process_types: Vec<String> = meta["process_types"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+            .unwrap_or_default();
+        let runtime_ms = meta["runtime_ms"].as_u64().unwrap_or(0) as u128;
+
+        let status = match meta["status"].as_str().unwrap_or("unknown") {
+            "ok" => {
+                let duration = meta["duration"].as_f64().unwrap_or(0.0);
+                let n_steps = meta["n_steps"].as_u64().unwrap_or(0) as usize;
+                SimStatus::Ok {
+                    times: (0..=n_steps).map(|i| i as f64).collect(),
+                    has_scalar_fields: meta["has_scalar_fields"].as_bool().unwrap_or(false),
+                    has_probes: meta["has_probes"].as_bool().unwrap_or(false),
+                    spatial_field_names: meta["spatial_field_names"]
+                        .as_array()
+                        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                        .unwrap_or_default(),
+                    has_particles: meta["has_particles"].as_bool().unwrap_or(false),
+                }
+            }
+            _ => SimStatus::Skipped(
+                meta["reason"].as_str().unwrap_or("unknown").to_string()
+            ),
+        };
+
+        results.push(SimResult {
+            name: name.to_string(),
+            status,
+            n_processes,
+            process_types,
+            runtime_ms,
+        });
+    }
+
+    let html = build_html(&results, output_dir, ReportScale::Standard);
+    std::fs::write(output_dir.join("index.html"), html).map_err(|e| e.to_string())?;
+
+    let ran = results.iter().filter(|r| matches!(r.status, SimStatus::Ok { .. })).count();
+    let total_ms: u128 = results.iter().map(|r| r.runtime_ms).sum();
+    println!("Report: {ran}/{} sims, {total_ms}ms total → {}",
+        results.len(), output_dir.join("index.html").display());
+
+    Ok(())
+}
+
 /// Run all fixtures and generate an HTML report.
 pub fn generate_report(
     fixture_dir: impl AsRef<Path>,
@@ -118,8 +326,9 @@ pub fn generate_report_focused(
         "comets_br_particles_kinetics",
         "comets_br_particles_dfba",
         "newtonian_particles",
-        "comets_nt_particles_dfba",
-        "spatioflux_reference_demo",
+        // Temporarily excluded: rapier2d crash + exponential particle growth
+        // "comets_nt_particles_dfba",
+        // "spatioflux_reference_demo",
     ];
 
     // Use canonical order, then append any extras found on disk
@@ -270,16 +479,11 @@ pub fn generate_report_focused(
 }
 
 fn determine_duration(name: &str, scale: ReportScale) -> f64 {
+    // Match Python spatio-flux DEFAULT_RUNTIME values
     let base = match name {
-        "brownian_particles" => 100.0,
-        // Particle sims: short to keep particle count manageable
-        // (our growth is faster than Python due to volume scaling differences)
-        "br_particles_kinetics" | "br_particles_dfba" => 60.0,
-        "comets_br_particles_kinetics" | "comets_br_particles_dfba" => 30.0,
-        "comets_nt_particles_dfba" => 10.0,
-        "spatioflux_reference_demo" => 10.0,
-        "newtonian_particles" => 10.0,
-        "comets_diffusion" => 60.0,
+        // DEFAULT_RUNTIME_LONGER = 200
+        "brownian_particles" | "br_particles_kinetics" | "comets_diffusion" => 200.0,
+        // DEFAULT_RUNTIME_LONG = 60 (everything else)
         _ => 60.0,
     };
     (base * scale.duration_multiplier()).max(3.0)
@@ -341,6 +545,19 @@ fn generate_plots(
     let mut has_scalar = false;
     let mut spatial_names: Vec<String> = Vec::new();
     let opts = plot_options(name);
+
+    // Detect particles early — needed for Y-axis convention.
+    // Python's reference uses origin='lower' for particle sims and snapshot grids,
+    // but origin='upper' for plain GIF animations (a bug in plot_species_distributions_to_gif).
+    // We flip Y for sims whose Python report primarily uses origin='lower' plots:
+    // particle sims (fields_and_agents_to_gif) and COMETS sims (plot_snapshots_grid).
+    let has_particles = first
+        .as_map()
+        .and_then(|m| m.get("particles"))
+        .and_then(|v| v.as_map())
+        .is_some_and(|p| !p.is_empty());
+    let uses_snapshot_grid = name.starts_with("comets_");
+    let flip_y = has_particles || uses_snapshot_grid;
 
     // Timeseries for scalar fields
     if let Some(fields) = first.as_map().and_then(|m| m.get("fields")).and_then(|v| v.as_map()) {
@@ -491,9 +708,9 @@ fn generate_plots(
                 let (nx, ny) = (grid_nx, grid_ny);
 
                 if !field.is_empty() {
-                    let mut svg = render_heatmap_svg(&field, nx, ny, Some(global_max));
+                    let mut svg = render_heatmap_svg(&field, nx, ny, Some(global_max), flip_y);
                     // Overlay particle positions on the field
-                    overlay_particles(&mut svg, &states[frame_i], nx, ny);
+                    overlay_particles(&mut svg, &states[frame_i], nx, ny, flip_y);
                     let t = times.get(frame_i).unwrap_or(&0.0);
                     frames_json.push(format!(
                         "{{\"t\":{t:.1},\"svg\":\"{}\"}}",
@@ -535,12 +752,6 @@ fn generate_plots(
     }
 
     // Particle traces
-    // Particle traces
-    let has_particles = first
-        .as_map()
-        .and_then(|m| m.get("particles"))
-        .and_then(|v| v.as_map())
-        .is_some_and(|p| !p.is_empty());
     if has_particles {
         let svg = render_particle_traces(name, times, states);
         let _ = std::fs::write(output_dir.join(format!("{name}_traces.svg")), svg);
@@ -721,7 +932,7 @@ fn render_timeseries_svg(
 
 /// Render a 2D heatmap as inline SVG.
 /// `fixed_max`: if Some, use this as the colormap max (for consistent scaling across frames).
-fn render_heatmap_svg(data: &[f64], nx: usize, ny: usize, fixed_max: Option<f64>) -> String {
+fn render_heatmap_svg(data: &[f64], nx: usize, ny: usize, fixed_max: Option<f64>, flip_y: bool) -> String {
     let cell_size = if nx.max(ny) <= 5 { 24 } else if nx.max(ny) <= 10 { 16 } else { 10 };
     let width = nx * cell_size;
     let height = ny * cell_size;
@@ -761,7 +972,7 @@ fn render_heatmap_svg(data: &[f64], nx: usize, ny: usize, fixed_max: Option<f64>
                 svg,
                 r#"<rect x="{}" y="{}" width="{cell_size}" height="{cell_size}" fill="rgb({r},{g},{b})"/>"#,
                 x * cell_size,
-                y * cell_size,
+                if flip_y { (ny - 1 - y) * cell_size } else { y * cell_size },
             );
         }
     }
@@ -815,7 +1026,7 @@ fn render_snapshot_grid(_mol_id: &str, snapshots: &[(String, String)]) -> String
 
 /// Overlay particle positions as circles on a heatmap SVG.
 /// Inserts circles before the closing </svg> tag.
-fn overlay_particles(svg: &mut String, state: &Value, nx: usize, ny: usize) {
+fn overlay_particles(svg: &mut String, state: &Value, nx: usize, ny: usize, flip_y: bool) {
     let particles = match state.as_map()
         .and_then(|m| m.get("particles"))
         .and_then(|v| v.as_map())
@@ -848,9 +1059,12 @@ fn overlay_particles(svg: &mut String, state: &Value, nx: usize, ny: usize) {
             let mass = get_mass(p);
 
             // Map particle position to SVG coordinates.
-            // Match the heatmap convention: y=0 at top (no flip).
             let px = (x / bounds_x * svg_w as f64) as i32;
-            let py = (y / bounds_y * svg_h as f64) as i32;
+            let py = if flip_y {
+                svg_h as i32 - (y / bounds_y * svg_h as f64) as i32
+            } else {
+                (y / bounds_y * svg_h as f64) as i32
+            };
             let radius = ((mass * 3.0).sqrt() + 1.5).min(cell_size as f64 / 2.0) as i32;
             let (r, g, b) = TAB20[i % TAB20.len()];
 

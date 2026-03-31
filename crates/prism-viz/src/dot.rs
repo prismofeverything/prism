@@ -8,7 +8,7 @@
 //! - Bidirectional wiring as dashed both arrows
 //! - Hierarchical containment as solid edges
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 use prism_bigraph::document::Document;
@@ -67,11 +67,117 @@ pub fn render_dot(doc: &Document, options: &DotOptions) -> String {
 }
 
 /// Render a Topology as a Graphviz DOT string.
+/// Deduplicate topology for visualization: for maps with multiple complex children
+/// (like particles with many IDs), keep only one representative in both the
+/// topology (processes) and state.
+/// Maps process name → display label (with count for collapsed groups).
+type CollapseMap = HashMap<String, String>;
+
+fn deduplicate_for_viz(topology: &Topology, state: &Value) -> (Topology, Value, CollapseMap) {
+    // Find maps in state that have multiple complex children
+    let mut representatives: HashMap<Vec<String>, String> = HashMap::new();
+
+    fn find_representatives(val: &Value, path: &[String], reps: &mut HashMap<Vec<String>, String>) {
+        if let Value::Map(map) = val {
+            // Only deduplicate maps where MOST children are structurally similar
+            // complex maps (like a particles map where each child is a full particle).
+            // Don't deduplicate maps with heterogeneous children (like a particle's
+            // own fields: mass, position, local, exchange are all different types).
+            let complex_count = map.values()
+                .filter(|v| matches!(v, Value::Map(m) if m.len() > 2))
+                .count();
+            if complex_count > 1 && complex_count == map.len() {
+                // ALL children are complex and there are multiple → deduplicate
+                if let Some(first_key) = map.keys().next() {
+                    reps.insert(path.to_vec(), first_key.clone());
+                }
+            }
+            // Recurse into children
+            for (k, v) in map {
+                let mut child_path = path.to_vec();
+                child_path.push(k.clone());
+                find_representatives(v, &child_path, reps);
+            }
+        }
+    }
+
+    find_representatives(state, &[], &mut representatives);
+
+    // Check if a dot-separated name goes through a non-representative child
+    let is_rep = |name: &str| -> bool {
+        let parts: Vec<&str> = name.split('.').collect();
+        for i in 1..parts.len() {
+            let parent: Vec<String> = parts[..i].iter().map(|s| s.to_string()).collect();
+            if let Some(rep) = representatives.get(&parent) {
+                if parts[i] != rep.as_str() {
+                    return false;
+                }
+            }
+        }
+        true
+    };
+
+    let mut filtered = topology.clone();
+    let mut collapse_map = CollapseMap::new();
+
+    // 1. Filter nested duplicate processes (particles)
+    filtered.processes.retain(|name, _| is_rep(name));
+
+    // 2. Collapse top-level duplicate process types.
+    // Group by process_type, keep one representative per type if >1 exist.
+    let mut type_groups: HashMap<String, Vec<String>> = HashMap::new();
+    for (name, spec) in &filtered.processes {
+        type_groups
+            .entry(spec.process_type.clone())
+            .or_default()
+            .push(name.clone());
+    }
+
+    for (proc_type, names) in &type_groups {
+        if names.len() > 1 {
+            // Keep the first, remove the rest
+            let representative = &names[0];
+            let count = names.len();
+            // Extract the common prefix pattern for the label
+            let base_name = representative
+                .split('[').next()
+                .unwrap_or(representative);
+            collapse_map.insert(
+                representative.clone(),
+                format!("{base_name}[*] (x{count})"),
+            );
+            for name in &names[1..] {
+                filtered.processes.swap_remove(name);
+            }
+        }
+    }
+
+    // 3. Filter state: for each representative parent, keep only the representative child
+    let mut filtered_state = state.clone();
+    for (parent_path, rep_key) in &representatives {
+        if let Some(Value::Map(map)) = filtered_state.get_path(parent_path).cloned().as_ref() {
+            let mut kept = indexmap::IndexMap::new();
+            if let Some(rep_val) = map.get(rep_key) {
+                kept.insert(rep_key.clone(), rep_val.clone());
+            }
+            filtered_state.set_path(parent_path, Value::Map(kept));
+        }
+    }
+
+    (filtered, filtered_state, collapse_map)
+}
+
 pub fn render_topology_dot(
     topology: &Topology,
     state: &Value,
     options: &DotOptions,
 ) -> String {
+    // Filter topology to show only one representative for duplicate structures
+    // (e.g., multiple particles with identical process specs → show one)
+    let (topology, state, collapse_map) = deduplicate_for_viz(topology, state);
+    let topology = &topology;
+    let state = &state;
+
     let mut dot = String::new();
     let _ = writeln!(dot, "digraph {{");
     let _ = writeln!(dot, "    rankdir={};", options.rankdir);
@@ -84,11 +190,7 @@ pub fn render_topology_dot(
     let _ = writeln!(dot, "    splines=true;");
     let _ = writeln!(dot);
 
-    // Collect all state paths referenced by processes
-    let mut state_paths = collect_state_paths(topology);
-
-    // Expand state tree: show internals of map-type state nodes (e.g., particles)
-    // by adding child paths from the actual state data
+    let (mut state_paths, _) = collect_state_paths(topology, state);
     expand_state_tree(&mut state_paths, state, 3);
 
     // Render state nodes (circles) — filled, colored by role
@@ -113,7 +215,10 @@ pub fn render_topology_dot(
     for (name, spec) in &topology.processes {
         let node_id = format!("proc_{}", sanitize(name));
         let (fill, _border) = process_node_color(name, &spec.process_type);
-        let label = name.rsplit('.').next().unwrap_or(name);
+        let label = collapse_map
+            .get(name.as_str())
+            .map(|s| s.as_str())
+            .unwrap_or_else(|| name.rsplit('.').next().unwrap_or(name));
         let _ = writeln!(
             dot,
             "    {node_id} [shape=box, style=filled, fillcolor=\"{fill}\", \
@@ -264,7 +369,9 @@ pub fn render_topology_dot(
 
 /// Collect all unique state paths from process wiring.
 /// Filters out paths that collide with process names (those are rendered as boxes).
-fn collect_state_paths(topology: &Topology) -> Vec<Vec<String>> {
+/// Returns (state_paths, representatives) where representatives maps parent paths
+/// to the chosen child key for deduplication.
+fn collect_state_paths(topology: &Topology, state: &Value) -> (Vec<Vec<String>>, HashMap<Vec<String>, String>) {
     let process_names: HashSet<&str> = topology
         .processes
         .keys()
@@ -293,20 +400,66 @@ fn collect_state_paths(topology: &Topology) -> Vec<Vec<String>> {
         }
     }
 
-    // Filter out paths that are EXACTLY a process name (single element).
-    // Sub-paths like ["brownian_movement", "interval"] stay — they represent
-    // process config state that other processes can read.
+    // Filter out:
+    // 1. Paths that are EXACTLY a process name (single element)
+    // 2. Paths whose value in the state tree is a process spec (has "address")
     paths.retain(|path| {
         if path.len() == 1 {
             if let Some(name) = path.first() {
-                return !process_names.contains(name.as_str());
+                if process_names.contains(name.as_str()) {
+                    return false;
+                }
+            }
+        }
+        // Check if the value at this path is a process spec
+        if let Some(Value::Map(m)) = state.get_path(path) {
+            if m.contains_key("address") {
+                return false;
             }
         }
         true
     });
 
+    // Deduplicate: for maps with multiple complex children (like particles),
+    // keep only one representative. Find which parents have multiple complex
+    // children, pick the first child as representative, filter the rest.
+    let mut representatives: HashMap<Vec<String>, String> = HashMap::new();
+
+    // First pass: determine the representative child for each complex-valued parent
+    for path in &paths {
+        for i in 1..path.len() {
+            let parent = path[..i].to_vec();
+            if representatives.contains_key(&parent) {
+                continue;
+            }
+            if let Some(Value::Map(parent_map)) = state.get_path(&parent) {
+                let has_complex = parent_map.values()
+                    .any(|v| matches!(v, Value::Map(m) if m.len() > 1));
+                if has_complex && parent_map.len() > 1 {
+                    // First child encountered becomes the representative
+                    representatives.insert(parent, path[i].clone());
+                }
+            }
+        }
+    }
+
+    // Second pass: filter paths that go through non-representative children
+    if !representatives.is_empty() {
+        paths.retain(|path| {
+            for i in 1..path.len() {
+                let parent = path[..i].to_vec();
+                if let Some(rep) = representatives.get(&parent) {
+                    if path[i] != *rep {
+                        return false;
+                    }
+                }
+            }
+            true
+        });
+    }
+
     paths.sort();
-    paths
+    (paths, representatives)
 }
 
 /// Expand state paths by walking the actual state tree.
@@ -322,12 +475,19 @@ fn expand_state_tree(paths: &mut Vec<Vec<String>>, state: &Value, max_depth: usi
         let mut new_paths = Vec::new();
         for path in &to_expand {
             if let Some(Value::Map(map)) = state.get_path(path) {
-                // For very large maps (>20 entries like many dFBA processes),
-                // only show first entry. Otherwise show all.
-                let limit = if map.len() > 20 { 1 } else { map.len() };
+                // Show all children. The representative-sibling dedup in
+                // collect_state_paths already limits multi-entry maps to 1 entry.
+                let limit = map.len();
                 for (key, child_val) in map.iter().take(limit) {
                     if matches!(child_val, Value::None) {
                         continue;
+                    }
+                    // Skip process specs (maps with "address" key) — they're
+                    // rendered as process boxes, not state circles
+                    if let Value::Map(m) = child_val {
+                        if m.contains_key("address") {
+                            continue;
+                        }
                     }
                     let mut child = path.clone();
                     child.push(key.clone());

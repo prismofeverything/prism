@@ -205,7 +205,29 @@ impl Step for ParticleExchange {
             let y_bin = y_bin.min(ny - 1);
             let bin_idx = y_bin * nx + x_bin;
 
-            // Sample local field values — output delta (new - old) for additive apply
+            // 1. Apply particle's exchange to field FIRST.
+            // Exchange is in counts, field is concentration.
+            // Divide by cell volume to convert correctly.
+            // Cell volume for count→concentration conversion.
+            // depth is from config (default 1.0).
+            let cell_w = self.bounds.0 / nx as f64;
+            let cell_h = self.bounds.1 / ny as f64;
+            let cell_volume = (cell_w * cell_h * self.depth).max(1e-10);
+
+            if let Some(exchange) = particle.as_map().and_then(|m| m.get("exchange")).and_then(|v| v.as_map()) {
+                for (mol_id, delta) in exchange {
+                    if let (Some(arr), Some(d)) = (field_arrays.get_mut(mol_id), delta.as_f64()) {
+                        if bin_idx < arr.len() {
+                            arr[bin_idx] += d / cell_volume;
+                            if arr[bin_idx] < 0.0 {
+                                arr[bin_idx] = 0.0;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Sample local from the DEPLETED field (after exchange applied).
             let old_local = particle.as_map()
                 .and_then(|m| m.get("local"))
                 .and_then(|v| v.as_map());
@@ -222,31 +244,10 @@ impl Step for ParticleExchange {
                     .and_then(|m| m.get(mol_id))
                     .and_then(|v| v.as_f64())
                     .unwrap_or(0.0);
-                // Delta: set local to field value (replace old with new)
                 local.insert(mol_id.clone(), Value::float(field_val - old_val));
             }
 
-            // Apply particle's exchange to field.
-            // Exchange holds the per-step delta (zeroed after each transfer).
-            // Divide by cell volume to convert counts → concentration.
-            let cell_w = self.bounds.0 / nx as f64;
-            let cell_h = self.bounds.1 / ny as f64;
-            let cell_volume = cell_w * cell_h * self.depth;
-
-            if let Some(exchange) = particle.as_map().and_then(|m| m.get("exchange")).and_then(|v| v.as_map()) {
-                for (mol_id, delta) in exchange {
-                    if let (Some(arr), Some(d)) = (field_arrays.get_mut(mol_id), delta.as_f64()) {
-                        if bin_idx < arr.len() {
-                            arr[bin_idx] += d / cell_volume;
-                            if arr[bin_idx] < 0.0 {
-                                arr[bin_idx] = 0.0;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Output local delta AND zero exchange after transfer.
+            // 3. Output local delta AND zero exchange.
             let mut update_map: IndexMap<String, Value> = IndexMap::new();
             update_map.insert("local".to_string(), Value::Map(local));
             // Zero exchange: negate current values (additive apply → net zero)
@@ -261,11 +262,12 @@ impl Step for ParticleExchange {
             result_particles.insert(pid.clone(), updated);
         }
 
-        // Convert field arrays back to Values
+        // Convert field arrays back to Values, preserving original 2D structure
         let result_fields: IndexMap<String, Value> = field_arrays
             .into_iter()
             .map(|(k, arr)| {
-                (k, Value::List(arr.into_iter().map(Value::float).collect()))
+                let original = fields.get(&k).unwrap_or(&Value::None);
+                (k, super::fields::rebuild_field(&arr, original))
             })
             .collect();
 
@@ -324,6 +326,7 @@ impl Step for ParticleDivision {
         for (pid, particle) in particles {
             let mass = get_mass(particle);
 
+            let net_count = particles.len() + to_add.len() - to_remove.len();
             if mass >= self.division_mass_threshold {
                 any_divided = true;
                 let (x, y) = get_position(particle).unwrap_or((0.0, 0.0));
@@ -331,8 +334,10 @@ impl Step for ParticleDivision {
                 // Remove parent
                 to_remove.push(Value::String(pid.clone()));
 
-                // Create two daughters
-                for _ in 0..2 {
+                // At cap: create one daughter (halve mass, keep count stable).
+                // Below cap: create two daughters (normal division).
+                let n_daughters = if net_count >= self.max_particles { 1 } else { 2 };
+                for _ in 0..n_daughters {
                     let dx = normal(&mut rng, self.jitter);
                     let dy = normal(&mut rng, self.jitter);
                     let mut daughter = particle.clone();

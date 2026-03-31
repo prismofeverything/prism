@@ -1,44 +1,39 @@
 //! Generate the spatio-flux HTML report.
 //!
 //! Usage:
-//!   cargo run --bin report                              # standard scale
-//!   cargo run --bin report -- debug                     # fast debug (3 timesteps)
-//!   cargo run --bin report -- max                       # 10x longer
-//!   cargo run --bin report -- debug br_particles_kinetics  # debug all, standard for this one
-//!   cargo run --bin report -- debug comets_diffusion br_particles_dfba  # multiple focus sims
+//!   cargo run --bin report                              # assemble report from cached results
+//!   cargo run --bin report -- run                       # run ALL sims then assemble
+//!   cargo run --bin report -- run monod_kinetics        # run one sim then assemble
+//!   cargo run --bin report -- run ecoli_core_dfba br_particles_kinetics  # run specific sims
 
 use spatio_flux::report::ReportScale;
+use std::sync::Arc;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-
-    let scale = match args.first().map(|s| s.as_str()) {
-        Some("debug" | "d") => ReportScale::Debug,
-        Some("max" | "m") => ReportScale::Max,
-        _ => ReportScale::Standard,
-    };
-
-    // Any args after the scale name are focus simulations to run at standard scale
-    let focus: Vec<String> = if matches!(scale, ReportScale::Debug | ReportScale::Max) {
-        args.iter().skip(1).cloned().collect()
-    } else {
-        vec![]
-    };
-
-    let registry = std::sync::Arc::new(spatio_flux::build_registry());
+    let registry = Arc::new(spatio_flux::build_registry());
 
     let fixture_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures");
     let output_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/report");
 
-    println!("Scale:    {}", scale.label());
-    if !focus.is_empty() {
-        println!("Focus:    {:?} (standard scale)", focus);
+    if args.first().map(|s| s.as_str()) == Some("run") {
+        let sims: Vec<String> = args.iter().skip(1).cloned().collect();
+        if sims.is_empty() {
+            println!("Running ALL simulations...");
+            spatio_flux::report::run_all_sims(fixture_dir, output_dir, &registry)
+                .unwrap_or_else(|e| eprintln!("Error: {e}"));
+        } else {
+            for sim in &sims {
+                println!("Running {sim}...");
+                match spatio_flux::report::run_single_sim(sim, fixture_dir, output_dir, &registry) {
+                    Ok(ms) => println!("  {sim}: {ms}ms"),
+                    Err(e) => eprintln!("  {sim}: ERROR {e}"),
+                }
+            }
+        }
     }
-    println!("Fixtures: {fixture_dir}");
-    println!("Output:   {output_dir}");
 
-    spatio_flux::report::generate_report_focused(
-        fixture_dir, output_dir, registry, scale, &focus,
-    )
-    .unwrap_or_else(|e| eprintln!("Error: {e}"));
+    println!("Assembling report...");
+    spatio_flux::report::assemble_report(fixture_dir, output_dir)
+        .unwrap_or_else(|e| eprintln!("Error: {e}"));
 }

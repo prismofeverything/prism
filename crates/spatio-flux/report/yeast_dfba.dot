@@ -15,8 +15,8 @@ digraph {
 
     // Wiring
     state_fields__ammonium -> proc_yeast_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.ammonium", fontsize=10];
-    state_fields__glucose -> proc_yeast_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
     state_fields__biomass -> proc_yeast_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__glucose -> proc_yeast_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
 
     // Hierarchy
     state_fields -> state_fields__ammonium [arrowhead=none, penwidth=2];

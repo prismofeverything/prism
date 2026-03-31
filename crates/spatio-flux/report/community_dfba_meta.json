@@ -1,0 +1,16 @@
+{
+  "duration": 60.0,
+  "has_particles": false,
+  "has_probes": false,
+  "has_scalar_fields": true,
+  "n_processes": 7,
+  "n_steps": 60,
+  "name": "community_dfba",
+  "process_types": [
+    "DynamicFBA",
+    "MonodKinetics"
+  ],
+  "runtime_ms": 4773,
+  "spatial_field_names": [],
+  "status": "ok"
+}

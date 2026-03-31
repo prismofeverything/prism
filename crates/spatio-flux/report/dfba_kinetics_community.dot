@@ -16,11 +16,11 @@ digraph {
     proc_monod_kinetics [shape=box, style=filled, fillcolor="#D9A4A6", color="#D9A4A6", penwidth=0, label="monod_kinetics", fontsize=12];
 
     // Wiring
-    state_fields__glucose -> proc_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
     state_fields__acetate -> proc_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.acetate", fontsize=10];
     state_fields__dfba_biomass -> proc_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
-    state_fields__kinetic_biomass -> proc_monod_kinetics [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__glucose -> proc_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
     state_fields__acetate -> proc_monod_kinetics [style=dashed, penwidth=1, dir=both, label="substrates.acetate", fontsize=10];
+    state_fields__kinetic_biomass -> proc_monod_kinetics [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
 
     // Hierarchy
     state_fields -> state_fields__acetate [arrowhead=none, penwidth=2];

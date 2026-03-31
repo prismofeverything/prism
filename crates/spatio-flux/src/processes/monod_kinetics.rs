@@ -24,11 +24,14 @@ pub struct Reaction {
 pub struct MonodKinetics {
     pub reactions: Vec<Reaction>,
     pub interval: f64,
+    /// Scale factor applied to biomass yield. Default 1.0.
+    /// Reduces growth rate without changing consumption rate.
+    pub yield_scale: f64,
 }
 
 impl MonodKinetics {
     pub fn new(reactions: Vec<Reaction>, interval: f64) -> Self {
-        Self { reactions, interval }
+        Self { reactions, interval, yield_scale: 1.0 }
     }
 
     /// Get all substrate molecule IDs referenced by reactions.
@@ -122,7 +125,7 @@ impl Process for MonodKinetics {
 
             // Product produced (with yield)
             if rxn.product == "biomass" || rxn.product == "mass" {
-                biomass_delta += flux * rxn.yield_coeff;
+                biomass_delta += flux * rxn.yield_coeff * self.yield_scale;
             } else {
                 *substrate_values.entry(rxn.product.clone()).or_insert(0.0) +=
                     flux * rxn.yield_coeff;

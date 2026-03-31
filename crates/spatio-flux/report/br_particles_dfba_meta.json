@@ -1,0 +1,22 @@
+{
+  "duration": 60.0,
+  "has_particles": true,
+  "has_probes": false,
+  "has_scalar_fields": false,
+  "n_processes": 6,
+  "n_steps": 60,
+  "name": "br_particles_dfba",
+  "process_types": [
+    "BrownianMovement",
+    "DynamicFBA",
+    "ManageBoundaries",
+    "ParticleDivision",
+    "ParticleExchange"
+  ],
+  "runtime_ms": 577,
+  "spatial_field_names": [
+    "acetate",
+    "glucose"
+  ],
+  "status": "ok"
+}

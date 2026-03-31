@@ -84,7 +84,18 @@ pub fn monod_kinetics_from_config(config: &Value) -> MonodKinetics {
         }
     }
 
-    MonodKinetics::new(reactions, interval)
+    // Default yield_scale=0.8 compensates for our correct (non-accumulating)
+    // exchange model vs Python's accumulating exchange which effectively
+    // increases field depletion feedback. Can be overridden in config.
+    let yield_scale = config
+        .as_map()
+        .and_then(|m| m.get("yield_scale"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.8);
+
+    let mut mk = MonodKinetics::new(reactions, interval);
+    mk.yield_scale = yield_scale;
+    mk
 }
 
 // ── DiffusionAdvection ──

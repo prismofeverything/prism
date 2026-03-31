@@ -1,0 +1,24 @@
+{
+  "duration": 60.0,
+  "has_particles": true,
+  "has_probes": false,
+  "has_scalar_fields": false,
+  "n_processes": 106,
+  "n_steps": 60,
+  "name": "comets_br_particles_dfba",
+  "process_types": [
+    "BrownianMovement",
+    "DiffusionAdvection",
+    "DynamicFBA",
+    "ManageBoundaries",
+    "ParticleDivision",
+    "ParticleExchange"
+  ],
+  "runtime_ms": 5140,
+  "spatial_field_names": [
+    "acetate",
+    "dissolved biomass",
+    "glucose"
+  ],
+  "status": "ok"
+}
