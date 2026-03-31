@@ -1,16 +1,16 @@
 {
-  "duration": 12.0,
+  "duration": 60.0,
   "has_particles": true,
   "has_probes": false,
   "has_scalar_fields": false,
   "n_processes": 2,
-  "n_steps": 12,
+  "n_steps": 60,
   "name": "newtonian_particles",
   "process_types": [
     "ManageBoundaries",
     "PymunkParticleMovement"
   ],
-  "runtime_ms": 20,
+  "runtime_ms": 1776,
   "spatial_field_names": [],
   "status": "ok"
 }

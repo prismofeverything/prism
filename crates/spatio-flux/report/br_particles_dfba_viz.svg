@@ -18,14 +18,14 @@
 <!-- proc_enforce_boundaries -->
 <g id="node15" class="node">
 <title>proc_enforce_boundaries</title>
-<polygon fill="#9fd8df" stroke="#9fd8df" stroke-width="0" points="190.5,-174.11 54.5,-174.11 54.5,-138.11 190.5,-138.11 190.5,-174.11"/>
-<text text-anchor="middle" x="122.5" y="-153.01" font-family="Times,serif" font-size="12.00">enforce_boundaries</text>
+<polygon fill="#9fd8df" stroke="#9fd8df" stroke-width="0" points="224.5,-174.11 88.5,-174.11 88.5,-138.11 224.5,-138.11 224.5,-174.11"/>
+<text text-anchor="middle" x="156.5" y="-153.01" font-family="Times,serif" font-size="12.00">enforce_boundaries</text>
 </g>
 <!-- state_brownian_movement__interval&#45;&gt;proc_enforce_boundaries -->
 <g id="edge5" class="edge">
 <title>state_brownian_movement__interval&#45;&gt;proc_enforce_boundaries</title>
-<path fill="none" stroke="black" stroke-dasharray="5,2" d="M65.97,-236.18C65.18,-221.68 66.55,-205.41 73.5,-192.11 75.63,-188.04 78.47,-184.33 81.71,-180.99"/>
-<polygon fill="black" stroke="black" points="84.17,-183.48 89.35,-174.24 79.54,-178.24 84.17,-183.48"/>
+<path fill="none" stroke="black" stroke-dasharray="5,2" d="M64.59,-236.54C63.43,-221.6 64.89,-204.91 73.5,-192.11 76.61,-187.48 80.46,-183.47 84.79,-179.98"/>
+<polygon fill="black" stroke="black" points="86.81,-182.84 93.03,-174.26 82.82,-177.09 86.81,-182.84"/>
 <text text-anchor="middle" x="115.5" y="-195.11" font-family="Times,serif" font-size="10.00">process_interval</text>
 </g>
 <!-- state_fields -->
@@ -63,7 +63,7 @@
 <text text-anchor="middle" x="619.5" y="-424.44" font-family="Times,serif" font-size="12.00">particle_exchange</text>
 </g>
 <!-- state_fields&#45;&gt;proc_particle_exchange -->
-<g id="edge8" class="edge">
+<g id="edge7" class="edge">
 <title>state_fields&#45;&gt;proc_particle_exchange</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M712.6,-537.92C691.08,-512.64 660.84,-477.11 640.73,-453.49"/>
 <polygon fill="black" stroke="black" points="710.23,-540.54 719.38,-545.88 715.56,-536 710.23,-540.54"/>
@@ -104,13 +104,13 @@
 <!-- state_particles&#45;&gt;proc_enforce_boundaries -->
 <g id="edge6" class="edge">
 <title>state_particles&#45;&gt;proc_enforce_boundaries</title>
-<path fill="none" stroke="black" stroke-dasharray="5,2" d="M322.74,-525.76C312.72,-511.27 301.53,-494.92 291.5,-479.87 255.54,-425.92 240.52,-415.69 212.5,-357.22 179.07,-287.47 198.16,-257.91 157.5,-192.11 155.26,-188.49 152.58,-184.96 149.72,-181.62"/>
+<path fill="none" stroke="black" stroke-dasharray="5,2" d="M322.74,-525.76C312.72,-511.27 301.53,-494.92 291.5,-479.87 255.54,-425.92 239.09,-416.36 212.5,-357.22 185.94,-298.14 169.09,-223.5 161.39,-184.19"/>
 <polygon fill="black" stroke="black" points="319.92,-527.84 328.49,-534.06 325.67,-523.85 319.92,-527.84"/>
-<polygon fill="black" stroke="black" points="152.19,-179.14 142.8,-174.23 147.08,-183.93 152.19,-179.14"/>
+<polygon fill="black" stroke="black" points="164.82,-183.47 159.51,-174.3 157.94,-184.78 164.82,-183.47"/>
 <text text-anchor="middle" x="234.5" y="-349.22" font-family="Times,serif" font-size="10.00">particles</text>
 </g>
 <!-- state_particles&#45;&gt;proc_particle_exchange -->
-<g id="edge7" class="edge">
+<g id="edge8" class="edge">
 <title>state_particles&#45;&gt;proc_particle_exchange</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M401.4,-549.25C441.64,-532.81 499.63,-507.44 547.5,-479.87 561.87,-471.59 576.94,-461.15 589.56,-451.86"/>
 <polygon fill="black" stroke="black" points="400.03,-546.03 392.08,-553.03 402.66,-552.51 400.03,-546.03"/>
@@ -200,35 +200,35 @@
 <!-- proc_particles_YRdKa6aM_dFBA -->
 <g id="node13" class="node">
 <title>proc_particles_YRdKa6aM_dFBA</title>
-<polygon fill="#a24e56" stroke="#a24e56" stroke-width="0" points="441.5,-174.11 387.5,-174.11 387.5,-138.11 441.5,-138.11 441.5,-174.11"/>
-<text text-anchor="middle" x="414.5" y="-153.01" font-family="Times,serif" font-size="12.00">dFBA</text>
+<polygon fill="#a24e56" stroke="#a24e56" stroke-width="0" points="375.5,-174.11 283.5,-174.11 283.5,-138.11 375.5,-138.11 375.5,-174.11"/>
+<text text-anchor="middle" x="329.5" y="-153.01" font-family="Times,serif" font-size="12.00">dFBA[*] (x2)</text>
 </g>
 <!-- state_particles__YRdKa6aM&#45;&gt;proc_particles_YRdKa6aM_dFBA -->
 <g id="edge20" class="edge">
 <title>state_particles__YRdKa6aM&#45;&gt;proc_particles_YRdKa6aM_dFBA</title>
-<path fill="none" stroke="black" stroke-width="2" d="M309.01,-398.18C286.7,-380.93 261.7,-356.74 249.5,-328.22 230.77,-284.45 222.6,-260.39 249.5,-221.11 280.66,-175.6 349.24,-162.44 387.45,-158.65"/>
+<path fill="none" stroke="black" stroke-width="2" d="M309.01,-398.18C286.7,-380.93 261.7,-356.74 249.5,-328.22 230.77,-284.45 228.88,-264.01 249.5,-221.11 259.21,-200.91 278.74,-185.09 296.07,-174.23"/>
 </g>
 <!-- state_particles__YRdKa6aM__local&#45;&gt;proc_particles_YRdKa6aM_dFBA -->
 <g id="edge1" class="edge">
 <title>state_particles__YRdKa6aM__local&#45;&gt;proc_particles_YRdKa6aM_dFBA</title>
-<path fill="none" stroke="black" stroke-dasharray="5,2" d="M627.72,-249.05C621.54,-239.19 613.33,-228.46 603.5,-221.11 557.68,-186.86 492.34,-170.16 451.72,-162.63"/>
-<polygon fill="black" stroke="black" points="452.16,-159.15 441.7,-160.86 450.94,-166.04 452.16,-159.15"/>
+<path fill="none" stroke="black" stroke-dasharray="5,2" d="M628.22,-248.85C622.09,-238.83 613.77,-228.03 603.5,-221.11 537.6,-176.65 444.76,-162.85 385.87,-158.7"/>
+<polygon fill="black" stroke="black" points="385.84,-155.19 375.64,-158.05 385.4,-162.18 385.84,-155.19"/>
 <text text-anchor="middle" x="598.5" y="-195.11" font-family="Times,serif" font-size="10.00">substrates</text>
 </g>
 <!-- state_particles__YRdKa6aM__mass&#45;&gt;proc_particles_YRdKa6aM_dFBA -->
 <g id="edge3" class="edge">
 <title>state_particles__YRdKa6aM__mass&#45;&gt;proc_particles_YRdKa6aM_dFBA</title>
-<path fill="none" stroke="black" stroke-dasharray="5,2" d="M308.27,-241.47C313.49,-234.41 319.37,-227.22 325.5,-221.11 341.45,-205.2 361.68,-190.32 378.82,-178.92"/>
-<polygon fill="black" stroke="black" points="305.41,-239.45 302.46,-249.62 311.11,-243.5 305.41,-239.45"/>
-<polygon fill="black" stroke="black" points="380.99,-181.68 387.46,-173.29 377.17,-175.81 380.99,-181.68"/>
-<text text-anchor="middle" x="382" y="-195.11" font-family="Times,serif" font-size="10.00">biomass</text>
+<path fill="none" stroke="black" stroke-dasharray="5,2" d="M300.49,-237.62C306.7,-220.37 314.02,-200.06 319.75,-184.16"/>
+<polygon fill="black" stroke="black" points="297.13,-236.62 297.03,-247.21 303.71,-238.99 297.13,-236.62"/>
+<polygon fill="black" stroke="black" points="323.16,-185.01 323.26,-174.42 316.58,-182.64 323.16,-185.01"/>
+<text text-anchor="middle" x="338" y="-195.11" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- proc_particles_YRdKa6aM_dFBA&#45;&gt;state_particles__YRdKa6aM__exchange -->
 <g id="edge2" class="edge">
 <title>proc_particles_YRdKa6aM_dFBA&#45;&gt;state_particles__YRdKa6aM__exchange</title>
-<path fill="none" stroke="black" stroke-dasharray="5,2" d="M426.87,-137.67C435.7,-125.21 448.01,-107.86 459.52,-91.64"/>
-<polygon fill="black" stroke="black" points="462.51,-93.47 465.44,-83.29 456.8,-89.42 462.51,-93.47"/>
-<text text-anchor="middle" x="473.5" y="-112.11" font-family="Times,serif" font-size="10.00">substrates</text>
+<path fill="none" stroke="black" stroke-dasharray="5,2" d="M355.17,-137.91C379.37,-121.69 416.19,-97.02 445.46,-77.4"/>
+<polygon fill="black" stroke="black" points="447.53,-80.23 453.89,-71.75 443.64,-74.41 447.53,-80.23"/>
+<text text-anchor="middle" x="423.5" y="-112.11" font-family="Times,serif" font-size="10.00">substrates</text>
 </g>
 <!-- proc_brownian_movement&#45;&gt;state_brownian_movement__interval -->
 <g id="edge10" class="edge">

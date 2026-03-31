@@ -110,7 +110,7 @@
 <text text-anchor="middle" x="1079.56" y="-349.22" font-family="Times,serif" font-size="10.00">fields.acetate</text>
 </g>
 <!-- state_fields__dissolved_biomass&#45;&gt;proc_spatial_dFBA -->
-<g id="edge4" class="edge">
+<g id="edge5" class="edge">
 <title>state_fields__dissolved_biomass&#45;&gt;proc_spatial_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1117.56,-365.13C1117.56,-342.61 1117.56,-319.95 1117.56,-303.07"/>
 <polygon fill="black" stroke="black" points="1114.06,-365.21 1117.56,-375.21 1121.06,-365.21 1114.06,-365.21"/>
@@ -118,7 +118,7 @@
 <text text-anchor="middle" x="1139.06" y="-349.22" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__glucose&#45;&gt;proc_spatial_dFBA -->
-<g id="edge5" class="edge">
+<g id="edge4" class="edge">
 <title>state_fields__glucose&#45;&gt;proc_spatial_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1226.75,-410.05C1219.65,-398.53 1211.6,-386.18 1203.56,-375.22 1183.95,-348.52 1158.96,-320.12 1140.98,-300.52"/>
 <polygon fill="black" stroke="black" points="1223.8,-411.93 1231.98,-418.65 1229.78,-408.29 1223.8,-411.93"/>
@@ -195,7 +195,7 @@
 <!-- state_particles__sbdbc5ns&#45;&gt;state_particles__sbdbc5ns__exchange -->
 <g id="edge19" class="edge">
 <title>state_particles__sbdbc5ns&#45;&gt;state_particles__sbdbc5ns__exchange</title>
-<path fill="none" stroke="black" stroke-width="2" d="M221.27,-412.24C212.36,-395.48 202.11,-375.56 193.56,-357.22 158.66,-282.42 171.15,-256.2 162.56,-174.11 159.67,-146.58 156.99,-115.66 155,-91.16"/>
+<path fill="none" stroke="black" stroke-width="2" d="M220.78,-412.29C211.68,-395.53 201.23,-375.6 192.56,-357.22 151.25,-269.64 147.56,-153.65 149.15,-91.11"/>
 </g>
 <!-- state_particles__sbdbc5ns__id -->
 <g id="node9" class="node">
@@ -255,35 +255,35 @@
 <!-- proc_particles_sbdbc5ns_monod_kinetics -->
 <g id="node14" class="node">
 <title>proc_particles_sbdbc5ns_monod_kinetics</title>
-<polygon fill="#d9a4a6" stroke="#d9a4a6" stroke-width="0" points="281.56,-174.11 171.56,-174.11 171.56,-138.11 281.56,-138.11 281.56,-174.11"/>
-<text text-anchor="middle" x="226.56" y="-153.01" font-family="Times,serif" font-size="12.00">monod_kinetics</text>
+<polygon fill="#d9a4a6" stroke="#d9a4a6" stroke-width="0" points="321.56,-174.11 169.56,-174.11 169.56,-138.11 321.56,-138.11 321.56,-174.11"/>
+<text text-anchor="middle" x="245.56" y="-153.01" font-family="Times,serif" font-size="12.00">monod_kinetics[*] (x3)</text>
 </g>
 <!-- state_particles__sbdbc5ns&#45;&gt;proc_particles_sbdbc5ns_monod_kinetics -->
 <g id="edge25" class="edge">
 <title>state_particles__sbdbc5ns&#45;&gt;proc_particles_sbdbc5ns_monod_kinetics</title>
-<path fill="none" stroke="black" stroke-width="2" d="M222.06,-411.95C210.91,-388.38 198.26,-357.39 192.56,-328.22 183.42,-281.5 181.05,-267.3 192.56,-221.11 196.78,-204.14 206.44,-186.73 214.39,-174.36"/>
+<path fill="none" stroke="black" stroke-width="2" d="M221.24,-412.44C198.61,-366.01 169.07,-286.29 192.56,-221.11 199.16,-202.78 213.54,-185.99 225.65,-174.2"/>
 </g>
 <!-- state_particles__sbdbc5ns__local&#45;&gt;proc_particles_sbdbc5ns_monod_kinetics -->
 <g id="edge1" class="edge">
 <title>state_particles__sbdbc5ns__local&#45;&gt;proc_particles_sbdbc5ns_monod_kinetics</title>
-<path fill="none" stroke="black" stroke-dasharray="5,2" d="M271.47,-248.94C262.03,-229.65 248.95,-202.91 239.34,-183.26"/>
-<polygon fill="black" stroke="black" points="242.47,-181.69 234.94,-174.24 236.19,-184.76 242.47,-181.69"/>
-<text text-anchor="middle" x="275.56" y="-195.11" font-family="Times,serif" font-size="10.00">substrates</text>
+<path fill="none" stroke="black" stroke-dasharray="5,2" d="M275.03,-247.51C268.83,-228.5 260.48,-202.87 254.25,-183.76"/>
+<polygon fill="black" stroke="black" points="257.54,-182.58 251.12,-174.16 250.89,-184.75 257.54,-182.58"/>
+<text text-anchor="middle" x="287.56" y="-195.11" font-family="Times,serif" font-size="10.00">substrates</text>
 </g>
 <!-- state_particles__sbdbc5ns__mass&#45;&gt;proc_particles_sbdbc5ns_monod_kinetics -->
 <g id="edge3" class="edge">
 <title>state_particles__sbdbc5ns__mass&#45;&gt;proc_particles_sbdbc5ns_monod_kinetics</title>
-<path fill="none" stroke="black" stroke-dasharray="5,2" d="M342.42,-238.95C333.63,-223.02 321.49,-204.88 306.56,-192.11 300.64,-187.05 293.89,-182.61 286.86,-178.75"/>
-<polygon fill="black" stroke="black" points="339.44,-240.81 347.2,-248.02 345.63,-237.54 339.44,-240.81"/>
-<polygon fill="black" stroke="black" points="288.36,-175.58 277.86,-174.16 285.18,-181.82 288.36,-175.58"/>
-<text text-anchor="middle" x="338.06" y="-195.11" font-family="Times,serif" font-size="10.00">biomass</text>
+<path fill="none" stroke="black" stroke-dasharray="5,2" d="M346.66,-236.9C340.25,-221.57 331.05,-204.49 318.56,-192.11 313.66,-187.25 307.96,-182.98 301.94,-179.23"/>
+<polygon fill="black" stroke="black" points="343.57,-238.62 350.47,-246.66 350.09,-236.07 343.57,-238.62"/>
+<polygon fill="black" stroke="black" points="303.38,-176.02 292.96,-174.12 299.92,-182.11 303.38,-176.02"/>
+<text text-anchor="middle" x="349.06" y="-195.11" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- proc_particles_sbdbc5ns_monod_kinetics&#45;&gt;state_particles__sbdbc5ns__exchange -->
 <g id="edge2" class="edge">
 <title>proc_particles_sbdbc5ns_monod_kinetics&#45;&gt;state_particles__sbdbc5ns__exchange</title>
-<path fill="none" stroke="black" stroke-dasharray="5,2" d="M214.51,-137.67C205.97,-125.32 194.11,-108.15 182.98,-92.04"/>
-<polygon fill="black" stroke="black" points="185.81,-89.98 177.25,-83.74 180.06,-93.96 185.81,-89.98"/>
-<text text-anchor="middle" x="229.56" y="-112.11" font-family="Times,serif" font-size="10.00">substrates</text>
+<path fill="none" stroke="black" stroke-dasharray="5,2" d="M230.45,-137.67C218.93,-124.36 202.57,-105.46 187.73,-88.33"/>
+<polygon fill="black" stroke="black" points="190.23,-85.87 181.04,-80.6 184.94,-90.45 190.23,-85.87"/>
+<text text-anchor="middle" x="242.56" y="-112.11" font-family="Times,serif" font-size="10.00">substrates</text>
 </g>
 <!-- proc_brownian_movement&#45;&gt;state_brownian_movement__interval -->
 <g id="edge14" class="edge">

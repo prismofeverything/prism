@@ -108,7 +108,12 @@ impl Engine {
 
         // Set up each process/step
         for (name, spec) in &topology.processes {
-            let interface = spec.interface();
+            let mut interface = spec.interface();
+            // Populate output schemas from the process/step node
+            if let Some(node) = instances.get(name) {
+                let declared_outputs = node.outputs();
+                interface.output_schemas = declared_outputs;
+            }
             interfaces.insert(name.clone(), interface);
 
             // Merge initial state from the process instance
@@ -117,7 +122,7 @@ impl Engine {
                 if !init.is_none() {
                     // Project initial state through output wiring
                     let iface = &interfaces[name];
-                    for (path, val) in iface.project(&init) {
+                    for (path, val, _schema) in iface.project(&init) {
                         state.set_path(&path, val);
                     }
                 }
@@ -184,6 +189,7 @@ impl Engine {
     /// Run the simulation for the given duration.
     pub fn run(&mut self, duration: f64) {
         let end_time = self.time + duration;
+        let mut iter_count = 0u64;
 
         while self.time < end_time {
             // Find ALL processes that fire at the next time point
@@ -212,6 +218,17 @@ impl Engine {
 
                     // Trigger steps ONCE after all processes at this time have run
                     self.trigger_steps(&all_changed);
+
+                    iter_count += 1;
+                    if iter_count <= 3 || iter_count % 100 == 0 {
+                        eprintln!("[engine] iter={iter_count} t={:.4} fired={} changed={} fronts={}",
+                            self.time, firing.len(), all_changed.len(), self.fronts.len());
+                    }
+                    if iter_count > 100_000 {
+                        eprintln!("[engine] SAFETY: breaking after {iter_count} iterations at t={}", self.time);
+                        self.time = end_time;
+                        break;
+                    }
                 }
                 None => {
                     self.time = end_time;
@@ -285,23 +302,20 @@ impl Engine {
 
     /// Apply projected updates to the state tree.
     /// Returns the set of paths that were modified.
-    fn apply_projections(&mut self, projections: &[(Path, Value)]) -> Vec<Path> {
+    fn apply_projections(&mut self, projections: &[(Path, Value, Option<Schema>)]) -> Vec<Path> {
         let mut changed = Vec::new();
-        for (path, value) in projections {
-            // Use schema-aware update if possible
+        for (path, value, port_schema) in projections {
             let current = self.state.get_path(path).cloned().unwrap_or(Value::None);
-            let new_value = self.apply_with_schema(path, &current, value);
+            // Use port-specific schema if available, else fall back to global
+            let new_value = if let Some(schema) = port_schema {
+                schema.apply_update(&current, value)
+            } else {
+                self.schema.apply_update(&current, value)
+            };
             self.state.set_path(path, new_value);
             changed.push(path.clone());
         }
         changed
-    }
-
-    /// Apply an update respecting schema semantics (delta = additive).
-    fn apply_with_schema(&self, _path: &[String], current: &Value, update: &Value) -> Value {
-        // For now, use schema-level apply if we have a schema.
-        // TODO: walk the schema tree to find the right sub-schema for this path.
-        self.schema.apply_update(current, update)
     }
 
     /// Fire any steps whose inputs overlap with the changed paths.
@@ -332,9 +346,13 @@ impl Engine {
             pb.partial_cmp(&pa).unwrap_or(std::cmp::Ordering::Equal) // higher first
         });
 
-        // Run triggered steps once all inputs are satisfied.
+        // Run triggered steps with cascade: a step's output can trigger
+        // downstream steps, but each step runs at most once per cycle.
+        // Process discovery is deferred until after all steps complete
+        // to avoid adding new steps mid-cascade.
         let mut already_run = HashSet::new();
         let mut queue = triggered;
+        let mut all_step_changes = Vec::new();
 
         while let Some(step_name) = queue.pop() {
             if already_run.contains(&step_name) {
@@ -358,10 +376,7 @@ impl Engine {
                 let projections = interface.project(&update_value);
                 let newly_changed = self.apply_projections(&projections);
 
-                // Discover new processes in changed state
-                self.discover_processes(&newly_changed);
-
-                // Cascade: find more steps triggered by this step's output
+                // Cascade: find downstream steps triggered by this step's output
                 for path in &newly_changed {
                     if let Some(steps) = self.step_triggers.get(path) {
                         for s in steps {
@@ -370,8 +385,27 @@ impl Engine {
                             }
                         }
                     }
+                    // Also check prefix matches
+                    for i in 1..path.len() {
+                        let prefix = path[..i].to_vec();
+                        if let Some(steps) = self.step_triggers.get(&prefix) {
+                            for s in steps {
+                                if !already_run.contains(s) {
+                                    queue.push(s.clone());
+                                }
+                            }
+                        }
+                    }
                 }
+
+                all_step_changes.extend(newly_changed);
             }
+        }
+
+        // Discover new processes AFTER all steps complete (e.g., particle
+        // division creates new particles with embedded process specs)
+        if !all_step_changes.is_empty() {
+            self.discover_processes(&all_step_changes);
         }
     }
 
@@ -382,14 +416,18 @@ impl Engine {
         spec: ProcessSpec,
         node: ProcessNode,
     ) {
-        let interface = spec.interface();
+        let mut interface = spec.interface();
+        interface.output_schemas = node.outputs();
         self.interfaces.insert(name.clone(), interface);
 
         if let Some(interval) = spec.interval {
+            // Schedule for NEXT cycle, not current time.
+            // This prevents infinite discovery-fire-discover loops
+            // when new processes are added mid-tick.
             self.fronts.insert(
                 name.clone(),
                 ProcessFront {
-                    next_time: self.time,
+                    next_time: self.time + interval,
                     interval,
                 },
             );

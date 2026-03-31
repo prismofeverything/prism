@@ -120,31 +120,81 @@ fn deduplicate_for_viz(topology: &Topology, state: &Value) -> (Topology, Value, 
     let mut filtered = topology.clone();
     let mut collapse_map = CollapseMap::new();
 
-    // 1. Filter nested duplicate processes (particles)
+    // 1. Filter nested duplicate processes (particles/spatial grids).
+    // Count how many were removed per representative so we can label them.
+    let pre_count = filtered.processes.len();
+    let mut nested_rep_counts: HashMap<String, usize> = HashMap::new();
+    for name in filtered.processes.keys() {
+        if !is_rep(name) {
+            // Find which representative this maps to
+            let parts: Vec<&str> = name.split('.').collect();
+            for i in 1..parts.len() {
+                let parent: Vec<String> = parts[..i].iter().map(|s| s.to_string()).collect();
+                if let Some(rep) = representatives.get(&parent) {
+                    let mut rep_name = parts[..i].to_vec();
+                    rep_name.push(rep);
+                    rep_name.extend_from_slice(&parts[i+1..]);
+                    let rep_full = rep_name.join(".");
+                    *nested_rep_counts.entry(rep_full).or_insert(1) += 1;
+                    break;
+                }
+            }
+        }
+    }
     filtered.processes.retain(|name, _| is_rep(name));
 
+    // Add collapse labels for nested deduplication
+    for (rep_name, count) in &nested_rep_counts {
+        if *count > 1 {
+            if let Some(last) = rep_name.rsplit('.').next() {
+                let base = last.split('[').next().unwrap_or(last);
+                collapse_map.insert(
+                    rep_name.clone(),
+                    format!("{base}[*] (x{count})"),
+                );
+            }
+        }
+    }
+
     // 2. Collapse top-level duplicate process types.
-    // Group by process_type, keep one representative per type if >1 exist.
-    let mut type_groups: HashMap<String, Vec<String>> = HashMap::new();
+    // Group by name pattern (with [indices] replaced by [*]) AND process_type.
+    // This prevents collapsing processes like "ecoli_1 dFBA" and "ecoli_2 dFBA"
+    // which are different processes with different wiring, even though they
+    // share the same process_type.
+    let name_pattern = |name: &str| -> String {
+        // Replace bracket-enclosed indices with [*]
+        let re_like: String = name.chars().fold((String::new(), false), |(mut s, in_bracket), c| {
+            match c {
+                '[' => { s.push('['); (s, true) }
+                ']' => { s.push_str("*]"); (s, false) }
+                _ if in_bracket => (s, true), // skip index chars
+                _ => { s.push(c); (s, false) }
+            }
+        }).0;
+        re_like
+    };
+
+    let mut pattern_groups: HashMap<(String, String), Vec<String>> = HashMap::new();
     for (name, spec) in &filtered.processes {
-        type_groups
-            .entry(spec.process_type.clone())
+        let pattern = name_pattern(name);
+        pattern_groups
+            .entry((spec.process_type.clone(), pattern))
             .or_default()
             .push(name.clone());
     }
 
-    for (proc_type, names) in &type_groups {
+    for ((_, _), names) in &pattern_groups {
         if names.len() > 1 {
-            // Keep the first, remove the rest
             let representative = &names[0];
             let count = names.len();
-            // Extract the common prefix pattern for the label
             let base_name = representative
                 .split('[').next()
                 .unwrap_or(representative);
+            // Use leaf name for the label (strip parent path)
+            let leaf = base_name.rsplit('.').next().unwrap_or(base_name);
             collapse_map.insert(
                 representative.clone(),
-                format!("{base_name}[*] (x{count})"),
+                format!("{leaf}[*] (x{count})"),
             );
             for name in &names[1..] {
                 filtered.processes.swap_remove(name);
@@ -195,8 +245,10 @@ pub fn render_topology_dot(
 
     // Render state nodes (circles) — filled, colored by role
     let _ = writeln!(dot, "    // State nodes");
+    let mut emitted_state_ids: HashSet<String> = HashSet::new();
     for path in &state_paths {
         let node_id = path_to_id(path);
+        emitted_state_ids.insert(node_id.clone());
         let label = make_state_label(path, state, options);
         let (fill, border) = state_node_color(path);
         let _ = writeln!(
@@ -346,7 +398,7 @@ pub fn render_topology_dot(
 
     // Hierarchy edges for nested processes: if a process name contains dots
     // (e.g., "particles.pid.monod_kinetics"), connect its parent state path
-    // to the process box
+    // to the process box. Ensure the parent state node exists.
     let _ = writeln!(dot, "    // Nested process hierarchy");
     for name in topology.processes.keys() {
         if let Some(dot_pos) = name.rfind('.') {
@@ -355,6 +407,20 @@ pub fn render_topology_dot(
                 parent_path_str.split('.').map(|s| s.to_string()).collect();
             let parent_id = path_to_id(&parent_path);
             let proc_id = format!("proc_{}", sanitize(name));
+
+            // Ensure parent state node is defined (it may not be in the
+            // wiring-derived paths if it only contains process specs)
+            if !emitted_state_ids.contains(&parent_id) {
+                emitted_state_ids.insert(parent_id.clone());
+                let label = parent_path.last().map(|s| s.as_str()).unwrap_or("");
+                let (fill, border) = state_node_color(&parent_path);
+                let _ = writeln!(
+                    dot,
+                    "    {parent_id} [shape=circle, style=filled, fillcolor=\"{fill}\", \
+                     color=\"{border}\", penwidth=1, label=\"{label}\", fontsize=12];",
+                );
+            }
+
             let _ = writeln!(
                 dot,
                 "    {parent_id} -> {proc_id} [arrowhead=none, penwidth={pw}];",

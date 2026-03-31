@@ -130,7 +130,7 @@ pub fn run_single_sim(
     // Build a fresh registry for the engine (needs Arc for dynamic discovery)
     let engine_registry = std::sync::Arc::new(crate::from_config::build_registry());
     match instantiate_vivarium(&vdoc, engine_registry) {
-        Ok((mut engine, _)) => {
+        Ok((mut engine, _topology)) => {
             let emit_interval = 1.0;
             let n_steps = (duration / emit_interval).ceil() as usize;
             let mut times = vec![0.0];
@@ -326,9 +326,8 @@ pub fn generate_report_focused(
         "comets_br_particles_kinetics",
         "comets_br_particles_dfba",
         "newtonian_particles",
-        // Temporarily excluded: rapier2d crash + exponential particle growth
-        // "comets_nt_particles_dfba",
-        // "spatioflux_reference_demo",
+        "comets_nt_particles_dfba",
+        "spatioflux_reference_demo",
     ];
 
     // Use canonical order, then append any extras found on disk
@@ -483,6 +482,8 @@ fn determine_duration(name: &str, scale: ReportScale) -> f64 {
     let base = match name {
         // DEFAULT_RUNTIME_LONGER = 200
         "brownian_particles" | "br_particles_kinetics" | "comets_diffusion" => 200.0,
+        // Custom duration from Python test config
+        "spatioflux_reference_demo" => 120.0,
         // DEFAULT_RUNTIME_LONG = 60 (everything else)
         _ => 60.0,
     };
@@ -759,7 +760,7 @@ fn generate_plots(
         let _ = std::fs::write(output_dir.join(format!("{name}_mass.svg")), svg);
 
         // Particle animation frames — sample ~60 frames max to avoid huge inline JSON
-        let bounds = detect_particle_bounds(states);
+        let bounds = detect_domain_bounds(&states[0]);
         let mut particle_frames = Vec::new();
         let mut particle_snapshots = Vec::new();
         let n_snap = 6;
@@ -1065,7 +1066,9 @@ fn overlay_particles(svg: &mut String, state: &Value, nx: usize, ny: usize, flip
             } else {
                 (y / bounds_y * svg_h as f64) as i32
             };
-            let radius = ((mass * 3.0).sqrt() + 1.5).min(cell_size as f64 / 2.0) as i32;
+            // Use actual physics radius if available, else derive from mass
+            let phys_radius = get_radius(p);
+            let radius = (phys_radius / bounds_x * svg_w as f64).max(0.5).min(cell_size as f64 / 2.0) as i32;
             let (r, g, b) = TAB20[i % TAB20.len()];
 
             let _ = write!(svg,
@@ -1078,11 +1081,37 @@ fn overlay_particles(svg: &mut String, state: &Value, nx: usize, ny: usize, flip
 }
 
 fn get_mass(particle: &Value) -> f64 {
-    particle
-        .as_map()
-        .and_then(|m| m.get("mass"))
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0)
+    if let Some(map) = particle.as_map() {
+        // Sum sub_masses if available (for community particles)
+        if let Some(sub_masses) = map.get("sub_masses").and_then(|v| v.as_map()) {
+            let total: f64 = sub_masses.values().filter_map(|v| v.as_f64()).sum();
+            if total > 0.0 {
+                return total;
+            }
+        }
+        map.get("mass").and_then(|v| v.as_f64()).unwrap_or(0.0)
+    } else {
+        0.0
+    }
+}
+
+fn get_radius(particle: &Value) -> f64 {
+    // Use stored radius if available and non-zero, else derive from mass.
+    // For sub_masses particles, always derive from total mass (sub_masses may grow).
+    if let Some(map) = particle.as_map() {
+        let has_sub_masses = map.get("sub_masses")
+            .and_then(|v| v.as_map())
+            .is_some_and(|sm| sm.values().any(|v| v.as_f64().is_some()));
+        if !has_sub_masses {
+            if let Some(r) = map.get("radius").and_then(|v| v.as_f64()) {
+                if r > 0.0 {
+                    return r;
+                }
+            }
+        }
+    }
+    let mass = get_mass(particle).max(0.001);
+    (mass / (0.015 * std::f64::consts::PI)).sqrt()
 }
 
 /// Matplotlib tab20 color palette (20 distinct colors).
@@ -1116,7 +1145,7 @@ fn render_particle_traces(title: &str, _times: &[f64], states: &[Value]) -> Stri
     }
 
     let (w, h) = (400, 400);
-    let bounds = detect_particle_bounds(states);
+    let bounds = detect_domain_bounds(&states[0]);
     let (bx0, by0, bx1, by1) = bounds;
     let sx = w as f64 / (bx1 - bx0).max(1.0);
     let sy = h as f64 / (by1 - by0).max(1.0);
@@ -1219,27 +1248,31 @@ fn infer_grid_dims(field_val: Option<&Value>, flat_len: usize) -> (usize, usize)
 }
 
 /// Detect the bounding box of all particles across all timesteps.
-fn detect_particle_bounds(states: &[Value]) -> (f64, f64, f64, f64) {
-    let (mut x_min, mut y_min) = (f64::MAX, f64::MAX);
-    let (mut x_max, mut y_max) = (0.0_f64, 0.0_f64);
-
-    for state in states {
-        if let Some(particles) = state.as_map().and_then(|m| m.get("particles")).and_then(|v| v.as_map()) {
-            for (_, p) in particles {
-                if let Some(pos) = p.as_map().and_then(|m| m.get("position")).and_then(|v| v.as_list()) {
-                    let x = pos.first().and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    let y = pos.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    x_min = x_min.min(x);
-                    y_min = y_min.min(y);
-                    x_max = x_max.max(x);
-                    y_max = y_max.max(y);
-                }
+/// Extract the domain bounds from process configs in the state.
+/// Looks for "bounds" in known process configs (newtonian_particles,
+/// brownian_movement, enforce_boundaries, etc.)
+fn detect_domain_bounds(state: &Value) -> (f64, f64, f64, f64) {
+    let check_keys = [
+        "newtonian_particles", "brownian_movement", "enforce_boundaries",
+        "particle_exchange",
+    ];
+    if let Some(map) = state.as_map() {
+        for key in &check_keys {
+            if let Some(bounds) = map.get(*key)
+                .and_then(|v| v.as_map())
+                .and_then(|m| m.get("config"))
+                .and_then(|v| v.as_map())
+                .and_then(|m| m.get("bounds"))
+                .and_then(|v| v.as_list())
+            {
+                let bx = bounds.first().and_then(|v| v.as_f64()).unwrap_or(50.0);
+                let by = bounds.get(1).and_then(|v| v.as_f64()).unwrap_or(50.0);
+                return (0.0, 0.0, bx, by);
             }
         }
     }
-
-    let pad = 2.0;
-    ((x_min - pad).max(0.0), (y_min - pad).max(0.0), x_max + pad, y_max + pad)
+    // Fallback: scan particle positions
+    (0.0, 0.0, 50.0, 50.0)
 }
 
 /// Render a single frame of particle positions as inline SVG.
@@ -1264,11 +1297,12 @@ fn render_particle_frame(
             if let Some(pos) = p.as_map().and_then(|m| m.get("position")).and_then(|v| v.as_list()) {
                 let x = pos.first().and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let y = pos.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let mass = get_mass(p);
                 let (r, g, b) = TAB20[i % TAB20.len()];
                 let px = ((x - bx0) * scale_x) as i32;
                 let py = h as i32 - ((y - by0) * scale_y) as i32; // flip Y
-                let radius = (mass * 8.0 + 2.0).min(10.0) as i32;
+                // Use actual physics radius, scaled to SVG pixels
+                let phys_radius = get_radius(p);
+                let radius = (phys_radius * scale_x).max(0.5).min(30.0) as i32;
                 let _ = write!(
                     svg,
                     "<circle cx=\"{px}\" cy=\"{py}\" r=\"{radius}\" fill=\"rgb({r},{g},{b})\" opacity=\"0.8\"/>"

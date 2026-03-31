@@ -10,6 +10,8 @@ use rapier2d::prelude::*;
 
 use prism_bigraph::{Process, Schema, Update, Value};
 
+use super::particles::{radius_from_mass, DEFAULT_DENSITY};
+
 /// 2D rigid-body particle physics using rapier2d.
 #[derive(Clone, Debug)]
 pub struct NewtonianParticles {
@@ -17,6 +19,7 @@ pub struct NewtonianParticles {
     pub gravity: (f64, f64),
     pub elasticity: f64,
     pub damping: f64,
+    pub substeps: usize,
     pub interval: f64,
 }
 
@@ -47,12 +50,17 @@ impl Process for NewtonianParticles {
             return Update::Noop;
         }
 
-        // Build rapier world
+        // Build rapier world with sub-stepping for stability.
+        // Since we rebuild the world each update (no persistent contacts),
+        // sub-stepping helps the solver converge for resting stacks.
+        let n_substeps = self.substeps;
+        let sub_dt = interval as f32 / n_substeps as f32;
+
         let gravity = vector![self.gravity.0 as f32, self.gravity.1 as f32];
         let mut rigid_body_set = RigidBodySet::new();
         let mut collider_set = ColliderSet::new();
         let integration_parameters = IntegrationParameters {
-            dt: interval as f32,
+            dt: sub_dt,
             ..Default::default()
         };
         let mut physics_pipeline = PhysicsPipeline::new();
@@ -119,22 +127,54 @@ impl Process for NewtonianParticles {
                 })
                 .unwrap_or((0.0, 0.0));
 
-            let mass = particle
-                .as_map()
-                .and_then(|m| m.get("mass"))
-                .and_then(|v| v.as_f64())
-                .unwrap_or(1.0) as f32;
+            // Use sub_masses sum if available, else fall back to mass field
+            let mass = {
+                let m = particle.as_map();
+                let sub_total: f64 = m
+                    .and_then(|m| m.get("sub_masses"))
+                    .and_then(|v| v.as_map())
+                    .map(|sm| sm.values().filter_map(|v| v.as_f64()).sum())
+                    .unwrap_or(0.0);
+                if sub_total > 0.0 {
+                    sub_total as f32
+                } else {
+                    m.and_then(|m| m.get("mass"))
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(1.0) as f32
+                }
+            };
 
-            let radius = particle
+            let radius = radius_from_mass(mass as f64, DEFAULT_DENSITY) as f32;
+
+            // Read velocity from state (preserved across steps)
+            let vel = particle
                 .as_map()
-                .and_then(|m| m.get("radius"))
-                .and_then(|v| v.as_f64())
-                .unwrap_or(1.0) as f32;
+                .and_then(|m| m.get("velocity"))
+                .and_then(|v| v.as_list())
+                .map(|l| {
+                    (
+                        l.first().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                        l.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                    )
+                })
+                .unwrap_or((0.0, 0.0));
+
+            // Convert pymunk-style damping (fraction retained per second)
+            // to rapier linear_damping: v *= 1/(1 + dt*d), so for
+            // pymunk damping=0.998 → retain=0.998/s → rapier_d = (1/retain - 1)/dt ≈ (1-retain)/dt
+            // But rapier applies per-step: we want 1/(1+d*dt)^(1/dt) = retain
+            // Simplify: rapier_damping = -ln(pymunk_damping)
+            let rapier_damping = if self.damping > 0.0 && self.damping < 1.0 {
+                -(self.damping as f32).ln()
+            } else {
+                0.0 // damping >= 1 means no damping in pymunk convention
+            };
 
             let body = rigid_body_set.insert(
                 RigidBodyBuilder::dynamic()
                     .translation(vector![pos.0, pos.1])
-                    .linear_damping(self.damping as f32)
+                    .linvel(vector![vel.0, vel.1])
+                    .linear_damping(rapier_damping)
                     .build(),
             );
 
@@ -150,24 +190,29 @@ impl Process for NewtonianParticles {
             body_map.push((pid.clone(), body));
         }
 
-        // Step physics
-        physics_pipeline.step(
-            &gravity,
-            &integration_parameters,
-            &mut island_manager,
-            &mut broad_phase,
-            &mut narrow_phase,
-            &mut rigid_body_set,
-            &mut collider_set,
-            &mut impulse_joint_set,
-            &mut multibody_joint_set,
-            &mut ccd_solver,
-            None,
-            &(),
-            &(),
-        );
+        // Step physics with sub-stepping
+        for _ in 0..n_substeps {
+            physics_pipeline.step(
+                &gravity,
+                &integration_parameters,
+                &mut island_manager,
+                &mut broad_phase,
+                &mut narrow_phase,
+                &mut rigid_body_set,
+                &mut collider_set,
+                &mut impulse_joint_set,
+                &mut multibody_joint_set,
+                &mut ccd_solver,
+                None,
+                &(),
+                &(),
+            );
+        }
 
-        // Extract updated positions
+        // Extract updated positions and velocities only.
+        // IMPORTANT: output only position/velocity (List → replace semantics).
+        // Do NOT clone the full particle — Float fields like mass/radius
+        // would be treated as deltas and doubled each step.
         let mut result: IndexMap<String, Value> = IndexMap::new();
 
         for (pid, body_handle) in &body_map {
@@ -175,25 +220,22 @@ impl Process for NewtonianParticles {
             let pos = body.translation();
             let vel = body.linvel();
 
-            let original = &particles[pid];
-            let mut updated = original.clone();
-            if let Some(map) = updated.as_map_mut() {
-                map.insert(
-                    "position".to_string(),
+            result.insert(pid.clone(), Value::tree([
+                (
+                    "position",
                     Value::List(vec![
                         Value::float(pos.x as f64),
                         Value::float(pos.y as f64),
                     ]),
-                );
-                map.insert(
-                    "velocity".to_string(),
+                ),
+                (
+                    "velocity",
                     Value::List(vec![
                         Value::float(vel.x as f64),
                         Value::float(vel.y as f64),
                     ]),
-                );
-            }
-            result.insert(pid.clone(), updated);
+                ),
+            ]));
         }
 
         Update::value(Value::tree([("particles", Value::Map(result))]))
@@ -222,16 +264,18 @@ pub fn newtonian_from_config(config: &Value) -> NewtonianParticles {
         })
         .unwrap_or((50.0, 50.0));
 
-    let gravity = map
-        .get("gravity")
-        .and_then(|v| v.as_list())
-        .map(|l| {
+    // Gravity can be a scalar (y-component only) or a [gx, gy] list
+    let gravity = match map.get("gravity") {
+        Some(v) if v.as_list().is_some() => {
+            let l = v.as_list().unwrap();
             (
                 l.first().and_then(|v| v.as_f64()).unwrap_or(0.0),
                 l.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0),
             )
-        })
-        .unwrap_or((0.0, -9.8));
+        }
+        Some(v) if v.as_f64().is_some() => (0.0, v.as_f64().unwrap()),
+        _ => (0.0, -9.8),
+    };
 
     let elasticity = map
         .get("elasticity")
@@ -243,6 +287,11 @@ pub fn newtonian_from_config(config: &Value) -> NewtonianParticles {
         .and_then(|v| v.as_f64())
         .unwrap_or(0.1);
 
+    let substeps = map
+        .get("substeps")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(10.0) as usize;
+
     let interval = map
         .get("interval")
         .and_then(|v| v.as_f64())
@@ -253,6 +302,7 @@ pub fn newtonian_from_config(config: &Value) -> NewtonianParticles {
         gravity,
         elasticity,
         damping,
+        substeps,
         interval,
     }
 }

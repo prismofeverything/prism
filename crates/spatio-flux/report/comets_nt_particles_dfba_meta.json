@@ -1,10 +1,10 @@
 {
-  "duration": 12.0,
+  "duration": 60.0,
   "has_particles": true,
   "has_probes": false,
   "has_scalar_fields": false,
   "n_processes": 407,
-  "n_steps": 12,
+  "n_steps": 60,
   "name": "comets_nt_particles_dfba",
   "process_types": [
     "DiffusionAdvection",
@@ -15,7 +15,7 @@
     "ParticleExchange",
     "PymunkParticleMovement"
   ],
-  "runtime_ms": 1354,
+  "runtime_ms": 1856,
   "spatial_field_names": [
     "acetate",
     "dissolved biomass",

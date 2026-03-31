@@ -110,7 +110,7 @@
 <text text-anchor="middle" x="473.55" y="-14.9" font-family="Times,serif" font-size="12.00">spatial_dFBA</text>
 </g>
 <!-- state_fields__acetate&#45;&gt;proc_spatial_dFBA -->
-<g id="edge4" class="edge">
+<g id="edge8" class="edge">
 <title>state_fields__acetate&#45;&gt;proc_spatial_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M56.72,-115.94C63.74,-103.97 72.69,-91.84 83.55,-83 133.29,-42.52 318.35,-27.03 414.58,-21.62"/>
 <polygon fill="black" stroke="black" points="53.49,-114.56 51.73,-125.01 59.62,-117.94 53.49,-114.56"/>
@@ -118,7 +118,7 @@
 <text text-anchor="middle" x="184.55" y="-57" font-family="Times,serif" font-size="10.00">fields.acetate</text>
 </g>
 <!-- state_fields__ammonium&#45;&gt;proc_spatial_dFBA -->
-<g id="edge1" class="edge">
+<g id="edge5" class="edge">
 <title>state_fields__ammonium&#45;&gt;proc_spatial_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M179.32,-108.38C187.2,-99.15 196.07,-90.18 205.55,-83 266.6,-36.73 356.14,-23.3 414.63,-19.74"/>
 <polygon fill="black" stroke="black" points="176.57,-106.21 172.93,-116.16 181.98,-110.65 176.57,-106.21"/>
@@ -126,7 +126,7 @@
 <text text-anchor="middle" x="295.05" y="-57" font-family="Times,serif" font-size="10.00">fields.ammonium</text>
 </g>
 <!-- state_fields__dissolved_biomass&#45;&gt;proc_spatial_dFBA -->
-<g id="edge3" class="edge">
+<g id="edge1" class="edge">
 <title>state_fields__dissolved_biomass&#45;&gt;proc_spatial_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M340.88,-87.9C351.88,-75.41 364.26,-63.42 377.55,-54 388.84,-45.99 402.18,-39.61 415.25,-34.61"/>
 <polygon fill="black" stroke="black" points="338.04,-85.83 334.22,-95.71 343.37,-90.37 338.04,-85.83"/>
@@ -134,7 +134,7 @@
 <text text-anchor="middle" x="399.05" y="-57" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__formate&#45;&gt;proc_spatial_dFBA -->
-<g id="edge8" class="edge">
+<g id="edge6" class="edge">
 <title>state_fields__formate&#45;&gt;proc_spatial_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M418.86,-110.14C418.12,-91.69 420.01,-71.05 428.55,-54 430.5,-50.12 433.1,-46.54 436.07,-43.27"/>
 <polygon fill="black" stroke="black" points="415.37,-110.38 419.53,-120.13 422.36,-109.92 415.37,-110.38"/>
@@ -142,7 +142,7 @@
 <text text-anchor="middle" x="464.05" y="-57" font-family="Times,serif" font-size="10.00">fields.formate</text>
 </g>
 <!-- state_fields__glucose&#45;&gt;proc_spatial_dFBA -->
-<g id="edge5" class="edge">
+<g id="edge4" class="edge">
 <title>state_fields__glucose&#45;&gt;proc_spatial_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M516.59,-111.78C513.13,-93.2 507.77,-72.05 499.55,-54 498.09,-50.8 496.31,-47.62 494.37,-44.54"/>
 <polygon fill="black" stroke="black" points="513.16,-112.53 518.32,-121.79 520.06,-111.34 513.16,-112.53"/>
@@ -150,7 +150,7 @@
 <text text-anchor="middle" x="539.55" y="-57" font-family="Times,serif" font-size="10.00">fields.glucose</text>
 </g>
 <!-- state_fields__glutamate&#45;&gt;proc_spatial_dFBA -->
-<g id="edge6" class="edge">
+<g id="edge2" class="edge">
 <title>state_fields__glutamate&#45;&gt;proc_spatial_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M611.42,-104.48C604.05,-86.35 593.47,-67.4 578.55,-54 565.52,-42.3 548.47,-34.5 531.9,-29.3"/>
 <polygon fill="black" stroke="black" points="608.16,-105.74 614.98,-113.84 614.7,-103.25 608.16,-105.74"/>
@@ -166,7 +166,7 @@
 <text text-anchor="middle" x="726.05" y="-57" font-family="Times,serif" font-size="10.00">fields.glycolate</text>
 </g>
 <!-- state_fields__serine&#45;&gt;proc_spatial_dFBA -->
-<g id="edge2" class="edge">
+<g id="edge3" class="edge">
 <title>state_fields__serine&#45;&gt;proc_spatial_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M817.09,-118.65C807.67,-95.51 792.24,-68.28 768.55,-54 730.01,-30.76 606.89,-22.94 532.44,-20.32"/>
 <polygon fill="black" stroke="black" points="813.92,-120.17 820.76,-128.26 820.46,-117.67 813.92,-120.17"/>

@@ -19,7 +19,7 @@ digraph {
     state_particles__YRdKa6aM__sub_masses [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="sub_masses", fontsize=12];
 
     // Process nodes
-    proc_particles_YRdKa6aM_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="dFBA", fontsize=12];
+    proc_particles_YRdKa6aM_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="dFBA[*] (x2)", fontsize=12];
     proc_brownian_movement [shape=box, style=filled, fillcolor="#C3E1D6", color="#C3E1D6", penwidth=0, label="brownian_movement", fontsize=12];
     proc_enforce_boundaries [shape=box, style=filled, fillcolor="#9FD8DF", color="#9FD8DF", penwidth=0, label="enforce_boundaries", fontsize=12];
     proc_particle_exchange [shape=box, style=filled, fillcolor="#C6D780", color="#C6D780", penwidth=0, label="particle_exchange", fontsize=12];
@@ -32,8 +32,8 @@ digraph {
     state_particles -> proc_brownian_movement [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
     state_brownian_movement__interval -> proc_enforce_boundaries [style=dashed, penwidth=1, arrowhead=normal, label="process_interval", fontsize=10];
     state_particles -> proc_enforce_boundaries [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
-    state_particles -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
     state_fields -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
+    state_particles -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
     state_particles -> proc_particle_division [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
 
     // Hierarchy

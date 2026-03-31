@@ -9,7 +9,7 @@
   "process_types": [
     "DynamicFBA"
   ],
-  "runtime_ms": 406,
+  "runtime_ms": 398,
   "spatial_field_names": [
     "acetate",
     "dissolved biomass",

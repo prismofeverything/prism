@@ -22,6 +22,9 @@ pub type Wires = IndexMap<String, Path>;
 pub struct Interface {
     pub inputs: Wires,
     pub outputs: Wires,
+    /// Per-output-port schemas from the process declaration.
+    /// Used to determine apply semantics (e.g., Overwrite vs additive).
+    pub output_schemas: IndexMap<String, Schema>,
 }
 
 impl Interface {
@@ -60,13 +63,16 @@ impl Interface {
     ///
     /// Handles dot-separated port names by walking into nested update maps:
     /// output key `"substrates.glucose"` matches `update["substrates"]["glucose"]`
-    pub fn project(&self, update: &Value) -> Vec<(Path, Value)> {
+    /// Project with schema: returns (path, value, optional port schema).
+    pub fn project(&self, update: &Value) -> Vec<(Path, Value, Option<Schema>)> {
         let mut projections = Vec::new();
         if let Value::Map(map) = update {
             for (port_name, state_path) in &self.outputs {
+                let schema = self.output_schemas.get(port_name).cloned();
+
                 // Try direct match first (non-nested port)
                 if let Some(val) = map.get(port_name) {
-                    projections.push((state_path.clone(), val.clone()));
+                    projections.push((state_path.clone(), val.clone(), schema));
                     continue;
                 }
 
@@ -75,7 +81,7 @@ impl Interface {
                     port_name.split('.').map(|s| s.to_string()).collect();
                 if port_path.len() > 1 {
                     if let Some(val) = update.get_path(&port_path) {
-                        projections.push((state_path.clone(), val.clone()));
+                        projections.push((state_path.clone(), val.clone(), schema));
                     }
                 }
             }

@@ -19,14 +19,14 @@ digraph {
     proc_spatial_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="spatial_dFBA", fontsize=12];
 
     // Wiring
-    state_fields__ammonium -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.ammonium", fontsize=10];
-    state_fields__serine -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.serine", fontsize=10];
     state_fields__dissolved_biomass -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
-    state_fields__acetate -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.acetate", fontsize=10];
-    state_fields__glucose -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.glucose", fontsize=10];
     state_fields__glutamate -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.glutamate", fontsize=10];
-    state_fields__glycolate -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.glycolate", fontsize=10];
+    state_fields__serine -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.serine", fontsize=10];
+    state_fields__glucose -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.glucose", fontsize=10];
+    state_fields__ammonium -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.ammonium", fontsize=10];
     state_fields__formate -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.formate", fontsize=10];
+    state_fields__glycolate -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.glycolate", fontsize=10];
+    state_fields__acetate -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.acetate", fontsize=10];
 
     // Hierarchy
     state_fields -> state_fields__acetate [arrowhead=none, penwidth=2];

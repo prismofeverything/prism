@@ -8,8 +8,14 @@ digraph {
     state_brownian_movement__interval [shape=circle, style=filled, fillcolor="#C9CED6", color="#9ca0a6", penwidth=1, label="interval", fontsize=12];
     state_fields [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="fields", fontsize=12];
     state_fields__acetate [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="acetate", fontsize=12];
+    state_fields__acetate__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
+    state_fields__acetate__0__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
     state_fields__dissolved_biomass [shape=circle, style=filled, fillcolor="#E4CF77", color="#b1a15c", penwidth=1, label="dissolved biomass", fontsize=12];
+    state_fields__dissolved_biomass__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
+    state_fields__dissolved_biomass__0__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
     state_fields__glucose [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="glucose", fontsize=12];
+    state_fields__glucose__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
+    state_fields__glucose__0__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
     state_particles [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="particles", fontsize=12];
     state_particles__Gn3AfJxL [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="Gn3AfJxL", fontsize=12];
     state_particles__Gn3AfJxL__exchange [shape=circle, style=filled, fillcolor="#EEC06F", color="#b99556", penwidth=1, label="exchange", fontsize=12];
@@ -25,7 +31,8 @@ digraph {
     state_particles__Gn3AfJxL__sub_masses [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="sub_masses", fontsize=12];
 
     // Process nodes
-    proc_particles_Gn3AfJxL_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="particles.Gn3AfJxL.dFBA[*] (x101)", fontsize=12];
+    proc_particles_Gn3AfJxL_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="dFBA", fontsize=12];
+    proc_dFBA_0_0_ [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="dFBA[*] (x100)", fontsize=12];
     proc_particle_division [shape=box, style=filled, fillcolor="#9FD8DF", color="#9FD8DF", penwidth=0, label="particle_division", fontsize=12];
     proc_particle_exchange [shape=box, style=filled, fillcolor="#C6D780", color="#C6D780", penwidth=0, label="particle_exchange", fontsize=12];
     proc_enforce_boundaries [shape=box, style=filled, fillcolor="#9FD8DF", color="#9FD8DF", penwidth=0, label="enforce_boundaries", fontsize=12];
@@ -36,6 +43,9 @@ digraph {
     state_particles__Gn3AfJxL__local -> proc_particles_Gn3AfJxL_dFBA [style=dashed, penwidth=1, arrowhead=normal, label="substrates", fontsize=10];
     proc_particles_Gn3AfJxL_dFBA -> state_particles__Gn3AfJxL__exchange [style=dashed, penwidth=1, arrowhead=normal, label="substrates", fontsize=10];
     state_particles__Gn3AfJxL__mass -> proc_particles_Gn3AfJxL_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__glucose__0__0 -> proc_dFBA_0_0_ [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
+    state_fields__dissolved_biomass__0__0 -> proc_dFBA_0_0_ [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__acetate__0__0 -> proc_dFBA_0_0_ [style=dashed, penwidth=1, dir=both, label="substrates.acetate", fontsize=10];
     state_particles -> proc_particle_division [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
     state_fields -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
     state_particles -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
@@ -47,8 +57,14 @@ digraph {
     // Hierarchy
     proc_brownian_movement -> state_brownian_movement__interval [arrowhead=none, penwidth=2];
     state_fields -> state_fields__acetate [arrowhead=none, penwidth=2];
+    state_fields__acetate -> state_fields__acetate__0 [arrowhead=none, penwidth=2];
+    state_fields__acetate__0 -> state_fields__acetate__0__0 [arrowhead=none, penwidth=2];
     state_fields -> state_fields__dissolved_biomass [arrowhead=none, penwidth=2];
+    state_fields__dissolved_biomass -> state_fields__dissolved_biomass__0 [arrowhead=none, penwidth=2];
+    state_fields__dissolved_biomass__0 -> state_fields__dissolved_biomass__0__0 [arrowhead=none, penwidth=2];
     state_fields -> state_fields__glucose [arrowhead=none, penwidth=2];
+    state_fields__glucose -> state_fields__glucose__0 [arrowhead=none, penwidth=2];
+    state_fields__glucose__0 -> state_fields__glucose__0__0 [arrowhead=none, penwidth=2];
     state_particles -> state_particles__Gn3AfJxL [arrowhead=none, penwidth=2];
     state_particles__Gn3AfJxL -> state_particles__Gn3AfJxL__exchange [arrowhead=none, penwidth=2];
     state_particles__Gn3AfJxL__exchange -> state_particles__Gn3AfJxL__exchange__acetate [arrowhead=none, penwidth=2];

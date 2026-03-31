@@ -1,10 +1,10 @@
 {
-  "duration": 60.0,
+  "duration": 120.0,
   "has_particles": true,
   "has_probes": false,
   "has_scalar_fields": false,
   "n_processes": 108,
-  "n_steps": 60,
+  "n_steps": 120,
   "name": "spatioflux_reference_demo",
   "process_types": [
     "DiffusionAdvection",
@@ -16,7 +16,7 @@
     "ParticleTotalMass",
     "PymunkParticleMovement"
   ],
-  "runtime_ms": 5724,
+  "runtime_ms": 52901,
   "spatial_field_names": [
     "acetate",
     "dissolved biomass",

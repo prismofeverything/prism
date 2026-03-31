@@ -20,6 +20,14 @@ pub fn short_id() -> String {
 }
 
 /// Create a single particle state value.
+/// Compute circle radius from mass using pymunk convention: r = sqrt(m / (density * pi))
+pub fn radius_from_mass(mass: f64, density: f64) -> f64 {
+    (mass / (density * std::f64::consts::PI)).sqrt()
+}
+
+/// Default 2D mass density (pg/µm²) matching pymunk_particles.py
+pub const DEFAULT_DENSITY: f64 = 0.015;
+
 pub fn make_particle(
     position: (f64, f64),
     mass: f64,
@@ -38,6 +46,8 @@ pub fn make_particle(
             .collect(),
     );
 
+    let radius = radius_from_mass(mass, DEFAULT_DENSITY);
+
     Value::tree([
         ("id", Value::String(short_id())),
         (
@@ -45,6 +55,7 @@ pub fn make_particle(
             Value::List(vec![Value::float(position.0), Value::float(position.1)]),
         ),
         ("mass", Value::float(mass)),
+        ("radius", Value::float(radius)),
         ("local", local_val),
         ("exchange", exchange_val),
     ])
@@ -58,12 +69,20 @@ fn get_position(particle: &Value) -> Option<(f64, f64)> {
 }
 
 /// Extract mass from a particle value.
+/// If sub_masses exists and has numeric values, use their sum as the total mass.
+/// Otherwise fall back to the `mass` field.
 fn get_mass(particle: &Value) -> f64 {
-    particle
-        .as_map()
-        .and_then(|m| m.get("mass"))
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0)
+    if let Some(map) = particle.as_map() {
+        if let Some(sub_masses) = map.get("sub_masses").and_then(|v| v.as_map()) {
+            let total: f64 = sub_masses.values().filter_map(|v| v.as_f64()).sum();
+            if total > 0.0 {
+                return total;
+            }
+        }
+        map.get("mass").and_then(|v| v.as_f64()).unwrap_or(0.0)
+    } else {
+        0.0
+    }
 }
 
 // ── Brownian Movement Process ──
@@ -461,16 +480,51 @@ impl Step for ManageBoundaries {
             }
         }
 
-        // Spawn new particles at boundaries (Poisson process)
+        // Spawn new particles at boundaries (Poisson process).
+        // Clone an existing particle as template to preserve process specs
+        // (e.g. dFBA) needed for dynamic process discovery.
         if self.add_rate > 0.0 {
+            let template = particles.values().next().cloned();
             for boundary in &self.boundary_to_add {
                 if rng.r#gen::<f64>() < self.add_rate {
                     any_changed = true;
                     let pos = self.boundary_position(boundary, &mut rng);
                     let mass = self.mass_range.0
                         + rng.r#gen::<f64>() * (self.mass_range.1 - self.mass_range.0);
-                    let exchange = IndexMap::new();
-                    let new_particle = make_particle(pos, mass, &exchange);
+
+                    let new_particle = if let Some(tmpl) = &template {
+                        // Clone template, override position/mass/exchange/local/id
+                        let mut p = tmpl.clone();
+                        if let Some(pmap) = p.as_map_mut() {
+                            pmap.insert("id".to_string(), Value::String(short_id()));
+                            pmap.insert("mass".to_string(), Value::float(mass));
+                            // Update radius to match new mass
+                            pmap.insert("radius".to_string(),
+                                Value::float(radius_from_mass(mass, DEFAULT_DENSITY)));
+                            pmap.insert("position".to_string(),
+                                Value::List(vec![Value::float(pos.0), Value::float(pos.1)]));
+                            // Zero out exchange and local
+                            if let Some(Value::Map(ex)) = pmap.get("exchange").cloned() {
+                                let zeroed: IndexMap<String, Value> = ex.keys()
+                                    .map(|k| (k.clone(), Value::float(0.0))).collect();
+                                pmap.insert("exchange".to_string(), Value::Map(zeroed));
+                            }
+                            if let Some(Value::Map(loc)) = pmap.get("local").cloned() {
+                                let zeroed: IndexMap<String, Value> = loc.keys()
+                                    .map(|k| (k.clone(), Value::float(0.0))).collect();
+                                pmap.insert("local".to_string(), Value::Map(zeroed));
+                            }
+                            // Zero out sub_masses if present
+                            if let Some(Value::Map(sm)) = pmap.get("sub_masses").cloned() {
+                                let zeroed: IndexMap<String, Value> = sm.keys()
+                                    .map(|k| (k.clone(), Value::float(0.0))).collect();
+                                pmap.insert("sub_masses".to_string(), Value::Map(zeroed));
+                            }
+                        }
+                        p
+                    } else {
+                        make_particle(pos, mass, &IndexMap::new())
+                    };
                     to_add.insert(short_id(), new_particle);
                 }
             }
@@ -506,19 +560,41 @@ pub struct ParticleTotalMass;
 
 impl Step for ParticleTotalMass {
     fn inputs(&self) -> IndexMap<String, Schema> {
-        IndexMap::from([("particles".into(), Schema::map(Schema::Any))])
+        IndexMap::from([
+            ("particles".into(), Schema::map(Schema::Any)),
+            ("sub_masses".into(), Schema::map(Schema::float())),
+            ("total_mass".into(), Schema::float()),
+        ])
     }
 
     fn outputs(&self) -> IndexMap<String, Schema> {
-        IndexMap::from([("particles".into(), Schema::map(Schema::Any))])
+        IndexMap::from([
+            ("particles".into(), Schema::map(Schema::Any)),
+            // Overwrite: total mass replaces, not accumulates
+            ("total_mass".into(), Schema::overwrite(Schema::float())),
+        ])
     }
 
     fn update(&self, state: &Value) -> Update {
-        let particles = match state
-            .as_map()
-            .and_then(|m| m.get("particles"))
-            .and_then(|v| v.as_map())
-        {
+        let map = match state.as_map() {
+            Some(m) => m,
+            None => return Update::Noop,
+        };
+
+        // Per-particle mode: wired inside a particle with sub_masses → sub_masses
+        if let Some(sub_masses) = map.get("sub_masses").and_then(|v| v.as_map()) {
+            if !sub_masses.is_empty() {
+                let total: f64 = sub_masses.values().filter_map(|v| v.as_f64()).sum();
+                // Output ABSOLUTE total — Overwrite schema means replacement
+                return Update::value(Value::tree([
+                    ("total_mass", Value::float(total)),
+                ]));
+            }
+            return Update::Noop;
+        }
+
+        // Top-level mode: wired to the particles map
+        let particles = match map.get("particles").and_then(|v| v.as_map()) {
             Some(p) => p,
             None => return Update::Noop,
         };
