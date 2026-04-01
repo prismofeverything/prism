@@ -7,13 +7,14 @@
 
 use std::any::Any;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 
 use prism_bigraph::{Process, Schema, Update, Value};
 
 use super::dfba::KineticParam;
-use super::fba::{model_path, CobraModel};
+use super::fba::{load_model_cached, CobraModel};
 use crate::processes::fields::flatten_field;
 
 /// Spatial dFBA process operating on a 2D lattice.
@@ -23,8 +24,8 @@ pub struct SpatialDFBA {
     pub n_bins: (usize, usize),
     /// Model assignment per cell: model_grid[row][col] = model_name.
     pub model_grid: Vec<Vec<String>>,
-    /// Loaded COBRA models keyed by name.
-    pub models: HashMap<String, CobraModel>,
+    /// Loaded COBRA models keyed by name (shared via Arc cache).
+    pub models: HashMap<String, Arc<CobraModel>>,
     /// Kinetic params per model: model_name -> substrate -> KineticParam.
     pub kinetic_params: HashMap<String, IndexMap<String, KineticParam>>,
     /// Per-model substrate → exchange reaction ID.
@@ -46,8 +47,10 @@ impl Process for SpatialDFBA {
     }
 
     fn outputs(&self) -> IndexMap<String, Schema> {
+        // Use Schema::Any so the engine falls back to the state schema
+        // (which declares fields as map[array[...]] with additive semantics)
         IndexMap::from([
-            ("fields".into(), Schema::map(Schema::list(Schema::float()))),
+            ("fields".into(), Schema::Any),
             ("biomass".into(), Schema::Any),
         ])
     }
@@ -71,21 +74,24 @@ impl Process for SpatialDFBA {
         let (nx, ny) = self.n_bins;
         let n_cells = nx * ny;
 
-        // Read all substrate fields
+        // Read all substrate fields (save originals for delta computation)
         let mut substrate_arrays: IndexMap<String, Vec<f64>> = IndexMap::new();
+        let mut substrate_originals: IndexMap<String, Vec<f64>> = IndexMap::new();
         for mol_id in &self.mol_ids {
             let arr = fields_map
                 .get(mol_id)
                 .map(flatten_field)
                 .unwrap_or_else(|| vec![0.0; n_cells]);
+            substrate_originals.insert(mol_id.clone(), arr.clone());
             substrate_arrays.insert(mol_id.clone(), arr);
         }
 
         // Read biomass field
         let biomass_key = map.get("biomass");
-        let mut biomass_arr = biomass_key
+        let biomass_original = biomass_key
             .map(flatten_field)
             .unwrap_or_else(|| vec![0.0; n_cells]);
+        let mut biomass_arr = biomass_original.clone();
 
         let dt = interval;
 
@@ -184,24 +190,22 @@ impl Process for SpatialDFBA {
             }
         }
 
-        // Build output preserving original 2D structure
+        // Build output as DELTAS (new - original)
         let mut result_fields: IndexMap<String, Value> = IndexMap::new();
         for (mol_id, arr) in &substrate_arrays {
-            let original = fields_map.get(mol_id).unwrap_or(&Value::None);
+            let orig = substrate_originals.get(mol_id).unwrap();
+            let delta: Vec<f64> = arr.iter().zip(orig.iter()).map(|(a, o)| a - o).collect();
+            let original_val = fields_map.get(mol_id).unwrap_or(&Value::None);
             result_fields.insert(
                 mol_id.clone(),
-                crate::processes::fields::rebuild_field(arr, original),
+                crate::processes::fields::rebuild_field(&delta, original_val),
             );
         }
-        // Pass through fields we don't manage
-        for (mol_id, val) in fields_map {
-            if !result_fields.contains_key(mol_id) {
-                result_fields.insert(mol_id.clone(), val.clone());
-            }
-        }
 
-        let biomass_original = biomass_key.unwrap_or(&Value::None);
-        let biomass_out = crate::processes::fields::rebuild_field(&biomass_arr, biomass_original);
+        let biomass_delta: Vec<f64> = biomass_arr.iter().zip(biomass_original.iter())
+            .map(|(a, o)| a - o).collect();
+        let biomass_orig_val = biomass_key.unwrap_or(&Value::None);
+        let biomass_out = crate::processes::fields::rebuild_field(&biomass_delta, biomass_orig_val);
 
         Update::value(Value::tree([
             ("fields", Value::Map(result_fields)),
@@ -243,7 +247,7 @@ pub fn spatial_dfba_from_config(config: &Value) -> SpatialDFBA {
         .unwrap_or_default();
 
     // Parse models configs
-    let mut models: HashMap<String, CobraModel> = HashMap::new();
+    let mut models: HashMap<String, Arc<CobraModel>> = HashMap::new();
     let mut kinetic_params: HashMap<String, IndexMap<String, KineticParam>> = HashMap::new();
     let mut config_bounds: HashMap<String, IndexMap<String, (Option<f64>, Option<f64>)>> = HashMap::new();
 
@@ -251,12 +255,10 @@ pub fn spatial_dfba_from_config(config: &Value) -> SpatialDFBA {
         for (model_name, model_config) in models_map {
             let mc = model_config.as_map().cloned().unwrap_or_default();
 
-            // Load COBRA model
+            // Load COBRA model (cached)
             let model_file = mc.get("model_file").and_then(|v| v.as_str()).unwrap_or("textbook");
-            if let Some(path) = model_path(model_file) {
-                if let Ok(m) = CobraModel::from_json_file(&path) {
-                    models.insert(model_name.clone(), m);
-                }
+            if let Ok(m) = load_model_cached(model_file) {
+                models.insert(model_name.clone(), m);
             }
 
             // Kinetic params

@@ -7,34 +7,18 @@ digraph {
     // State nodes
     state_fields [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="fields", fontsize=12];
     state_fields__acetate [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="acetate", fontsize=12];
-    state_fields__acetate__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
-    state_fields__acetate__0__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
     state_fields__dissolved_biomass [shape=circle, style=filled, fillcolor="#E4CF77", color="#b1a15c", penwidth=1, label="dissolved biomass", fontsize=12];
-    state_fields__dissolved_biomass__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
-    state_fields__dissolved_biomass__0__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
     state_fields__glucose [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="glucose", fontsize=12];
-    state_fields__glucose__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
-    state_fields__glucose__0__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
 
     // Process nodes
-    proc_spatial_dFBA_dFBA_0_0_ [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="dFBA[*] (x8)", fontsize=12];
+    proc_spatial_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="spatial_dFBA", fontsize=12];
 
     // Wiring
-    state_fields__dissolved_biomass__0__0 -> proc_spatial_dFBA_dFBA_0_0_ [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
-    state_fields__glucose__0__0 -> proc_spatial_dFBA_dFBA_0_0_ [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
-    state_fields__acetate__0__0 -> proc_spatial_dFBA_dFBA_0_0_ [style=dashed, penwidth=1, dir=both, label="substrates.acetate", fontsize=10];
+    state_fields -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
 
     // Hierarchy
     state_fields -> state_fields__acetate [arrowhead=none, penwidth=2];
-    state_fields__acetate -> state_fields__acetate__0 [arrowhead=none, penwidth=2];
-    state_fields__acetate__0 -> state_fields__acetate__0__0 [arrowhead=none, penwidth=2];
     state_fields -> state_fields__dissolved_biomass [arrowhead=none, penwidth=2];
-    state_fields__dissolved_biomass -> state_fields__dissolved_biomass__0 [arrowhead=none, penwidth=2];
-    state_fields__dissolved_biomass__0 -> state_fields__dissolved_biomass__0__0 [arrowhead=none, penwidth=2];
     state_fields -> state_fields__glucose [arrowhead=none, penwidth=2];
-    state_fields__glucose -> state_fields__glucose__0 [arrowhead=none, penwidth=2];
-    state_fields__glucose__0 -> state_fields__glucose__0__0 [arrowhead=none, penwidth=2];
     // Nested process hierarchy
-    state_spatial_dFBA [shape=circle, style=filled, fillcolor="#E8E8E8", color="#b4b4b4", penwidth=1, label="spatial_dFBA", fontsize=12];
-    state_spatial_dFBA -> proc_spatial_dFBA_dFBA_0_0_ [arrowhead=none, penwidth=2];
 }

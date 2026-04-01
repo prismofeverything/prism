@@ -7,14 +7,8 @@ digraph {
     // State nodes
     state_fields [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="fields", fontsize=12];
     state_fields__acetate [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="acetate", fontsize=12];
-    state_fields__acetate__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
-    state_fields__acetate__0__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
     state_fields__dissolved_biomass [shape=circle, style=filled, fillcolor="#E4CF77", color="#b1a15c", penwidth=1, label="dissolved biomass", fontsize=12];
-    state_fields__dissolved_biomass__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
-    state_fields__dissolved_biomass__0__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
     state_fields__glucose [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="glucose", fontsize=12];
-    state_fields__glucose__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
-    state_fields__glucose__0__0 [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="0", fontsize=12];
     state_newtonian_particles__interval [shape=circle, style=filled, fillcolor="#C9CED6", color="#9ca0a6", penwidth=1, label="interval", fontsize=12];
     state_particles [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="particles", fontsize=12];
     state_particles__p_edfda1 [shape=circle, style=filled, fillcolor="#C3E1D6", color="#98afa6", penwidth=1, label="p_edfda1", fontsize=12];
@@ -42,12 +36,12 @@ digraph {
     proc_particles_p_edfda1_ecoli_1_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="ecoli_1 dFBA", fontsize=12];
     proc_particles_p_edfda1_ecoli_2_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="ecoli_2 dFBA", fontsize=12];
     proc_particles_p_edfda1_aggregate_mass [shape=box, style=filled, fillcolor="#C6D780", color="#C6D780", penwidth=0, label="aggregate_mass", fontsize=12];
-    proc_monod_kinetics_0_0_ [shape=box, style=filled, fillcolor="#D9A4A6", color="#D9A4A6", penwidth=0, label="monod_kinetics[*] (x100)", fontsize=12];
-    proc_newtonian_particles [shape=box, style=filled, fillcolor="#7FBFA8", color="#7FBFA8", penwidth=0, label="newtonian_particles", fontsize=12];
-    proc_enforce_boundaries [shape=box, style=filled, fillcolor="#9FD8DF", color="#9FD8DF", penwidth=0, label="enforce_boundaries", fontsize=12];
-    proc_particle_division [shape=box, style=filled, fillcolor="#9FD8DF", color="#9FD8DF", penwidth=0, label="particle_division", fontsize=12];
-    proc_particle_exchange [shape=box, style=filled, fillcolor="#C6D780", color="#C6D780", penwidth=0, label="particle_exchange", fontsize=12];
     proc_diffusion [shape=box, style=filled, fillcolor="#D1BE56", color="#D1BE56", penwidth=0, label="diffusion", fontsize=12];
+    proc_particle_exchange [shape=box, style=filled, fillcolor="#C6D780", color="#C6D780", penwidth=0, label="particle_exchange", fontsize=12];
+    proc_particle_division [shape=box, style=filled, fillcolor="#9FD8DF", color="#9FD8DF", penwidth=0, label="particle_division", fontsize=12];
+    proc_enforce_boundaries [shape=box, style=filled, fillcolor="#9FD8DF", color="#9FD8DF", penwidth=0, label="enforce_boundaries", fontsize=12];
+    proc_newtonian_particles [shape=box, style=filled, fillcolor="#7FBFA8", color="#7FBFA8", penwidth=0, label="newtonian_particles", fontsize=12];
+    proc_spatial_kinetics [shape=box, style=filled, fillcolor="#D9A4A6", color="#D9A4A6", penwidth=0, label="spatial_kinetics", fontsize=12];
 
     // Wiring
     state_particles__p_edfda1__local -> proc_particles_p_edfda1_ecoli_1_dFBA [style=dashed, penwidth=1, arrowhead=normal, label="substrates", fontsize=10];
@@ -58,27 +52,19 @@ digraph {
     state_particles__p_edfda1__sub_masses__ecoli_2 -> proc_particles_p_edfda1_ecoli_2_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
     state_particles__p_edfda1__sub_masses -> proc_particles_p_edfda1_aggregate_mass [style=dashed, penwidth=1, arrowhead=normal, label="sub_masses", fontsize=10];
     state_particles__p_edfda1__mass -> proc_particles_p_edfda1_aggregate_mass [style=dashed, penwidth=1, dir=both, label="total_mass", fontsize=10];
-    state_fields__glucose__0__0 -> proc_monod_kinetics_0_0_ [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
-    state_fields__acetate__0__0 -> proc_monod_kinetics_0_0_ [style=dashed, penwidth=1, dir=both, label="substrates.acetate", fontsize=10];
-    state_fields__dissolved_biomass__0__0 -> proc_monod_kinetics_0_0_ [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
-    state_particles -> proc_newtonian_particles [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
+    state_fields -> proc_diffusion [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
+    state_fields -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
+    state_particles -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
+    state_particles -> proc_particle_division [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
     state_newtonian_particles__interval -> proc_enforce_boundaries [style=dashed, penwidth=1, arrowhead=normal, label="process_interval", fontsize=10];
     state_particles -> proc_enforce_boundaries [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
-    state_particles -> proc_particle_division [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
-    state_particles -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
-    state_fields -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
-    state_fields -> proc_diffusion [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
+    state_particles -> proc_newtonian_particles [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
+    state_fields -> proc_spatial_kinetics [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
 
     // Hierarchy
     state_fields -> state_fields__acetate [arrowhead=none, penwidth=2];
-    state_fields__acetate -> state_fields__acetate__0 [arrowhead=none, penwidth=2];
-    state_fields__acetate__0 -> state_fields__acetate__0__0 [arrowhead=none, penwidth=2];
     state_fields -> state_fields__dissolved_biomass [arrowhead=none, penwidth=2];
-    state_fields__dissolved_biomass -> state_fields__dissolved_biomass__0 [arrowhead=none, penwidth=2];
-    state_fields__dissolved_biomass__0 -> state_fields__dissolved_biomass__0__0 [arrowhead=none, penwidth=2];
     state_fields -> state_fields__glucose [arrowhead=none, penwidth=2];
-    state_fields__glucose -> state_fields__glucose__0 [arrowhead=none, penwidth=2];
-    state_fields__glucose__0 -> state_fields__glucose__0__0 [arrowhead=none, penwidth=2];
     proc_newtonian_particles -> state_newtonian_particles__interval [arrowhead=none, penwidth=2];
     state_particles -> state_particles__p_edfda1 [arrowhead=none, penwidth=2];
     state_particles__p_edfda1 -> state_particles__p_edfda1__elasticity [arrowhead=none, penwidth=2];

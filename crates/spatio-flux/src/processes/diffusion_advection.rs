@@ -168,7 +168,8 @@ impl Process for DiffusionAdvection {
     }
 
     fn outputs(&self) -> IndexMap<String, Schema> {
-        IndexMap::from([("fields".to_string(), Schema::map(Schema::list(Schema::float())))])
+        // Use Any so the engine uses the state schema (map[array[...]]) for apply
+        IndexMap::from([("fields".to_string(), Schema::Any)])
     }
 
     fn interval(&self) -> f64 {
@@ -215,6 +216,7 @@ impl Process for DiffusionAdvection {
             let n_steps = (interval / max_dt).ceil() as usize;
             let dt = interval / n_steps as f64;
 
+            let original = field.clone();
             let mut current = field;
             for _ in 0..n_steps {
                 current = self.diffuse(&current, d, dt, &bc);
@@ -225,10 +227,14 @@ impl Process for DiffusionAdvection {
                 current = self.advect(&current, vx, vy, interval);
             }
 
-            // Rebuild preserving original 2D structure
+            // Output DELTA (cur - original), matching Python's diffusion process.
+            // Applied element-wise via Array schema.
+            let delta: Vec<f64> = current.iter().zip(original.iter())
+                .map(|(c, o)| c - o)
+                .collect();
             result_fields.insert(
                 mol_id.clone(),
-                super::fields::rebuild_field(&current, field_val),
+                super::fields::rebuild_field(&delta, field_val),
             );
         }
 

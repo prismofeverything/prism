@@ -1,3 +1,4 @@
+pub mod composite;
 pub mod document;
 pub mod engine;
 pub mod factory;
@@ -9,6 +10,7 @@ pub mod vivarium;
 
 pub use document::Document;
 pub use vivarium::VivariumDocument;
+pub use composite::Composite;
 pub use engine::Engine;
 pub use factory::ProcessRegistry;
 pub use ports::{Interface, PortSchema, Wires};

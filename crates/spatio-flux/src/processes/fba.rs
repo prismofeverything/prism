@@ -9,10 +9,17 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use highs::{HighsModelStatus, RowProblem, Sense};
 use indexmap::IndexMap;
 use serde::Deserialize;
+
+/// Global cache of parsed COBRA models, keyed by resolved file path.
+/// Avoids re-parsing the same model JSON when multiple dFBA processes
+/// (e.g., one per particle) use the same model.
+static MODEL_CACHE: LazyLock<Mutex<HashMap<String, Arc<CobraModel>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// A parsed COBRA model ready for FBA.
 #[derive(Clone, Debug)]
@@ -134,54 +141,11 @@ impl CobraModel {
         self.solve_with_bounds(&self.lower_bounds, &self.upper_bounds)
     }
 
-    /// Solve FBA with modified bounds using HiGHS LP solver.
+    /// Solve FBA with modified bounds.
+    /// Uses a one-shot HiGHS solve (rebuilds the LP each time).
     pub fn solve_with_bounds(&self, lb: &[f64], ub: &[f64]) -> Option<FbaSolution> {
-        let n_rxns = self.reactions.len();
-        let n_mets = self.metabolites.len();
-
-        let mut pb = RowProblem::default();
-
-        // Add columns: minimize -v_biomass (= maximize v_biomass)
-        let cols: Vec<highs::Col> = (0..n_rxns)
-            .map(|j| {
-                let cost = if j == self.objective_idx { -1.0 } else { 0.0 };
-                pb.add_column(cost, lb[j]..ub[j])
-            })
-            .collect();
-
-        // Add mass balance rows: S·v = 0
-        let mut met_terms: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n_mets];
-        for (j, col) in self.stoichiometry.iter().enumerate() {
-            for &(i, coeff) in col {
-                met_terms[i].push((j, coeff));
-            }
-        }
-
-        for terms in &met_terms {
-            if terms.is_empty() {
-                continue;
-            }
-            let row: Vec<(highs::Col, f64)> =
-                terms.iter().map(|&(j, c)| (cols[j], c)).collect();
-            pb.add_row(0.0..=0.0, row);
-        }
-
-        let mut model = pb.optimise(Sense::Minimise);
-        model.set_option("output_flag", false);
-        let solved = model.solve();
-
-        match solved.status() {
-            HighsModelStatus::Optimal => {
-                let solution = solved.get_solution();
-                let fluxes = solution.columns().to_vec();
-                let objective_value = fluxes[self.objective_idx];
-                Some(FbaSolution {
-                    fluxes,
-                    objective_value,
-                })
-            }
-            _ => None,
-        }
+        let mut solver = FbaSolver::new(self);
+        solver.solve(lb, ub)
     }
 
     /// Set bounds for a specific reaction by ID.
@@ -222,6 +186,102 @@ pub fn model_path(model_file: &str) -> Option<String> {
             } else {
                 None
             }
+        }
+    }
+}
+
+/// Load a COBRA model with caching. Returns a shared reference to the
+/// parsed model. Multiple dFBA processes using the same model file
+/// (e.g., one per particle after division) share the same parsed data.
+pub fn load_model_cached(model_file: &str) -> Result<Arc<CobraModel>, String> {
+    let path = model_path(model_file)
+        .ok_or_else(|| format!("model file '{model_file}' not found"))?;
+
+    let mut cache = MODEL_CACHE.lock().unwrap();
+    if let Some(model) = cache.get(&path) {
+        return Ok(Arc::clone(model));
+    }
+
+    let model = Arc::new(CobraModel::from_json_file(&path)?);
+    cache.insert(path, Arc::clone(&model));
+    Ok(model)
+}
+
+/// Persistent FBA solver for a COBRA model.
+///
+/// Caches the row-wise stoichiometry structure so it doesn't need
+/// to be recomputed each solve. Rebuilds the HiGHS problem with
+/// updated bounds each call (the safe highs crate doesn't expose
+/// bound-update APIs, but avoiding the stoichiometry transpose
+/// and allocation is still a win).
+pub struct FbaSolver {
+    /// Pre-computed row terms: for each active metabolite,
+    /// list of (reaction_index, coefficient).
+    row_terms: Vec<Vec<(usize, f64)>>,
+    n_rxns: usize,
+    objective_idx: usize,
+}
+
+// FbaSolver has no FFI handles — fully safe.
+unsafe impl Send for FbaSolver {}
+
+impl FbaSolver {
+    /// Build solver from a CobraModel (caches stoichiometry structure).
+    pub fn new(model: &CobraModel) -> Self {
+        let n_mets = model.metabolites.len();
+        let mut met_terms: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n_mets];
+        for (j, col) in model.stoichiometry.iter().enumerate() {
+            for &(i, coeff) in col {
+                met_terms[i].push((j, coeff));
+            }
+        }
+        // Keep only non-empty rows
+        let row_terms: Vec<Vec<(usize, f64)>> = met_terms
+            .into_iter()
+            .filter(|t| !t.is_empty())
+            .collect();
+
+        FbaSolver {
+            row_terms,
+            n_rxns: model.reactions.len(),
+            objective_idx: model.objective_idx,
+        }
+    }
+
+    /// Solve FBA with the given bounds.
+    pub fn solve(&self, lb: &[f64], ub: &[f64]) -> Option<FbaSolution> {
+        let mut pb = RowProblem::default();
+
+        // Add columns with current bounds
+        let cols: Vec<highs::Col> = (0..self.n_rxns)
+            .map(|j| {
+                let cost = if j == self.objective_idx { -1.0 } else { 0.0 };
+                pb.add_column(cost, lb[j]..ub[j])
+            })
+            .collect();
+
+        // Add cached rows (stoichiometry doesn't change)
+        for terms in &self.row_terms {
+            let row: Vec<(highs::Col, f64)> =
+                terms.iter().map(|&(j, c)| (cols[j], c)).collect();
+            pb.add_row(0.0..=0.0, row);
+        }
+
+        let mut model = pb.optimise(Sense::Minimise);
+        model.set_option("output_flag", false);
+        let solved = model.solve();
+
+        match solved.status() {
+            HighsModelStatus::Optimal => {
+                let solution = solved.get_solution();
+                let fluxes = solution.columns().to_vec();
+                let objective_value = fluxes[self.objective_idx];
+                Some(FbaSolution {
+                    fluxes,
+                    objective_value,
+                })
+            }
+            _ => None,
         }
     }
 }

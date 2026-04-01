@@ -3,20 +3,19 @@
   "has_particles": true,
   "has_probes": false,
   "has_scalar_fields": false,
-  "n_processes": 108,
+  "n_processes": 8,
   "n_steps": 120,
   "name": "spatioflux_reference_demo",
   "process_types": [
     "DiffusionAdvection",
     "DynamicFBA",
     "ManageBoundaries",
-    "MonodKinetics",
     "ParticleDivision",
     "ParticleExchange",
     "ParticleTotalMass",
     "PymunkParticleMovement"
   ],
-  "runtime_ms": 52901,
+  "runtime_ms": 7650,
   "spatial_field_names": [
     "acetate",
     "dissolved biomass",

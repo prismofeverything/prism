@@ -55,7 +55,7 @@
 <text text-anchor="middle" x="115.63" y="-14.9" font-family="Times,serif" font-size="12.00">ecoli dFBA</text>
 </g>
 <!-- state_fields__biomass&#45;&gt;proc_ecoli_dFBA -->
-<g id="edge3" class="edge">
+<g id="edge1" class="edge">
 <title>state_fields__biomass&#45;&gt;proc_ecoli_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M56.1,-74.95C59.6,-67.56 63.75,-60.29 68.63,-54 71.82,-49.88 75.61,-46.01 79.64,-42.46"/>
 <polygon fill="black" stroke="black" points="52.8,-73.75 52.02,-84.32 59.22,-76.55 52.8,-73.75"/>
@@ -63,7 +63,7 @@
 <text text-anchor="middle" x="90.13" y="-57" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__formate&#45;&gt;proc_ecoli_dFBA -->
-<g id="edge2" class="edge">
+<g id="edge3" class="edge">
 <title>state_fields__formate&#45;&gt;proc_ecoli_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M119.85,-77.42C118.57,-73.28 117.46,-69.1 116.63,-65 115.4,-58.98 114.83,-52.43 114.61,-46.21"/>
 <polygon fill="black" stroke="black" points="116.57,-78.63 123.11,-86.96 123.19,-76.37 116.57,-78.63"/>
@@ -71,7 +71,7 @@
 <text text-anchor="middle" x="165.13" y="-57" font-family="Times,serif" font-size="10.00">substrates.formate</text>
 </g>
 <!-- state_fields__glucose&#45;&gt;proc_ecoli_dFBA -->
-<g id="edge1" class="edge">
+<g id="edge2" class="edge">
 <title>state_fields__glucose&#45;&gt;proc_ecoli_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M227.07,-75.95C223.91,-67.89 219.57,-60.14 213.63,-54 201.24,-41.19 183.84,-33.06 167.14,-27.9"/>
 <polygon fill="black" stroke="black" points="223.77,-77.11 230.28,-85.47 230.41,-74.88 223.77,-77.11"/>

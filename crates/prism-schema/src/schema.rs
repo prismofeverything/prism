@@ -78,6 +78,23 @@ pub enum Schema {
     Overwrite {
         inner: Box<Schema>,
     },
+
+    /// Multidimensional array — element-wise additive apply.
+    /// Like Python bigraph-schema's `array` type. Updates are added
+    /// element-wise when shapes match.
+    Array {
+        /// Shape dimensions (e.g., [10, 10] for a 10x10 grid)
+        shape: Vec<usize>,
+        /// Element type
+        element: Box<Schema>,
+    },
+
+    /// Tuple — fixed-length, element-wise typed apply.
+    /// Like Python bigraph-schema's `tuple` type. Each element
+    /// is applied using its own type's semantics.
+    Tuple {
+        elements: Vec<Schema>,
+    },
 }
 
 impl Schema {
@@ -130,6 +147,16 @@ impl Schema {
         Self::overwrite(Self::float())
     }
 
+    /// Array type — element-wise additive.
+    pub fn array(shape: Vec<usize>, element: Schema) -> Self {
+        Self::Array { shape, element: Box::new(element) }
+    }
+
+    /// Tuple type — element-wise typed apply.
+    pub fn tuple(elements: Vec<Schema>) -> Self {
+        Self::Tuple { elements }
+    }
+
     pub fn maybe(inner: Schema) -> Self {
         Self::Maybe {
             inner: Box::new(inner),
@@ -172,6 +199,24 @@ impl Schema {
             }
             Self::Delta { default } => Value::float(default.unwrap_or(0.0)),
             Self::Overwrite { inner } => inner.default_value(),
+            Self::Array { shape, element } => {
+                // Build nested list matching shape dimensions
+                fn build_array(dims: &[usize], elem: &Schema) -> Value {
+                    if dims.is_empty() {
+                        return elem.default_value();
+                    }
+                    let inner = if dims.len() == 1 {
+                        (0..dims[0]).map(|_| elem.default_value()).collect()
+                    } else {
+                        (0..dims[0]).map(|_| build_array(&dims[1..], elem)).collect()
+                    };
+                    Value::List(inner)
+                }
+                build_array(shape, element)
+            }
+            Self::Tuple { elements } => {
+                Value::List(elements.iter().map(|s| s.default_value()).collect())
+            }
         }
     }
 
@@ -199,7 +244,38 @@ impl Schema {
             (Self::Tree { branches }, Value::Map(map)) => branches
                 .iter()
                 .all(|(k, s)| map.get(k).is_some_and(|v| s.check(v))),
+            (Self::Array { element, .. }, Value::List(items)) => {
+                items.iter().all(|item| match item {
+                    Value::List(row) => row.iter().all(|v| element.check(v)),
+                    _ => element.check(item),
+                })
+            }
+            (Self::Tuple { elements }, Value::List(items)) => {
+                elements.len() == items.len()
+                    && elements.iter().zip(items.iter()).all(|(s, v)| s.check(v))
+            }
             _ => false,
+        }
+    }
+
+    /// Walk the schema tree to find the sub-schema at a given path.
+    /// For example, path ["fields", "glucose"] in Tree{fields: Map(Array(Float))}
+    /// returns Array(Float).
+    pub fn schema_at_path(&self, path: &[String]) -> &Schema {
+        if path.is_empty() {
+            return self;
+        }
+        match self {
+            Self::Tree { branches } => {
+                if let Some(child) = branches.get(&path[0]) {
+                    child.schema_at_path(&path[1..])
+                } else {
+                    &Schema::Any
+                }
+            }
+            Self::Map { value } => value.schema_at_path(&path[1..]),
+            Self::Array { element, .. } => element.schema_at_path(&path[1..]),
+            _ => self, // Leaf schema applies to everything below
         }
     }
 
@@ -295,6 +371,49 @@ impl Schema {
             // Lists and Maybe: replace
             Self::List { .. } | Self::Maybe { .. } => update.clone(),
 
+            // Array: element-wise additive apply through all dimensions.
+            // For array[ny|nx, float], recursively applies through nested lists
+            // until reaching the leaf element type.
+            Self::Array { shape, element } => {
+                match (current, update) {
+                    (Value::List(cur), Value::List(upd)) if cur.len() == upd.len() => {
+                        // If there are remaining shape dimensions, recurse as sub-arrays
+                        let sub_schema = if shape.len() > 1 {
+                            Schema::Array {
+                                shape: shape[1..].to_vec(),
+                                element: element.clone(),
+                            }
+                        } else {
+                            // Last dimension: use element type directly
+                            *element.clone()
+                        };
+                        Value::List(
+                            cur.iter().zip(upd.iter())
+                                .map(|(c, u)| sub_schema.apply_update(c, u))
+                                .collect()
+                        )
+                    }
+                    _ => update.clone(),
+                }
+            }
+
+            // Tuple: element-wise typed apply.
+            Self::Tuple { elements } => {
+                match (current, update) {
+                    (Value::List(cur), Value::List(upd)) if cur.len() == upd.len() => {
+                        Value::List(
+                            cur.iter().zip(upd.iter()).enumerate()
+                                .map(|(i, (c, u))| {
+                                    let schema = elements.get(i).unwrap_or(&Schema::Any);
+                                    schema.apply_update(c, u)
+                                })
+                                .collect()
+                        )
+                    }
+                    _ => update.clone(),
+                }
+            }
+
             // Any: infer behavior from the value types
             Self::Any => {
                 match (current, update) {
@@ -317,6 +436,8 @@ impl Schema {
                         }
                         Value::Map(result)
                     }
+                    // Both lists → replace (use Array schema for element-wise additive)
+                    (Value::List(_), Value::List(_)) => update.clone(),
                     // Otherwise → replace
                     _ => update.clone(),
                 }
@@ -348,6 +469,18 @@ impl fmt::Display for Schema {
                     write!(f, "{k}: {v}")?;
                 }
                 write!(f, "}}")
+            }
+            Self::Array { shape, element } => {
+                let dims: Vec<String> = shape.iter().map(|d| d.to_string()).collect();
+                write!(f, "array[{}|{}]", dims.join("|"), element)
+            }
+            Self::Tuple { elements } => {
+                write!(f, "tuple[")?;
+                for (i, e) in elements.iter().enumerate() {
+                    if i > 0 { write!(f, ",")?; }
+                    write!(f, "{e}")?;
+                }
+                write!(f, "]")
             }
         }
     }

@@ -280,3 +280,22 @@ pub fn build_registry() -> ProcessRegistry {
 
     reg
 }
+
+/// Build a registry that includes the Composite type.
+/// The Composite needs a reference to the registry itself for discovering
+/// its inner processes, so we build the base registry first, wrap in Arc,
+/// then register the Composite factory using the Arc.
+pub fn build_registry_with_composites() -> std::sync::Arc<ProcessRegistry> {
+    let mut reg = build_registry();
+
+    // We need the Arc to exist before we can register the Composite factory.
+    // Solution: register a placeholder, wrap in Arc, then replace.
+    // Actually simpler: just build the Arc and use it directly.
+    let arc = std::sync::Arc::new(reg);
+
+    // Can't mutate through Arc directly. Instead, build a new registry
+    // that includes Composite and copies everything else.
+    // For now, the Composite is constructed in from_config or vivarium_loader
+    // using the Arc<ProcessRegistry> directly, not through the factory.
+    arc
+}

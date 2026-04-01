@@ -6,7 +6,7 @@
 
 use indexmap::IndexMap;
 
-use prism_schema::Value;
+use prism_schema::{Schema, Value};
 
 use crate::topology::{ProcessSpec, Topology};
 
@@ -42,6 +42,9 @@ pub struct VivariumDocument {
     pub state: Value,
     /// Schema section if present.
     pub schema: Option<Value>,
+    /// Composite containers: top-level keys whose children are ALL process specs.
+    /// These should be instantiated as Composite processes, not flattened.
+    pub composites: Vec<String>,
 }
 
 impl VivariumDocument {
@@ -52,6 +55,7 @@ impl VivariumDocument {
     pub fn parse(json: &Value) -> Self {
         let mut processes = IndexMap::new();
         let mut state = Value::map();
+        let mut composites = Vec::new();
 
         let root_state = match json.as_map().and_then(|m| m.get("state")) {
             Some(s) => s,
@@ -77,6 +81,11 @@ impl VivariumDocument {
                     clean_state.insert(key.clone(), value.clone());
                 } else if key == "global_time" {
                     clean_state.insert(key.clone(), value.clone());
+                } else if is_composite_container(value) {
+                    // This is a container of process specs → treat as a Composite.
+                    // Don't flatten; keep as-is in state for the Composite engine.
+                    composites.push(key.clone());
+                    clean_state.insert(key.clone(), value.clone());
                 } else {
                     // Recursively check for processes inside particles etc.
                     let (cleaned, nested_procs) =
@@ -95,6 +104,48 @@ impl VivariumDocument {
             processes,
             state,
             schema,
+            composites,
+        }
+    }
+
+    /// Parse the schema section into a Schema tree.
+    /// The schema maps state keys to type expression strings.
+    pub fn parse_state_schema(&self) -> Schema {
+        let schema_val = match &self.schema {
+            Some(v) => v,
+            None => return Schema::Any,
+        };
+        let map = match schema_val.as_map() {
+            Some(m) => m,
+            None => return Schema::Any,
+        };
+
+        let mut branches = IndexMap::new();
+        for (key, val) in map {
+            if let Some(type_str) = val.as_str() {
+                // Check if it's a tree expression (key1:type1|key2:type2)
+                if type_str.contains('|') && type_str.contains(':') && !type_str.starts_with("link") {
+                    branches.insert(key.clone(), prism_schema::parse_tree_expression(type_str));
+                } else {
+                    branches.insert(key.clone(), prism_schema::parse_type_expression(type_str));
+                }
+            } else if let Some(sub_map) = val.as_map() {
+                // Nested schema (for things like particles with sub-schemas)
+                // Recurse with a sub-document
+                let sub_doc = VivariumDocument {
+                    processes: IndexMap::new(),
+                    state: Value::map(),
+                    schema: Some(Value::Map(sub_map.clone())),
+                    composites: vec![],
+                };
+                branches.insert(key.clone(), sub_doc.parse_state_schema());
+            }
+        }
+
+        if branches.is_empty() {
+            Schema::Any
+        } else {
+            Schema::Tree { branches }
         }
     }
 
@@ -104,6 +155,7 @@ impl VivariumDocument {
     pub fn to_topology(&self) -> Topology {
         let mut topology = Topology::new();
         topology.initial_state = self.state.clone();
+        topology.state_schema = self.parse_state_schema();
 
         for (name, vproc) in &self.processes {
             // Use pre-resolved wires if available (handles .. and nesting)
@@ -124,6 +176,57 @@ impl VivariumDocument {
                     inputs,
                     outputs,
                     interval: vproc.interval,
+                    priority: 0.0,
+                },
+            );
+        }
+
+        // Add composite containers as single "Composite" process entries
+        for composite_name in &self.composites {
+            // Auto-detect bridge from child process wiring
+            let mut bridge_roots: IndexMap<String, Vec<String>> = IndexMap::new();
+            if let Some(Value::Map(container)) = self.state.as_map()
+                .and_then(|m| m.get(composite_name))
+            {
+                for (_key, child) in container {
+                    if let Some(child_map) = child.as_map() {
+                        for wire_key in ["inputs", "outputs"] {
+                            if let Some(wires) = child_map.get(wire_key).and_then(|v| v.as_map()) {
+                                for (_port, target) in wires {
+                                    // Extract root path from wiring
+                                    // Extract the first non-".." element as the root
+                                    let find_root = |path: &[Value]| -> Option<String> {
+                                        path.iter()
+                                            .filter_map(|v| v.as_str())
+                                            .find(|s| *s != "..")
+                                            .map(|s| s.to_string())
+                                    };
+                                    let root = match target {
+                                        Value::List(path) => find_root(path),
+                                        Value::Map(sub) => sub.values().next()
+                                            .and_then(|v| v.as_list())
+                                            .and_then(|l| find_root(l)),
+                                        _ => None,
+                                    };
+                                    if let Some(r) = root {
+                                        bridge_roots.entry(r.clone())
+                                            .or_insert_with(|| vec![r]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            topology.processes.insert(
+                composite_name.clone(),
+                ProcessSpec {
+                    process_type: "Composite".to_string(),
+                    config: Value::None,
+                    inputs: bridge_roots.clone(),
+                    outputs: bridge_roots,
+                    interval: Some(1.0),
                     priority: 0.0,
                 },
             );
@@ -150,6 +253,19 @@ fn is_process_node(value: &Value) -> bool {
     value
         .as_map()
         .is_some_and(|m| m.contains_key("address"))
+}
+
+/// Check if a value is a composite container: a map where ALL children
+/// are process specs (have "address" key) and there are multiple children.
+fn is_composite_container(value: &Value) -> bool {
+    if let Some(map) = value.as_map() {
+        if map.len() < 2 {
+            return false;
+        }
+        map.values().all(|v| is_process_node(v))
+    } else {
+        false
+    }
 }
 
 /// Extract a VivariumProcess from a process node in the state tree.

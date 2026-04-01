@@ -2,8 +2,15 @@
 //!
 //! Simulates 2D particles with gravity, collisions, elasticity,
 //! and boundary walls. Port of pymunk_particles.py.
+//!
+//! The rapier2d world is persistent across ticks — only new/removed
+//! particles are synced, avoiding the cost of rebuilding collision
+//! structures every step.
 
 use std::any::Any;
+use std::collections::HashMap;
+use std::fmt;
+use std::sync::Mutex;
 
 use indexmap::IndexMap;
 use rapier2d::prelude::*;
@@ -12,8 +19,175 @@ use prism_bigraph::{Process, Schema, Update, Value};
 
 use super::particles::{radius_from_mass, DEFAULT_DENSITY};
 
+/// Persistent rapier2d world state.
+struct RapierWorld {
+    rigid_body_set: RigidBodySet,
+    collider_set: ColliderSet,
+    physics_pipeline: PhysicsPipeline,
+    island_manager: IslandManager,
+    broad_phase: DefaultBroadPhase,
+    narrow_phase: NarrowPhase,
+    impulse_joint_set: ImpulseJointSet,
+    multibody_joint_set: MultibodyJointSet,
+    ccd_solver: CCDSolver,
+    /// Particle ID → (RigidBodyHandle, ColliderHandle)
+    body_map: HashMap<String, (RigidBodyHandle, ColliderHandle)>,
+}
+
+impl RapierWorld {
+    fn new(bounds: (f32, f32), elasticity: f32) -> Self {
+        let mut rigid_body_set = RigidBodySet::new();
+        let mut collider_set = ColliderSet::new();
+
+        // Create boundary walls
+        let (w, h) = bounds;
+        let wall_body = rigid_body_set.insert(RigidBodyBuilder::fixed().build());
+        // Bottom
+        collider_set.insert_with_parent(
+            ColliderBuilder::cuboid(w, 0.1)
+                .translation(vector![w / 2.0, -0.1])
+                .restitution(elasticity)
+                .build(),
+            wall_body,
+            &mut rigid_body_set,
+        );
+        // Top
+        collider_set.insert_with_parent(
+            ColliderBuilder::cuboid(w, 0.1)
+                .translation(vector![w / 2.0, h + 0.1])
+                .restitution(elasticity)
+                .build(),
+            wall_body,
+            &mut rigid_body_set,
+        );
+        // Left
+        collider_set.insert_with_parent(
+            ColliderBuilder::cuboid(0.1, h)
+                .translation(vector![-0.1, h / 2.0])
+                .restitution(elasticity)
+                .build(),
+            wall_body,
+            &mut rigid_body_set,
+        );
+        // Right
+        collider_set.insert_with_parent(
+            ColliderBuilder::cuboid(0.1, h)
+                .translation(vector![w + 0.1, h / 2.0])
+                .restitution(elasticity)
+                .build(),
+            wall_body,
+            &mut rigid_body_set,
+        );
+
+        RapierWorld {
+            rigid_body_set,
+            collider_set,
+            physics_pipeline: PhysicsPipeline::new(),
+            island_manager: IslandManager::new(),
+            broad_phase: DefaultBroadPhase::new(),
+            narrow_phase: NarrowPhase::new(),
+            impulse_joint_set: ImpulseJointSet::new(),
+            multibody_joint_set: MultibodyJointSet::new(),
+            ccd_solver: CCDSolver::new(),
+            body_map: HashMap::new(),
+        }
+    }
+
+    /// Add a particle to the world. Returns the body/collider handles.
+    fn add_particle(
+        &mut self,
+        pid: &str,
+        pos: (f32, f32),
+        vel: (f32, f32),
+        mass: f32,
+        radius: f32,
+        elasticity: f32,
+        damping: f32,
+    ) {
+        let body = self.rigid_body_set.insert(
+            RigidBodyBuilder::dynamic()
+                .translation(vector![pos.0, pos.1])
+                .linvel(vector![vel.0, vel.1])
+                .linear_damping(damping)
+                .build(),
+        );
+        let collider = self.collider_set.insert_with_parent(
+            ColliderBuilder::ball(radius)
+                .restitution(elasticity)
+                .density(mass / (std::f32::consts::PI * radius * radius))
+                .build(),
+            body,
+            &mut self.rigid_body_set,
+        );
+        self.body_map.insert(pid.to_string(), (body, collider));
+    }
+
+    /// Remove a particle from the world.
+    fn remove_particle(&mut self, pid: &str) {
+        if let Some((body_handle, _)) = self.body_map.remove(pid) {
+            self.rigid_body_set.remove(
+                body_handle,
+                &mut self.island_manager,
+                &mut self.collider_set,
+                &mut self.impulse_joint_set,
+                &mut self.multibody_joint_set,
+                true,
+            );
+        }
+    }
+
+    /// Update an existing particle's position, velocity, and collision radius.
+    fn update_particle(
+        &mut self,
+        pid: &str,
+        pos: (f32, f32),
+        vel: (f32, f32),
+        mass: f32,
+        radius: f32,
+    ) {
+        if let Some(&(body_handle, collider_handle)) = self.body_map.get(pid) {
+            if let Some(body) = self.rigid_body_set.get_mut(body_handle) {
+                body.set_translation(vector![pos.0, pos.1], true);
+                body.set_linvel(vector![vel.0, vel.1], true);
+            }
+            // Update collider radius and density if mass changed
+            if let Some(collider) = self.collider_set.get_mut(collider_handle) {
+                collider.set_shape(SharedShape::ball(radius));
+                collider.set_density(mass / (std::f32::consts::PI * radius * radius));
+            }
+        }
+    }
+
+    fn step(&mut self, gravity: &Vector<f32>, dt: f32, n_substeps: usize) {
+        let sub_dt = dt / n_substeps as f32;
+        let integration_parameters = IntegrationParameters {
+            dt: sub_dt,
+            ..Default::default()
+        };
+        for _ in 0..n_substeps {
+            self.physics_pipeline.step(
+                gravity,
+                &integration_parameters,
+                &mut self.island_manager,
+                &mut self.broad_phase,
+                &mut self.narrow_phase,
+                &mut self.rigid_body_set,
+                &mut self.collider_set,
+                &mut self.impulse_joint_set,
+                &mut self.multibody_joint_set,
+                &mut self.ccd_solver,
+                None,
+                &(),
+                &(),
+            );
+        }
+    }
+}
+
 /// 2D rigid-body particle physics using rapier2d.
-#[derive(Clone, Debug)]
+///
+/// Maintains a persistent rapier2d world across ticks, syncing
+/// particle additions/removals/mass changes each step.
 pub struct NewtonianParticles {
     pub bounds: (f64, f64),
     pub gravity: (f64, f64),
@@ -21,6 +195,83 @@ pub struct NewtonianParticles {
     pub damping: f64,
     pub substeps: usize,
     pub interval: f64,
+    /// Persistent physics world (lazy-initialized on first update).
+    world: Mutex<Option<RapierWorld>>,
+}
+
+impl Clone for NewtonianParticles {
+    fn clone(&self) -> Self {
+        // Clone config only; world will be rebuilt on first use.
+        NewtonianParticles {
+            bounds: self.bounds,
+            gravity: self.gravity,
+            elasticity: self.elasticity,
+            damping: self.damping,
+            substeps: self.substeps,
+            interval: self.interval,
+            world: Mutex::new(None),
+        }
+    }
+}
+
+impl fmt::Debug for NewtonianParticles {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NewtonianParticles")
+            .field("bounds", &self.bounds)
+            .field("gravity", &self.gravity)
+            .field("elasticity", &self.elasticity)
+            .field("damping", &self.damping)
+            .field("substeps", &self.substeps)
+            .field("interval", &self.interval)
+            .finish()
+    }
+}
+
+/// Extract mass from particle value (sub_masses sum or mass field).
+fn particle_mass(particle: &Value) -> f32 {
+    let m = particle.as_map();
+    let sub_total: f64 = m
+        .and_then(|m| m.get("sub_masses"))
+        .and_then(|v| v.as_map())
+        .map(|sm| sm.values().filter_map(|v| v.as_f64()).sum())
+        .unwrap_or(0.0);
+    if sub_total > 0.0 {
+        sub_total as f32
+    } else {
+        m.and_then(|m| m.get("mass"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.0) as f32
+    }
+}
+
+/// Extract position from particle value.
+fn particle_pos(particle: &Value) -> (f32, f32) {
+    particle
+        .as_map()
+        .and_then(|m| m.get("position"))
+        .and_then(|v| v.as_list())
+        .map(|l| {
+            (
+                l.first().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                l.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+            )
+        })
+        .unwrap_or((0.0, 0.0))
+}
+
+/// Extract velocity from particle value.
+fn particle_vel(particle: &Value) -> (f32, f32) {
+    particle
+        .as_map()
+        .and_then(|m| m.get("velocity"))
+        .and_then(|v| v.as_list())
+        .map(|l| {
+            (
+                l.first().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                l.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+            )
+        })
+        .unwrap_or((0.0, 0.0))
 }
 
 impl Process for NewtonianParticles {
@@ -50,192 +301,108 @@ impl Process for NewtonianParticles {
             return Update::Noop;
         }
 
-        // Build rapier world with sub-stepping for stability.
-        // Since we rebuild the world each update (no persistent contacts),
-        // sub-stepping helps the solver converge for resting stacks.
-        let n_substeps = self.substeps;
-        let sub_dt = interval as f32 / n_substeps as f32;
+        let mut world_guard = self.world.lock().unwrap();
 
-        let gravity = vector![self.gravity.0 as f32, self.gravity.1 as f32];
-        let mut rigid_body_set = RigidBodySet::new();
-        let mut collider_set = ColliderSet::new();
-        let integration_parameters = IntegrationParameters {
-            dt: sub_dt,
-            ..Default::default()
+        // Lazy-initialize the world on first call
+        let world = world_guard.get_or_insert_with(|| {
+            RapierWorld::new(
+                (self.bounds.0 as f32, self.bounds.1 as f32),
+                self.elasticity as f32,
+            )
+        });
+
+        let rapier_damping = if self.damping > 0.0 && self.damping < 1.0 {
+            -(self.damping as f32).ln()
+        } else {
+            0.0
         };
-        let mut physics_pipeline = PhysicsPipeline::new();
-        let mut island_manager = IslandManager::new();
-        let mut broad_phase = DefaultBroadPhase::new();
-        let mut narrow_phase = NarrowPhase::new();
-        let mut impulse_joint_set = ImpulseJointSet::new();
-        let mut multibody_joint_set = MultibodyJointSet::new();
-        let mut ccd_solver = CCDSolver::new();
 
-        // Create boundary walls
-        let (w, h) = (self.bounds.0 as f32, self.bounds.1 as f32);
-        let wall_body = rigid_body_set.insert(RigidBodyBuilder::fixed().build());
-        // Bottom
-        collider_set.insert_with_parent(
-            ColliderBuilder::cuboid(w, 0.1)
-                .translation(vector![w / 2.0, -0.1])
-                .restitution(self.elasticity as f32)
-                .build(),
-            wall_body,
-            &mut rigid_body_set,
-        );
-        // Top
-        collider_set.insert_with_parent(
-            ColliderBuilder::cuboid(w, 0.1)
-                .translation(vector![w / 2.0, h + 0.1])
-                .restitution(self.elasticity as f32)
-                .build(),
-            wall_body,
-            &mut rigid_body_set,
-        );
-        // Left
-        collider_set.insert_with_parent(
-            ColliderBuilder::cuboid(0.1, h)
-                .translation(vector![-0.1, h / 2.0])
-                .restitution(self.elasticity as f32)
-                .build(),
-            wall_body,
-            &mut rigid_body_set,
-        );
-        // Right
-        collider_set.insert_with_parent(
-            ColliderBuilder::cuboid(0.1, h)
-                .translation(vector![w + 0.1, h / 2.0])
-                .restitution(self.elasticity as f32)
-                .build(),
-            wall_body,
-            &mut rigid_body_set,
-        );
+        // Sync particles: detect additions, removals, and changes
+        let current_ids: std::collections::HashSet<&str> =
+            particles.keys().map(|s| s.as_str()).collect();
+        let world_ids: std::collections::HashSet<String> =
+            world.body_map.keys().cloned().collect();
 
-        // Create particle bodies
-        let mut body_map: Vec<(String, RigidBodyHandle)> = Vec::new();
+        // Remove particles no longer in state
+        let to_remove: Vec<String> = world_ids
+            .iter()
+            .filter(|id| !current_ids.contains(id.as_str()))
+            .cloned()
+            .collect();
+        for pid in &to_remove {
+            world.remove_particle(pid);
+        }
 
+        // Add new particles / update existing ones
         for (pid, particle) in particles {
-            let pos = particle
-                .as_map()
-                .and_then(|m| m.get("position"))
-                .and_then(|v| v.as_list())
-                .map(|l| {
-                    (
-                        l.first().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
-                        l.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
-                    )
-                })
-                .unwrap_or((0.0, 0.0));
-
-            // Use sub_masses sum if available, else fall back to mass field
-            let mass = {
-                let m = particle.as_map();
-                let sub_total: f64 = m
-                    .and_then(|m| m.get("sub_masses"))
-                    .and_then(|v| v.as_map())
-                    .map(|sm| sm.values().filter_map(|v| v.as_f64()).sum())
-                    .unwrap_or(0.0);
-                if sub_total > 0.0 {
-                    sub_total as f32
-                } else {
-                    m.and_then(|m| m.get("mass"))
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(1.0) as f32
-                }
-            };
-
+            let mass = particle_mass(particle);
             let radius = radius_from_mass(mass as f64, DEFAULT_DENSITY) as f32;
+            let pos = particle_pos(particle);
+            let vel = particle_vel(particle);
 
-            // Read velocity from state (preserved across steps)
-            let vel = particle
-                .as_map()
-                .and_then(|m| m.get("velocity"))
-                .and_then(|v| v.as_list())
-                .map(|l| {
-                    (
-                        l.first().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
-                        l.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
-                    )
-                })
-                .unwrap_or((0.0, 0.0));
-
-            // Convert pymunk-style damping (fraction retained per second)
-            // to rapier linear_damping: v *= 1/(1 + dt*d), so for
-            // pymunk damping=0.998 → retain=0.998/s → rapier_d = (1/retain - 1)/dt ≈ (1-retain)/dt
-            // But rapier applies per-step: we want 1/(1+d*dt)^(1/dt) = retain
-            // Simplify: rapier_damping = -ln(pymunk_damping)
-            let rapier_damping = if self.damping > 0.0 && self.damping < 1.0 {
-                -(self.damping as f32).ln()
+            if world.body_map.contains_key(pid) {
+                // Update existing: sync position, velocity, mass/radius from state
+                world.update_particle(pid, pos, vel, mass, radius);
             } else {
-                0.0 // damping >= 1 means no damping in pymunk convention
-            };
-
-            let body = rigid_body_set.insert(
-                RigidBodyBuilder::dynamic()
-                    .translation(vector![pos.0, pos.1])
-                    .linvel(vector![vel.0, vel.1])
-                    .linear_damping(rapier_damping)
-                    .build(),
-            );
-
-            collider_set.insert_with_parent(
-                ColliderBuilder::ball(radius)
-                    .restitution(self.elasticity as f32)
-                    .density(mass / (std::f32::consts::PI * radius * radius))
-                    .build(),
-                body,
-                &mut rigid_body_set,
-            );
-
-            body_map.push((pid.clone(), body));
+                // New particle
+                world.add_particle(
+                    pid,
+                    pos,
+                    vel,
+                    mass,
+                    radius,
+                    self.elasticity as f32,
+                    rapier_damping,
+                );
+            }
         }
 
-        // Step physics with sub-stepping
-        for _ in 0..n_substeps {
-            physics_pipeline.step(
-                &gravity,
-                &integration_parameters,
-                &mut island_manager,
-                &mut broad_phase,
-                &mut narrow_phase,
-                &mut rigid_body_set,
-                &mut collider_set,
-                &mut impulse_joint_set,
-                &mut multibody_joint_set,
-                &mut ccd_solver,
-                None,
-                &(),
-                &(),
-            );
-        }
+        // Step physics
+        let gravity = vector![self.gravity.0 as f32, self.gravity.1 as f32];
+        world.step(&gravity, interval as f32, self.substeps);
 
-        // Extract updated positions and velocities only.
-        // IMPORTANT: output only position/velocity (List → replace semantics).
-        // Do NOT clone the full particle — Float fields like mass/radius
-        // would be treated as deltas and doubled each step.
+        // Extract updated positions and velocities
         let mut result: IndexMap<String, Value> = IndexMap::new();
 
-        for (pid, body_handle) in &body_map {
-            let body = &rigid_body_set[*body_handle];
+        for (pid, particle) in particles {
+            let &(body_handle, _) = match world.body_map.get(pid) {
+                Some(h) => h,
+                None => continue,
+            };
+            let body = &world.rigid_body_set[body_handle];
             let pos = body.translation();
             let vel = body.linvel();
 
-            result.insert(pid.clone(), Value::tree([
-                (
-                    "position",
-                    Value::List(vec![
-                        Value::float(pos.x as f64),
-                        Value::float(pos.y as f64),
-                    ]),
-                ),
-                (
-                    "velocity",
-                    Value::List(vec![
-                        Value::float(vel.x as f64),
-                        Value::float(vel.y as f64),
-                    ]),
-                ),
-            ]));
+            let pid_mass = particle_mass(particle) as f64;
+            let new_radius = radius_from_mass(pid_mass, DEFAULT_DENSITY);
+
+            let old_radius = particle
+                .as_map()
+                .and_then(|m| m.get("radius"))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(new_radius);
+            let radius_delta = new_radius - old_radius;
+
+            let mut update = IndexMap::new();
+            update.insert(
+                "position".to_string(),
+                Value::List(vec![
+                    Value::float(pos.x as f64),
+                    Value::float(pos.y as f64),
+                ]),
+            );
+            update.insert(
+                "velocity".to_string(),
+                Value::List(vec![
+                    Value::float(vel.x as f64),
+                    Value::float(vel.y as f64),
+                ]),
+            );
+            if radius_delta.abs() > 1e-12 {
+                update.insert("radius".to_string(), Value::float(radius_delta));
+            }
+
+            result.insert(pid.clone(), Value::Map(update));
         }
 
         Update::value(Value::tree([("particles", Value::Map(result))]))
@@ -253,8 +420,8 @@ impl Process for NewtonianParticles {
 pub fn newtonian_from_config(config: &Value) -> NewtonianParticles {
     let map = config.as_map().cloned().unwrap_or_default();
 
-    let bounds_val = map.get("bounds");
-    let bounds = bounds_val
+    let bounds = map
+        .get("bounds")
         .and_then(|v| v.as_list())
         .map(|l| {
             (
@@ -264,7 +431,6 @@ pub fn newtonian_from_config(config: &Value) -> NewtonianParticles {
         })
         .unwrap_or((50.0, 50.0));
 
-    // Gravity can be a scalar (y-component only) or a [gx, gy] list
     let gravity = match map.get("gravity") {
         Some(v) if v.as_list().is_some() => {
             let l = v.as_list().unwrap();
@@ -304,5 +470,6 @@ pub fn newtonian_from_config(config: &Value) -> NewtonianParticles {
         damping,
         substeps,
         interval,
+        world: Mutex::new(None),
     }
 }

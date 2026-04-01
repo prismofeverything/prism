@@ -9,12 +9,14 @@
 //! with good_lp/minilp.
 
 use std::any::Any;
+use std::fmt;
+use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
 
 use prism_bigraph::{Process, Schema, Update, Value};
 
-use super::fba::{model_path, CobraModel};
+use super::fba::{load_model_cached, CobraModel, FbaSolver};
 
 /// Kinetic parameters for a substrate: (km, vmax).
 #[derive(Clone, Debug)]
@@ -24,10 +26,15 @@ pub struct KineticParam {
 }
 
 /// Dynamic FBA process backed by a real COBRA model + LP solver.
-#[derive(Clone, Debug)]
+///
+/// Maintains a persistent HiGHS solver instance that preserves the LP
+/// structure and warm-start basis across ticks. Only column bounds are
+/// updated each solve.
 pub struct DynamicFBA {
     /// The COBRA model (stoichiometry matrix, bounds, objective).
-    pub model: CobraModel,
+    /// Shared via Arc so particles cloned from division share the
+    /// parsed model data without re-reading from disk.
+    pub model: Arc<CobraModel>,
     /// Michaelis-Menten parameters per substrate.
     pub kinetic_params: IndexMap<String, KineticParam>,
     /// Maps substrate name → exchange reaction ID in the model.
@@ -36,6 +43,30 @@ pub struct DynamicFBA {
     pub config_bounds: IndexMap<String, (Option<f64>, Option<f64>)>,
     /// Process interval.
     pub interval: f64,
+    /// Persistent LP solver (lazy-initialized on first update).
+    solver: Mutex<Option<FbaSolver>>,
+}
+
+impl Clone for DynamicFBA {
+    fn clone(&self) -> Self {
+        DynamicFBA {
+            model: Arc::clone(&self.model),
+            kinetic_params: self.kinetic_params.clone(),
+            substrate_reactions: self.substrate_reactions.clone(),
+            config_bounds: self.config_bounds.clone(),
+            interval: self.interval,
+            solver: Mutex::new(None), // new instance gets its own solver
+        }
+    }
+}
+
+impl fmt::Debug for DynamicFBA {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DynamicFBA")
+            .field("model", &self.model.id)
+            .field("interval", &self.interval)
+            .finish()
+    }
 }
 
 impl DynamicFBA {
@@ -131,11 +162,14 @@ impl Process for DynamicFBA {
             }
         }
 
-        // Solve FBA
-        let solution = match self.model.solve_with_bounds(&lb, &ub) {
+        // Solve FBA using persistent solver (warm-starts from previous basis)
+        let mut solver_guard = self.solver.lock().unwrap();
+        let solver = solver_guard.get_or_insert_with(|| FbaSolver::new(&self.model));
+        let solution = match solver.solve(&lb, &ub) {
             Some(sol) => sol,
             None => return Update::Noop, // Infeasible
         };
+        drop(solver_guard);
 
         let dt = interval; // time units per step
 
@@ -177,20 +211,17 @@ impl Process for DynamicFBA {
 pub fn dfba_from_config(config: &Value) -> DynamicFBA {
     let map = config.as_map().cloned().unwrap_or_default();
 
-    // Load the COBRA model
+    // Load the COBRA model (cached — shared across particles)
     let model_file = map
         .get("model_file")
         .and_then(|v| v.as_str())
         .unwrap_or("textbook");
 
-    let model = match model_path(model_file) {
-        Some(path) => CobraModel::from_json_file(&path).unwrap_or_else(|e| {
+    let model = match load_model_cached(model_file) {
+        Ok(m) => m,
+        Err(e) => {
             eprintln!("Warning: failed to load model '{model_file}': {e}, using fallback");
-            make_fallback_model()
-        }),
-        None => {
-            eprintln!("Warning: model file '{model_file}' not found, using fallback");
-            make_fallback_model()
+            Arc::new(make_fallback_model())
         }
     };
 
@@ -239,6 +270,7 @@ pub fn dfba_from_config(config: &Value) -> DynamicFBA {
         substrate_reactions,
         config_bounds,
         interval,
+        solver: Mutex::new(None),
     }
 }
 

@@ -18,6 +18,7 @@ use prism_bigraph::{Document, ProcessRegistry, Value, VivariumDocument};
 use prism_viz::{render_dot, DotOptions};
 
 use crate::processes::fields::flatten_field;
+use crate::processes::particles::{radius_from_mass, DEFAULT_DENSITY};
 use crate::vivarium_loader::instantiate_vivarium;
 
 /// A single simulation run result for the report.
@@ -1068,7 +1069,7 @@ fn overlay_particles(svg: &mut String, state: &Value, nx: usize, ny: usize, flip
             };
             // Use actual physics radius if available, else derive from mass
             let phys_radius = get_radius(p);
-            let radius = (phys_radius / bounds_x * svg_w as f64).max(0.5).min(cell_size as f64 / 2.0) as i32;
+            let radius = (phys_radius / bounds_x * svg_w as f64).max(0.5) as i32;
             let (r, g, b) = TAB20[i % TAB20.len()];
 
             let _ = write!(svg,
@@ -1096,22 +1097,19 @@ fn get_mass(particle: &Value) -> f64 {
 }
 
 fn get_radius(particle: &Value) -> f64 {
-    // Use stored radius if available and non-zero, else derive from mass.
-    // For sub_masses particles, always derive from total mass (sub_masses may grow).
-    if let Some(map) = particle.as_map() {
-        let has_sub_masses = map.get("sub_masses")
-            .and_then(|v| v.as_map())
-            .is_some_and(|sm| sm.values().any(|v| v.as_f64().is_some()));
-        if !has_sub_masses {
-            if let Some(r) = map.get("radius").and_then(|v| v.as_f64()) {
-                if r > 0.0 {
-                    return r;
-                }
-            }
-        }
-    }
     let mass = get_mass(particle).max(0.001);
-    (mass / (0.015 * std::f64::consts::PI)).sqrt()
+    // Newtonian particles (have velocity) use physics radius to match
+    // collision volume: r = sqrt(m / (density * pi)).
+    // Brownian particles use sqrt(mass) matching Python's display convention.
+    let has_physics = particle
+        .as_map()
+        .map(|m| m.contains_key("velocity"))
+        .unwrap_or(false);
+    if has_physics {
+        radius_from_mass(mass, DEFAULT_DENSITY)
+    } else {
+        mass.sqrt()
+    }
 }
 
 /// Matplotlib tab20 color palette (20 distinct colors).
@@ -1302,7 +1300,7 @@ fn render_particle_frame(
                 let py = h as i32 - ((y - by0) * scale_y) as i32; // flip Y
                 // Use actual physics radius, scaled to SVG pixels
                 let phys_radius = get_radius(p);
-                let radius = (phys_radius * scale_x).max(0.5).min(30.0) as i32;
+                let radius = (phys_radius * scale_x).max(0.5) as i32;
                 let _ = write!(
                     svg,
                     "<circle cx=\"{px}\" cy=\"{py}\" r=\"{radius}\" fill=\"rgb({r},{g},{b})\" opacity=\"0.8\"/>"

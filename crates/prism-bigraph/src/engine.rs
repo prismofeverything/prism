@@ -137,6 +137,12 @@ impl Engine {
                         interval,
                     },
                 );
+                // Store interval in state tree so Steps can wire to it
+                // (e.g. ManageBoundaries reads ["newtonian_particles", "interval"])
+                state.set_path(
+                    &[name.clone(), "interval".to_string()],
+                    Value::float(interval),
+                );
             } else {
                 // Step: register triggers based on input wiring
                 for path in spec.inputs.values() {
@@ -181,6 +187,11 @@ impl Engine {
         &self.state
     }
 
+    /// Mutable access to the state tree (for composites bridging inputs).
+    pub fn state_mut(&mut self) -> &mut Value {
+        &mut self.state
+    }
+
     /// Read a value at a specific path in the state tree.
     pub fn get(&self, path: &[String]) -> Option<&Value> {
         self.state.get_path(path)
@@ -213,17 +224,17 @@ impl Engine {
                         all_changed.extend(changed);
                     }
 
-                    // Discover new processes from all changes
+                    // Only scan for new processes when structural changes
+                    // (_add/_remove) occurred — skip on pure value updates.
+                    // The structural flag is set during trigger_steps below.
+                    // Process outputs rarely contain _add/_remove directly,
+                    // but composites might, so always discover after processes.
                     self.discover_processes(&all_changed);
 
                     // Trigger steps ONCE after all processes at this time have run
                     self.trigger_steps(&all_changed);
 
                     iter_count += 1;
-                    if iter_count <= 3 || iter_count % 100 == 0 {
-                        eprintln!("[engine] iter={iter_count} t={:.4} fired={} changed={} fronts={}",
-                            self.time, firing.len(), all_changed.len(), self.fronts.len());
-                    }
                     if iter_count > 100_000 {
                         eprintln!("[engine] SAFETY: breaking after {iter_count} iterations at t={}", self.time);
                         self.time = end_time;
@@ -294,28 +305,46 @@ impl Engine {
         if let Some(update_value) = update.into_value() {
             let projections = interface.project(&update_value);
             // Processes output deltas — apply directly, no diff needed
-            self.apply_projections(&projections)
+            let (changed, _structural) = self.apply_projections(&projections);
+            changed
         } else {
             Vec::new()
         }
     }
 
     /// Apply projected updates to the state tree.
-    /// Returns the set of paths that were modified.
-    fn apply_projections(&mut self, projections: &[(Path, Value, Option<Schema>)]) -> Vec<Path> {
+    /// Returns (changed_paths, had_structural_change).
+    /// Structural changes are `_add`/`_remove` operations that may require
+    /// process discovery. Skipping discovery on non-structural ticks is a
+    /// major performance win.
+    fn apply_projections(&mut self, projections: &[(Path, Value, Option<Schema>)]) -> (Vec<Path>, bool) {
         let mut changed = Vec::new();
+        let mut structural = false;
         for (path, value, port_schema) in projections {
+            // Detect structural changes (_add/_remove in the update value)
+            if !structural {
+                if let Some(map) = value.as_map() {
+                    if map.contains_key("_add") || map.contains_key("_remove") {
+                        structural = true;
+                    }
+                }
+            }
             let current = self.state.get_path(path).cloned().unwrap_or(Value::None);
-            // Use port-specific schema if available, else fall back to global
-            let new_value = if let Some(schema) = port_schema {
-                schema.apply_update(&current, value)
-            } else {
-                self.schema.apply_update(&current, value)
+            // Use port-specific schema if it's more specific than Any.
+            // Otherwise walk the state schema for this path.
+            let new_value = match port_schema {
+                Some(schema) if !matches!(schema, Schema::Any) => {
+                    schema.apply_update(&current, value)
+                }
+                _ => {
+                    let path_schema = self.schema.schema_at_path(path);
+                    path_schema.apply_update(&current, value)
+                }
             };
             self.state.set_path(path, new_value);
             changed.push(path.clone());
         }
-        changed
+        (changed, structural)
     }
 
     /// Fire any steps whose inputs overlap with the changed paths.
@@ -353,6 +382,7 @@ impl Engine {
         let mut already_run = HashSet::new();
         let mut queue = triggered;
         let mut all_step_changes = Vec::new();
+        let mut any_structural = false;
 
         while let Some(step_name) = queue.pop() {
             if already_run.contains(&step_name) {
@@ -374,7 +404,8 @@ impl Engine {
 
             if let Some(update_value) = update.into_value() {
                 let projections = interface.project(&update_value);
-                let newly_changed = self.apply_projections(&projections);
+                let (newly_changed, structural) = self.apply_projections(&projections);
+                any_structural |= structural;
 
                 // Cascade: find downstream steps triggered by this step's output
                 for path in &newly_changed {
@@ -402,9 +433,10 @@ impl Engine {
             }
         }
 
-        // Discover new processes AFTER all steps complete (e.g., particle
-        // division creates new particles with embedded process specs)
-        if !all_step_changes.is_empty() {
+        // Only discover new processes when structural changes (_add/_remove)
+        // occurred. Most ticks only update positions/masses — skipping
+        // discovery on those saves significant overhead.
+        if any_structural && !all_step_changes.is_empty() {
             self.discover_processes(&all_step_changes);
         }
     }
@@ -503,6 +535,29 @@ impl Engine {
     }
 
     /// Get the names of all nodes.
+    /// Public wrapper for discover_processes (used by Composite for initial scan).
+    pub fn discover_processes_pub(&mut self, changed_paths: &[Path]) {
+        self.discover_processes(changed_paths);
+    }
+
+    /// Scan the entire top-level state for process specs and instantiate them.
+    /// Used for initial discovery when building a Composite engine.
+    pub fn discover_all_processes(&mut self) {
+        let registry = match &self.registry {
+            Some(r) => std::sync::Arc::clone(r),
+            None => return,
+        };
+        let mut to_add = Vec::new();
+        if let Some(map) = self.state.as_map().cloned() {
+            self.scan_for_processes(&map, &[], &registry, &mut to_add);
+        }
+        for (name, spec, node) in to_add {
+            if !self.nodes.contains_key(&name) {
+                self.add_process(name, spec, node);
+            }
+        }
+    }
+
     pub fn node_names(&self) -> Vec<&str> {
         self.nodes.keys().map(|s| s.as_str()).collect()
     }
@@ -631,10 +686,15 @@ impl Engine {
                         }
                     }
                 } else {
-                    // Recurse into non-process maps (e.g., into each particle)
+                    // Recurse into non-process maps (e.g., into each particle).
+                    // Skip entries that are already registered as process nodes
+                    // (e.g., composites — their internals are private).
                     let mut child_path = parent_path.to_vec();
                     child_path.push(key.clone());
-                    self.scan_for_processes(child_map, &child_path, registry, results);
+                    let child_name = child_path.join(".");
+                    if !self.nodes.contains_key(&child_name) {
+                        self.scan_for_processes(child_map, &child_path, registry, results);
+                    }
                 }
             }
         }

@@ -169,14 +169,14 @@ impl Step for ParticleExchange {
     fn inputs(&self) -> IndexMap<String, Schema> {
         IndexMap::from([
             ("particles".into(), Schema::map(Schema::Any)),
-            ("fields".into(), Schema::map(Schema::list(Schema::float()))),
+            ("fields".into(), Schema::Any),
         ])
     }
 
     fn outputs(&self) -> IndexMap<String, Schema> {
         IndexMap::from([
             ("particles".into(), Schema::map(Schema::Any)),
-            ("fields".into(), Schema::map(Schema::list(Schema::float()))),
+            ("fields".into(), Schema::Any),
         ])
     }
 
@@ -199,8 +199,10 @@ impl Step for ParticleExchange {
         let (nx, ny) = self.n_bins;
         let mut result_particles: IndexMap<String, Value> = IndexMap::new();
 
-        // Build mutable field arrays for accumulating exchange deltas
-        let mut field_arrays: IndexMap<String, Vec<f64>> = IndexMap::new();
+        // Build mutable field arrays for accumulating exchange deltas.
+        // Start with ZEROS — we accumulate only the deltas, matching the Python.
+        let mut field_deltas: IndexMap<String, Vec<f64>> = IndexMap::new();
+        let mut field_values: IndexMap<String, Vec<f64>> = IndexMap::new();
         for (mol_id, field_val) in fields {
             let arr = super::fields::flatten_field(field_val);
             let arr = if arr.is_empty() {
@@ -208,7 +210,8 @@ impl Step for ParticleExchange {
             } else {
                 arr
             };
-            field_arrays.insert(mol_id.clone(), arr);
+            field_deltas.insert(mol_id.clone(), vec![0.0; arr.len()]);
+            field_values.insert(mol_id.clone(), arr);
         }
 
         for (pid, particle) in particles {
@@ -233,25 +236,24 @@ impl Step for ParticleExchange {
             let cell_h = self.bounds.1 / ny as f64;
             let cell_volume = (cell_w * cell_h * self.depth).max(1e-10);
 
+            // 1. Accumulate exchange deltas into field delta arrays
             if let Some(exchange) = particle.as_map().and_then(|m| m.get("exchange")).and_then(|v| v.as_map()) {
                 for (mol_id, delta) in exchange {
-                    if let (Some(arr), Some(d)) = (field_arrays.get_mut(mol_id), delta.as_f64()) {
-                        if bin_idx < arr.len() {
-                            arr[bin_idx] += d / cell_volume;
-                            if arr[bin_idx] < 0.0 {
-                                arr[bin_idx] = 0.0;
-                            }
+                    if let (Some(darr), Some(d)) = (field_deltas.get_mut(mol_id), delta.as_f64()) {
+                        if bin_idx < darr.len() {
+                            darr[bin_idx] += d / cell_volume;
                         }
                     }
                 }
             }
 
-            // 2. Sample local from the DEPLETED field (after exchange applied).
+            // 2. Sample local from the field (current values, not deltas).
+            // Output delta: new_local - old_local
             let old_local = particle.as_map()
                 .and_then(|m| m.get("local"))
                 .and_then(|v| v.as_map());
             let mut local: IndexMap<String, Value> = IndexMap::new();
-            for (mol_id, arr) in &field_arrays {
+            for (mol_id, arr) in &field_values {
                 let field_val = if bin_idx < arr.len() {
                     arr[bin_idx]
                 } else if !arr.is_empty() {
@@ -281,12 +283,12 @@ impl Step for ParticleExchange {
             result_particles.insert(pid.clone(), updated);
         }
 
-        // Convert field arrays back to Values, preserving original 2D structure
-        let result_fields: IndexMap<String, Value> = field_arrays
+        // Convert field DELTA arrays back to Values, preserving original 2D structure
+        let result_fields: IndexMap<String, Value> = field_deltas
             .into_iter()
-            .map(|(k, arr)| {
+            .map(|(k, delta_arr)| {
                 let original = fields.get(&k).unwrap_or(&Value::None);
-                (k, super::fields::rebuild_field(&arr, original))
+                (k, super::fields::rebuild_field(&delta_arr, original))
             })
             .collect();
 
@@ -367,6 +369,18 @@ impl Step for ParticleDivision {
                             "position".to_string(),
                             Value::List(vec![Value::float(x + dx), Value::float(y + dy)]),
                         );
+                        // Halve sub_masses so ParticleTotalMass doesn't
+                        // immediately restore the pre-division total and
+                        // re-trigger division on the next tick.
+                        if let Some(Value::Map(sm)) = dmap.get("sub_masses").cloned() {
+                            let halved: IndexMap<String, Value> = sm.iter()
+                                .map(|(k, v)| {
+                                    let half = v.as_f64().unwrap_or(0.0) / 2.0;
+                                    (k.clone(), Value::float(half))
+                                })
+                                .collect();
+                            dmap.insert("sub_masses".to_string(), Value::Map(halved));
+                        }
                     }
                     to_add.insert(short_id(), daughter);
                 }
@@ -424,7 +438,10 @@ impl ManageBoundaries {
 
 impl Step for ManageBoundaries {
     fn inputs(&self) -> IndexMap<String, Schema> {
-        IndexMap::from([("particles".into(), Schema::map(Schema::Any))])
+        IndexMap::from([
+            ("particles".into(), Schema::map(Schema::Any)),
+            ("process_interval".into(), Schema::float()),
+        ])
     }
 
     fn outputs(&self) -> IndexMap<String, Schema> {
@@ -440,6 +457,14 @@ impl Step for ManageBoundaries {
             Some(p) => p,
             None => return Update::Noop,
         };
+
+        // Read process_interval (dt) for Poisson rate→probability conversion.
+        // Python: p_birth = 1 - exp(-add_rate * dt)
+        let dt = state
+            .as_map()
+            .and_then(|m| m.get("process_interval"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.0);
 
         let mut rng = rand::thread_rng();
         let mut updates: IndexMap<String, Value> = IndexMap::new();
@@ -481,12 +506,14 @@ impl Step for ManageBoundaries {
         }
 
         // Spawn new particles at boundaries (Poisson process).
+        // Convert rate (events/second) to per-step probability: p = 1 - exp(-rate * dt)
         // Clone an existing particle as template to preserve process specs
         // (e.g. dFBA) needed for dynamic process discovery.
         if self.add_rate > 0.0 {
+            let p_birth = 1.0 - (-self.add_rate * dt).exp();
             let template = particles.values().next().cloned();
             for boundary in &self.boundary_to_add {
-                if rng.r#gen::<f64>() < self.add_rate {
+                if rng.r#gen::<f64>() < p_birth {
                     any_changed = true;
                     let pos = self.boundary_position(boundary, &mut rng);
                     let mass = self.mass_range.0
