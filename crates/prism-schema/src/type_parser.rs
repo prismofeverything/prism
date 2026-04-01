@@ -3,6 +3,8 @@
 //! Parses type strings like "map[array[10|10,float]]", "tuple[set_float,set_float]",
 //! "overwrite[mass]", etc. into Schema values.
 
+use indexmap::IndexMap;
+
 use crate::schema::Schema;
 
 /// Parse a bigraph-schema type expression string into a Schema.
@@ -78,7 +80,33 @@ pub fn parse_type_expression(expr: &str) -> Schema {
                 let leaf = parse_type_expression(inner);
                 Schema::recursive_tree(leaf)
             }
-            "link" | "process" | "step" => Schema::Any, // process declarations
+            "link" | "process" | "step" => {
+                // Parse link[inputs,outputs] or link[port:type,port:type]
+                // Format: link[x:integer|y:string,z:float] → inputs={x:int,y:str}, outputs={z:float}
+                // Or simpler: link[port:type,port:type] where first half is inputs, second is outputs
+                let temporal = match name {
+                    "process" => Some(true),
+                    "step" => Some(false),
+                    _ => None,
+                };
+                let parts = split_top_level(inner, ',');
+                if parts.len() >= 2 {
+                    // First comma-separated group = inputs, second = outputs
+                    let inputs = parse_port_schema(parts[0]);
+                    let outputs = parse_port_schema(&parts[1..].join(","));
+                    Schema::Link { inputs, outputs, temporal }
+                } else if parts.len() == 1 {
+                    // Single group — treat as both inputs and outputs
+                    let ports = parse_port_schema(parts[0]);
+                    Schema::Link { inputs: ports.clone(), outputs: ports, temporal }
+                } else {
+                    Schema::Link {
+                        inputs: IndexMap::new(),
+                        outputs: IndexMap::new(),
+                        temporal,
+                    }
+                }
+            }
             _ => Schema::Any, // unknown parameterized type
         }
     } else {
@@ -94,7 +122,21 @@ pub fn parse_type_expression(expr: &str) -> Schema {
             "set_float" => Schema::set_float(),
             "positive_array" => Schema::array(vec![], Schema::float()),
             "any" | "node" => Schema::Any,
-            "link" => Schema::Any,
+            "link" => Schema::Link {
+                inputs: IndexMap::new(),
+                outputs: IndexMap::new(),
+                temporal: None,
+            },
+            "process" => Schema::Link {
+                inputs: IndexMap::new(),
+                outputs: IndexMap::new(),
+                temporal: Some(true),
+            },
+            "step" => Schema::Link {
+                inputs: IndexMap::new(),
+                outputs: IndexMap::new(),
+                temporal: Some(false),
+            },
             _ => {
                 // Try parsing as a tree expression (a:float|b:string)
                 if expr.contains(':') && expr.contains('|') {
@@ -158,6 +200,23 @@ pub fn parse_tree_expression(expr: &str) -> Schema {
     } else {
         Schema::Tree { branches }
     }
+}
+
+/// Parse a port schema like "x:integer|y:string" into an IndexMap.
+fn parse_port_schema(expr: &str) -> IndexMap<String, Schema> {
+    let parts = split_top_level(expr.trim(), '|');
+    parts.iter()
+        .filter_map(|part| {
+            let kv = split_top_level(part.trim(), ':');
+            if kv.len() >= 2 {
+                let name = kv[0].trim().to_string();
+                let type_str = kv[1..].join(":");
+                Some((name, parse_type_expression(type_str.trim())))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Split a string by delimiter, but only at the top level (not inside brackets).

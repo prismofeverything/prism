@@ -8,6 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use indexmap::IndexMap;
 use ordered_float::OrderedFloat;
 
 use prism_schema::{Path, Schema, Value};
@@ -241,6 +242,156 @@ impl Engine {
         }
 
         engine
+    }
+
+    /// Create an engine from a schema, state, and registry.
+    ///
+    /// This is the Rust equivalent of Python's `Composite({'schema': ..., 'state': ...})`.
+    /// Walks the state tree, finds process/step nodes (via `Schema::Link` in the
+    /// schema or `_type` annotations in state), instantiates them via the registry,
+    /// extracts wiring, and builds the engine.
+    pub fn from_state(
+        schema: Schema,
+        state: Value,
+        registry: Arc<ProcessRegistry>,
+    ) -> Result<Self, String> {
+        // Infer and merge schema from state annotations
+        let merged_schema = Schema::infer_and_merge(&schema, &state);
+
+        let mut topology = Topology::new();
+        topology.state_schema = merged_schema.clone();
+
+        // Walk the schema to find Link nodes and extract process specs from state
+        let mut instances: HashMap<String, ProcessNode> = HashMap::new();
+        let mut clean_state = state.clone();
+
+        Self::extract_processes(
+            &merged_schema,
+            &state,
+            &[],
+            &registry,
+            &mut topology.processes,
+            &mut instances,
+        );
+
+        // Remove process-spec fields from state (keep only data)
+        // Process nodes in state have address/config/inputs/outputs which
+        // the engine manages — the data state shouldn't contain them.
+        for name in topology.processes.keys() {
+            let path: Vec<String> = name.split('.').map(|s| s.to_string()).collect();
+            // Don't remove the node entirely — just let the engine manage it
+        }
+
+        topology.initial_state = state;
+        let mut engine = Engine::new(topology, instances);
+        engine.set_registry(registry);
+        Ok(engine)
+    }
+
+    /// Recursively extract process specs from schema + state.
+    fn extract_processes(
+        schema: &Schema,
+        state: &Value,
+        path: &[String],
+        registry: &ProcessRegistry,
+        specs: &mut IndexMap<String, ProcessSpec>,
+        instances: &mut HashMap<String, ProcessNode>,
+    ) {
+        match schema {
+            Schema::Link { temporal, .. } => {
+                // This node is a process/step — extract spec from state
+                let map = match state.as_map() {
+                    Some(m) => m,
+                    None => return,
+                };
+
+                let class_name = map.get("address")
+                    .and_then(|a| match a {
+                        Value::Map(m) => m.get("data").and_then(|v| v.as_str().map(|s| s.to_string())),
+                        Value::String(s) => {
+                            if s.contains(':') { s.split(':').nth(1).map(|s| s.to_string()) }
+                            else { Some(s.clone()) }
+                        }
+                        _ => None,
+                    });
+
+                let class_name = match class_name {
+                    Some(n) if n != "RAMEmitter" => n,
+                    _ => return,
+                };
+
+                let config = map.get("config").cloned().unwrap_or(Value::None);
+
+                if let Some(node) = registry.create(&class_name, config.clone()) {
+                    let parent_path = if path.len() > 1 { &path[..path.len()-1] } else { &[] };
+                    let inputs_val = map.get("inputs").cloned().unwrap_or(Value::None);
+                    let outputs_val = map.get("outputs").cloned().unwrap_or(Value::None);
+
+                    let inputs = crate::vivarium::flatten_wires_with_context_pub(
+                        &inputs_val, parent_path);
+                    let outputs = crate::vivarium::flatten_wires_with_context_pub(
+                        &outputs_val, parent_path);
+
+                    let interval = match (&node, temporal) {
+                        (ProcessNode::Process(p), _) => {
+                            let cfg_interval = map.get("interval")
+                                .and_then(|v| v.as_f64())
+                                .or_else(|| config.as_map()
+                                    .and_then(|m| m.get("interval"))
+                                    .and_then(|v| v.as_f64()));
+                            Some(cfg_interval.unwrap_or_else(|| p.interval()))
+                        }
+                        (ProcessNode::Step(_), _) => None,
+                    };
+
+                    let name = path.join(".");
+                    specs.insert(name.clone(), ProcessSpec {
+                        process_type: class_name,
+                        config,
+                        inputs,
+                        outputs,
+                        interval,
+                        priority: 0.0,
+                    });
+                    instances.insert(name, node);
+                }
+            }
+            Schema::Tree { branches } => {
+                if let Some(map) = state.as_map() {
+                    for (key, child_schema) in branches {
+                        let mut child_path = path.to_vec();
+                        child_path.push(key.clone());
+                        let child_state = map.get(key).cloned().unwrap_or(Value::None);
+                        Self::extract_processes(
+                            child_schema, &child_state, &child_path,
+                            registry, specs, instances);
+                    }
+                    // Also check state keys not in schema (might have _type annotations)
+                    for (key, child_state) in map {
+                        if !branches.contains_key(key) && !key.starts_with('_') {
+                            let mut child_path = path.to_vec();
+                            child_path.push(key.clone());
+                            let inferred = Schema::infer(child_state);
+                            Self::extract_processes(
+                                &inferred, child_state, &child_path,
+                                registry, specs, instances);
+                        }
+                    }
+                }
+            }
+            Schema::Map { value } => {
+                if let Some(map) = state.as_map() {
+                    for (key, child_state) in map {
+                        let mut child_path = path.to_vec();
+                        child_path.push(key.clone());
+                        Self::extract_processes(
+                            value, child_state, &child_path,
+                            registry, specs, instances);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Set the process registry for dynamic process discovery.
@@ -682,7 +833,11 @@ impl Engine {
         }
     }
 
-    /// Recursively scan a map for process specs (entries with "address").
+    /// Recursively scan a map for process specs.
+    ///
+    /// Uses schema-driven discovery when available: if the schema at a path
+    /// is `Schema::Link`, the node is a process/step. Falls back to scanning
+    /// for "address" fields when schema is `Any` (dynamic composition).
     fn scan_for_processes(
         &self,
         map: &prism_schema::StateMap,
@@ -692,82 +847,100 @@ impl Engine {
     ) {
         for (key, val) in map {
             if let Value::Map(child_map) = val {
-                // Check if this is a process node (has "address" with "data")
-                if let Some(Value::Map(addr)) = child_map.get("address") {
-                    if let Some(Value::String(class_name)) = addr.get("data") {
-                        if class_name == "RAMEmitter" {
-                            continue;
+                let mut child_path = parent_path.to_vec();
+                child_path.push(key.clone());
+                let child_name = child_path.join(".");
+
+                // Already registered? Skip.
+                if self.nodes.contains_key(&child_name) {
+                    continue;
+                }
+
+                // Check schema first — if it declares Link, this is a process
+                let child_schema = self.schema.schema_at_path(&child_path);
+                let is_link = matches!(child_schema, Schema::Link { .. });
+
+                // Fall back to address-scanning when schema is Any
+                let has_address = !is_link
+                    && child_map.get("address")
+                        .map(|a| a.as_map().is_some() || a.as_str().is_some())
+                        .unwrap_or(false);
+
+                if !is_link && !has_address {
+                    // Not a process — recurse into children
+                    self.scan_for_processes(child_map, &child_path, registry, results);
+                    continue;
+                }
+
+                // Extract class name from address
+                let class_name = child_map
+                    .get("address")
+                    .and_then(|a| match a {
+                        Value::Map(m) => m.get("data")
+                            .and_then(|v| v.as_str().map(|s| s.to_string())),
+                        Value::String(s) => {
+                            // "local:ClassName" or just "ClassName"
+                            if s.contains(':') {
+                                s.split(':').nth(1).map(|s| s.to_string())
+                            } else {
+                                Some(s.clone())
+                            }
                         }
+                        _ => None,
+                    });
 
-                        let mut proc_path = parent_path.to_vec();
-                        proc_path.push(key.clone());
-                        let proc_name = proc_path.join(".");
+                let class_name = match class_name {
+                    Some(name) if name != "RAMEmitter" => name,
+                    _ => continue,
+                };
 
-                        // Already registered?
-                        if self.nodes.contains_key(&proc_name) {
-                            continue;
+                // Get config
+                let config = child_map
+                    .get("config")
+                    .cloned()
+                    .unwrap_or(Value::None);
+
+                // Try to instantiate via registry
+                if let Some(node) = registry.create(&class_name, config.clone()) {
+                    let inputs_val = child_map
+                        .get("inputs")
+                        .cloned()
+                        .unwrap_or(Value::None);
+                    let outputs_val = child_map
+                        .get("outputs")
+                        .cloned()
+                        .unwrap_or(Value::None);
+
+                    let inputs = crate::vivarium::flatten_wires_with_context_pub(
+                        &inputs_val,
+                        parent_path,
+                    );
+                    let outputs = crate::vivarium::flatten_wires_with_context_pub(
+                        &outputs_val,
+                        parent_path,
+                    );
+
+                    let interval = match &node {
+                        ProcessNode::Process(p) => {
+                            let cfg_interval = config
+                                .as_map()
+                                .and_then(|m| m.get("interval"))
+                                .and_then(|v| v.as_f64());
+                            Some(cfg_interval.unwrap_or_else(|| p.interval()))
                         }
+                        ProcessNode::Step(_) => None,
+                    };
 
-                        // Get config
-                        let config = child_map
-                            .get("config")
-                            .cloned()
-                            .unwrap_or(Value::None);
+                    let spec = ProcessSpec {
+                        process_type: class_name,
+                        config,
+                        inputs,
+                        outputs,
+                        interval,
+                        priority: 0.0,
+                    };
 
-                        // Try to instantiate
-                        if let Some(node) = registry.create(class_name, config.clone()) {
-                            // Resolve wiring relative to process location
-                            let inputs_val = child_map
-                                .get("inputs")
-                                .cloned()
-                                .unwrap_or(Value::None);
-                            let outputs_val = child_map
-                                .get("outputs")
-                                .cloned()
-                                .unwrap_or(Value::None);
-
-                            let inputs = crate::vivarium::flatten_wires_with_context_pub(
-                                &inputs_val,
-                                parent_path,
-                            );
-                            let outputs = crate::vivarium::flatten_wires_with_context_pub(
-                                &outputs_val,
-                                parent_path,
-                            );
-
-                            let interval = match &node {
-                                ProcessNode::Process(p) => {
-                                    let cfg_interval = config
-                                        .as_map()
-                                        .and_then(|m| m.get("interval"))
-                                        .and_then(|v| v.as_f64());
-                                    Some(cfg_interval.unwrap_or_else(|| p.interval()))
-                                }
-                                ProcessNode::Step(_) => None,
-                            };
-
-                            let spec = ProcessSpec {
-                                process_type: class_name.clone(),
-                                config,
-                                inputs,
-                                outputs,
-                                interval,
-                                priority: 0.0,
-                            };
-
-                            results.push((proc_name, spec, node));
-                        }
-                    }
-                } else {
-                    // Recurse into non-process maps (e.g., into each particle).
-                    // Skip entries that are already registered as process nodes
-                    // (e.g., composites — their internals are private).
-                    let mut child_path = parent_path.to_vec();
-                    child_path.push(key.clone());
-                    let child_name = child_path.join(".");
-                    if !self.nodes.contains_key(&child_name) {
-                        self.scan_for_processes(child_map, &child_path, registry, results);
-                    }
+                    results.push((child_name, spec, node));
                 }
             }
         }

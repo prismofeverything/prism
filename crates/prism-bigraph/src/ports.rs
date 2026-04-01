@@ -7,6 +7,112 @@ use indexmap::IndexMap;
 
 use prism_schema::{Path, Schema, Value};
 
+/// Resolve a path with `*` wildcards against a state tree.
+///
+/// `*` at any level expands to all children (map keys, list indices).
+/// Returns a map keyed by the wildcard-expanded key, with values being
+/// the resolved sub-values at the remaining path.
+///
+/// Example: `get_star_path(state, ["Compartments", "*", "volume"])`
+/// returns `{"0": 100, "1": 200, "2": 300}` if Compartments has keys 0,1,2.
+fn get_star_path(state: &Value, path: &[String]) -> Value {
+    if path.is_empty() {
+        return state.clone();
+    }
+
+    if path[0] == "*" {
+        // Expand across all children
+        let rest = &path[1..];
+        match state {
+            Value::Map(map) => {
+                let expanded: IndexMap<String, Value> = map.iter()
+                    .map(|(k, v)| (k.clone(), get_star_path(v, rest)))
+                    .collect();
+                Value::Map(expanded)
+            }
+            Value::List(list) => {
+                let expanded: IndexMap<String, Value> = list.iter().enumerate()
+                    .map(|(i, v)| (i.to_string(), get_star_path(v, rest)))
+                    .collect();
+                Value::Map(expanded)
+            }
+            _ => Value::None,
+        }
+    } else {
+        // Navigate into the named child
+        match state {
+            Value::Map(map) => {
+                if let Some(child) = map.get(&path[0]) {
+                    get_star_path(child, &path[1..])
+                } else {
+                    Value::None
+                }
+            }
+            Value::List(list) => {
+                if let Ok(idx) = path[0].parse::<usize>() {
+                    if let Some(child) = list.get(idx) {
+                        get_star_path(child, &path[1..])
+                    } else {
+                        Value::None
+                    }
+                } else {
+                    Value::None
+                }
+            }
+            _ => Value::None,
+        }
+    }
+}
+
+/// Write a value back through a star path, distributing across all matching children.
+///
+/// If the update is a map and the path contains `*`, each key in the update
+/// is written to the corresponding child of the state at the star position.
+fn set_star_path(state: &mut Value, path: &[String], update: &Value) {
+    if path.is_empty() {
+        return;
+    }
+
+    if path[0] == "*" {
+        let rest = &path[1..];
+        if let (Value::Map(state_map), Value::Map(update_map)) = (state, update) {
+            for (key, upd_val) in update_map {
+                if let Some(child) = state_map.get_mut(key) {
+                    if rest.is_empty() {
+                        *child = upd_val.clone();
+                    } else {
+                        set_star_path(child, rest, upd_val);
+                    }
+                }
+            }
+        }
+    } else {
+        match state {
+            Value::Map(map) => {
+                if let Some(child) = map.get_mut(&path[0]) {
+                    if path.len() == 1 {
+                        *child = update.clone();
+                    } else {
+                        set_star_path(child, &path[1..], update);
+                    }
+                }
+            }
+            Value::List(list) => {
+                if let Ok(idx) = path[0].parse::<usize>() {
+                    if let Some(child) = list.get_mut(idx) {
+                        if path.len() == 1 {
+                            *child = update.clone();
+                        } else {
+                            set_star_path(child, &path[1..], update);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// A single port declaration: a name and its schema.
 pub type PortSchema = IndexMap<String, Schema>;
 
@@ -49,11 +155,18 @@ impl Interface {
     pub fn view(&self, state: &Value) -> Value {
         let mut view = Value::map();
         for (port_name, path) in &self.inputs {
-            let val = state.get_path(path).cloned().unwrap_or(Value::None);
-            // Split dot-separated port names into nested path
-            let port_path: Vec<String> =
-                port_name.split('.').map(|s| s.to_string()).collect();
-            view.set_path(&port_path, val);
+            // Check for star paths: ['Compartments', '*', 'volume']
+            if path.contains(&"*".to_string()) {
+                let val = get_star_path(state, path);
+                let port_path: Vec<String> =
+                    port_name.split('.').map(|s| s.to_string()).collect();
+                view.set_path(&port_path, val);
+            } else {
+                let val = state.get_path(path).cloned().unwrap_or(Value::None);
+                let port_path: Vec<String> =
+                    port_name.split('.').map(|s| s.to_string()).collect();
+                view.set_path(&port_path, val);
+            }
         }
         view
     }
@@ -72,7 +185,21 @@ impl Interface {
 
                 // Try direct match first (non-nested port)
                 if let Some(val) = map.get(port_name) {
-                    projections.push((state_path.clone(), val.clone(), schema));
+                    if state_path.contains(&"*".to_string()) {
+                        // Star path: expand the update across matching children.
+                        // The value should be a map keyed by wildcard-expanded keys.
+                        // Generate one projection per expanded key.
+                        if let Value::Map(expanded) = val {
+                            for (key, child_val) in expanded {
+                                let concrete_path: Path = state_path.iter()
+                                    .map(|s| if s == "*" { key.clone() } else { s.clone() })
+                                    .collect();
+                                projections.push((concrete_path, child_val.clone(), schema.clone()));
+                            }
+                        }
+                    } else {
+                        projections.push((state_path.clone(), val.clone(), schema));
+                    }
                     continue;
                 }
 

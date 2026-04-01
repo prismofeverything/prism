@@ -102,6 +102,23 @@ pub enum Schema {
     RecursiveTree {
         leaf: Box<Schema>,
     },
+
+    /// A link (edge) in the bigraph — represents a process or step.
+    /// This is the schema-level declaration that a node is computational,
+    /// not just data. The engine uses this to identify and instantiate
+    /// processes without scanning state for "address" fields.
+    ///
+    /// Corresponds to Python bigraph-schema's `Link` type and
+    /// process-bigraph's `ProcessLink`/`StepLink`.
+    Link {
+        /// Schema for input ports: port_name → type
+        inputs: IndexMap<String, Schema>,
+        /// Schema for output ports: port_name → type
+        outputs: IndexMap<String, Schema>,
+        /// Whether this link has a temporal interval (process) or not (step).
+        /// None means unspecified (inferred at instantiation time).
+        temporal: Option<bool>,
+    },
 }
 
 impl Schema {
@@ -162,6 +179,21 @@ impl Schema {
     /// Tuple type — element-wise typed apply.
     pub fn tuple(elements: Vec<Schema>) -> Self {
         Self::Tuple { elements }
+    }
+
+    /// Create a link schema (process or step).
+    pub fn link(inputs: IndexMap<String, Schema>, outputs: IndexMap<String, Schema>) -> Self {
+        Self::Link { inputs, outputs, temporal: None }
+    }
+
+    /// Create a process link (temporal — has interval).
+    pub fn process(inputs: IndexMap<String, Schema>, outputs: IndexMap<String, Schema>) -> Self {
+        Self::Link { inputs, outputs, temporal: Some(true) }
+    }
+
+    /// Create a step link (non-temporal — fires on state change).
+    pub fn step(inputs: IndexMap<String, Schema>, outputs: IndexMap<String, Schema>) -> Self {
+        Self::Link { inputs, outputs, temporal: Some(false) }
     }
 
     pub fn recursive_tree(leaf: Schema) -> Self {
@@ -229,6 +261,17 @@ impl Schema {
                 Value::List(elements.iter().map(|s| s.default_value()).collect())
             }
             Self::RecursiveTree { .. } => Value::map(),
+            Self::Link { inputs, .. } => {
+                // Default link state: address, default wiring (port→[port])
+                let mut state = IndexMap::new();
+                state.insert("address".to_string(), Value::String("local:edge".into()));
+                let default_inputs: IndexMap<String, Value> = inputs.keys()
+                    .map(|k| (k.clone(), Value::List(vec![Value::String(k.clone())])))
+                    .collect();
+                state.insert("inputs".to_string(), Value::Map(default_inputs.clone()));
+                state.insert("outputs".to_string(), Value::Map(default_inputs));
+                Value::Map(state)
+            }
         }
     }
 
@@ -266,6 +309,11 @@ impl Schema {
                 elements.len() == items.len()
                     && elements.iter().zip(items.iter()).all(|(s, v)| s.check(v))
             }
+            (Self::Link { .. }, Value::Map(map)) => {
+                // A realized link must have an "instance" key (after instantiation)
+                // An unrealized link has "address" + "inputs" + "outputs"
+                map.contains_key("instance") || map.contains_key("address")
+            }
             (Self::RecursiveTree { leaf }, v) => {
                 // A recursive tree value is either a leaf or a map of recursive trees
                 if leaf.check(v) {
@@ -297,8 +345,122 @@ impl Schema {
             }
             Self::Map { value } => value.schema_at_path(&path[1..]),
             Self::Array { element, .. } => element.schema_at_path(&path[1..]),
-            Self::RecursiveTree { .. } => self, // recursive tree applies at all depths
+            Self::RecursiveTree { .. } => self,
+            Self::Link { inputs, outputs, .. } => {
+                // Navigate into link's port schemas
+                match path[0].as_str() {
+                    "inputs" => {
+                        if path.len() > 1 {
+                            inputs.get(&path[1]).unwrap_or(&Schema::Any)
+                                .schema_at_path(&path[2..])
+                        } else {
+                            &Schema::Any
+                        }
+                    }
+                    "outputs" => {
+                        if path.len() > 1 {
+                            outputs.get(&path[1]).unwrap_or(&Schema::Any)
+                                .schema_at_path(&path[2..])
+                        } else {
+                            &Schema::Any
+                        }
+                    }
+                    _ => &Schema::Any,
+                }
+            }
             _ => self, // Leaf schema applies to everything below
+        }
+    }
+
+    /// Infer a schema from a value, including `_type` annotations.
+    ///
+    /// This is the Rust equivalent of Python bigraph-schema's `infer` +
+    /// `realize` for state with embedded type declarations. When a map
+    /// contains `_type`, it's used to determine the schema for that node.
+    pub fn infer(value: &Value) -> Schema {
+        match value {
+            Value::Float(_) => Schema::float(),
+            Value::Int(_) => Schema::integer(),
+            Value::Bool(_) => Schema::bool(),
+            Value::String(s) => {
+                // Try to parse as a number → infer float
+                if s.parse::<f64>().is_ok() {
+                    Schema::float()
+                } else {
+                    Schema::string()
+                }
+            }
+            Value::List(_) => Schema::List { element: Box::new(Schema::Any) },
+            Value::Map(map) => {
+                // Check for _type annotation
+                if let Some(Value::String(type_str)) = map.get("_type") {
+                    let base = crate::type_parser::parse_type_expression(type_str);
+                    // For Link types without port info, infer ports from
+                    // _inputs/_outputs in the state (if present)
+                    if matches!(base, Schema::Link { .. }) {
+                        if let Schema::Link { inputs, outputs, temporal } = &base {
+                            if inputs.is_empty() && outputs.is_empty() {
+                                let inferred_inputs = map.get("_inputs")
+                                    .and_then(|v| v.as_map())
+                                    .map(|m| m.iter()
+                                        .map(|(k, v)| (k.clone(), crate::type_parser::parse_type_expression(
+                                            v.as_str().unwrap_or("any"))))
+                                        .collect())
+                                    .unwrap_or_default();
+                                let inferred_outputs = map.get("_outputs")
+                                    .and_then(|v| v.as_map())
+                                    .map(|m| m.iter()
+                                        .map(|(k, v)| (k.clone(), crate::type_parser::parse_type_expression(
+                                            v.as_str().unwrap_or("any"))))
+                                        .collect())
+                                    .unwrap_or_default();
+                                return Schema::Link {
+                                    inputs: inferred_inputs,
+                                    outputs: inferred_outputs,
+                                    temporal: *temporal,
+                                };
+                            }
+                        }
+                    }
+                    return base;
+                }
+                // Infer as Tree with branches
+                let branches: IndexMap<String, Schema> = map.iter()
+                    .filter(|(k, _)| !k.starts_with('_'))
+                    .map(|(k, v)| (k.clone(), Schema::infer(v)))
+                    .collect();
+                if branches.is_empty() {
+                    Schema::Any
+                } else {
+                    Schema::Tree { branches }
+                }
+            }
+            Value::None => Schema::Any,
+            _ => Schema::Any,
+        }
+    }
+
+    /// Infer schema from state and merge with an existing schema.
+    /// State values with `_type` annotations override the existing schema.
+    /// State values without annotations use their inferred types.
+    /// The existing schema provides defaults for keys not in state.
+    pub fn infer_and_merge(schema: &Schema, state: &Value) -> Schema {
+        match (schema, state) {
+            (_, Value::Map(map)) if map.contains_key("_type") => {
+                // _type annotation overrides schema
+                Schema::infer(state)
+            }
+            (Self::Tree { branches }, Value::Map(map)) => {
+                let mut merged = branches.clone();
+                for (k, v) in map {
+                    if k.starts_with('_') { continue; }
+                    let existing = branches.get(k).unwrap_or(&Schema::Any);
+                    merged.insert(k.clone(), Schema::infer_and_merge(existing, v));
+                }
+                Schema::Tree { branches: merged }
+            }
+            (Self::Any, _) => Schema::infer(state),
+            _ => schema.clone(),
         }
     }
 
@@ -437,6 +599,9 @@ impl Schema {
                 }
             }
 
+            // Link: not a data type — replace entirely if updated
+            Self::Link { .. } => update.clone(),
+
             // RecursiveTree: merge like Map with leaf-type apply
             Self::RecursiveTree { leaf } => {
                 match (current, update) {
@@ -497,6 +662,234 @@ impl Schema {
             }
         }
     }
+
+    /// Serialize a typed value to a JSON-compatible representation.
+    ///
+    /// This is the inverse of `realize`. Numbers, strings, and bools
+    /// pass through. Maps and trees recurse. Links encode their
+    /// address and port schemas.
+    pub fn encode(&self, value: &Value) -> Value {
+        match (self, value) {
+            // Atoms pass through
+            (Self::Float { .. } | Self::Delta { .. }, _) => value.clone(),
+            (Self::Integer { .. }, _) => value.clone(),
+            (Self::Bool { .. }, _) => value.clone(),
+            (Self::String { .. } | Self::Enum { .. }, _) => value.clone(),
+            (Self::Any, _) => value.clone(),
+
+            // Overwrite/Maybe: delegate to inner
+            (Self::Overwrite { inner }, _) => inner.encode(value),
+            (Self::Maybe { .. }, Value::None) => Value::None,
+            (Self::Maybe { inner }, _) => inner.encode(value),
+
+            // List: serialize each element
+            (Self::List { element }, Value::List(items)) => {
+                Value::List(items.iter().map(|v| element.encode(v)).collect())
+            }
+
+            // Map: serialize each value
+            (Self::Map { value: val_schema }, Value::Map(map)) => {
+                Value::Map(map.iter()
+                    .map(|(k, v)| (k.clone(), val_schema.encode(v)))
+                    .collect())
+            }
+
+            // Tree: serialize each branch with its schema
+            (Self::Tree { branches }, Value::Map(map)) => {
+                Value::Map(map.iter()
+                    .map(|(k, v)| {
+                        let s = branches.get(k).unwrap_or(&Schema::Any);
+                        (k.clone(), s.encode(v))
+                    })
+                    .collect())
+            }
+
+            // Tuple: element-wise serialize
+            (Self::Tuple { elements }, Value::List(items)) => {
+                Value::List(items.iter().enumerate()
+                    .map(|(i, v)| {
+                        elements.get(i).unwrap_or(&Schema::Any).encode(v)
+                    })
+                    .collect())
+            }
+
+            // Array: pass through (already numeric lists)
+            (Self::Array { .. }, _) => value.clone(),
+
+            // RecursiveTree: serialize leaves, recurse maps
+            (Self::RecursiveTree { leaf }, Value::Map(map)) => {
+                Value::Map(map.iter()
+                    .map(|(k, v)| (k.clone(), self.encode(v)))
+                    .collect())
+            }
+            (Self::RecursiveTree { leaf }, _) => leaf.encode(value),
+
+            // Link: encode address, port schemas as strings, wiring
+            (Self::Link { inputs, outputs, .. }, Value::Map(map)) => {
+                let mut encoded = IndexMap::new();
+                if let Some(addr) = map.get("address") {
+                    encoded.insert("address".to_string(), addr.clone());
+                }
+                let inputs_str = render_port_schema(inputs);
+                let outputs_str = render_port_schema(outputs);
+                encoded.insert("_inputs".to_string(), Value::String(inputs_str));
+                encoded.insert("_outputs".to_string(), Value::String(outputs_str));
+                if let Some(w) = map.get("inputs") {
+                    encoded.insert("inputs".to_string(), w.clone());
+                }
+                if let Some(w) = map.get("outputs") {
+                    encoded.insert("outputs".to_string(), w.clone());
+                }
+                if let Some(c) = map.get("config") {
+                    encoded.insert("config".to_string(), c.clone());
+                }
+                Value::Map(encoded)
+            }
+
+            _ => value.clone(),
+        }
+    }
+
+    /// Realize (decode) an encoded value into a typed representation.
+    ///
+    /// This is the inverse of `serialize`. Converts string-encoded
+    /// numbers, parses JSON strings into structured values, etc.
+    pub fn realize(&self, encoded: &Value) -> Value {
+        match (self, encoded) {
+            // Float: accept string encoding
+            (Self::Float { .. } | Self::Delta { .. }, Value::String(s)) => {
+                s.parse::<f64>().map(Value::float).unwrap_or(encoded.clone())
+            }
+            (Self::Float { .. } | Self::Delta { .. }, Value::Int(i)) => {
+                Value::float(*i as f64)
+            }
+            (Self::Float { .. } | Self::Delta { .. }, _) => encoded.clone(),
+
+            // Integer: accept string encoding
+            (Self::Integer { .. }, Value::String(s)) => {
+                s.parse::<i64>().map(Value::Int).unwrap_or(encoded.clone())
+            }
+            (Self::Integer { .. }, _) => encoded.clone(),
+
+            // Bool: accept string encoding
+            (Self::Bool { .. }, Value::String(s)) => {
+                match s.to_lowercase().as_str() {
+                    "true" | "1" => Value::Bool(true),
+                    "false" | "0" => Value::Bool(false),
+                    _ => encoded.clone(),
+                }
+            }
+            (Self::Bool { .. }, _) => encoded.clone(),
+
+            // String/Enum: pass through
+            (Self::String { .. } | Self::Enum { .. }, _) => encoded.clone(),
+
+            // Overwrite/Maybe: delegate
+            (Self::Overwrite { inner }, _) => inner.realize(encoded),
+            (Self::Maybe { .. }, Value::None) => Value::None,
+            (Self::Maybe { inner }, _) => inner.realize(encoded),
+
+            // List
+            (Self::List { element }, Value::List(items)) => {
+                Value::List(items.iter().map(|v| element.realize(v)).collect())
+            }
+
+            // Map
+            (Self::Map { value: val_schema }, Value::Map(map)) => {
+                Value::Map(map.iter()
+                    .map(|(k, v)| (k.clone(), val_schema.realize(v)))
+                    .collect())
+            }
+
+            // Tree: realize each branch, fill defaults for missing
+            (Self::Tree { branches }, Value::Map(map)) => {
+                let mut result: IndexMap<String, Value> = branches.iter()
+                    .map(|(k, s)| (k.clone(), s.default_value()))
+                    .collect();
+                for (k, v) in map {
+                    let s = branches.get(k).unwrap_or(&Schema::Any);
+                    result.insert(k.clone(), s.realize(v));
+                }
+                Value::Map(result)
+            }
+
+            // Tuple
+            (Self::Tuple { elements }, Value::List(items)) => {
+                Value::List(items.iter().enumerate()
+                    .map(|(i, v)| {
+                        elements.get(i).unwrap_or(&Schema::Any).realize(v)
+                    })
+                    .collect())
+            }
+            // Tuple from JSON string
+            (Self::Tuple { elements }, Value::String(s)) => {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(s) {
+                    if let Some(arr) = parsed.as_array() {
+                        return Value::List(arr.iter().enumerate()
+                            .map(|(i, v)| {
+                                let schema = elements.get(i).unwrap_or(&Schema::Any);
+                                schema.realize(&json_to_value(v))
+                            })
+                            .collect());
+                    }
+                }
+                encoded.clone()
+            }
+
+            // Map from JSON string
+            (Self::Map { value: val_schema }, Value::String(s)) => {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(s) {
+                    if let Some(obj) = parsed.as_object() {
+                        return Value::Map(obj.iter()
+                            .map(|(k, v)| (k.clone(), val_schema.realize(&json_to_value(v))))
+                            .collect());
+                    }
+                }
+                encoded.clone()
+            }
+
+            // Array/RecursiveTree
+            (Self::Array { .. }, _) => encoded.clone(),
+            (Self::RecursiveTree { .. }, Value::Map(map)) => {
+                Value::Map(map.iter()
+                    .map(|(k, v)| (k.clone(), self.realize(v)))
+                    .collect())
+            }
+            (Self::RecursiveTree { leaf }, _) => leaf.realize(encoded),
+
+            // Link: preserve as-is (engine handles instantiation)
+            (Self::Link { .. }, _) => encoded.clone(),
+
+            // Any/fallback
+            (Self::Any, _) => encoded.clone(),
+            _ => encoded.clone(),
+        }
+    }
+}
+
+/// Render port schema as a type expression string.
+fn render_port_schema(ports: &IndexMap<String, Schema>) -> String {
+    ports.iter()
+        .map(|(k, v)| format!("{k}:{v}"))
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+/// Convert a serde_json::Value to our Value type.
+fn json_to_value(v: &serde_json::Value) -> Value {
+    match v {
+        serde_json::Value::Null => Value::None,
+        serde_json::Value::Bool(b) => Value::Bool(*b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() { Value::Int(i) }
+            else { Value::float(n.as_f64().unwrap_or(0.0)) }
+        }
+        serde_json::Value::String(s) => Value::String(s.clone()),
+        serde_json::Value::Array(arr) => Value::List(arr.iter().map(json_to_value).collect()),
+        serde_json::Value::Object(obj) => {
+            Value::Map(obj.iter().map(|(k, v)| (k.clone(), json_to_value(v))).collect())
+        }
+    }
 }
 
 impl fmt::Display for Schema {
@@ -536,6 +929,24 @@ impl fmt::Display for Schema {
                 write!(f, "]")
             }
             Self::RecursiveTree { leaf } => write!(f, "tree[{leaf}]"),
+            Self::Link { inputs, outputs, temporal } => {
+                let prefix = match temporal {
+                    Some(true) => "process",
+                    Some(false) => "step",
+                    None => "link",
+                };
+                write!(f, "{prefix}[")?;
+                for (i, (k, v)) in inputs.iter().enumerate() {
+                    if i > 0 { write!(f, "|")?; }
+                    write!(f, "{k}:{v}")?;
+                }
+                write!(f, ",")?;
+                for (i, (k, v)) in outputs.iter().enumerate() {
+                    if i > 0 { write!(f, "|")?; }
+                    write!(f, "{k}:{v}")?;
+                }
+                write!(f, "]")
+            }
         }
     }
 }

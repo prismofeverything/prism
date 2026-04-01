@@ -305,17 +305,85 @@ fn test_engine_run() {
 // Composite tests (require Schema::Link for full compat)
 // ═══════════════════════════════════════════════════════════
 
+/// Python test_composite: build engine from schema + state with embedded process
 #[test]
-#[ignore] // Requires schema-driven process discovery
 fn test_composite_basic() {
-    // Python test_composite: composite with bridge I/O
-    // process inside updates value, bridge exposes it
+    use prism_bigraph::factory::ProcessRegistry;
+
+    let mut registry = ProcessRegistry::new();
+    registry.register("IncreaseProcess", |config| {
+        let rate = config.as_map()
+            .and_then(|m| m.get("rate"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.1);
+        ProcessNode::Process(Box::new(IncreaseProcess { rate }))
+    });
+
+    // Schema declares 'increase' as a process, 'value' as float
+    let schema = Schema::Tree {
+        branches: IndexMap::from([
+            ("increase".into(), Schema::process(
+                IndexMap::from([("level".into(), Schema::float())]),
+                IndexMap::from([("level".into(), Schema::float())]),
+            )),
+            ("value".into(), Schema::float()),
+        ]),
+    };
+
+    // State has the process spec embedded
+    let state = Value::tree([
+        ("increase", Value::Map(IndexMap::from([
+            ("address".to_string(), Value::String("local:IncreaseProcess".into())),
+            ("config".to_string(), Value::tree([("rate", Value::float(0.3))])),
+            ("inputs".to_string(), Value::tree([("level", Value::List(vec![Value::String("value".into())]))])),
+            ("outputs".to_string(), Value::tree([("level", Value::List(vec![Value::String("value".into())]))])),
+        ]))),
+        ("value", Value::float(11.11)),
+    ]);
+
+    let registry = Arc::new(registry);
+    let mut engine = Engine::from_state(schema, state, registry).unwrap();
+    engine.run(10.0);
+
+    let value = engine.state().get_path(&["value".into()]).unwrap().as_f64().unwrap();
+    // After 10 ticks of 30% growth: 11.11 * 1.3^10 ≈ 153.0
+    assert!(value > 100.0, "expected growth, got {value}");
 }
 
+/// Python test_infer: state with _type='process' infers schema as Link
 #[test]
-#[ignore] // Requires schema-driven process instantiation
 fn test_infer_process_from_state() {
-    // Python test_infer: state with _type='process' is auto-instantiated
+    // When state has '_type': 'process', Schema::infer should return Link
+    let state = Value::tree([
+        ("increase", Value::Map(IndexMap::from([
+            ("_type".to_string(), Value::String("process".into())),
+            ("address".to_string(), Value::String("local:IncreaseProcess".into())),
+            ("config".to_string(), Value::tree([("rate", Value::String("0.3".into()))])),
+            ("inputs".to_string(), Value::tree([("level", Value::List(vec![Value::String("value".into())]))])),
+            ("outputs".to_string(), Value::tree([("level", Value::List(vec![Value::String("value".into())]))])),
+        ]))),
+        ("value", Value::String("11.11".into())),
+    ]);
+
+    // Infer schema from state
+    let schema = Schema::infer(&state);
+    match &schema {
+        Schema::Tree { branches } => {
+            // 'increase' should be inferred as Link
+            assert!(matches!(branches.get("increase"), Some(Schema::Link { temporal: Some(true), .. })),
+                "expected Link for 'increase', got {:?}", branches.get("increase"));
+            // 'value' should be inferred as float (string "11.11" parses as number)
+            assert!(matches!(branches.get("value"), Some(Schema::Float { .. })),
+                "expected Float for 'value', got {:?}", branches.get("value"));
+        }
+        _ => panic!("expected Tree, got {:?}", schema),
+    }
+
+    // Realize the state with the inferred schema
+    let realized = schema.realize(&state);
+    let map = realized.as_map().unwrap();
+    // "11.11" string should be realized as float
+    assert_eq!(map.get("value").unwrap().as_f64().unwrap(), 11.11);
 }
 
 #[test]
@@ -324,10 +392,148 @@ fn test_grow_divide() {
     // Python test_grow_divide: particles grow and divide
 }
 
+/// Analog of Python's WriteCounts step: counts = concentrations * volume
+#[derive(Clone, Debug)]
+struct WriteCountsStep;
+
+impl Step for WriteCountsStep {
+    fn inputs(&self) -> IndexMap<String, Schema> {
+        IndexMap::from([
+            ("volumes".into(), Schema::map(Schema::float())),
+            ("concentrations".into(), Schema::map(Schema::map(Schema::float()))),
+        ])
+    }
+    fn outputs(&self) -> IndexMap<String, Schema> {
+        IndexMap::from([
+            ("counts".into(), Schema::map(Schema::map(Schema::Overwrite {
+                inner: Box::new(Schema::integer()),
+            }))),
+        ])
+    }
+    fn update(&self, state: &Value) -> prism_bigraph::Update {
+        let map = state.as_map().unwrap();
+        let volumes = map.get("volumes").and_then(|v| v.as_map()).unwrap();
+        let concentrations = map.get("concentrations").and_then(|v| v.as_map()).unwrap();
+
+        // For each compartment key, multiply concentrations by volume
+        let mut counts = IndexMap::new();
+        for (comp_id, vol_val) in volumes {
+            let volume = vol_val.as_f64().unwrap_or(1.0);
+            if let Some(concs) = concentrations.get(comp_id).and_then(|v| v.as_map()) {
+                let mut comp_counts = IndexMap::new();
+                for (mol, conc_val) in concs {
+                    let conc = conc_val.as_f64().unwrap_or(0.0);
+                    let count = (conc * volume).round() as i64;
+                    comp_counts.insert(mol.clone(), Value::Int(count));
+                }
+                counts.insert(comp_id.clone(), Value::Map(comp_counts));
+            }
+        }
+        prism_bigraph::Update::value(Value::tree([
+            ("counts", Value::Map(counts)),
+        ]))
+    }
+    fn as_any(&self) -> &dyn Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+}
+
+/// Python test_star_update: wildcard paths fan out across map entries
 #[test]
-#[ignore] // Requires star path matching
 fn test_star_update() {
-    // Python test_star_update: wildcard paths like ['Compartments', '*', 'volume']
+    let mut topology = Topology::new();
+
+    // Compartments with volumes and concentrations
+    let compartments = Value::tree([
+        ("0", Value::tree([
+            ("Shared Environment", Value::tree([
+                ("concentrations", Value::tree([
+                    ("biomass", Value::float(5.484)),
+                ])),
+                ("counts", Value::tree([
+                    ("biomass", Value::float(0.0)),
+                ])),
+                ("volume", Value::float(100.0)),
+            ])),
+        ])),
+        ("1", Value::tree([
+            ("Shared Environment", Value::tree([
+                ("concentrations", Value::tree([
+                    ("biomass", Value::float(5.209)),
+                ])),
+                ("counts", Value::tree([
+                    ("biomass", Value::float(0.0)),
+                ])),
+                ("volume", Value::float(200.0)),
+            ])),
+        ])),
+        ("2", Value::tree([
+            ("Shared Environment", Value::tree([
+                ("concentrations", Value::tree([
+                    ("biomass", Value::float(9.635)),
+                ])),
+                ("counts", Value::tree([
+                    ("biomass", Value::float(0.0)),
+                ])),
+                ("volume", Value::float(300.0)),
+            ])),
+        ])),
+    ]);
+
+    topology.initial_state = Value::tree([
+        ("Compartments", compartments),
+    ]);
+    topology.state_schema = Schema::Tree {
+        branches: IndexMap::from([
+            ("Compartments".into(), Schema::map(Schema::Tree {
+                branches: IndexMap::from([
+                    ("Shared Environment".into(), Schema::Tree {
+                        branches: IndexMap::from([
+                            ("counts".into(), Schema::map(Schema::Overwrite {
+                                inner: Box::new(Schema::integer()),
+                            })),
+                            ("concentrations".into(), Schema::map(Schema::float())),
+                            ("volume".into(), Schema::float()),
+                        ]),
+                    }),
+                ]),
+            })),
+        ]),
+    };
+
+    // Step wired with star paths
+    topology.processes.insert("write".into(), ProcessSpec {
+        process_type: "WriteCounts".into(),
+        config: Value::None,
+        inputs: IndexMap::from([
+            ("volumes".into(), vec!["Compartments".into(), "*".into(), "Shared Environment".into(), "volume".into()]),
+            ("concentrations".into(), vec!["Compartments".into(), "*".into(), "Shared Environment".into(), "concentrations".into()]),
+        ]),
+        outputs: IndexMap::from([
+            ("counts".into(), vec!["Compartments".into(), "*".into(), "Shared Environment".into(), "counts".into()]),
+        ]),
+        interval: None,
+        priority: 0.0,
+    });
+
+    let mut instances = HashMap::new();
+    instances.insert("write".into(), ProcessNode::Step(Box::new(WriteCountsStep)));
+
+    let mut engine = Engine::new(topology, instances);
+    engine.run(0.0);
+
+    // Check: compartment 2, biomass count = 9.635 * 300 ≈ 2890-2891
+    let count = engine.state()
+        .get_path(&["Compartments".into(), "2".into(), "Shared Environment".into(), "counts".into(), "biomass".into()])
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    assert!(count == 2890 || count == 2891, "expected ~2890, got {count}");
+
+    // Check all compartments got updated (not just one)
+    let count_0 = engine.state()
+        .get_path(&["Compartments".into(), "0".into(), "Shared Environment".into(), "counts".into(), "biomass".into()])
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    assert_eq!(count_0, 548); // 5.484 * 100 ≈ 548
 }
 
 #[test]
