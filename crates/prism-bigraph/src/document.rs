@@ -10,7 +10,7 @@ use std::path::Path;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use prism_schema::Value;
+use prism_schema::{Key, Value};
 
 use crate::topology::{ProcessSpec, Topology};
 
@@ -81,13 +81,18 @@ impl Document {
         let mut processes = IndexMap::new();
 
         for (name, spec) in &topology.processes {
+            let to_string_paths = |wires: &IndexMap<String, Vec<Key>>| -> IndexMap<String, Vec<String>> {
+                wires.iter()
+                    .map(|(k, v)| (k.clone(), v.iter().map(|k| k.to_string()).collect()))
+                    .collect()
+            };
             processes.insert(
                 name.clone(),
                 ProcessDocument {
                     process_type: spec.process_type.clone(),
                     config: spec.config.clone(),
-                    inputs: spec.inputs.clone(),
-                    outputs: spec.outputs.clone(),
+                    inputs: to_string_paths(&spec.inputs),
+                    outputs: to_string_paths(&spec.outputs),
                     interval: spec.interval,
                     priority: spec.priority,
                 },
@@ -107,14 +112,20 @@ impl Document {
         let mut topology = Topology::new();
         topology.initial_state = self.state.clone();
 
+        let to_key_paths = |wires: &IndexMap<String, Vec<String>>| -> IndexMap<String, Vec<Key>> {
+            wires.iter()
+                .map(|(k, v)| (k.clone(), v.iter().map(|s| Key::from(s.as_str())).collect()))
+                .collect()
+        };
+
         for (name, pdoc) in &self.processes {
             topology.processes.insert(
                 name.clone(),
                 ProcessSpec {
                     process_type: pdoc.process_type.clone(),
                     config: pdoc.config.clone(),
-                    inputs: pdoc.inputs.clone(),
-                    outputs: pdoc.outputs.clone(),
+                    inputs: to_key_paths(&pdoc.inputs),
+                    outputs: to_key_paths(&pdoc.outputs),
                     interval: pdoc.interval,
                     priority: pdoc.priority,
                 },

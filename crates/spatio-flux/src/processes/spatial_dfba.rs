@@ -60,13 +60,8 @@ impl Process for SpatialDFBA {
     }
 
     fn update(&self, state: &Value, interval: f64) -> Update {
-        let map = match state.as_map() {
-            Some(m) => m,
-            None => return Update::Noop,
-        };
-
         // Read fields as 2D arrays (flattened to 1D, row-major)
-        let fields_map = match map.get("fields").and_then(|v| v.as_map()) {
+        let fields_map = match state.get_field("fields").and_then(|v| v.as_map()) {
             Some(f) => f,
             None => return Update::Noop,
         };
@@ -79,7 +74,7 @@ impl Process for SpatialDFBA {
         let mut substrate_originals: IndexMap<String, Vec<f64>> = IndexMap::new();
         for mol_id in &self.mol_ids {
             let arr = fields_map
-                .get(mol_id)
+                .get(mol_id.as_str())
                 .map(flatten_field)
                 .unwrap_or_else(|| vec![0.0; n_cells]);
             substrate_originals.insert(mol_id.clone(), arr.clone());
@@ -87,7 +82,7 @@ impl Process for SpatialDFBA {
         }
 
         // Read biomass field
-        let biomass_key = map.get("biomass");
+        let biomass_key = state.get_field("biomass");
         let biomass_original = biomass_key
             .map(flatten_field)
             .unwrap_or_else(|| vec![0.0; n_cells]);
@@ -191,13 +186,13 @@ impl Process for SpatialDFBA {
         }
 
         // Build output as DELTAS (new - original)
-        let mut result_fields: IndexMap<String, Value> = IndexMap::new();
+        let mut result_fields: IndexMap<prism_schema::Key, Value> = IndexMap::new();
         for (mol_id, arr) in &substrate_arrays {
             let orig = substrate_originals.get(mol_id).unwrap();
             let delta: Vec<f64> = arr.iter().zip(orig.iter()).map(|(a, o)| a - o).collect();
-            let original_val = fields_map.get(mol_id).unwrap_or(&Value::None);
+            let original_val = fields_map.get(mol_id.as_str()).unwrap_or(&Value::None);
             result_fields.insert(
-                mol_id.clone(),
+                prism_schema::Key::from(mol_id.as_str()),
                 crate::processes::fields::rebuild_field(&delta, original_val),
             );
         }
@@ -258,7 +253,7 @@ pub fn spatial_dfba_from_config(config: &Value) -> SpatialDFBA {
             // Load COBRA model (cached)
             let model_file = mc.get("model_file").and_then(|v| v.as_str()).unwrap_or("textbook");
             if let Ok(m) = load_model_cached(model_file) {
-                models.insert(model_name.clone(), m);
+                models.insert(model_name.to_string(), m);
             }
 
             // Kinetic params
@@ -268,11 +263,11 @@ pub fn spatial_dfba_from_config(config: &Value) -> SpatialDFBA {
                     if let Some(list) = params.as_list() {
                         let km = list.first().and_then(|v| v.as_f64()).unwrap_or(0.5);
                         let vmax = list.get(1).and_then(|v| v.as_f64()).unwrap_or(1.0);
-                        kp.insert(substrate.clone(), KineticParam { km, vmax });
+                        kp.insert(substrate.to_string(), KineticParam { km, vmax });
                     }
                 }
             }
-            kinetic_params.insert(model_name.clone(), kp);
+            kinetic_params.insert(model_name.to_string(), kp);
 
             // Bounds
             let mut cb = IndexMap::new();
@@ -281,11 +276,11 @@ pub fn spatial_dfba_from_config(config: &Value) -> SpatialDFBA {
                     if let Some(bmap) = bound_val.as_map() {
                         let lower = bmap.get("lower").and_then(|v| v.as_f64());
                         let upper = bmap.get("upper").and_then(|v| v.as_f64());
-                        cb.insert(rxn_id.clone(), (lower, upper));
+                        cb.insert(rxn_id.to_string(), (lower, upper));
                     }
                 }
             }
-            config_bounds.insert(model_name.clone(), cb);
+            config_bounds.insert(model_name.to_string(), cb);
         }
     }
 
@@ -297,11 +292,11 @@ pub fn spatial_dfba_from_config(config: &Value) -> SpatialDFBA {
             if let Some(sr) = mc.as_map().and_then(|m| m.get("substrate_update_reactions")).and_then(|v| v.as_map()) {
                 for (substrate, rxn_id) in sr {
                     if let Some(rxn) = rxn_id.as_str() {
-                        sr_map.insert(substrate.clone(), rxn.to_string());
+                        sr_map.insert(substrate.to_string(), rxn.to_string());
                     }
                 }
             }
-            substrate_reactions.insert(model_name.clone(), sr_map);
+            substrate_reactions.insert(model_name.to_string(), sr_map);
         }
     }
 

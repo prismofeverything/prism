@@ -12,5 +12,6 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 indexmap = { workspace = true }
 ordered-float = { workspace = true }
+compact_str = { workspace = true }
 petgraph = { workspace = true }
 rand = { workspace = true }

@@ -57,8 +57,7 @@ impl Step for Divide {
         ])
     }
     fn update(&self, state: &Value) -> Update {
-        let mass = state.as_map()
-            .and_then(|m| m.get("trigger"))
+        let mass = state.get_field("trigger")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
 
@@ -98,8 +97,8 @@ impl Step for Divide {
             Value::String(self.agent_id.clone()),
         ]));
         env_update.insert("_add".into(), Value::Map(IndexMap::from([
-            (id_a.clone(), make_daughter(&id_a)),
-            (id_b.clone(), make_daughter(&id_b)),
+            (prism_schema::Key::from(id_a.as_str()), make_daughter(&id_a)),
+            (prism_schema::Key::from(id_b.as_str()), make_daughter(&id_b)),
         ])));
 
         Update::value(Value::tree([

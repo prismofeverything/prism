@@ -13,7 +13,7 @@ use std::fmt::Write;
 
 use prism_bigraph::document::Document;
 use prism_bigraph::topology::Topology;
-use prism_schema::Value;
+use prism_schema::{Key, Value};
 
 /// Options for DOT rendering.
 #[derive(Clone, Debug)]
@@ -75,24 +75,18 @@ type CollapseMap = HashMap<String, String>;
 
 fn deduplicate_for_viz(topology: &Topology, state: &Value) -> (Topology, Value, CollapseMap) {
     // Find maps in state that have multiple complex children
-    let mut representatives: HashMap<Vec<String>, String> = HashMap::new();
+    let mut representatives: HashMap<Vec<Key>, Key> = HashMap::new();
 
-    fn find_representatives(val: &Value, path: &[String], reps: &mut HashMap<Vec<String>, String>) {
+    fn find_representatives(val: &Value, path: &[Key], reps: &mut HashMap<Vec<Key>, Key>) {
         if let Value::Map(map) = val {
-            // Only deduplicate maps where MOST children are structurally similar
-            // complex maps (like a particles map where each child is a full particle).
-            // Don't deduplicate maps with heterogeneous children (like a particle's
-            // own fields: mass, position, local, exchange are all different types).
             let complex_count = map.values()
                 .filter(|v| matches!(v, Value::Map(m) if m.len() > 2))
                 .count();
             if complex_count > 1 && complex_count == map.len() {
-                // ALL children are complex and there are multiple → deduplicate
                 if let Some(first_key) = map.keys().next() {
                     reps.insert(path.to_vec(), first_key.clone());
                 }
             }
-            // Recurse into children
             for (k, v) in map {
                 let mut child_path = path.to_vec();
                 child_path.push(k.clone());
@@ -107,7 +101,7 @@ fn deduplicate_for_viz(topology: &Topology, state: &Value) -> (Topology, Value, 
     let is_rep = |name: &str| -> bool {
         let parts: Vec<&str> = name.split('.').collect();
         for i in 1..parts.len() {
-            let parent: Vec<String> = parts[..i].iter().map(|s| s.to_string()).collect();
+            let parent: Vec<Key> = parts[..i].iter().map(|s| Key::from(*s)).collect();
             if let Some(rep) = representatives.get(&parent) {
                 if parts[i] != rep.as_str() {
                     return false;
@@ -129,7 +123,7 @@ fn deduplicate_for_viz(topology: &Topology, state: &Value) -> (Topology, Value, 
             // Find which representative this maps to
             let parts: Vec<&str> = name.split('.').collect();
             for i in 1..parts.len() {
-                let parent: Vec<String> = parts[..i].iter().map(|s| s.to_string()).collect();
+                let parent: Vec<Key> = parts[..i].iter().map(|s| Key::from(*s)).collect();
                 if let Some(rep) = representatives.get(&parent) {
                     let mut rep_name = parts[..i].to_vec();
                     rep_name.push(rep);
@@ -207,7 +201,7 @@ fn deduplicate_for_viz(topology: &Topology, state: &Value) -> (Topology, Value, 
     for (parent_path, rep_key) in &representatives {
         if let Some(Value::Map(map)) = filtered_state.get_path(parent_path).cloned().as_ref() {
             let mut kept = indexmap::IndexMap::new();
-            if let Some(rep_val) = map.get(rep_key) {
+            if let Some(rep_val) = map.get(rep_key.as_str()) {
                 kept.insert(rep_key.clone(), rep_val.clone());
             }
             filtered_state.set_path(parent_path, Value::Map(kept));
@@ -289,12 +283,12 @@ pub fn render_topology_dot(
 
     // Resolve a wire path to a node ID — if path starts with a process name,
     // wire to that process box instead of a (non-existent) state circle
-    let resolve_node_id = |path: &[String]| -> String {
+    let resolve_node_id = |path: &[Key]| -> String {
         // Only redirect single-element paths that match a process name
         if path.len() == 1 {
             if let Some(root) = path.first() {
                 if process_names.contains(root.as_str()) {
-                    return format!("proc_{}", sanitize(root));
+                    return format!("proc_{}", sanitize(root.as_str()));
                 }
             }
         }
@@ -403,8 +397,8 @@ pub fn render_topology_dot(
     for name in topology.processes.keys() {
         if let Some(dot_pos) = name.rfind('.') {
             let parent_path_str = &name[..dot_pos];
-            let parent_path: Vec<String> =
-                parent_path_str.split('.').map(|s| s.to_string()).collect();
+            let parent_path: Vec<Key> =
+                parent_path_str.split('.').map(Key::from).collect();
             let parent_id = path_to_id(&parent_path);
             let proc_id = format!("proc_{}", sanitize(name));
 
@@ -437,15 +431,15 @@ pub fn render_topology_dot(
 /// Filters out paths that collide with process names (those are rendered as boxes).
 /// Returns (state_paths, representatives) where representatives maps parent paths
 /// to the chosen child key for deduplication.
-fn collect_state_paths(topology: &Topology, state: &Value) -> (Vec<Vec<String>>, HashMap<Vec<String>, String>) {
+fn collect_state_paths(topology: &Topology, state: &Value) -> (Vec<Vec<Key>>, HashMap<Vec<Key>, Key>) {
     let process_names: HashSet<&str> = topology
         .processes
         .keys()
         .map(|s| s.as_str())
         .collect();
 
-    let mut paths: Vec<Vec<String>> = Vec::new();
-    let mut seen: HashSet<Vec<String>> = HashSet::new();
+    let mut paths: Vec<Vec<Key>> = Vec::new();
+    let mut seen: HashSet<Vec<Key>> = HashSet::new();
 
     for spec in topology.processes.values() {
         for path in spec.inputs.values().chain(spec.outputs.values()) {
@@ -489,7 +483,7 @@ fn collect_state_paths(topology: &Topology, state: &Value) -> (Vec<Vec<String>>,
     // Deduplicate: for maps with multiple complex children (like particles),
     // keep only one representative. Find which parents have multiple complex
     // children, pick the first child as representative, filter the rest.
-    let mut representatives: HashMap<Vec<String>, String> = HashMap::new();
+    let mut representatives: HashMap<Vec<Key>, Key> = HashMap::new();
 
     // First pass: determine the representative child for each complex-valued parent
     for path in &paths {
@@ -502,7 +496,6 @@ fn collect_state_paths(topology: &Topology, state: &Value) -> (Vec<Vec<String>>,
                 let has_complex = parent_map.values()
                     .any(|v| matches!(v, Value::Map(m) if m.len() > 1));
                 if has_complex && parent_map.len() > 1 {
-                    // First child encountered becomes the representative
                     representatives.insert(parent, path[i].clone());
                 }
             }
@@ -533,9 +526,9 @@ fn collect_state_paths(topology: &Topology, state: &Value) -> (Vec<Vec<String>>,
 /// up to `max_depth` additional levels. This reveals internal structure
 /// like particle fields (id, position, mass, local, exchange).
 /// Only expands the first entry of map-type containers to avoid explosion.
-fn expand_state_tree(paths: &mut Vec<Vec<String>>, state: &Value, max_depth: usize) {
-    let mut seen: HashSet<Vec<String>> = paths.iter().cloned().collect();
-    let mut to_expand: Vec<Vec<String>> = paths.clone();
+fn expand_state_tree(paths: &mut Vec<Vec<Key>>, state: &Value, max_depth: usize) {
+    let mut seen: HashSet<Vec<Key>> = paths.iter().cloned().collect();
+    let mut to_expand: Vec<Vec<Key>> = paths.clone();
 
     for _depth in 0..max_depth {
         let mut new_paths = Vec::new();
@@ -572,10 +565,10 @@ fn expand_state_tree(paths: &mut Vec<Vec<String>>, state: &Value, max_depth: usi
 
 /// Compute parent→child hierarchy edges from paths.
 fn compute_hierarchy(
-    paths: &[Vec<String>],
+    paths: &[Vec<Key>],
     process_names: &HashSet<&str>,
-) -> Vec<(Vec<String>, Vec<String>)> {
-    let path_set: HashSet<Vec<String>> = paths.iter().cloned().collect();
+) -> Vec<(Vec<Key>, Vec<Key>)> {
+    let path_set: HashSet<Vec<Key>> = paths.iter().cloned().collect();
     let mut edges = Vec::new();
 
     for path in paths {
@@ -596,7 +589,7 @@ fn compute_hierarchy(
 
 /// Create an HTML-like label for a state node.
 fn make_state_label(
-    path: &[String],
+    path: &[Key],
     state: &Value,
     options: &DotOptions,
 ) -> String {
@@ -644,12 +637,13 @@ fn format_value(val: &Value, digits: usize) -> String {
         Value::None => "none".into(),
         Value::List(l) => format!("[{} items]", l.len()),
         Value::Map(m) => format!("{{{} keys}}", m.len()),
+        Value::Struct { layout, .. } => format!("{{{} fields}}", layout.fields.len()),
         Value::Bytes(b) => format!("<{} bytes>", b.len()),
     }
 }
 
 /// Convert a state path to a valid DOT node ID.
-fn path_to_id(path: &[String]) -> String {
+fn path_to_id(path: &[Key]) -> String {
     if path.is_empty() {
         "root".into()
     } else {
@@ -717,7 +711,7 @@ fn darken(hex: &str, factor: f64) -> String {
 }
 
 /// Color for a state node based on its path.
-fn state_node_color(path: &[String]) -> (&'static str, String) {
+fn state_node_color(path: &[Key]) -> (&'static str, String) {
     let name = path.last().map(|s| s.as_str()).unwrap_or("");
     let first = path.first().map(|s| s.as_str()).unwrap_or("");
 

@@ -6,7 +6,7 @@
 
 use indexmap::IndexMap;
 
-use prism_schema::{Schema, Value};
+use prism_schema::{Key, Schema, Value};
 
 use crate::topology::{ProcessSpec, Topology};
 
@@ -28,9 +28,9 @@ pub struct VivariumProcess {
     /// Whether this is a step (no interval) or process (has interval).
     pub interval: Option<f64>,
     /// Resolved input wires (after `..` resolution and path flattening).
-    pub resolved_inputs: Option<IndexMap<String, Vec<String>>>,
+    pub resolved_inputs: Option<IndexMap<String, Vec<Key>>>,
     /// Resolved output wires.
-    pub resolved_outputs: Option<IndexMap<String, Vec<String>>>,
+    pub resolved_outputs: Option<IndexMap<String, Vec<Key>>>,
 }
 
 /// Result of parsing a vivarium JSON document.
@@ -74,7 +74,7 @@ impl VivariumDocument {
                 if is_process_node(value) {
                     if let Some(proc) = extract_process(value) {
                         if proc.class_name != "RAMEmitter" {
-                            processes.insert(key.clone(), proc);
+                            processes.insert(key.to_string(), proc);
                         }
                     }
                     // Keep process specs in state — they're active state
@@ -84,12 +84,12 @@ impl VivariumDocument {
                 } else if is_composite_container(value) {
                     // This is a container of process specs → treat as a Composite.
                     // Don't flatten; keep as-is in state for the Composite engine.
-                    composites.push(key.clone());
+                    composites.push(key.to_string());
                     clean_state.insert(key.clone(), value.clone());
                 } else {
                     // Recursively check for processes inside particles etc.
                     let (cleaned, nested_procs) =
-                        extract_nested_processes(value, &[key.clone()]);
+                        extract_nested_processes(value, &[key.to_string()]);
                     for (path_name, proc) in nested_procs {
                         processes.insert(path_name, proc);
                     }
@@ -120,7 +120,7 @@ impl VivariumDocument {
             None => return Schema::Any,
         };
 
-        let mut branches = IndexMap::new();
+        let mut branches: IndexMap<Key, Schema> = IndexMap::new();
         for (key, val) in map {
             if let Some(type_str) = val.as_str() {
                 // Check if it's a tree expression (key1:type1|key2:type2)
@@ -184,9 +184,9 @@ impl VivariumDocument {
         // Add composite containers as single "Composite" process entries
         for composite_name in &self.composites {
             // Auto-detect bridge from child process wiring
-            let mut bridge_roots: IndexMap<String, Vec<String>> = IndexMap::new();
+            let mut bridge_roots: IndexMap<String, Vec<Key>> = IndexMap::new();
             if let Some(Value::Map(container)) = self.state.as_map()
-                .and_then(|m| m.get(composite_name))
+                .and_then(|m| m.get(composite_name.as_str()))
             {
                 for (_key, child) in container {
                     if let Some(child_map) = child.as_map() {
@@ -195,11 +195,11 @@ impl VivariumDocument {
                                 for (_port, target) in wires {
                                     // Extract root path from wiring
                                     // Extract the first non-".." element as the root
-                                    let find_root = |path: &[Value]| -> Option<String> {
+                                    let find_root = |path: &[Value]| -> Option<Key> {
                                         path.iter()
                                             .filter_map(|v| v.as_str())
                                             .find(|s| *s != "..")
-                                            .map(|s| s.to_string())
+                                            .map(Key::from)
                                     };
                                     let root = match target {
                                         Value::List(path) => find_root(path),
@@ -209,7 +209,7 @@ impl VivariumDocument {
                                         _ => None,
                                     };
                                     if let Some(r) = root {
-                                        bridge_roots.entry(r.clone())
+                                        bridge_roots.entry(r.to_string())
                                             .or_insert_with(|| vec![r]);
                                     }
                                 }
@@ -329,20 +329,17 @@ fn extract_nested_processes(
                                 Some(flatten_wires_with_context(&proc.outputs, path));
 
                             let proc_name = if path.is_empty() {
-                                key.clone()
+                                key.to_string()
                             } else {
                                 format!("{}.{}", path.join("."), key)
                             };
                             nested_procs.push((proc_name, proc));
                         }
                     }
-                    // KEEP process specs in state (not stripped).
-                    // Dynamic discovery needs them for particle division/spawning.
-                    // The engine skips already-registered processes.
                     cleaned.insert(key.clone(), val.clone());
                 } else {
                     let mut child_path = path.to_vec();
-                    child_path.push(key.clone());
+                    child_path.push(key.to_string());
                     let (cleaned_val, child_procs) =
                         extract_nested_processes(val, &child_path);
                     nested_procs.extend(child_procs);
@@ -361,7 +358,7 @@ fn extract_nested_processes(
 /// - Simple: `{"particles": ["particles"]}` → `{"particles": ["particles"]}`
 /// - Nested: `{"substrates": {"glucose": ["fields", "glucose"]}}` → `{"substrates.glucose": ["fields", "glucose"]}`
 /// Public access to flatten_wires for external loaders.
-pub fn flatten_wires_pub(wires: &Value) -> IndexMap<String, Vec<String>> {
+pub fn flatten_wires_pub(wires: &Value) -> IndexMap<String, Vec<Key>> {
     flatten_wires(wires)
 }
 
@@ -369,11 +366,11 @@ pub fn flatten_wires_pub(wires: &Value) -> IndexMap<String, Vec<String>> {
 pub fn flatten_wires_with_context_pub(
     wires: &Value,
     process_path: &[String],
-) -> IndexMap<String, Vec<String>> {
+) -> IndexMap<String, Vec<Key>> {
     flatten_wires_with_context(wires, process_path)
 }
 
-fn flatten_wires(wires: &Value) -> IndexMap<String, Vec<String>> {
+fn flatten_wires(wires: &Value) -> IndexMap<String, Vec<Key>> {
     flatten_wires_with_context(wires, &[])
 }
 
@@ -381,7 +378,7 @@ fn flatten_wires(wires: &Value) -> IndexMap<String, Vec<String>> {
 fn flatten_wires_with_context(
     wires: &Value,
     process_path: &[String],
-) -> IndexMap<String, Vec<String>> {
+) -> IndexMap<String, Vec<Key>> {
     let mut result = IndexMap::new();
 
     if let Some(map) = wires.as_map() {
@@ -390,7 +387,7 @@ fn flatten_wires_with_context(
                 Value::List(path) => {
                     let resolved = resolve_wire_path(path, process_path);
                     if !resolved.is_empty() {
-                        result.insert(port.clone(), resolved);
+                        result.insert(port.to_string(), resolved);
                     }
                 }
                 Value::Map(sub_map) => {
@@ -419,9 +416,9 @@ fn flatten_wires_with_context(
 ///
 /// Example: process at `["spatial_dFBA"]`, path `["..", "fields", "glucose", 0, 0]`
 /// → resolves to `["fields", "glucose", "0", "0"]`
-fn resolve_wire_path(path_elements: &[Value], process_path: &[String]) -> Vec<String> {
+fn resolve_wire_path(path_elements: &[Value], process_path: &[String]) -> Vec<Key> {
     // Start from the process's location in the tree
-    let mut resolved: Vec<String> = process_path.to_vec();
+    let mut resolved: Vec<Key> = process_path.iter().map(|s| Key::from(s.as_str())).collect();
 
     for elem in path_elements {
         match elem {
@@ -430,15 +427,15 @@ fn resolve_wire_path(path_elements: &[Value], process_path: &[String]) -> Vec<St
                 resolved.pop();
             }
             Value::String(s) => {
-                resolved.push(s.clone());
+                resolved.push(Key::from(s.as_str()));
             }
             Value::Int(i) => {
                 // Array index — encode as string
-                resolved.push(i.to_string());
+                resolved.push(Key::from(i.to_string()));
             }
             Value::Float(f) => {
                 // Sometimes indices come as floats in JSON
-                resolved.push(format!("{}", f.0 as i64));
+                resolved.push(Key::from(format!("{}", f.0 as i64)));
             }
             _ => {}
         }

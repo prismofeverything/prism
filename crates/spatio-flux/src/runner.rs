@@ -20,7 +20,7 @@ impl SimulationResults {
     }
 
     /// Get a time series for a specific path.
-    pub fn time_series(&self, path: &[String]) -> Vec<Option<f64>> {
+    pub fn time_series(&self, path: &[prism_schema::Key]) -> Vec<Option<f64>> {
         self.states
             .iter()
             .map(|s| s.get_path(path).and_then(|v| v.as_f64()))

@@ -8,7 +8,7 @@
 //! (e.g., Schema::Link, full dispatch system).
 
 use indexmap::IndexMap;
-use prism_schema::{Schema, Value, parse_type_expression};
+use prism_schema::{Key, Schema, Value, parse_type_expression};
 
 // ═══════════════════════════════════════════════════════════
 // Schema Parsing (access)
@@ -611,12 +611,12 @@ fn test_generate_with_link() {
     // State provides the link wiring but not the data values
     let state = Value::tree([
         ("link", Value::Map(IndexMap::from([
-            ("address".to_string(), Value::String("local:edge".into())),
-            ("inputs".to_string(), Value::tree([
+            (Key::from("address"), Value::String("local:edge".into())),
+            (Key::from("inputs"), Value::tree([
                 ("n", Value::List(vec![Value::String("A".into())])),
                 ("x", Value::List(vec![Value::String("E".into())])),
             ])),
-            ("outputs".to_string(), Value::tree([
+            (Key::from("outputs"), Value::tree([
                 ("z", Value::List(vec![Value::String("F".into())])),
             ])),
         ]))),
@@ -785,8 +785,8 @@ fn test_infer_tree() {
 #[test]
 fn test_infer_with_type_annotation() {
     let state = Value::Map(IndexMap::from([
-        ("_type".to_string(), Value::String("process".into())),
-        ("address".to_string(), Value::String("local:Foo".into())),
+        (Key::from("_type"), Value::String("process".into())),
+        (Key::from("address"), Value::String("local:Foo".into())),
     ]));
     let schema = Schema::infer(&state);
     assert!(matches!(schema, Schema::Link { temporal: Some(true), .. }));
@@ -1376,8 +1376,8 @@ fn test_apply_link_replace() {
 #[test]
 fn test_infer_link_from_type_annotation() {
     let state = Value::Map(IndexMap::from([
-        ("_type".to_string(), Value::String("step".into())),
-        ("address".to_string(), Value::String("local:Foo".into())),
+        (Key::from("_type"), Value::String("step".into())),
+        (Key::from("address"), Value::String("local:Foo".into())),
     ]));
     let inferred = Schema::infer(&state);
     assert!(matches!(inferred, Schema::Link { temporal: Some(false), .. }));

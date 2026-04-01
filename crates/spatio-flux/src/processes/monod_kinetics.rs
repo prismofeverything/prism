@@ -69,17 +69,12 @@ impl Process for MonodKinetics {
     }
 
     fn update(&self, state: &Value, interval: f64) -> Update {
-        let map = match state.as_map() {
-            Some(m) => m,
-            None => return Update::Noop,
-        };
-
-        let biomass = map
-            .get("biomass")
+        let biomass = state
+            .get_field("biomass")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
 
-        let substrates = match map.get("substrates").and_then(|v| v.as_map()) {
+        let substrates = match state.get_field("substrates").and_then(|v| v.as_map()) {
             Some(s) => s,
             None => return Update::Noop,
         };
@@ -88,7 +83,7 @@ impl Process for MonodKinetics {
         // Track running substrate values (start from current concentrations)
         let mut substrate_values: IndexMap<String, f64> = IndexMap::new();
         for (mol_id, val) in substrates {
-            substrate_values.insert(mol_id.clone(), val.as_f64().unwrap_or(0.0));
+            substrate_values.insert(mol_id.to_string(), val.as_f64().unwrap_or(0.0));
         }
 
         for rxn in &self.reactions {
@@ -134,11 +129,11 @@ impl Process for MonodKinetics {
 
         // Output DELTAS for substrates (negative = consumed, positive = produced).
         // The engine uses additive apply by default for numeric types.
-        let substrate_deltas: IndexMap<String, Value> = substrate_values
+        let substrate_deltas: prism_schema::StateMap = substrate_values
             .iter()
             .map(|(k, &final_val)| {
-                let initial = substrates.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                (k.clone(), Value::float(final_val - initial))
+                let initial = substrates.get(k.as_str()).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                (prism_schema::Key::from(k.as_str()), Value::float(final_val - initial))
             })
             .collect();
 

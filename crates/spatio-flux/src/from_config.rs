@@ -123,14 +123,14 @@ pub fn diffusion_advection_from_config(config: &Value) -> DiffusionAdvection {
     let mut diffusion_coeffs = IndexMap::new();
     if let Some(dc) = map.get("diffusion_coeffs").and_then(|v| v.as_map()) {
         for (mol, val) in dc {
-            diffusion_coeffs.insert(mol.clone(), as_f64(val));
+            diffusion_coeffs.insert(mol.to_string(), as_f64(val));
         }
     }
 
     let mut advection_coeffs = IndexMap::new();
     if let Some(ac) = map.get("advection_coeffs").and_then(|v| v.as_map()) {
         for (mol, val) in ac {
-            advection_coeffs.insert(mol.clone(), as_f64_pair(val));
+            advection_coeffs.insert(mol.to_string(), as_f64_pair(val));
         }
     }
 

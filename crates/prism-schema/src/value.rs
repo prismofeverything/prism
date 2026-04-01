@@ -4,24 +4,67 @@
 //! hierarchical state tree is a `Value`, and every process update produces
 //! and consumes `Value`s through its ports.
 
+use std::collections::HashMap;
 use std::fmt;
+use std::sync::Arc;
 
+use compact_str::CompactString;
 use indexmap::IndexMap;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
+/// String key type — strings ≤24 bytes stored inline (no heap allocation).
+/// Covers all common keys: "mass", "position", "velocity", "environment",
+/// "particles", "fields", "glucose", "acetate", etc.
+/// Cloning is a 24-byte memcpy instead of heap alloc + copy + dealloc.
+pub type Key = CompactString;
+
 /// A path through the hierarchical state tree.
-/// Each element is a string key navigating one level deeper.
-pub type Path = Vec<String>;
+pub type Path = Vec<Key>;
 
 /// An ordered map preserving insertion order, used for tree nodes.
-pub type StateMap = IndexMap<String, Value>;
+pub type StateMap = IndexMap<Key, Value>;
+
+/// Compiled struct layout — shared among all instances with the same schema.
+/// Fields are accessed by index (O(1)) instead of by hash lookup (O(1) amortized
+/// but with allocation/hashing overhead).
+#[derive(Clone, Debug)]
+pub struct StructLayout {
+    /// Field names in order.
+    pub fields: Vec<Key>,
+    /// Field name → index for O(1) lookup by name.
+    pub field_index: HashMap<Key, usize>,
+}
+
+impl StructLayout {
+    /// Create a layout from an ordered list of field names.
+    pub fn new(fields: Vec<Key>) -> Arc<Self> {
+        let field_index = fields.iter().enumerate()
+            .map(|(i, k)| (k.clone(), i))
+            .collect();
+        Arc::new(Self { fields, field_index })
+    }
+
+    /// Get field index by name.
+    #[inline]
+    pub fn index_of(&self, name: &str) -> Option<usize> {
+        self.field_index.get(name).copied()
+    }
+}
+
+impl PartialEq for StructLayout {
+    fn eq(&self, other: &Self) -> bool {
+        self.fields == other.fields
+    }
+}
+impl Eq for StructLayout {}
 
 /// The universal value type for all simulation state.
 ///
 /// Mirrors the bigraph-schema type hierarchy:
 /// - Atoms: Bool, Int, Float, String
 /// - Containers: List, Map (ordered), Tree (recursive)
+/// - Struct: fixed-layout map compiled from schema (O(1) field access)
 /// - Special: None, Bytes (for serialized blobs like numpy arrays)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -33,6 +76,14 @@ pub enum Value {
     String(String),
     List(Vec<Value>),
     Map(StateMap),
+    /// Fixed-layout struct — fields accessed by index.
+    /// Serializes as a map for JSON compatibility.
+    #[serde(skip)]
+    Struct {
+        #[serde(skip)]
+        layout: Arc<StructLayout>,
+        values: Vec<Value>,
+    },
     Bytes(Vec<u8>),
 }
 
@@ -47,8 +98,22 @@ impl Value {
         Self::Map(StateMap::new())
     }
 
-    pub fn tree(entries: impl IntoIterator<Item = (impl Into<String>, Value)>) -> Self {
+    pub fn tree(entries: impl IntoIterator<Item = (impl Into<Key>, Value)>) -> Self {
         Self::Map(entries.into_iter().map(|(k, v)| (k.into(), v)).collect())
+    }
+
+    /// Create a Struct value from a layout and initial values.
+    pub fn make_struct(layout: Arc<StructLayout>, values: Vec<Value>) -> Self {
+        Self::Struct { layout, values }
+    }
+
+    /// Compile a Map into a Struct using the given layout.
+    /// Fields not present in the map get Value::None.
+    pub fn compile_struct(map: &StateMap, layout: Arc<StructLayout>) -> Self {
+        let values: Vec<Value> = layout.fields.iter()
+            .map(|k| map.get(k).cloned().unwrap_or(Value::None))
+            .collect();
+        Self::Struct { layout, values }
     }
 
     // ── Accessors ──
@@ -90,9 +155,107 @@ impl Value {
     }
 
     pub fn as_map_mut(&mut self) -> Option<&mut StateMap> {
+        // If this is a Struct, promote to Map first so callers can mutate
+        if matches!(self, Self::Struct { .. }) {
+            self.promote_to_map();
+        }
         match self {
             Self::Map(m) => Some(m),
             _ => None,
+        }
+    }
+
+    /// Convert a Struct to a Map in-place. Called when mutable map access
+    /// is needed (e.g., _add/_remove operations on a compiled state).
+    fn promote_to_map(&mut self) {
+        if let Self::Struct { layout, values } = self {
+            let map: StateMap = layout.fields.iter().zip(values.drain(..))
+                .map(|(k, v)| (k.clone(), v))
+                .collect();
+            *self = Self::Map(map);
+        }
+    }
+
+    /// Get a field from a Struct by name (O(1) index lookup).
+    /// Also works on Map as fallback.
+    #[inline]
+    pub fn get_field(&self, name: &str) -> Option<&Value> {
+        match self {
+            Self::Struct { layout, values } => {
+                layout.index_of(name).and_then(|i| values.get(i))
+            }
+            Self::Map(m) => m.get(name),
+            _ => None,
+        }
+    }
+
+    /// Set a field on a Struct by name (O(1) index lookup).
+    /// Also works on Map as fallback.
+    #[inline]
+    pub fn set_field(&mut self, name: &str, value: Value) {
+        match self {
+            Self::Struct { layout, values } => {
+                if let Some(i) = layout.index_of(name) {
+                    if i < values.len() {
+                        values[i] = value;
+                    }
+                }
+            }
+            Self::Map(m) => {
+                m.insert(Key::from(name), value);
+            }
+            _ => {}
+        }
+    }
+
+    /// Convert a Struct to a Map (for serialization or code that needs Map).
+    pub fn to_map(&self) -> Option<StateMap> {
+        match self {
+            Self::Struct { layout, values } => {
+                let map: StateMap = layout.fields.iter().zip(values.iter())
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                Some(map)
+            }
+            Self::Map(m) => Some(m.clone()),
+            _ => None,
+        }
+    }
+
+    /// Check if this is a map-like value (Map or Struct).
+    pub fn is_map_like(&self) -> bool {
+        matches!(self, Self::Map(_) | Self::Struct { .. })
+    }
+
+    /// Iterate over (key, &value) pairs from Map or Struct.
+    /// Returns None for non-map-like values.
+    pub fn iter_fields(&self) -> Option<FieldIter<'_>> {
+        match self {
+            Self::Map(m) => Some(FieldIter::Map(m.iter())),
+            Self::Struct { layout, values } => Some(FieldIter::Struct {
+                fields: &layout.fields,
+                values,
+                idx: 0,
+            }),
+            _ => None,
+        }
+    }
+
+    /// Number of fields/keys in a Map or Struct. Returns 0 for others.
+    pub fn field_count(&self) -> usize {
+        match self {
+            Self::Map(m) => m.len(),
+            Self::Struct { values, .. } => values.len(),
+            _ => 0,
+        }
+    }
+
+    /// Check if a field/key exists in a Map or Struct.
+    pub fn contains_field(&self, name: &str) -> bool {
+        match self {
+            Self::Map(m) => m.contains_key(name),
+            Self::Struct { layout, .. } => layout.field_index.contains_key(name),
+            _ => false,
         }
     }
 
@@ -109,11 +272,15 @@ impl Value {
     /// Numeric string keys are used as list indices when the current
     /// value is a List (e.g., path `["fields", "glucose", "0", "0"]`
     /// indexes into nested lists).
-    pub fn get_path(&self, path: &[String]) -> Option<&Value> {
+    pub fn get_path(&self, path: &[Key]) -> Option<&Value> {
         let mut current = self;
         for key in path {
             match current {
                 Self::Map(map) => current = map.get(key)?,
+                Self::Struct { layout, values } => {
+                    let idx = layout.index_of(key)?;
+                    current = values.get(idx)?;
+                }
                 Self::List(list) => {
                     let idx: usize = key.parse().ok()?;
                     current = list.get(idx)?;
@@ -127,7 +294,7 @@ impl Value {
     /// Set a value at a path, creating intermediate maps as needed.
     /// Numeric string keys index into existing lists (lists are not
     /// auto-created, but existing list elements can be updated).
-    pub fn set_path(&mut self, path: &[String], value: Value) {
+    pub fn set_path(&mut self, path: &[Key], value: Value) {
         if path.is_empty() {
             *self = value;
             return;
@@ -145,6 +312,17 @@ impl Value {
                     }
                     return;
                 }
+                Self::Struct { .. } => {
+                    // Try navigating into existing field by promoting
+                    // to Map first (avoids complex borrow issues with
+                    // index lookup + mutable access on the same enum).
+                    current.promote_to_map();
+                    if let Self::Map(map) = current {
+                        current = map.entry(key.clone()).or_insert_with(Self::map);
+                        continue;
+                    }
+                    return;
+                }
                 _ => {
                     if !matches!(current, Self::Map(_)) {
                         *current = Self::map();
@@ -157,6 +335,19 @@ impl Value {
 
         let last_key = path.last().unwrap();
         match current {
+            Self::Struct { layout, values } => {
+                if let Some(idx) = layout.index_of(last_key) {
+                    if idx < values.len() {
+                        values[idx] = value;
+                        return;
+                    }
+                }
+                // Field not in layout — promote to Map then insert
+                current.promote_to_map();
+                if let Self::Map(map) = current {
+                    map.insert(last_key.clone(), value);
+                }
+            }
             Self::Map(map) => {
                 map.insert(last_key.clone(), value);
             }
@@ -201,6 +392,7 @@ impl Value {
             Self::String(_) => "string",
             Self::List(_) => "list",
             Self::Map(_) => "map",
+            Self::Struct { .. } => "struct",
             Self::Bytes(_) => "bytes",
         }
     }
@@ -209,6 +401,45 @@ impl Value {
 impl Default for Value {
     fn default() -> Self {
         Self::None
+    }
+}
+
+/// Iterator over (key, &value) pairs from either Map or Struct.
+pub enum FieldIter<'a> {
+    Map(indexmap::map::Iter<'a, Key, Value>),
+    Struct {
+        fields: &'a [Key],
+        values: &'a [Value],
+        idx: usize,
+    },
+}
+
+impl<'a> Iterator for FieldIter<'a> {
+    type Item = (&'a Key, &'a Value);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Map(iter) => iter.next(),
+            Self::Struct { fields, values, idx } => {
+                if *idx < fields.len() {
+                    let i = *idx;
+                    *idx += 1;
+                    Some((&fields[i], &values[i]))
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            Self::Map(iter) => iter.size_hint(),
+            Self::Struct { fields, idx, .. } => {
+                let remaining = fields.len() - *idx;
+                (remaining, Some(remaining))
+            }
+        }
     }
 }
 
@@ -236,6 +467,14 @@ impl fmt::Display for Value {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
+                    write!(f, "{k}: {v}")?;
+                }
+                write!(f, "}}")
+            }
+            Self::Struct { layout, values } => {
+                write!(f, "{{")?;
+                for (i, (k, v)) in layout.fields.iter().zip(values.iter()).enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
                     write!(f, "{k}: {v}")?;
                 }
                 write!(f, "}}")

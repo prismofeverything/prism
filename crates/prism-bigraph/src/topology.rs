@@ -39,6 +39,8 @@ impl ProcessSpec {
             inputs: self.inputs.clone(),
             outputs: self.outputs.clone(),
             output_schemas: IndexMap::new(), // populated by engine from process node
+            view_template: None,
+            simple_inputs: false,
         }
     }
 

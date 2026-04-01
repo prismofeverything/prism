@@ -5,7 +5,7 @@
 
 use indexmap::IndexMap;
 
-use prism_schema::{Path, Schema, Value};
+use prism_schema::{Key, Path, Schema, StructLayout, Value};
 
 /// Resolve a path with `*` wildcards against a state tree.
 ///
@@ -15,7 +15,7 @@ use prism_schema::{Path, Schema, Value};
 ///
 /// Example: `get_star_path(state, ["Compartments", "*", "volume"])`
 /// returns `{"0": 100, "1": 200, "2": 300}` if Compartments has keys 0,1,2.
-fn get_star_path(state: &Value, path: &[String]) -> Value {
+fn get_star_path(state: &Value, path: &[Key]) -> Value {
     if path.is_empty() {
         return state.clone();
     }
@@ -25,14 +25,20 @@ fn get_star_path(state: &Value, path: &[String]) -> Value {
         let rest = &path[1..];
         match state {
             Value::Map(map) => {
-                let expanded: IndexMap<String, Value> = map.iter()
+                let expanded: IndexMap<Key, Value> = map.iter()
+                    .map(|(k, v)| (k.clone(), get_star_path(v, rest)))
+                    .collect();
+                Value::Map(expanded)
+            }
+            Value::Struct { layout, values } => {
+                let expanded: IndexMap<Key, Value> = layout.fields.iter().zip(values.iter())
                     .map(|(k, v)| (k.clone(), get_star_path(v, rest)))
                     .collect();
                 Value::Map(expanded)
             }
             Value::List(list) => {
-                let expanded: IndexMap<String, Value> = list.iter().enumerate()
-                    .map(|(i, v)| (i.to_string(), get_star_path(v, rest)))
+                let expanded: IndexMap<Key, Value> = list.iter().enumerate()
+                    .map(|(i, v)| (Key::from(i.to_string()), get_star_path(v, rest)))
                     .collect();
                 Value::Map(expanded)
             }
@@ -44,6 +50,13 @@ fn get_star_path(state: &Value, path: &[String]) -> Value {
             Value::Map(map) => {
                 if let Some(child) = map.get(&path[0]) {
                     get_star_path(child, &path[1..])
+                } else {
+                    Value::None
+                }
+            }
+            Value::Struct { layout, values } => {
+                if let Some(idx) = layout.index_of(&path[0]) {
+                    get_star_path(&values[idx], &path[1..])
                 } else {
                     Value::None
                 }
@@ -68,7 +81,7 @@ fn get_star_path(state: &Value, path: &[String]) -> Value {
 ///
 /// If the update is a map and the path contains `*`, each key in the update
 /// is written to the corresponding child of the state at the star position.
-fn set_star_path(state: &mut Value, path: &[String], update: &Value) {
+fn set_star_path(state: &mut Value, path: &[Key], update: &Value) {
     if path.is_empty() {
         return;
     }
@@ -131,6 +144,11 @@ pub struct Interface {
     /// Per-output-port schemas from the process declaration.
     /// Used to determine apply semantics (e.g., Overwrite vs additive).
     pub output_schemas: IndexMap<String, Schema>,
+    /// Pre-allocated view template — the map structure is created once.
+    /// On each view() call, only the leaf values are updated in-place.
+    pub(crate) view_template: Option<Value>,
+    /// Whether all input ports are "simple" (no dots, no stars).
+    pub(crate) simple_inputs: bool,
 }
 
 impl Interface {
@@ -143,28 +161,45 @@ impl Interface {
     pub fn identity(port_schema: &PortSchema) -> Wires {
         port_schema
             .keys()
-            .map(|name| (name.clone(), vec![name.clone()]))
+            .map(|name| (name.clone(), vec![Key::from(name.as_str())]))
             .collect()
     }
 
-    /// Slice state according to input wiring: for each input port,
-    /// follow its wire path into the state tree and collect the value.
+    /// Pre-build the view template from the current input wiring.
+    pub fn init_view_template(&mut self) {
+        let simple = self.inputs.iter().all(|(name, path)| {
+            !name.contains('.') && !path.iter().any(|s| s.as_str() == "*")
+        });
+        self.simple_inputs = simple;
+    }
+
+    /// Slice state according to input wiring.
     ///
-    /// Handles dot-separated port names by reconstructing nested maps:
-    /// `"substrates.glucose" → val` becomes `{"substrates": {"glucose": val}}`
+    /// For simple wiring (no dots, no stars), builds a Map directly
+    /// with pre-allocated capacity — avoids set_path overhead.
     pub fn view(&self, state: &Value) -> Value {
+        if self.simple_inputs {
+            // Fast path: build Map directly
+            let mut map = IndexMap::with_capacity(self.inputs.len());
+            for (port_name, path) in &self.inputs {
+                let val = state.get_path(path).cloned().unwrap_or(Value::None);
+                map.insert(Key::from(port_name.as_str()), val);
+            }
+            return Value::Map(map);
+        }
+
+        // Slow path: complex wiring (dots, stars)
         let mut view = Value::map();
         for (port_name, path) in &self.inputs {
-            // Check for star paths: ['Compartments', '*', 'volume']
-            if path.contains(&"*".to_string()) {
+            if path.iter().any(|s| s.as_str() == "*") {
                 let val = get_star_path(state, path);
-                let port_path: Vec<String> =
-                    port_name.split('.').map(|s| s.to_string()).collect();
+                let port_path: Vec<Key> =
+                    port_name.split('.').map(Key::from).collect();
                 view.set_path(&port_path, val);
             } else {
                 let val = state.get_path(path).cloned().unwrap_or(Value::None);
-                let port_path: Vec<String> =
-                    port_name.split('.').map(|s| s.to_string()).collect();
+                let port_path: Vec<Key> =
+                    port_name.split('.').map(Key::from).collect();
                 view.set_path(&port_path, val);
             }
         }
@@ -184,15 +219,15 @@ impl Interface {
                 let schema = self.output_schemas.get(port_name).cloned();
 
                 // Try direct match first (non-nested port)
-                if let Some(val) = map.get(port_name) {
-                    if state_path.contains(&"*".to_string()) {
+                if let Some(val) = map.get(port_name.as_str()) {
+                    if state_path.iter().any(|s| s.as_str() == "*") {
                         // Star path: expand the update across matching children.
                         // The value should be a map keyed by wildcard-expanded keys.
                         // Generate one projection per expanded key.
                         if let Value::Map(expanded) = val {
                             for (key, child_val) in expanded {
                                 let concrete_path: Path = state_path.iter()
-                                    .map(|s| if s == "*" { key.clone() } else { s.clone() })
+                                    .map(|s| if s.as_str() == "*" { key.clone() } else { s.clone() })
                                     .collect();
                                 projections.push((concrete_path, child_val.clone(), schema.clone()));
                             }
@@ -204,8 +239,8 @@ impl Interface {
                 }
 
                 // Try dot-separated nested lookup
-                let port_path: Vec<String> =
-                    port_name.split('.').map(|s| s.to_string()).collect();
+                let port_path: Vec<Key> =
+                    port_name.split('.').map(Key::from).collect();
                 if port_path.len() > 1 {
                     if let Some(val) = update.get_path(&port_path) {
                         projections.push((state_path.clone(), val.clone(), schema));
@@ -232,13 +267,14 @@ mod tests {
 
         let iface = Interface {
             inputs: IndexMap::from([
-                ("glc".to_string(), vec!["cell".into(), "glucose".into()]),
-                ("energy".to_string(), vec!["cell".into(), "atp".into()]),
+                ("glc".to_string(), vec![Key::from("cell"), Key::from("glucose")]),
+                ("energy".to_string(), vec![Key::from("cell"), Key::from("atp")]),
             ]),
             outputs: IndexMap::from([
-                ("glc".to_string(), vec!["cell".into(), "glucose".into()]),
-                ("energy".to_string(), vec!["cell".into(), "atp".into()]),
+                ("glc".to_string(), vec![Key::from("cell"), Key::from("glucose")]),
+                ("energy".to_string(), vec![Key::from("cell"), Key::from("atp")]),
             ]),
+            output_schemas: IndexMap::new(),
         };
 
         let view = iface.view(&state);
@@ -252,6 +288,6 @@ mod tests {
         ]);
         let projected = iface.project(&update);
         assert_eq!(projected.len(), 2);
-        assert_eq!(projected[0].0, vec!["cell".to_string(), "glucose".to_string()]);
+        assert_eq!(projected[0].0, vec![Key::from("cell"), Key::from("glucose")]);
     }
 }

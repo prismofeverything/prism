@@ -19,7 +19,7 @@ use std::sync::Mutex;
 
 use indexmap::IndexMap;
 
-use prism_schema::{Path, Schema, Value};
+use prism_schema::{Key, Path, Schema, Value};
 
 use crate::engine::Engine;
 use crate::ports::PortSchema;
@@ -159,48 +159,78 @@ impl Process for Composite {
         let mut engine = self.inner.lock().unwrap();
 
         // 1. Bridge inputs: write external values into internal state
-        if let Some(input_map) = state.as_map() {
-            for (port, internal_path) in &self.input_bridge.mappings {
-                if let Some(val) = input_map.get(port) {
-                    engine.state_mut().set_path(internal_path, val.clone());
-                }
+        for (port, internal_path) in &self.input_bridge.mappings {
+            if let Some(val) = state.get_field(port.as_str()) {
+                engine.state_mut().set_path(internal_path, val.clone());
             }
         }
 
-        // 2. Run inner engine — collect raw deltas
-        let raw_deltas = engine.run_collecting(interval);
+        // 2. Identify passthrough ports (not in inner state — used for
+        //    _add/_remove that passes through to parent).
+        let mut passthrough = std::collections::HashSet::new();
+        for (_port, internal_path) in &self.output_bridge.mappings {
+            if engine.state().get_path(internal_path).is_none() {
+                if let Some(root) = internal_path.first() {
+                    passthrough.insert(root.clone());
+                }
+            }
+        }
+        engine.set_passthrough_paths(passthrough.clone());
+        engine.take_passthrough_deltas();
 
-        // 3. Map raw deltas through the output bridge.
-        //    For each output port, find deltas whose paths fall under
-        //    the port's internal path and assemble the output.
-        let mut output = IndexMap::new();
+        // 3. Snapshot ONLY non-passthrough output ports.
+        //    Passthrough ports skip snapshot entirely (no cloning!).
+        let mut pre_run: IndexMap<String, Value> = IndexMap::new();
         for (port, internal_path) in &self.output_bridge.mappings {
-            // Collect all deltas that fall under this port's internal path
-            let mut port_delta = IndexMap::new();
-            for (delta_path, delta_value) in &raw_deltas {
-                if delta_path == internal_path {
-                    // Exact match: the whole port was updated
-                    // Use the delta directly
-                    if !is_zero_delta(delta_value) {
-                        output.insert(port.clone(), delta_value.clone());
-                    }
-                    break;
-                } else if delta_path.starts_with(internal_path) && delta_path.len() > internal_path.len() {
-                    // Delta is under this port's path — nest it
-                    let sub_path = &delta_path[internal_path.len()..];
-                    // Build nested map from the sub-path
-                    let mut nested = delta_value.clone();
-                    for key in sub_path.iter().rev() {
-                        nested = Value::tree([(key.as_str(), nested)]);
-                    }
-                    // Merge into port_delta
-                    port_delta = merge_value_maps(port_delta, nested);
+            let root = internal_path.first().map(|k| k.as_str()).unwrap_or("");
+            if passthrough.contains(root) {
+                continue; // Skip — handled by passthrough
+            }
+            let val = engine.state().get_path(internal_path)
+                .cloned()
+                .unwrap_or(Value::None);
+            pre_run.insert(port.clone(), val);
+        }
+
+        // 4. If the inner engine has no temporal processes, queue bridged
+        //    paths so steps fire from bridge input alone. If there ARE
+        //    processes, they'll trigger steps naturally via their outputs.
+        if engine.fronts_count() == 0 {
+            let bridged_paths: Vec<Path> = self.input_bridge.mappings.values().cloned().collect();
+            engine.queue_changes(bridged_paths);
+        }
+
+        // 5. Run inner engine.
+        engine.run(interval);
+
+        // 5. Build output deltas.
+        //    Passthrough ports: use captured raw deltas (preserves _add/_remove).
+        //    Regular ports: diff pre/post (preserves List/Array structure).
+        let pt_deltas = engine.take_passthrough_deltas();
+        let mut output: IndexMap<Key, Value> = IndexMap::new();
+        for (port, internal_path) in &self.output_bridge.mappings {
+            let port_key = Key::from(port.as_str());
+            let root = internal_path.first().map(|k| k.clone()).unwrap_or_default();
+
+            if let Some(pt_delta) = pt_deltas.get(&root) {
+                // Passthrough: raw delta with _add/_remove intact
+                if !is_zero_delta(pt_delta) {
+                    output.insert(port_key, pt_delta.clone());
+                }
+            } else {
+                // Regular: diff pre/post
+                let new_val = engine.state().get_path(internal_path)
+                    .cloned().unwrap_or(Value::None);
+                let old_val = pre_run.get(port).unwrap_or(&Value::None);
+                let delta = compute_delta(old_val, &new_val);
+                if !is_zero_delta(&delta) {
+                    output.insert(port_key, delta);
                 }
             }
-            if !port_delta.is_empty() && !output.contains_key(port) {
-                output.insert(port.clone(), Value::Map(port_delta));
-            }
         }
+
+        // Clear passthrough for next tick
+        engine.set_passthrough_paths(std::collections::HashSet::new());
 
         if output.is_empty() {
             Update::Noop
@@ -226,31 +256,28 @@ fn compute_delta(old: &Value, new: &Value) -> Value {
         (Value::Int(o), Value::Int(n)) => Value::Int(n - o),
         (Value::Map(old_map), Value::Map(new_map)) => {
             // Fast path: if key sets are identical, skip structural detection.
-            // Only build HashSets when key counts differ (structural change likely).
             let keys_changed = old_map.len() != new_map.len()
                 || old_map.keys().any(|k| !new_map.contains_key(k));
 
             if keys_changed {
-                let old_keys: std::collections::HashSet<&String> = old_map.keys().collect();
-                let new_keys: std::collections::HashSet<&String> = new_map.keys().collect();
-                let removed: Vec<&String> = old_keys.difference(&new_keys).copied().collect();
-                let added: Vec<&String> = new_keys.difference(&old_keys).copied().collect();
-                let mut delta = IndexMap::new();
+                let old_keys: std::collections::HashSet<&Key> = old_map.keys().collect();
+                let new_keys: std::collections::HashSet<&Key> = new_map.keys().collect();
+                let removed: Vec<&Key> = old_keys.difference(&new_keys).copied().collect();
+                let added: Vec<&Key> = new_keys.difference(&old_keys).copied().collect();
+                let mut delta: IndexMap<Key, Value> = IndexMap::new();
 
                 if !removed.is_empty() {
-                    delta.insert("_remove".to_string(), Value::List(
-                        removed.iter().map(|k| Value::String((*k).clone())).collect()
+                    delta.insert(Key::from("_remove"), Value::List(
+                        removed.iter().map(|k| Value::String(k.to_string())).collect()
                     ));
                 }
                 if !added.is_empty() {
-                    let adds: IndexMap<String, Value> = added.iter()
+                    let adds: IndexMap<Key, Value> = added.iter()
                         .map(|k| ((*k).clone(), new_map.get(*k).unwrap().clone()))
                         .collect();
-                    delta.insert("_add".to_string(), Value::Map(adds));
+                    delta.insert(Key::from("_add"), Value::Map(adds));
                 }
 
-                // For surviving keys, compute normal deltas — but skip
-                // keys that were removed (they're gone) or added (they're new).
                 for (k, new_v) in new_map {
                     if added.contains(&k) || removed.contains(&k) { continue; }
                     let old_v = old_map.get(k).unwrap_or(&Value::None);
@@ -264,12 +291,28 @@ fn compute_delta(old: &Value, new: &Value) -> Value {
             }
 
             // No structural changes — normal per-key delta
-            let mut delta = IndexMap::new();
+            let mut delta: IndexMap<Key, Value> = IndexMap::new();
             for (k, new_v) in new_map {
                 let old_v = old_map.get(k).unwrap_or(&Value::None);
                 let d = compute_delta(old_v, new_v);
                 if !is_zero_delta(&d) {
                     delta.insert(k.clone(), d);
+                }
+            }
+            Value::Map(delta)
+        }
+        // Struct delta: compare field-by-field using indices
+        (Value::Struct { layout: old_layout, values: old_vals },
+         Value::Struct { layout: new_layout, values: new_vals })
+            if old_layout == new_layout =>
+        {
+            let mut delta: IndexMap<Key, Value> = IndexMap::new();
+            for (i, key) in old_layout.fields.iter().enumerate() {
+                let old_v = &old_vals[i];
+                let new_v = &new_vals[i];
+                let d = compute_delta(old_v, new_v);
+                if !is_zero_delta(&d) {
+                    delta.insert(key.clone(), d);
                 }
             }
             Value::Map(delta)
@@ -285,7 +328,7 @@ fn compute_delta(old: &Value, new: &Value) -> Value {
 }
 
 /// Merge two Value::Map contents, recursing into nested maps.
-fn merge_value_maps(mut base: IndexMap<String, Value>, overlay: Value) -> IndexMap<String, Value> {
+fn merge_value_maps(mut base: IndexMap<Key, Value>, overlay: Value) -> IndexMap<Key, Value> {
     if let Value::Map(overlay_map) = overlay {
         for (k, v) in overlay_map {
             if let Some(Value::Map(existing)) = base.get(&k).cloned() {
@@ -304,6 +347,7 @@ fn is_zero_delta(val: &Value) -> bool {
         Value::Float(f) => f.0.abs() < 1e-15,
         Value::Int(i) => *i == 0,
         Value::Map(m) => m.is_empty() || m.values().all(is_zero_delta),
+        Value::Struct { values, .. } => values.is_empty() || values.iter().all(is_zero_delta),
         Value::List(l) => l.iter().all(is_zero_delta),
         Value::None => true,
         _ => false,
@@ -316,9 +360,9 @@ fn parse_bridge(val: &Value) -> Option<Bridge> {
     for (port, path_val) in map {
         if let Some(path_list) = path_val.as_list() {
             let path: Path = path_list.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .filter_map(|v| v.as_str().map(Key::from))
                 .collect();
-            mappings.insert(port.clone(), path);
+            mappings.insert(port.to_string(), path);
         }
     }
     Some(Bridge { mappings })

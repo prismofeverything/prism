@@ -10,7 +10,7 @@ use std::fmt;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::value::Value;
+use crate::value::{Key, StateMap, Value};
 
 /// A schema describing the type of a value in the state tree.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -49,7 +49,7 @@ pub enum Schema {
 
     /// A tree with named, individually-typed branches
     Tree {
-        branches: IndexMap<String, Schema>,
+        branches: IndexMap<Key, Schema>,
     },
 
     /// Optional value
@@ -112,9 +112,9 @@ pub enum Schema {
     /// process-bigraph's `ProcessLink`/`StepLink`.
     Link {
         /// Schema for input ports: port_name → type
-        inputs: IndexMap<String, Schema>,
+        inputs: IndexMap<Key, Schema>,
         /// Schema for output ports: port_name → type
-        outputs: IndexMap<String, Schema>,
+        outputs: IndexMap<Key, Schema>,
         /// Whether this link has a temporal interval (process) or not (step).
         /// None means unspecified (inferred at instantiation time).
         temporal: Option<bool>,
@@ -182,17 +182,17 @@ impl Schema {
     }
 
     /// Create a link schema (process or step).
-    pub fn link(inputs: IndexMap<String, Schema>, outputs: IndexMap<String, Schema>) -> Self {
+    pub fn link(inputs: IndexMap<Key, Schema>, outputs: IndexMap<Key, Schema>) -> Self {
         Self::Link { inputs, outputs, temporal: None }
     }
 
     /// Create a process link (temporal — has interval).
-    pub fn process(inputs: IndexMap<String, Schema>, outputs: IndexMap<String, Schema>) -> Self {
+    pub fn process(inputs: IndexMap<Key, Schema>, outputs: IndexMap<Key, Schema>) -> Self {
         Self::Link { inputs, outputs, temporal: Some(true) }
     }
 
     /// Create a step link (non-temporal — fires on state change).
-    pub fn step(inputs: IndexMap<String, Schema>, outputs: IndexMap<String, Schema>) -> Self {
+    pub fn step(inputs: IndexMap<Key, Schema>, outputs: IndexMap<Key, Schema>) -> Self {
         Self::Link { inputs, outputs, temporal: Some(false) }
     }
 
@@ -207,13 +207,63 @@ impl Schema {
     }
 
     pub fn tree(
-        branches: impl IntoIterator<Item = (impl Into<String>, Schema)>,
+        branches: impl IntoIterator<Item = (impl Into<Key>, Schema)>,
     ) -> Self {
         Self::Tree {
             branches: branches
                 .into_iter()
                 .map(|(k, v)| (k.into(), v))
                 .collect(),
+        }
+    }
+
+    /// Compile a Tree schema into a StructLayout for O(1) field access.
+    /// Returns None for non-Tree schemas.
+    pub fn compile_layout(&self) -> Option<std::sync::Arc<crate::value::StructLayout>> {
+        match self {
+            Self::Tree { branches } => {
+                let fields: Vec<Key> = branches.keys().cloned().collect();
+                Some(crate::value::StructLayout::new(fields))
+            }
+            _ => None,
+        }
+    }
+
+    /// Recursively compile a value tree into Struct values wherever
+    /// the schema declares a Tree with known branches AND no child
+    /// uses Map/dynamic semantics. Container-level trees (with particles,
+    /// fields, etc.) stay as Maps since processes iterate their keys.
+    pub fn compile_value(&self, value: &Value) -> Value {
+        match (self, value) {
+            (Self::Tree { branches }, Value::Map(map)) => {
+                // Only compile if no branch has Map/RecursiveTree schema
+                // (those need dynamic key iteration which Struct doesn't support)
+                let has_dynamic = branches.values().any(|s| matches!(s,
+                    Schema::Map { .. } | Schema::RecursiveTree { .. }
+                ));
+                if has_dynamic {
+                    // Keep as Map but recursively compile children
+                    let compiled: StateMap = map.iter()
+                        .map(|(k, v)| {
+                            let child_schema = branches.get(k).unwrap_or(&Schema::Any);
+                            (k.clone(), child_schema.compile_value(v))
+                        })
+                        .collect();
+                    Value::Map(compiled)
+                } else {
+                    // Safe to compile to Struct — all children are fixed-structure
+                    let layout = self.compile_layout().unwrap();
+                    let values: Vec<Value> = layout.fields.iter()
+                        .map(|k| {
+                            let child_schema = branches.get(k).unwrap_or(&Schema::Any);
+                            let child_val = map.get(k).unwrap_or(&Value::None);
+                            child_schema.compile_value(child_val)
+                        })
+                        .collect();
+                    Value::Struct { layout, values }
+                }
+            }
+            _ => value.clone(),
         }
     }
 
@@ -264,12 +314,12 @@ impl Schema {
             Self::Link { inputs, .. } => {
                 // Default link state: address, default wiring (port→[port])
                 let mut state = IndexMap::new();
-                state.insert("address".to_string(), Value::String("local:edge".into()));
-                let default_inputs: IndexMap<String, Value> = inputs.keys()
-                    .map(|k| (k.clone(), Value::List(vec![Value::String(k.clone())])))
+                state.insert(Key::from("address"), Value::String("local:edge".into()));
+                let default_inputs: IndexMap<Key, Value> = inputs.keys()
+                    .map(|k| (k.clone(), Value::List(vec![Value::String(k.to_string())])))
                     .collect();
-                state.insert("inputs".to_string(), Value::Map(default_inputs.clone()));
-                state.insert("outputs".to_string(), Value::Map(default_inputs));
+                state.insert(Key::from("inputs"), Value::Map(default_inputs.clone()));
+                state.insert(Key::from("outputs"), Value::Map(default_inputs));
                 Value::Map(state)
             }
         }
@@ -331,7 +381,7 @@ impl Schema {
     /// Walk the schema tree to find the sub-schema at a given path.
     /// For example, path ["fields", "glucose"] in Tree{fields: Map(Array(Float))}
     /// returns Array(Float).
-    pub fn schema_at_path(&self, path: &[String]) -> &Schema {
+    pub fn schema_at_path(&self, path: &[Key]) -> &Schema {
         if path.is_empty() {
             return self;
         }
@@ -425,7 +475,7 @@ impl Schema {
                     return base;
                 }
                 // Infer as Tree with branches
-                let branches: IndexMap<String, Schema> = map.iter()
+                let branches: IndexMap<Key, Schema> = map.iter()
                     .filter(|(k, _)| !k.starts_with('_'))
                     .map(|(k, v)| (k.clone(), Schema::infer(v)))
                     .collect();
@@ -516,22 +566,37 @@ impl Schema {
                 update.clone()
             }
 
-            // Tree: recursive merge with per-branch schemas
+            // Tree: recursive merge with per-branch schemas.
+            // Handles both Map and Struct current values.
             Self::Tree { branches } => {
-                if let (Value::Map(cur), Value::Map(upd)) = (current, update) {
-                    let mut result = cur.clone();
-                    apply_add_remove(&mut result, upd);
-                    for (k, v) in upd {
-                        if k == "_add" || k == "_remove" {
-                            continue;
+                match (current, update) {
+                    // Struct current + Map update (common: process delta applied to compiled state)
+                    (Value::Struct { layout, values }, Value::Map(upd)) => {
+                        let mut new_values = values.clone();
+                        // Note: _add/_remove not supported on Struct (fixed fields)
+                        for (k, v) in upd {
+                            if k == "_add" || k == "_remove" { continue; }
+                            if let Some(idx) = layout.index_of(k) {
+                                let schema = branches.get(k).unwrap_or(&Schema::Any);
+                                let existing = &values[idx];
+                                new_values[idx] = schema.apply_update(existing, v);
+                            }
                         }
-                        let schema = branches.get(k).unwrap_or(&Schema::Any);
-                        let existing = cur.get(k).unwrap_or(&Value::None);
-                        result.insert(k.clone(), schema.apply_update(existing, v));
+                        Value::Struct { layout: layout.clone(), values: new_values }
                     }
-                    Value::Map(result)
-                } else {
-                    update.clone()
+                    // Map current + Map update (original path)
+                    (Value::Map(cur), Value::Map(upd)) => {
+                        let mut result = cur.clone();
+                        apply_add_remove(&mut result, upd);
+                        for (k, v) in upd {
+                            if k == "_add" || k == "_remove" { continue; }
+                            let schema = branches.get(k).unwrap_or(&Schema::Any);
+                            let existing = cur.get(k).unwrap_or(&Value::None);
+                            result.insert(k.clone(), schema.apply_update(existing, v));
+                        }
+                        Value::Map(result)
+                    }
+                    _ => update.clone(),
                 }
             }
 
@@ -663,6 +728,18 @@ impl Schema {
                         }
                         Value::Map(result)
                     }
+                    // Struct current + Map update → update fields in place
+                    (Value::Struct { layout, values }, Value::Map(upd)) => {
+                        let mut new_values = values.clone();
+                        for (k, v) in upd {
+                            if k == "_add" || k == "_remove" { continue; }
+                            if let Some(idx) = layout.index_of(k) {
+                                let existing = &values[idx];
+                                new_values[idx] = Schema::Any.apply_update(existing, v);
+                            }
+                        }
+                        Value::Struct { layout: layout.clone(), values: new_values }
+                    }
                     // Both lists → replace (use Array schema for element-wise additive)
                     (Value::List(_), Value::List(_)) => update.clone(),
                     // Otherwise → replace
@@ -737,20 +814,20 @@ impl Schema {
             (Self::Link { inputs, outputs, .. }, Value::Map(map)) => {
                 let mut encoded = IndexMap::new();
                 if let Some(addr) = map.get("address") {
-                    encoded.insert("address".to_string(), addr.clone());
+                    encoded.insert(Key::from("address"), addr.clone());
                 }
                 let inputs_str = render_port_schema(inputs);
                 let outputs_str = render_port_schema(outputs);
-                encoded.insert("_inputs".to_string(), Value::String(inputs_str));
-                encoded.insert("_outputs".to_string(), Value::String(outputs_str));
+                encoded.insert(Key::from("_inputs"), Value::String(inputs_str));
+                encoded.insert(Key::from("_outputs"), Value::String(outputs_str));
                 if let Some(w) = map.get("inputs") {
-                    encoded.insert("inputs".to_string(), w.clone());
+                    encoded.insert(Key::from("inputs"), w.clone());
                 }
                 if let Some(w) = map.get("outputs") {
-                    encoded.insert("outputs".to_string(), w.clone());
+                    encoded.insert(Key::from("outputs"), w.clone());
                 }
                 if let Some(c) = map.get("config") {
-                    encoded.insert("config".to_string(), c.clone());
+                    encoded.insert(Key::from("config"), c.clone());
                 }
                 Value::Map(encoded)
             }
@@ -812,7 +889,7 @@ impl Schema {
 
             // Tree: realize each branch, fill defaults for missing
             (Self::Tree { branches }, Value::Map(map)) => {
-                let mut result: IndexMap<String, Value> = branches.iter()
+                let mut result: IndexMap<Key, Value> = branches.iter()
                     .map(|(k, s)| (k.clone(), s.default_value()))
                     .collect();
                 for (k, v) in map {
@@ -850,7 +927,7 @@ impl Schema {
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(s) {
                     if let Some(obj) = parsed.as_object() {
                         return Value::Map(obj.iter()
-                            .map(|(k, v)| (k.clone(), val_schema.realize(&json_to_value(v))))
+                            .map(|(k, v)| (Key::from(k.as_str()), val_schema.realize(&json_to_value(v))))
                             .collect());
                     }
                 }
@@ -877,7 +954,7 @@ impl Schema {
 }
 
 /// Render port schema as a type expression string.
-fn render_port_schema(ports: &IndexMap<String, Schema>) -> String {
+fn render_port_schema(ports: &IndexMap<Key, Schema>) -> String {
     ports.iter()
         .map(|(k, v)| format!("{k}:{v}"))
         .collect::<Vec<_>>()
@@ -896,7 +973,7 @@ fn json_to_value(v: &serde_json::Value) -> Value {
         serde_json::Value::String(s) => Value::String(s.clone()),
         serde_json::Value::Array(arr) => Value::List(arr.iter().map(json_to_value).collect()),
         serde_json::Value::Object(obj) => {
-            Value::Map(obj.iter().map(|(k, v)| (k.clone(), json_to_value(v))).collect())
+            Value::Map(obj.iter().map(|(k, v)| (Key::from(k.as_str()), json_to_value(v))).collect())
         }
     }
 }

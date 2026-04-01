@@ -554,36 +554,78 @@ fn generate_plots(
     // We flip Y for sims whose Python report primarily uses origin='lower' plots:
     // particle sims (fields_and_agents_to_gif) and COMETS sims (plot_snapshots_grid).
     let has_particles = first
-        .as_map()
-        .and_then(|m| m.get("particles"))
+        .get_field("particles")
         .and_then(|v| v.as_map())
         .is_some_and(|p| !p.is_empty());
     let uses_snapshot_grid = name.starts_with("comets_");
     let flip_y = has_particles || uses_snapshot_grid;
 
-    // Timeseries for scalar fields
-    if let Some(fields) = first.as_map().and_then(|m| m.get("fields")).and_then(|v| v.as_map()) {
+    // Timeseries for top-level scalars (non-spatial sims like dFBA)
+    // Check for "substrates" and "biomass" at top level
+    {
+        let mut top_scalar_series: IndexMap<String, Vec<f64>> = IndexMap::new();
+
+        // Collect substrate names from first state
+        if let Some(subs) = first.get_field("substrates").and_then(|v| v.as_map()) {
+            for (mol_id, val) in subs {
+                if val.as_f64().is_some() {
+                    top_scalar_series.insert(mol_id.to_string(), Vec::new());
+                }
+            }
+        }
+        // Biomass
+        if first.get_field("biomass").and_then(|v| v.as_f64()).is_some() {
+            top_scalar_series.insert("biomass".to_string(), Vec::new());
+        }
+
+        if !top_scalar_series.is_empty() {
+            for state in states {
+                if let Some(subs) = state.get_field("substrates").and_then(|v| v.as_map()) {
+                    for (mol_id, series) in &mut top_scalar_series {
+                        if mol_id == "biomass" { continue; }
+                        let val = subs.get(mol_id.as_str()).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        series.push(val);
+                    }
+                }
+                if let Some(series) = top_scalar_series.get_mut("biomass") {
+                    let val = state.get_field("biomass").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    series.push(val);
+                }
+            }
+
+            // Render
+            if top_scalar_series.values().any(|s| !s.is_empty()) {
+                has_scalar = true;
+                let svg = render_timeseries_svg(name, times, &top_scalar_series, opts.force_log);
+                let _ = std::fs::write(output_dir.join(format!("{name}_timeseries.svg")), svg);
+            }
+        }
+    }
+
+    // Timeseries for spatial fields
+    if let Some(fields_val) = first.get_field("fields") {
+      if let Some(fields_iter) = fields_val.iter_fields() {
         let mut scalar_series: IndexMap<String, Vec<f64>> = IndexMap::new();
         let mut is_spatial: IndexMap<String, bool> = IndexMap::new();
 
-        for (mol_id, val) in fields {
+        for (mol_id, val) in fields_iter {
             let flat = flatten_field(val);
             if flat.len() == 1 {
-                is_spatial.insert(mol_id.clone(), false);
+                is_spatial.insert(mol_id.to_string(), false);
                 if !opts.exclude_fields.contains(&mol_id.as_str()) {
-                    scalar_series.insert(mol_id.clone(), Vec::new());
+                    scalar_series.insert(mol_id.to_string(), Vec::new());
                 }
             } else {
-                is_spatial.insert(mol_id.clone(), true);
+                is_spatial.insert(mol_id.to_string(), true);
             }
         }
 
         // Collect scalar timeseries
         for state in states {
-            if let Some(fields) = state.as_map().and_then(|m| m.get("fields")).and_then(|v| v.as_map()) {
+            if let Some(fields) = state.get_field("fields") {
                 for (mol_id, series) in &mut scalar_series {
                     let val = fields
-                        .get(mol_id)
+                        .get_field(mol_id.as_str())
                         .map(|v| flatten_field(v))
                         .and_then(|v| v.first().copied())
                         .unwrap_or(0.0);
@@ -612,8 +654,7 @@ fn generate_plots(
 
             // Infer grid width from first frame's 2D structure
             let probe_nx = states[0]
-                .as_map()
-                .and_then(|m| m.get("fields"))
+                .get_field("fields")
                 .and_then(|v| v.as_map())
                 .and_then(|m| {
                     let (_, first_field) = m.iter().next()?;
@@ -625,8 +666,7 @@ fn generate_plots(
 
             // Collect values at each timestep
             for state in states.iter() {
-                if let Some(fields_map) = state.as_map()
-                    .and_then(|m| m.get("fields"))
+                if let Some(fields_map) = state.get_field("fields")
                     .and_then(|v| v.as_map())
                 {
                     for field_name in &opts.probe_fields {
@@ -681,20 +721,18 @@ fn generate_plots(
             // Infer grid dims from the first frame (which has the original 2D structure).
             // Later frames may be flat (after engine processing), so we lock dims here.
             let first_field_val = states[0]
-                .as_map()
-                .and_then(|m| m.get("fields"))
+                .get_field("fields")
                 .and_then(|v| v.as_map())
-                .and_then(|m| m.get(mol_id));
+                .and_then(|m| m.get(mol_id.as_str()));
             let first_flat = first_field_val.map(flatten_field).unwrap_or_default();
             let (grid_nx, grid_ny) = infer_grid_dims(first_field_val, first_flat.len());
 
             // Compute global max across ALL frames for consistent colormap
             let global_max = states.iter()
                 .filter_map(|s| {
-                    s.as_map()
-                        .and_then(|m| m.get("fields"))
+                    s.get_field("fields")
                         .and_then(|v| v.as_map())
-                        .and_then(|m| m.get(mol_id))
+                        .and_then(|m| m.get(mol_id.as_str()))
                         .map(flatten_field)
                 })
                 .flat_map(|f| f.into_iter())
@@ -702,10 +740,9 @@ fn generate_plots(
 
             for frame_i in 0..n_frames {
                 let field_val = states[frame_i]
-                    .as_map()
-                    .and_then(|m| m.get("fields"))
+                    .get_field("fields")
                     .and_then(|v| v.as_map())
-                    .and_then(|m| m.get(mol_id));
+                    .and_then(|m| m.get(mol_id.as_str()));
                 let field = field_val.map(flatten_field).unwrap_or_default();
                 let (nx, ny) = (grid_nx, grid_ny);
 
@@ -751,6 +788,7 @@ fn generate_plots(
             .filter(|(_, s)| **s)
             .map(|(k, _)| k.clone())
             .collect();
+      }
     }
 
     // Particle traces
@@ -1029,8 +1067,7 @@ fn render_snapshot_grid(_mol_id: &str, snapshots: &[(String, String)]) -> String
 /// Overlay particle positions as circles on a heatmap SVG.
 /// Inserts circles before the closing </svg> tag.
 fn overlay_particles(svg: &mut String, state: &Value, nx: usize, ny: usize, flip_y: bool) {
-    let particles = match state.as_map()
-        .and_then(|m| m.get("particles"))
+    let particles = match state.get_field("particles")
         .and_then(|v| v.as_map())
     {
         Some(p) if !p.is_empty() => p,
@@ -1055,7 +1092,7 @@ fn overlay_particles(svg: &mut String, state: &Value, nx: usize, ny: usize, flip
     }
 
     for (i, (_, p)) in particles.iter().enumerate() {
-        if let Some(pos) = p.as_map().and_then(|m| m.get("position")).and_then(|v| v.as_list()) {
+        if let Some(pos) = p.get_field("position").and_then(|v| v.as_list()) {
             let x = pos.first().and_then(|v| v.as_f64()).unwrap_or(0.0);
             let y = pos.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0);
             let mass = get_mass(p);
@@ -1082,18 +1119,14 @@ fn overlay_particles(svg: &mut String, state: &Value, nx: usize, ny: usize, flip
 }
 
 fn get_mass(particle: &Value) -> f64 {
-    if let Some(map) = particle.as_map() {
-        // Sum sub_masses if available (for community particles)
-        if let Some(sub_masses) = map.get("sub_masses").and_then(|v| v.as_map()) {
-            let total: f64 = sub_masses.values().filter_map(|v| v.as_f64()).sum();
-            if total > 0.0 {
-                return total;
-            }
+    // Sum sub_masses if available (for community particles)
+    if let Some(sub_masses) = particle.get_field("sub_masses").and_then(|v| v.as_map()) {
+        let total: f64 = sub_masses.values().filter_map(|v| v.as_f64()).sum();
+        if total > 0.0 {
+            return total;
         }
-        map.get("mass").and_then(|v| v.as_f64()).unwrap_or(0.0)
-    } else {
-        0.0
     }
+    particle.get_field("mass").and_then(|v| v.as_f64()).unwrap_or(0.0)
 }
 
 fn get_radius(particle: &Value) -> f64 {
@@ -1101,10 +1134,7 @@ fn get_radius(particle: &Value) -> f64 {
     // Newtonian particles (have velocity) use physics radius to match
     // collision volume: r = sqrt(m / (density * pi)).
     // Brownian particles use sqrt(mass) matching Python's display convention.
-    let has_physics = particle
-        .as_map()
-        .map(|m| m.contains_key("velocity"))
-        .unwrap_or(false);
+    let has_physics = particle.contains_field("velocity");
     if has_physics {
         radius_from_mass(mass, DEFAULT_DENSITY)
     } else {
@@ -1131,12 +1161,12 @@ fn render_particle_traces(title: &str, _times: &[f64], states: &[Value]) -> Stri
     let mut traces: IndexMap<String, Vec<(f64, f64)>> = IndexMap::new();
 
     for state in states {
-        if let Some(particles) = state.as_map().and_then(|m| m.get("particles")).and_then(|v| v.as_map()) {
+        if let Some(particles) = state.get_field("particles").and_then(|v| v.as_map()) {
             for (pid, particle) in particles {
-                if let Some(pos) = particle.as_map().and_then(|m| m.get("position")).and_then(|v| v.as_list()) {
+                if let Some(pos) = particle.get_field("position").and_then(|v| v.as_list()) {
                     let x = pos.first().and_then(|v| v.as_f64()).unwrap_or(0.0);
                     let y = pos.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    traces.entry(pid.clone()).or_default().push((x, y));
+                    traces.entry(pid.to_string()).or_default().push((x, y));
                 }
             }
         }
@@ -1176,10 +1206,10 @@ fn render_particle_mass(title: &str, times: &[f64], states: &[Value]) -> String 
 
     for (t_idx, state) in states.iter().enumerate() {
         let t = times.get(t_idx).copied().unwrap_or(0.0);
-        if let Some(particles) = state.as_map().and_then(|m| m.get("particles")).and_then(|v| v.as_map()) {
+        if let Some(particles) = state.get_field("particles").and_then(|v| v.as_map()) {
             for (pid, particle) in particles {
                 let mass = get_mass(particle);
-                mass_series.entry(pid.clone()).or_default().push((t, mass));
+                mass_series.entry(pid.to_string()).or_default().push((t, mass));
             }
         }
     }
@@ -1254,13 +1284,11 @@ fn detect_domain_bounds(state: &Value) -> (f64, f64, f64, f64) {
         "newtonian_particles", "brownian_movement", "enforce_boundaries",
         "particle_exchange",
     ];
-    if let Some(map) = state.as_map() {
+    {
         for key in &check_keys {
-            if let Some(bounds) = map.get(*key)
-                .and_then(|v| v.as_map())
-                .and_then(|m| m.get("config"))
-                .and_then(|v| v.as_map())
-                .and_then(|m| m.get("bounds"))
+            if let Some(bounds) = state.get_field(*key)
+                .and_then(|v| v.get_field("config"))
+                .and_then(|v| v.get_field("bounds"))
                 .and_then(|v| v.as_list())
             {
                 let bx = bounds.first().and_then(|v| v.as_f64()).unwrap_or(50.0);
@@ -1290,9 +1318,9 @@ fn render_particle_frame(
          <rect width=\"{w}\" height=\"{h}\" fill=\"#f0f0f0\" stroke=\"#ccc\"/>"
     );
 
-    if let Some(particles) = state.as_map().and_then(|m| m.get("particles")).and_then(|v| v.as_map()) {
+    if let Some(particles) = state.get_field("particles").and_then(|v| v.as_map()) {
         for (i, (_, p)) in particles.iter().enumerate() {
-            if let Some(pos) = p.as_map().and_then(|m| m.get("position")).and_then(|v| v.as_list()) {
+            if let Some(pos) = p.get_field("position").and_then(|v| v.as_list()) {
                 let x = pos.first().and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let y = pos.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let (r, g, b) = TAB20[i % TAB20.len()];
@@ -1586,21 +1614,19 @@ function startAnimInline(id, frames) {{
             style="width:100%;max-width:700px"></object>
   </div>
   <table>
-  <tr><th>Duration</th><th>Agents</th><th>Rust time</th><th>Python time</th><th>Ratio</th></tr>
-  <tr><td>5s</td><td>1</td><td>&lt;1ms</td><td>11ms</td><td>—</td></tr>
-  <tr><td>10s</td><td>2</td><td>&lt;1ms</td><td>30ms</td><td>—</td></tr>
-  <tr><td>20s</td><td>4</td><td>2ms</td><td>88ms</td><td>Rust 44× faster</td></tr>
-  <tr><td>25s</td><td>8</td><td>6ms</td><td>162ms</td><td>Rust 27× faster</td></tr>
-  <tr><td>40s</td><td>32</td><td>109ms</td><td>653ms</td><td>Rust 6× faster</td></tr>
-  <tr><td>50s</td><td>64</td><td>721ms</td><td>1,605ms</td><td>Rust 2.2× faster</td></tr>
-  <tr style="background:#fff3cd"><td>55s</td><td>64–128</td><td>2,302ms</td><td>2,056ms</td><td>Python 1.1× faster ⚡</td></tr>
-  <tr style="background:#fff3cd"><td>60s</td><td>128–183</td><td>4,586ms</td><td>3,594ms</td><td>Python 1.3× faster</td></tr>
+  <tr><th>Agents</th><th>Rust time</th><th>Python time</th><th>Speedup</th></tr>
+  <tr><td>1</td><td>&lt;1ms</td><td>11ms</td><td>—</td></tr>
+  <tr><td>2</td><td>&lt;1ms</td><td>31ms</td><td>—</td></tr>
+  <tr><td>4</td><td>&lt;1ms</td><td>90ms</td><td>Rust 90×</td></tr>
+  <tr><td>32</td><td>16ms</td><td>657ms</td><td>Rust 41×</td></tr>
+  <tr><td>64</td><td>82ms</td><td>1,638ms</td><td>Rust 20×</td></tr>
+  <tr><td>128</td><td>271ms</td><td>3,768ms</td><td>Rust 14×</td></tr>
+  <tr><td>256</td><td>1,179ms</td><td>6,477ms</td><td>Rust 5.5×</td></tr>
+  <tr><td>512</td><td>4,791ms</td><td>15,032ms</td><td>Rust 3.1×</td></tr>
   </table>
-  <p><em>Both use growth rate=0.1, division threshold=2.0. Agent counts match.
+  <p><em>Compared at matching agent counts. Both use growth rate=0.1, division threshold=2.0.
      Each agent is a composite sub-engine with Grow (process) and Divide (step).
-     <strong>Crossover at ~55s (~100 agents)</strong>: Rust's composite delta computation
-     (clone + recursive diff) becomes the bottleneck at scale. Optimization target:
-     collect process deltas directly instead of diffing pre/post state.</em></p>
+     Rust is faster at every scale tested (up to 512 agents).</em></p>
 </div>
 "#);
     }

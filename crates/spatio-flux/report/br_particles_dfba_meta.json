@@ -13,7 +13,7 @@
     "ParticleDivision",
     "ParticleExchange"
   ],
-  "runtime_ms": 1116,
+  "runtime_ms": 1380,
   "spatial_field_names": [
     "acetate",
     "glucose"

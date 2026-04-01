@@ -10,7 +10,7 @@
     "DynamicFBA",
     "MonodKinetics"
   ],
-  "runtime_ms": 52,
+  "runtime_ms": 51,
   "spatial_field_names": [],
   "status": "ok"
 }

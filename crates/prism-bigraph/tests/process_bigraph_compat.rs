@@ -14,7 +14,7 @@ use indexmap::IndexMap;
 use prism_bigraph::process::{Process, ProcessNode, Step};
 use prism_bigraph::factory::ProcessRegistry;
 use prism_bigraph::topology::{ProcessSpec, Topology};
-use prism_bigraph::{Engine, Schema, Value};
+use prism_bigraph::{Engine, Key, Schema, Value};
 
 // ═══════════════════════════════════════════════════════════
 // Test processes (analogs of Python IncreaseProcess, OperatorStep)
@@ -204,7 +204,7 @@ fn test_step_dependencies() {
     ]);
     topology.state_schema = Schema::Tree {
         branches: ["a","b","c","d","e","f","g","h","i"].iter()
-            .map(|k| (k.to_string(), Schema::Overwrite { inner: Box::new(Schema::float()) }))
+            .map(|k| (Key::from(*k), Schema::Overwrite { inner: Box::new(Schema::float()) }))
             .collect(),
     };
 
@@ -333,10 +333,10 @@ fn test_composite_basic() {
     // State has the process spec embedded
     let state = Value::tree([
         ("increase", Value::Map(IndexMap::from([
-            ("address".to_string(), Value::String("local:IncreaseProcess".into())),
-            ("config".to_string(), Value::tree([("rate", Value::float(0.3))])),
-            ("inputs".to_string(), Value::tree([("level", Value::List(vec![Value::String("value".into())]))])),
-            ("outputs".to_string(), Value::tree([("level", Value::List(vec![Value::String("value".into())]))])),
+            (Key::from("address"), Value::String("local:IncreaseProcess".into())),
+            (Key::from("config"), Value::tree([("rate", Value::float(0.3))])),
+            (Key::from("inputs"), Value::tree([("level", Value::List(vec![Value::String("value".into())]))])),
+            (Key::from("outputs"), Value::tree([("level", Value::List(vec![Value::String("value".into())]))])),
         ]))),
         ("value", Value::float(11.11)),
     ]);
@@ -356,11 +356,11 @@ fn test_infer_process_from_state() {
     // When state has '_type': 'process', Schema::infer should return Link
     let state = Value::tree([
         ("increase", Value::Map(IndexMap::from([
-            ("_type".to_string(), Value::String("process".into())),
-            ("address".to_string(), Value::String("local:IncreaseProcess".into())),
-            ("config".to_string(), Value::tree([("rate", Value::String("0.3".into()))])),
-            ("inputs".to_string(), Value::tree([("level", Value::List(vec![Value::String("value".into())]))])),
-            ("outputs".to_string(), Value::tree([("level", Value::List(vec![Value::String("value".into())]))])),
+            (Key::from("_type"), Value::String("process".into())),
+            (Key::from("address"), Value::String("local:IncreaseProcess".into())),
+            (Key::from("config"), Value::tree([("rate", Value::String("0.3".into()))])),
+            (Key::from("inputs"), Value::tree([("level", Value::List(vec![Value::String("value".into())]))])),
+            (Key::from("outputs"), Value::tree([("level", Value::List(vec![Value::String("value".into())]))])),
         ]))),
         ("value", Value::String("11.11".into())),
     ]);
@@ -443,7 +443,7 @@ impl Step for DivideStep {
 
         // Get the current agent's full state to clone for daughters
         let env = map.get("environment").and_then(|v| v.as_map()).unwrap();
-        let agent_state = match env.get(&self.agent_id) {
+        let agent_state = match env.get(self.agent_id.as_str()) {
             Some(s) => s,
             None => return prism_bigraph::Update::Noop,
         };
@@ -453,22 +453,22 @@ impl Step for DivideStep {
         let mut daughter_a = agent_state.clone();
         let mut daughter_b = agent_state.clone();
         if let Some(m) = daughter_a.as_map_mut() {
-            m.insert("mass".to_string(), Value::float(half_mass));
+            m.insert(Key::from("mass"), Value::float(half_mass));
         }
         if let Some(m) = daughter_b.as_map_mut() {
-            m.insert("mass".to_string(), Value::float(half_mass));
+            m.insert(Key::from("mass"), Value::float(half_mass));
         }
 
         let id_a = format!("{}_0", self.agent_id);
         let id_b = format!("{}_1", self.agent_id);
 
-        let mut env_update = IndexMap::new();
-        env_update.insert("_remove".to_string(), Value::List(vec![
+        let mut env_update: IndexMap<Key, Value> = IndexMap::new();
+        env_update.insert(Key::from("_remove"), Value::List(vec![
             Value::String(self.agent_id.clone()),
         ]));
-        env_update.insert("_add".to_string(), Value::Map(IndexMap::from([
-            (id_a, daughter_a),
-            (id_b, daughter_b),
+        env_update.insert(Key::from("_add"), Value::Map(IndexMap::from([
+            (Key::from(id_a.as_str()), daughter_a),
+            (Key::from(id_b.as_str()), daughter_b),
         ])));
 
         prism_bigraph::Update::value(Value::tree([
@@ -541,22 +541,22 @@ fn test_grow_divide() {
             ("0", Value::tree([
                 ("mass", Value::float(initial_mass)),
                 ("grow", Value::Map(IndexMap::from([
-                    ("address".to_string(), Value::String("local:Grow".into())),
-                    ("config".to_string(), Value::tree([("rate", Value::float(growth_rate))])),
-                    ("inputs".to_string(), Value::tree([("mass", Value::List(vec![
+                    (Key::from("address"), Value::String("local:Grow".into())),
+                    (Key::from("config"), Value::tree([("rate", Value::float(growth_rate))])),
+                    (Key::from("inputs"), Value::tree([("mass", Value::List(vec![
                         Value::String("..".into()), Value::String("mass".into()),
                     ]))])),
-                    ("outputs".to_string(), Value::tree([("mass", Value::List(vec![
+                    (Key::from("outputs"), Value::tree([("mass", Value::List(vec![
                         Value::String("..".into()), Value::String("mass".into()),
                     ]))])),
                 ]))),
                 ("divide", Value::Map(IndexMap::from([
-                    ("address".to_string(), Value::String("local:Divide".into())),
-                    ("config".to_string(), Value::tree([
+                    (Key::from("address"), Value::String("local:Divide".into())),
+                    (Key::from("config"), Value::tree([
                         ("agent_id", Value::String("0".into())),
                         ("threshold", Value::float(division_threshold)),
                     ])),
-                    ("inputs".to_string(), Value::tree([
+                    (Key::from("inputs"), Value::tree([
                         ("mass", Value::List(vec![
                             Value::String("..".into()), Value::String("mass".into()),
                         ])),
@@ -565,7 +565,7 @@ fn test_grow_divide() {
                             Value::String("environment".into()),
                         ])),
                     ])),
-                    ("outputs".to_string(), Value::tree([
+                    (Key::from("outputs"), Value::tree([
                         ("environment", Value::List(vec![
                             Value::String("..".into()), Value::String("..".into()),
                             Value::String("environment".into()),
@@ -590,7 +590,7 @@ fn test_grow_divide() {
 
     // Original agent "0" should be gone (divided)
     // Daughters "0_0" and "0_1" should exist
-    let agent_ids: Vec<&String> = env.keys().collect();
+    let agent_ids: Vec<&Key> = env.keys().collect();
     assert!(agent_ids.len() >= 2,
         "expected at least 2 agents after division, got {}: {:?}", agent_ids.len(), agent_ids);
     assert!(!env.contains_key("0") || env.len() > 1,
@@ -780,10 +780,10 @@ fn test_merge_schema() {
     };
     let increase_state = Value::tree([
         ("increase", Value::Map(IndexMap::from([
-            ("address".to_string(), Value::String("local:IncreaseProcess".into())),
-            ("config".to_string(), Value::tree([("rate", Value::float(0.0001))])),
-            ("inputs".to_string(), Value::tree([("level", Value::List(vec![Value::String("a".into())]))])),
-            ("outputs".to_string(), Value::tree([("level", Value::List(vec![Value::String("a".into())]))])),
+            (Key::from("address"), Value::String("local:IncreaseProcess".into())),
+            (Key::from("config"), Value::tree([("rate", Value::float(0.0001))])),
+            (Key::from("inputs"), Value::tree([("level", Value::List(vec![Value::String("a".into())]))])),
+            (Key::from("outputs"), Value::tree([("level", Value::List(vec![Value::String("a".into())]))])),
         ]))),
     ]);
 
@@ -798,6 +798,110 @@ fn test_merge_schema() {
     engine.run(10.0);
     let after = engine.state().get_path(&["a".into()]).unwrap().as_f64().unwrap();
     assert!(after > before, "process should have increased a: {before} -> {after}");
+}
+
+/// Composite bridge must pass _add/_remove operations through to parent.
+/// When a step inside a composite outputs _add/_remove to a bridged port,
+/// the parent must receive those as structural operations, not as
+/// post-applied state replacement.
+#[test]
+fn test_composite_bridge_add_remove() {
+    use prism_bigraph::factory::ProcessRegistry;
+    use prism_bigraph::composite::{Bridge, Composite};
+    use prism_bigraph::topology::{ProcessSpec, Topology};
+
+    // A step that outputs _add to an "items" port
+    #[derive(Clone, Debug)]
+    struct AddItemStep;
+    impl Step for AddItemStep {
+        fn inputs(&self) -> IndexMap<String, Schema> {
+            IndexMap::from([("trigger".into(), Schema::float())])
+        }
+        fn outputs(&self) -> IndexMap<String, Schema> {
+            IndexMap::from([("items".into(), Schema::map(Schema::Any))])
+        }
+        fn update(&self, state: &Value) -> prism_bigraph::Update {
+            let trigger = state.get_field("trigger").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            if trigger < 1.0 { return prism_bigraph::Update::Noop; }
+            prism_bigraph::Update::value(Value::tree([
+                ("items", Value::tree([
+                    ("_add", Value::tree([
+                        ("new_item", Value::tree([("val", Value::float(42.0))])),
+                    ])),
+                ])),
+            ]))
+        }
+        fn as_any(&self) -> &dyn std::any::Any { self }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+    }
+
+    // Inner engine: trigger input, items output
+    let mut inner_topo = Topology::new();
+    inner_topo.initial_state = Value::tree([("trigger", Value::float(0.0))]);
+    inner_topo.state_schema = Schema::Tree {
+        branches: IndexMap::from([("trigger".into(), Schema::float())]),
+    };
+    inner_topo.processes.insert("add_step".into(), ProcessSpec {
+        process_type: "T".into(), config: Value::None,
+        inputs: IndexMap::from([("trigger".into(), vec!["trigger".into()])]),
+        outputs: IndexMap::from([("items".into(), vec!["items".into()])]),
+        interval: None, priority: 0.0,
+    });
+    let mut instances = HashMap::new();
+    instances.insert("add_step".into(), ProcessNode::Step(Box::new(AddItemStep)));
+    let inner = Engine::new(inner_topo, instances);
+
+    let composite = Composite::new(
+        inner,
+        Bridge { mappings: IndexMap::from([("trigger".into(), vec!["trigger".into()])]) },
+        Bridge { mappings: IndexMap::from([
+            ("trigger".into(), vec!["trigger".into()]),
+            ("items".into(), vec!["items".into()]),
+        ]) },
+        IndexMap::from([("trigger".into(), Schema::float())]),
+        IndexMap::from([
+            ("trigger".into(), Schema::float()),
+            ("items".into(), Schema::map(Schema::Any)),
+        ]),
+        1.0,
+    );
+
+    // Parent engine: has existing items + the composite
+    let mut parent_topo = Topology::new();
+    parent_topo.initial_state = Value::tree([
+        ("trigger", Value::float(5.0)),
+        ("items", Value::tree([
+            ("existing", Value::tree([("val", Value::float(1.0))])),
+        ])),
+    ]);
+    parent_topo.state_schema = Schema::Tree {
+        branches: IndexMap::from([
+            ("trigger".into(), Schema::float()),
+            ("items".into(), Schema::map(Schema::Any)),
+        ]),
+    };
+    parent_topo.processes.insert("comp".into(), ProcessSpec {
+        process_type: "Composite".into(), config: Value::None,
+        inputs: IndexMap::from([("trigger".into(), vec!["trigger".into()])]),
+        outputs: IndexMap::from([
+            ("trigger".into(), vec!["trigger".into()]),
+            ("items".into(), vec!["items".into()]),
+        ]),
+        interval: Some(1.0), priority: 0.0,
+    });
+    let mut parent_inst = HashMap::new();
+    parent_inst.insert("comp".into(), ProcessNode::Process(Box::new(composite)));
+    let mut engine = Engine::new(parent_topo, parent_inst);
+    engine.run(1.0);
+
+    let items = engine.state().get_field("items");
+    assert!(items.is_some(), "items should exist");
+    let items_map = items.unwrap().as_map().or_else(|| items.unwrap().to_map().as_ref().map(|_| unreachable!()));
+    // Use iter_fields for compatibility with both Map and Struct
+    let has_existing = items.unwrap().get_field("existing").is_some();
+    let has_new = items.unwrap().get_field("new_item").is_some();
+    assert!(has_existing, "existing item should still be present");
+    assert!(has_new, "new_item should have been added via _add through composite bridge");
 }
 
 /// Python test_match_star_path

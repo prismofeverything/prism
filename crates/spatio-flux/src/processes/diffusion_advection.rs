@@ -8,7 +8,7 @@ use std::any::Any;
 
 use indexmap::IndexMap;
 
-use prism_bigraph::{Process, Schema, Update, Value};
+use prism_bigraph::{Key, Process, Schema, Update, Value};
 
 /// Boundary condition types.
 #[derive(Clone, Debug, PartialEq)]
@@ -178,15 +178,14 @@ impl Process for DiffusionAdvection {
 
     fn update(&self, state: &Value, interval: f64) -> Update {
         let fields = match state
-            .as_map()
-            .and_then(|m| m.get("fields"))
+            .get_field("fields")
             .and_then(|v| v.as_map())
         {
             Some(f) => f,
             None => return Update::Noop,
         };
 
-        let mut result_fields: IndexMap<String, Value> = IndexMap::new();
+        let mut result_fields: IndexMap<Key, Value> = IndexMap::new();
 
         let (nx, ny) = self.n_bins;
         let expected_size = nx * ny;
@@ -201,13 +200,13 @@ impl Process for DiffusionAdvection {
 
             let d = self
                 .diffusion_coeffs
-                .get(mol_id)
+                .get(mol_id.as_str())
                 .copied()
                 .unwrap_or(self.default_diffusion);
 
             let bc = self
                 .boundary_conditions
-                .get(mol_id)
+                .get(mol_id.as_str())
                 .cloned()
                 .unwrap_or_default();
 
@@ -223,7 +222,7 @@ impl Process for DiffusionAdvection {
             }
 
             // Apply advection if configured
-            if let Some(&(vx, vy)) = self.advection_coeffs.get(mol_id) {
+            if let Some(&(vx, vy)) = self.advection_coeffs.get(mol_id.as_str()) {
                 current = self.advect(&current, vx, vy, interval);
             }
 

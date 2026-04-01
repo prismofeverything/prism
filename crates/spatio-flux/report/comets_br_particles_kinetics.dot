@@ -32,15 +32,15 @@ digraph {
     state_particles__sbdbc5ns__local -> proc_particles_sbdbc5ns_monod_kinetics [style=dashed, penwidth=1, arrowhead=normal, label="substrates", fontsize=10];
     proc_particles_sbdbc5ns_monod_kinetics -> state_particles__sbdbc5ns__exchange [style=dashed, penwidth=1, arrowhead=normal, label="substrates", fontsize=10];
     state_particles__sbdbc5ns__mass -> proc_particles_sbdbc5ns_monod_kinetics [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__acetate -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.acetate", fontsize=10];
     state_fields__dissolved_biomass -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
     state_fields__glucose -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.glucose", fontsize=10];
-    state_fields__acetate -> proc_spatial_dFBA [style=dashed, penwidth=1, dir=both, label="fields.acetate", fontsize=10];
     state_fields -> proc_diffusion [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
     state_particles -> proc_brownian_movement [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
     state_brownian_movement__interval -> proc_enforce_boundaries [style=dashed, penwidth=1, arrowhead=normal, label="process_interval", fontsize=10];
     state_particles -> proc_enforce_boundaries [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
-    state_fields -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
     state_particles -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
+    state_fields -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
     state_particles -> proc_particle_division [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
 
     // Hierarchy

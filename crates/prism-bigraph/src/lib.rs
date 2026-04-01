@@ -19,4 +19,4 @@ pub use topology::{ProcessSpec, Topology};
 pub use update::Update;
 
 // Re-export schema types for convenience
-pub use prism_schema::{self, Path, Schema, TypeRegistry, Value};
+pub use prism_schema::{self, Key, Path, Schema, StateMap, TypeRegistry, Value};

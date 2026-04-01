@@ -13,7 +13,7 @@ use prism_bigraph::composite::{Bridge, Composite};
 use prism_bigraph::process::ProcessNode;
 use prism_bigraph::topology::{ProcessSpec, Topology};
 use prism_bigraph::vivarium::VivariumDocument;
-use prism_bigraph::{Engine, ProcessRegistry, Schema, Value};
+use prism_bigraph::{Engine, Key, ProcessRegistry, Schema, Value};
 
 /// Load a vivarium JSON document and construct a running Engine.
 ///
@@ -90,7 +90,7 @@ pub fn instantiate_vivarium(
         // The composite's internal state is the container map from the state tree
         let inner_state = vdoc.state
             .as_map()
-            .and_then(|m| m.get(composite_name))
+            .and_then(|m| m.get(composite_name.as_str()))
             .cloned()
             .unwrap_or(Value::map());
 
@@ -98,17 +98,15 @@ pub fn instantiate_vivarium(
         // reference parent state (paths NOT starting with the composite name).
         // The inner processes wire to paths like ["fields", "glucose", 0, 0]
         // which need to be bridged from the parent state.
-        let mut bridge_paths: IndexMap<String, Vec<String>> = IndexMap::new();
+        let mut bridge_paths: IndexMap<String, Vec<Key>> = IndexMap::new();
 
         // Get inner process specs to find what they wire to
-        if let Some(inner_map) = inner_state.as_map() {
-            for (_proc_name, proc_val) in inner_map {
-                if let Some(pmap) = proc_val.as_map() {
-                    // Check inputs and outputs wiring
-                    for wire_key in ["inputs", "outputs"] {
-                        if let Some(wires) = pmap.get(wire_key) {
-                            collect_bridge_roots(wires, &mut bridge_paths);
-                        }
+        if let Some(iter) = inner_state.iter_fields() {
+            for (_proc_name, proc_val) in iter {
+                // Check inputs and outputs wiring
+                for wire_key in ["inputs", "outputs"] {
+                    if let Some(wires) = proc_val.get_field(wire_key) {
+                        collect_bridge_roots(wires, &mut bridge_paths);
                     }
                 }
             }
@@ -134,7 +132,7 @@ pub fn instantiate_vivarium(
         let output_schemas: IndexMap<String, Schema> = output_bridge.mappings.keys()
             .map(|k| {
                 let schema = if let Schema::Tree { branches } = state_schema {
-                    branches.get(k).cloned().unwrap_or(Schema::Any)
+                    branches.get(k.as_str()).cloned().unwrap_or(Schema::Any)
                 } else {
                     Schema::Any
                 };
@@ -144,18 +142,18 @@ pub fn instantiate_vivarium(
         // Build inner engine: the state is the parent's state (bridged fields
         // are injected before each run). Inner processes are discovered.
         // The inner engine needs a copy of the parent state for the bridged paths.
-        let mut inner_full_state = IndexMap::new();
+        let mut inner_full_state: IndexMap<Key, Value> = IndexMap::new();
         // Include the composite's own children (process specs)
-        if let Some(inner_map) = inner_state.as_map() {
-            for (k, v) in inner_map {
+        if let Some(iter) = inner_state.iter_fields() {
+            for (k, v) in iter {
                 inner_full_state.insert(k.clone(), v.clone());
             }
         }
         // Include bridged state from parent
         if let Some(parent_map) = vdoc.state.as_map() {
             for (root, _) in &bridge_paths {
-                if let Some(val) = parent_map.get(root) {
-                    inner_full_state.insert(root.clone(), val.clone());
+                if let Some(val) = parent_map.get(root.as_str()) {
+                    inner_full_state.insert(Key::from(root.as_str()), val.clone());
                 }
             }
         }
@@ -203,7 +201,7 @@ pub fn instantiate_vivarium(
 
 /// Collect root path names from process wiring for bridge auto-detection.
 /// If a process wires to ["..", "fields", "glucose", 0, 0], the root is "fields".
-fn collect_bridge_roots(wires: &Value, roots: &mut IndexMap<String, Vec<String>>) {
+fn collect_bridge_roots(wires: &Value, roots: &mut IndexMap<String, Vec<Key>>) {
     // Find the first non-".." string element in a path
     fn find_root(path: &[Value]) -> Option<String> {
         path.iter()
@@ -219,7 +217,7 @@ fn collect_bridge_roots(wires: &Value, roots: &mut IndexMap<String, Vec<String>>
                     Value::List(path) => {
                         if let Some(root) = find_root(path) {
                             roots.entry(root.clone())
-                                .or_insert_with(|| vec![root]);
+                                .or_insert_with(|| vec![Key::from(root.as_str())]);
                         }
                     }
                     Value::Map(sub_map) => {
@@ -227,7 +225,7 @@ fn collect_bridge_roots(wires: &Value, roots: &mut IndexMap<String, Vec<String>>
                             if let Value::List(path) = sub_target {
                                 if let Some(root) = find_root(path) {
                                     roots.entry(root.clone())
-                                        .or_insert_with(|| vec![root]);
+                                        .or_insert_with(|| vec![Key::from(root.as_str())]);
                                 }
                             }
                         }

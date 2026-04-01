@@ -30,4 +30,5 @@ petgraph = "0.7"
 rand = "0.8"
 plotters = { version = "0.3", default-features = false, features = ["svg_backend", "line_series"] }
 highs = "2.0"
+compact_str = { version = "0.9", features = ["serde"] }
 rapier2d = { version = "0.22", features = [] }

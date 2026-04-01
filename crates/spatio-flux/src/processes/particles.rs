@@ -5,7 +5,7 @@ use std::any::Any;
 use indexmap::IndexMap;
 use rand::Rng;
 
-use prism_bigraph::{Process, Schema, Step, Update, Value};
+use prism_bigraph::{Key, Process, Schema, Step, Update, Value};
 
 // ── Particle State Helpers ──
 
@@ -36,13 +36,13 @@ pub fn make_particle(
     let exchange_val = Value::Map(
         exchange
             .iter()
-            .map(|(k, v)| (k.clone(), Value::float(*v)))
+            .map(|(k, v)| (Key::from(k.as_str()), Value::float(*v)))
             .collect(),
     );
     let local_val = Value::Map(
         exchange
             .iter()
-            .map(|(k, _)| (k.clone(), Value::float(0.0)))
+            .map(|(k, _)| (Key::from(k.as_str()), Value::float(0.0)))
             .collect(),
     );
 
@@ -63,8 +63,7 @@ pub fn make_particle(
 
 /// Extract position from a particle value.
 fn get_position(particle: &Value) -> Option<(f64, f64)> {
-    let map = particle.as_map()?;
-    let pos = map.get("position")?.as_list()?;
+    let pos = particle.get_field("position")?.as_list()?;
     Some((pos.first()?.as_f64()?, pos.get(1)?.as_f64()?))
 }
 
@@ -72,17 +71,13 @@ fn get_position(particle: &Value) -> Option<(f64, f64)> {
 /// If sub_masses exists and has numeric values, use their sum as the total mass.
 /// Otherwise fall back to the `mass` field.
 fn get_mass(particle: &Value) -> f64 {
-    if let Some(map) = particle.as_map() {
-        if let Some(sub_masses) = map.get("sub_masses").and_then(|v| v.as_map()) {
-            let total: f64 = sub_masses.values().filter_map(|v| v.as_f64()).sum();
-            if total > 0.0 {
-                return total;
-            }
+    if let Some(sub_masses) = particle.get_field("sub_masses").and_then(|v| v.as_map()) {
+        let total: f64 = sub_masses.values().filter_map(|v| v.as_f64()).sum();
+        if total > 0.0 {
+            return total;
         }
-        map.get("mass").and_then(|v| v.as_f64()).unwrap_or(0.0)
-    } else {
-        0.0
     }
+    particle.get_field("mass").and_then(|v| v.as_f64()).unwrap_or(0.0)
 }
 
 // ── Brownian Movement Process ──
@@ -111,8 +106,7 @@ impl Process for BrownianMovement {
 
     fn update(&self, state: &Value, interval: f64) -> Update {
         let particles = match state
-            .as_map()
-            .and_then(|m| m.get("particles"))
+            .get_field("particles")
             .and_then(|v| v.as_map())
         {
             Some(p) => p,
@@ -121,7 +115,7 @@ impl Process for BrownianMovement {
 
         let mut rng = rand::thread_rng();
         let sigma = (2.0 * self.diffusion_rate * interval).sqrt();
-        let mut result: IndexMap<String, Value> = IndexMap::new();
+        let mut result: IndexMap<Key, Value> = IndexMap::new();
 
         for (pid, particle) in particles {
             let (x, y) = match get_position(particle) {
@@ -181,23 +175,18 @@ impl Step for ParticleExchange {
     }
 
     fn update(&self, state: &Value) -> Update {
-        let map = match state.as_map() {
-            Some(m) => m,
-            None => return Update::Noop,
-        };
-
-        let particles = match map.get("particles").and_then(|v| v.as_map()) {
+        let particles = match state.get_field("particles").and_then(|v| v.as_map()) {
             Some(p) => p,
             None => return Update::Noop,
         };
 
-        let fields = match map.get("fields").and_then(|v| v.as_map()) {
+        let fields = match state.get_field("fields").and_then(|v| v.as_map()) {
             Some(f) => f,
             None => return Update::Noop,
         };
 
         let (nx, ny) = self.n_bins;
-        let mut result_particles: IndexMap<String, Value> = IndexMap::new();
+        let mut result_particles: IndexMap<Key, Value> = IndexMap::new();
 
         // Build mutable field arrays for accumulating exchange deltas.
         // Start with ZEROS — we accumulate only the deltas, matching the Python.
@@ -210,8 +199,8 @@ impl Step for ParticleExchange {
             } else {
                 arr
             };
-            field_deltas.insert(mol_id.clone(), vec![0.0; arr.len()]);
-            field_values.insert(mol_id.clone(), arr);
+            field_deltas.insert(mol_id.to_string(), vec![0.0; arr.len()]);
+            field_values.insert(mol_id.to_string(), arr);
         }
 
         for (pid, particle) in particles {
@@ -237,9 +226,9 @@ impl Step for ParticleExchange {
             let cell_volume = (cell_w * cell_h * self.depth).max(1e-10);
 
             // 1. Accumulate exchange deltas into field delta arrays
-            if let Some(exchange) = particle.as_map().and_then(|m| m.get("exchange")).and_then(|v| v.as_map()) {
+            if let Some(exchange) = particle.get_field("exchange").and_then(|v| v.as_map()) {
                 for (mol_id, delta) in exchange {
-                    if let (Some(darr), Some(d)) = (field_deltas.get_mut(mol_id), delta.as_f64()) {
+                    if let (Some(darr), Some(d)) = (field_deltas.get_mut(mol_id.as_str()), delta.as_f64()) {
                         if bin_idx < darr.len() {
                             darr[bin_idx] += d / cell_volume;
                         }
@@ -249,10 +238,9 @@ impl Step for ParticleExchange {
 
             // 2. Sample local from the field (current values, not deltas).
             // Output delta: new_local - old_local
-            let old_local = particle.as_map()
-                .and_then(|m| m.get("local"))
+            let old_local = particle.get_field("local")
                 .and_then(|v| v.as_map());
-            let mut local: IndexMap<String, Value> = IndexMap::new();
+            let mut local: IndexMap<Key, Value> = IndexMap::new();
             for (mol_id, arr) in &field_values {
                 let field_val = if bin_idx < arr.len() {
                     arr[bin_idx]
@@ -262,33 +250,33 @@ impl Step for ParticleExchange {
                     0.0
                 };
                 let old_val = old_local
-                    .and_then(|m| m.get(mol_id))
+                    .and_then(|m| m.get(mol_id.as_str()))
                     .and_then(|v| v.as_f64())
                     .unwrap_or(0.0);
-                local.insert(mol_id.clone(), Value::float(field_val - old_val));
+                local.insert(Key::from(mol_id.as_str()), Value::float(field_val - old_val));
             }
 
             // 3. Output local delta AND zero exchange.
-            let mut update_map: IndexMap<String, Value> = IndexMap::new();
-            update_map.insert("local".to_string(), Value::Map(local));
+            let mut update_map: IndexMap<Key, Value> = IndexMap::new();
+            update_map.insert(Key::from("local"), Value::Map(local));
             // Zero exchange: negate current values (additive apply → net zero)
-            if let Some(exchange) = particle.as_map().and_then(|m| m.get("exchange")).and_then(|v| v.as_map()) {
-                let negated: IndexMap<String, Value> = exchange
+            if let Some(exchange) = particle.get_field("exchange").and_then(|v| v.as_map()) {
+                let negated: IndexMap<Key, Value> = exchange
                     .iter()
                     .map(|(k, v)| (k.clone(), Value::float(-v.as_f64().unwrap_or(0.0))))
                     .collect();
-                update_map.insert("exchange".to_string(), Value::Map(negated));
+                update_map.insert(Key::from("exchange"), Value::Map(negated));
             }
             let updated = Value::Map(update_map);
             result_particles.insert(pid.clone(), updated);
         }
 
         // Convert field DELTA arrays back to Values, preserving original 2D structure
-        let result_fields: IndexMap<String, Value> = field_deltas
+        let result_fields: IndexMap<Key, Value> = field_deltas
             .into_iter()
             .map(|(k, delta_arr)| {
-                let original = fields.get(&k).unwrap_or(&Value::None);
-                (k, super::fields::rebuild_field(&delta_arr, original))
+                let original = fields.get(k.as_str()).unwrap_or(&Value::None);
+                (Key::from(k.as_str()), super::fields::rebuild_field(&delta_arr, original))
             })
             .collect();
 
@@ -327,8 +315,7 @@ impl Step for ParticleDivision {
 
     fn update(&self, state: &Value) -> Update {
         let particles = match state
-            .as_map()
-            .and_then(|m| m.get("particles"))
+            .get_field("particles")
             .and_then(|v| v.as_map())
         {
             Some(p) => p,
@@ -336,13 +323,13 @@ impl Step for ParticleDivision {
         };
 
         let mut rng = rand::thread_rng();
-        let mut result: IndexMap<String, Value> = IndexMap::new();
+        let mut result: IndexMap<Key, Value> = IndexMap::new();
         let mut any_divided = false;
 
         let current_count = particles.len();
 
         let mut to_remove: Vec<Value> = Vec::new();
-        let mut to_add: IndexMap<String, Value> = IndexMap::new();
+        let mut to_add: IndexMap<Key, Value> = IndexMap::new();
 
         for (pid, particle) in particles {
             let mass = get_mass(particle);
@@ -353,7 +340,7 @@ impl Step for ParticleDivision {
                 let (x, y) = get_position(particle).unwrap_or((0.0, 0.0));
 
                 // Remove parent
-                to_remove.push(Value::String(pid.clone()));
+                to_remove.push(Value::String(pid.to_string()));
 
                 // At cap: create one daughter (halve mass, keep count stable).
                 // Below cap: create two daughters (normal division).
@@ -363,37 +350,37 @@ impl Step for ParticleDivision {
                     let dy = normal(&mut rng, self.jitter);
                     let mut daughter = particle.clone();
                     if let Some(dmap) = daughter.as_map_mut() {
-                        dmap.insert("id".to_string(), Value::String(short_id()));
-                        dmap.insert("mass".to_string(), Value::float(mass / 2.0));
+                        dmap.insert(Key::from("id"), Value::String(short_id()));
+                        dmap.insert(Key::from("mass"), Value::float(mass / 2.0));
                         dmap.insert(
-                            "position".to_string(),
+                            Key::from("position"),
                             Value::List(vec![Value::float(x + dx), Value::float(y + dy)]),
                         );
                         // Halve sub_masses so ParticleTotalMass doesn't
                         // immediately restore the pre-division total and
                         // re-trigger division on the next tick.
                         if let Some(Value::Map(sm)) = dmap.get("sub_masses").cloned() {
-                            let halved: IndexMap<String, Value> = sm.iter()
+                            let halved: IndexMap<Key, Value> = sm.iter()
                                 .map(|(k, v)| {
                                     let half = v.as_f64().unwrap_or(0.0) / 2.0;
                                     (k.clone(), Value::float(half))
                                 })
                                 .collect();
-                            dmap.insert("sub_masses".to_string(), Value::Map(halved));
+                            dmap.insert(Key::from("sub_masses"), Value::Map(halved));
                         }
                     }
-                    to_add.insert(short_id(), daughter);
+                    to_add.insert(Key::from(short_id()), daughter);
                 }
             }
         }
 
         if any_divided {
-            let mut particles_update: IndexMap<String, Value> = IndexMap::new();
+            let mut particles_update: IndexMap<Key, Value> = IndexMap::new();
             if !to_remove.is_empty() {
-                particles_update.insert("_remove".to_string(), Value::List(to_remove));
+                particles_update.insert(Key::from("_remove"), Value::List(to_remove));
             }
             if !to_add.is_empty() {
-                particles_update.insert("_add".to_string(), Value::Map(to_add));
+                particles_update.insert(Key::from("_add"), Value::Map(to_add));
             }
             Update::value(Value::tree([("particles", Value::Map(particles_update))]))
         } else {
@@ -450,8 +437,7 @@ impl Step for ManageBoundaries {
 
     fn update(&self, state: &Value) -> Update {
         let particles = match state
-            .as_map()
-            .and_then(|m| m.get("particles"))
+            .get_field("particles")
             .and_then(|v| v.as_map())
         {
             Some(p) => p,
@@ -461,15 +447,14 @@ impl Step for ManageBoundaries {
         // Read process_interval (dt) for Poisson rate→probability conversion.
         // Python: p_birth = 1 - exp(-add_rate * dt)
         let dt = state
-            .as_map()
-            .and_then(|m| m.get("process_interval"))
+            .get_field("process_interval")
             .and_then(|v| v.as_f64())
             .unwrap_or(1.0);
 
         let mut rng = rand::thread_rng();
-        let mut updates: IndexMap<String, Value> = IndexMap::new();
+        let mut updates: IndexMap<Key, Value> = IndexMap::new();
         let mut to_remove: Vec<Value> = Vec::new();
-        let mut to_add: IndexMap<String, Value> = IndexMap::new();
+        let mut to_add: IndexMap<Key, Value> = IndexMap::new();
         let mut any_changed = false;
 
         for (pid, particle) in particles {
@@ -489,7 +474,7 @@ impl Step for ManageBoundaries {
 
             if should_remove {
                 any_changed = true;
-                to_remove.push(Value::String(pid.clone()));
+                to_remove.push(Value::String(pid.to_string()));
                 continue;
             }
 
@@ -523,36 +508,36 @@ impl Step for ManageBoundaries {
                         // Clone template, override position/mass/exchange/local/id
                         let mut p = tmpl.clone();
                         if let Some(pmap) = p.as_map_mut() {
-                            pmap.insert("id".to_string(), Value::String(short_id()));
-                            pmap.insert("mass".to_string(), Value::float(mass));
+                            pmap.insert(Key::from("id"), Value::String(short_id()));
+                            pmap.insert(Key::from("mass"), Value::float(mass));
                             // Update radius to match new mass
-                            pmap.insert("radius".to_string(),
+                            pmap.insert(Key::from("radius"),
                                 Value::float(radius_from_mass(mass, DEFAULT_DENSITY)));
-                            pmap.insert("position".to_string(),
+                            pmap.insert(Key::from("position"),
                                 Value::List(vec![Value::float(pos.0), Value::float(pos.1)]));
                             // Zero out exchange and local
                             if let Some(Value::Map(ex)) = pmap.get("exchange").cloned() {
-                                let zeroed: IndexMap<String, Value> = ex.keys()
+                                let zeroed: IndexMap<Key, Value> = ex.keys()
                                     .map(|k| (k.clone(), Value::float(0.0))).collect();
-                                pmap.insert("exchange".to_string(), Value::Map(zeroed));
+                                pmap.insert(Key::from("exchange"), Value::Map(zeroed));
                             }
                             if let Some(Value::Map(loc)) = pmap.get("local").cloned() {
-                                let zeroed: IndexMap<String, Value> = loc.keys()
+                                let zeroed: IndexMap<Key, Value> = loc.keys()
                                     .map(|k| (k.clone(), Value::float(0.0))).collect();
-                                pmap.insert("local".to_string(), Value::Map(zeroed));
+                                pmap.insert(Key::from("local"), Value::Map(zeroed));
                             }
                             // Zero out sub_masses if present
                             if let Some(Value::Map(sm)) = pmap.get("sub_masses").cloned() {
-                                let zeroed: IndexMap<String, Value> = sm.keys()
+                                let zeroed: IndexMap<Key, Value> = sm.keys()
                                     .map(|k| (k.clone(), Value::float(0.0))).collect();
-                                pmap.insert("sub_masses".to_string(), Value::Map(zeroed));
+                                pmap.insert(Key::from("sub_masses"), Value::Map(zeroed));
                             }
                         }
                         p
                     } else {
                         make_particle(pos, mass, &IndexMap::new())
                     };
-                    to_add.insert(short_id(), new_particle);
+                    to_add.insert(Key::from(short_id()), new_particle);
                 }
             }
         }
@@ -560,10 +545,10 @@ impl Step for ManageBoundaries {
         if any_changed {
             let mut particles_update = updates;
             if !to_remove.is_empty() {
-                particles_update.insert("_remove".to_string(), Value::List(to_remove));
+                particles_update.insert(Key::from("_remove"), Value::List(to_remove));
             }
             if !to_add.is_empty() {
-                particles_update.insert("_add".to_string(), Value::Map(to_add));
+                particles_update.insert(Key::from("_add"), Value::Map(to_add));
             }
             Update::value(Value::tree([("particles", Value::Map(particles_update))]))
         } else {
@@ -603,13 +588,8 @@ impl Step for ParticleTotalMass {
     }
 
     fn update(&self, state: &Value) -> Update {
-        let map = match state.as_map() {
-            Some(m) => m,
-            None => return Update::Noop,
-        };
-
         // Per-particle mode: wired inside a particle with sub_masses → sub_masses
-        if let Some(sub_masses) = map.get("sub_masses").and_then(|v| v.as_map()) {
+        if let Some(sub_masses) = state.get_field("sub_masses").and_then(|v| v.as_map()) {
             if !sub_masses.is_empty() {
                 let total: f64 = sub_masses.values().filter_map(|v| v.as_f64()).sum();
                 // Output ABSOLUTE total — Overwrite schema means replacement
@@ -621,25 +601,24 @@ impl Step for ParticleTotalMass {
         }
 
         // Top-level mode: wired to the particles map
-        let particles = match map.get("particles").and_then(|v| v.as_map()) {
+        let particles = match state.get_field("particles").and_then(|v| v.as_map()) {
             Some(p) => p,
             None => return Update::Noop,
         };
 
-        let mut result: IndexMap<String, Value> = IndexMap::new();
+        let mut result: IndexMap<Key, Value> = IndexMap::new();
         let mut any_changed = false;
 
         for (pid, particle) in particles {
             if let Some(sub_masses) = particle
-                .as_map()
-                .and_then(|m| m.get("sub_masses"))
+                .get_field("sub_masses")
                 .and_then(|v| v.as_map())
             {
                 if !sub_masses.is_empty() {
                     let total: f64 = sub_masses.values().filter_map(|v| v.as_f64()).sum();
                     let mut updated = particle.clone();
                     if let Some(map) = updated.as_map_mut() {
-                        map.insert("mass".to_string(), Value::float(total));
+                        map.insert(Key::from("mass"), Value::float(total));
                     }
                     result.insert(pid.clone(), updated);
                     any_changed = true;

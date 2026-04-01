@@ -11,7 +11,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use ordered_float::OrderedFloat;
 
-use prism_schema::{Path, Schema, Value};
+use prism_schema::{Key, Path, Schema, Value};
 
 use crate::factory::ProcessRegistry;
 
@@ -21,27 +21,27 @@ use crate::factory::ProcessRegistry;
 /// (each ".." pops one level). Otherwise, treat as absolute from the state root.
 fn resolve_wires_from_process(
     wires: &Value,
-    process_path: &[String],
-) -> IndexMap<String, Vec<String>> {
-    let parent: Vec<String> = if !process_path.is_empty() {
+    process_path: &[Key],
+) -> IndexMap<String, Vec<Key>> {
+    let parent: Vec<Key> = if !process_path.is_empty() {
         process_path[..process_path.len()-1].to_vec()
     } else {
         vec![]
     };
 
-    fn resolve_one(path_list: &[Value], parent: &[String]) -> Vec<String> {
-        let elems: Vec<String> = path_list.iter()
+    fn resolve_one(path_list: &[Value], parent: &[Key]) -> Vec<Key> {
+        let elems: Vec<Key> = path_list.iter()
             .filter_map(|v| match v {
-                Value::String(s) => Some(s.clone()),
-                Value::Int(i) => Some(i.to_string()),
-                Value::Float(f) => Some(format!("{}", f.0 as i64)),
+                Value::String(s) => Some(Key::from(s.as_str())),
+                Value::Int(i) => Some(Key::from(i.to_string())),
+                Value::Float(f) => Some(Key::from(format!("{}", f.0 as i64))),
                 _ => None,
             })
             .collect();
 
         let mut resolved = parent.to_vec();
         for elem in &elems {
-            if elem == ".." {
+            if elem.as_str() == ".." {
                 resolved.pop();
             } else {
                 resolved.push(elem.clone());
@@ -53,8 +53,8 @@ fn resolve_wires_from_process(
     fn flatten_nested(
         prefix: &str,
         target: &Value,
-        parent: &[String],
-        result: &mut IndexMap<String, Vec<String>>,
+        parent: &[Key],
+        result: &mut IndexMap<String, Vec<Key>>,
     ) {
         match target {
             Value::List(list) => {
@@ -65,7 +65,7 @@ fn resolve_wires_from_process(
                 // Flatten to "substrates.glucose" → resolved path
                 for (key, sub_target) in map {
                     let sub_prefix = if prefix.is_empty() {
-                        key.clone()
+                        key.to_string()
                     } else {
                         format!("{prefix}.{key}")
                     };
@@ -133,6 +133,19 @@ pub struct Engine {
 
     /// Schema for the state tree.
     schema: Schema,
+
+    /// Whether the last apply_projections had structural changes.
+    last_structural: bool,
+
+    /// Pending changed paths to trigger steps at start of next run.
+    pending_changes: Vec<Path>,
+
+    /// Passthrough paths: projections to these root paths are captured
+    /// as raw deltas (not applied to state). Used by Composite bridge.
+    passthrough_paths: HashSet<Key>,
+
+    /// Captured passthrough deltas from the last run.
+    passthrough_deltas: IndexMap<Key, Value>,
 
     /// Current simulation time.
     time: f64,
@@ -211,7 +224,7 @@ impl Engine {
                 // Store interval in state tree so Steps can wire to it
                 // (e.g. ManageBoundaries reads ["newtonian_particles", "interval"])
                 state.set_path(
-                    &[name.clone(), "interval".to_string()],
+                    &[Key::from(name.as_str()), Key::from("interval")],
                     Value::float(interval),
                 );
             } else {
@@ -238,6 +251,10 @@ impl Engine {
             specs,
             previous_outputs: HashMap::new(),
             registry: None,
+            last_structural: false,
+            pending_changes: Vec::new(),
+            passthrough_paths: HashSet::new(),
+            passthrough_deltas: IndexMap::new(),
         };
 
         // Fire steps on initialization in dependency order.
@@ -426,7 +443,7 @@ impl Engine {
     fn extract_processes(
         schema: &Schema,
         state: &Value,
-        path: &[String],
+        path: &[Key],
         registry: &ProcessRegistry,
         specs: &mut IndexMap<String, ProcessSpec>,
         instances: &mut HashMap<String, ProcessNode>,
@@ -530,6 +547,30 @@ impl Engine {
     /// Set the process registry for dynamic process discovery.
     /// When set, new process nodes appearing in state (e.g., via _add)
     /// are automatically instantiated and wired.
+    /// Number of temporal processes.
+    pub fn fronts_count(&self) -> usize { self.fronts.len() }
+
+    /// Queue pending state changes to trigger steps at the start of next run.
+    pub fn queue_changes(&mut self, paths: Vec<Path>) {
+        self.pending_changes.extend(paths);
+    }
+
+    /// Set passthrough paths — projections to these root paths are captured
+    /// as raw deltas instead of applied to state.
+    pub fn set_passthrough_paths(&mut self, paths: HashSet<Key>) {
+        self.passthrough_paths = paths;
+    }
+
+    /// Take the passthrough deltas captured during the last run.
+    pub fn take_passthrough_deltas(&mut self) -> IndexMap<Key, Value> {
+        std::mem::take(&mut self.passthrough_deltas)
+    }
+
+    /// Public wrapper for trigger_steps.
+    pub fn trigger_steps_pub(&mut self, changed_paths: &[Path]) {
+        self.trigger_steps(changed_paths);
+    }
+
     pub fn set_registry(&mut self, registry: Arc<ProcessRegistry>) {
         self.registry = Some(registry);
     }
@@ -550,12 +591,18 @@ impl Engine {
     }
 
     /// Read a value at a specific path in the state tree.
-    pub fn get(&self, path: &[String]) -> Option<&Value> {
+    pub fn get(&self, path: &[Key]) -> Option<&Value> {
         self.state.get_path(path)
     }
 
     /// Run the simulation for the given duration.
     pub fn run(&mut self, duration: f64) {
+        // Process pending changes from composite bridge inputs
+        if !self.pending_changes.is_empty() {
+            let pending = std::mem::take(&mut self.pending_changes);
+            self.trigger_steps(&pending);
+        }
+
         let end_time = self.time + duration;
         let mut iter_count = 0u64;
 
@@ -571,13 +618,25 @@ impl Engine {
                         .collect();
 
                     let mut all_changed = Vec::new();
+                    let mut any_structural = false;
                     for name in &firing {
                         let changed = self.run_process(name);
+                        any_structural |= self.last_structural;
                         all_changed.extend(changed);
                     }
 
-                    self.discover_processes(&all_changed);
-                    self.trigger_steps(&all_changed);
+                    let step_changes = if self.step_triggers.is_empty() {
+                        Vec::new()
+                    } else {
+                        self.trigger_steps(&all_changed)
+                    };
+
+                    // Only discover when structural changes occurred
+                    if any_structural || !step_changes.is_empty() {
+                        let mut discover_paths = all_changed;
+                        discover_paths.extend(step_changes);
+                        self.discover_processes(&discover_paths);
+                    }
 
                     iter_count += 1;
                     if iter_count > 100_000 {
@@ -688,7 +747,7 @@ impl Engine {
                 Some(iface) => iface.project(&update_value),
                 None => return Vec::new(),
             };
-            apply_projections_to(&mut self.state, &self.schema, &projections);
+            self.apply_projections(&projections);
             projections.into_iter()
                 .map(|(path, value, _schema)| (path, value))
                 .collect()
@@ -761,7 +820,7 @@ impl Engine {
                 Some(iface) => iface.project(&update_value),
                 None => return Vec::new(),
             };
-            let (changed, _) = apply_projections_to(&mut self.state, &self.schema, &projections);
+            let (changed, _) = self.apply_projections(&projections);
             changed
         } else {
             Vec::new()
@@ -774,7 +833,40 @@ impl Engine {
     /// process discovery. Skipping discovery on non-structural ticks is a
     /// major performance win.
     fn apply_projections(&mut self, projections: &[(Path, Value, Option<Schema>)]) -> (Vec<Path>, bool) {
-        apply_projections_to(&mut self.state, &self.schema, projections)
+        if self.passthrough_paths.is_empty() {
+            let result = apply_projections_to(&mut self.state, &self.schema, projections);
+            self.last_structural = result.1;
+            return result;
+        }
+
+        // Separate passthrough from normal projections
+        let mut normal = Vec::new();
+        for proj in projections {
+            let root = proj.0.first().map(|k| k.as_str()).unwrap_or("");
+            if self.passthrough_paths.contains(root) {
+                let root_key = Key::from(root);
+                let mut delta = proj.1.clone();
+                if proj.0.len() > 1 {
+                    for key in proj.0[1..].iter().rev() {
+                        delta = Value::tree([(key.as_str(), delta)]);
+                    }
+                }
+                if let Some(existing) = self.passthrough_deltas.get(&root_key) {
+                    delta = Schema::Any.apply_update(existing, &delta);
+                }
+                self.passthrough_deltas.insert(root_key, delta);
+            } else {
+                normal.push(proj.clone());
+            }
+        }
+
+        let (mut changed, structural) = apply_projections_to(&mut self.state, &self.schema, &normal);
+        let has_passthrough = !self.passthrough_deltas.is_empty();
+        self.last_structural = structural || has_passthrough;
+        for root in self.passthrough_paths.iter() {
+            changed.push(vec![root.clone()]);
+        }
+        (changed, structural || has_passthrough)
     }
 
     /// Fire any steps whose inputs overlap with the changed paths.
@@ -839,8 +931,8 @@ impl Engine {
                     all_step_deltas.push((path.clone(), value.clone()));
                 }
 
-                let (newly_changed, structural) = apply_projections_to(
-                    &mut self.state, &self.schema, &projections);
+                let (newly_changed, structural) = self.apply_projections(
+                    &projections);
                 any_structural |= structural;
 
                 // Cascade: find downstream steps triggered by this step's output
@@ -1022,9 +1114,9 @@ impl Engine {
         for name in &existing_names {
             // If process name contains dots, check if its parent state exists
             if let Some(dot_pos) = name.rfind('.') {
-                let parent_path: Vec<String> = name[..dot_pos]
+                let parent_path: Vec<Key> = name[..dot_pos]
                     .split('.')
-                    .map(|s| s.to_string())
+                    .map(|s| Key::from(s))
                     .collect();
                 if self.state.get_path(&parent_path).is_none() {
                     to_remove.push(name.clone());
@@ -1051,7 +1143,7 @@ impl Engine {
     fn scan_for_processes(
         &self,
         map: &prism_schema::StateMap,
-        parent_path: &[String],
+        parent_path: &[Key],
         registry: &ProcessRegistry,
         results: &mut Vec<(String, ProcessSpec, ProcessNode)>,
     ) {
@@ -1251,7 +1343,7 @@ mod tests {
         assert_eq!(engine.time(), 3.0);
 
         let level = engine
-            .get(&["level".to_string()])
+            .get(&[Key::from("level")])
             .and_then(|v| v.as_f64())
             .unwrap();
         // After 3 ticks at rate 1.1: 1.0 * 1.1 * 1.1 * 1.1 ≈ 1.331

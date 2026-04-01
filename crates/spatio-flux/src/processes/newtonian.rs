@@ -234,16 +234,14 @@ impl fmt::Debug for NewtonianParticles {
 
 /// Extract mass from particle value (sub_masses sum or mass field).
 fn particle_mass(particle: &Value) -> f32 {
-    let m = particle.as_map();
-    let sub_total: f64 = m
-        .and_then(|m| m.get("sub_masses"))
+    let sub_total: f64 = particle.get_field("sub_masses")
         .and_then(|v| v.as_map())
         .map(|sm| sm.values().filter_map(|v| v.as_f64()).sum())
         .unwrap_or(0.0);
     if sub_total > 0.0 {
         sub_total as f32
     } else {
-        m.and_then(|m| m.get("mass"))
+        particle.get_field("mass")
             .and_then(|v| v.as_f64())
             .unwrap_or(1.0) as f32
     }
@@ -252,8 +250,7 @@ fn particle_mass(particle: &Value) -> f32 {
 /// Extract position from particle value.
 fn particle_pos(particle: &Value) -> (f32, f32) {
     particle
-        .as_map()
-        .and_then(|m| m.get("position"))
+        .get_field("position")
         .and_then(|v| v.as_list())
         .map(|l| {
             (
@@ -267,8 +264,7 @@ fn particle_pos(particle: &Value) -> (f32, f32) {
 /// Extract velocity from particle value.
 fn particle_vel(particle: &Value) -> (f32, f32) {
     particle
-        .as_map()
-        .and_then(|m| m.get("velocity"))
+        .get_field("velocity")
         .and_then(|v| v.as_list())
         .map(|l| {
             (
@@ -294,8 +290,7 @@ impl Process for NewtonianParticles {
 
     fn update(&self, state: &Value, interval: f64) -> Update {
         let particles = match state
-            .as_map()
-            .and_then(|m| m.get("particles"))
+            .get_field("particles")
             .and_then(|v| v.as_map())
         {
             Some(p) => p,
@@ -345,7 +340,7 @@ impl Process for NewtonianParticles {
             let pos = particle_pos(particle);
             let vel = particle_vel(particle);
 
-            if world.body_map.contains_key(pid) {
+            if world.body_map.contains_key(pid.as_str()) {
                 world.update_particle(pid, pos, vel, mass, radius);
             } else {
                 world.add_particle(
@@ -366,10 +361,10 @@ impl Process for NewtonianParticles {
 
 
         // Extract updated positions and velocities
-        let mut result: IndexMap<String, Value> = IndexMap::new();
+        let mut result: IndexMap<prism_schema::Key, Value> = IndexMap::new();
 
         for (pid, particle) in particles {
-            let &(body_handle, _) = match world.body_map.get(pid) {
+            let &(body_handle, _) = match world.body_map.get(pid.as_str()) {
                 Some(h) => h,
                 None => continue,
             };
@@ -381,29 +376,28 @@ impl Process for NewtonianParticles {
             let new_radius = radius_from_mass(pid_mass, DEFAULT_DENSITY);
 
             let old_radius = particle
-                .as_map()
-                .and_then(|m| m.get("radius"))
+                .get_field("radius")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(new_radius);
             let radius_delta = new_radius - old_radius;
 
-            let mut update = IndexMap::new();
+            let mut update: IndexMap<prism_schema::Key, Value> = IndexMap::new();
             update.insert(
-                "position".to_string(),
+                prism_schema::Key::from("position"),
                 Value::List(vec![
                     Value::float(pos.x as f64),
                     Value::float(pos.y as f64),
                 ]),
             );
             update.insert(
-                "velocity".to_string(),
+                prism_schema::Key::from("velocity"),
                 Value::List(vec![
                     Value::float(vel.x as f64),
                     Value::float(vel.y as f64),
                 ]),
             );
             if radius_delta.abs() > 1e-12 {
-                update.insert("radius".to_string(), Value::float(radius_delta));
+                update.insert(prism_schema::Key::from("radius"), Value::float(radius_delta));
             }
 
             result.insert(pid.clone(), Value::Map(update));

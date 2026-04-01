@@ -46,7 +46,7 @@ fn run_fixture(name: &str, duration: f64) {
             // Report final state
             let state = engine.state();
             if let Some(map) = state.as_map() {
-                let keys: Vec<&String> = map.keys().collect();
+                let keys: Vec<&prism_schema::Key> = map.keys().collect();
                 println!("  OK — t={:.1}, state keys: {keys:?}", engine.time());
             }
         }

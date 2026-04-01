@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
 
-use prism_bigraph::{Process, Schema, Update, Value};
+use prism_bigraph::{Key, Process, Schema, Update, Value};
 
 use super::fba::{load_model_cached, CobraModel, FbaSolver};
 
@@ -105,13 +105,8 @@ impl Process for DynamicFBA {
     }
 
     fn update(&self, state: &Value, interval: f64) -> Update {
-        let map = match state.as_map() {
-            Some(m) => m,
-            None => return Update::Noop,
-        };
-
-        let biomass = map
-            .get("biomass")
+        let biomass = state
+            .get_field("biomass")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
 
@@ -119,7 +114,7 @@ impl Process for DynamicFBA {
             return Update::Noop;
         }
 
-        let substrates = match map.get("substrates").and_then(|v| v.as_map()) {
+        let substrates = match state.get_field("substrates").and_then(|v| v.as_map()) {
             Some(s) => s,
             None => return Update::Noop,
         };
@@ -149,7 +144,7 @@ impl Process for DynamicFBA {
         for (substrate, rxn_id) in &self.substrate_reactions {
             if let Some(idx) = self.model.reaction_index(rxn_id) {
                 let conc = substrates
-                    .get(substrate)
+                    .get(substrate.as_str())
                     .and_then(|v| v.as_f64())
                     .unwrap_or(0.0);
                 let bound = self.uptake_bound(substrate, conc);
@@ -178,12 +173,12 @@ impl Process for DynamicFBA {
 
         // Output DELTAS for substrates and biomass.
         // Engine uses additive apply for numeric types.
-        let mut result: IndexMap<String, Value> = IndexMap::new();
+        let mut result: IndexMap<Key, Value> = IndexMap::new();
         for (substrate, rxn_id) in &self.substrate_reactions {
             if let Some(idx) = self.model.reaction_index(rxn_id) {
                 let flux = solution.fluxes[idx]; // mmol/gDW/h (negative=uptake)
                 let delta = flux * biomass * dt;
-                result.insert(substrate.clone(), Value::float(delta));
+                result.insert(Key::from(substrate.as_str()), Value::float(delta));
             }
         }
         // Non-managed substrates get zero delta
@@ -232,7 +227,7 @@ pub fn dfba_from_config(config: &Value) -> DynamicFBA {
             if let Some(list) = params.as_list() {
                 let km = list.first().and_then(|v| v.as_f64()).unwrap_or(0.5);
                 let vmax = list.get(1).and_then(|v| v.as_f64()).unwrap_or(1.0);
-                kinetic_params.insert(substrate.clone(), KineticParam { km, vmax });
+                kinetic_params.insert(substrate.to_string(), KineticParam { km, vmax });
             }
         }
     }
@@ -242,7 +237,7 @@ pub fn dfba_from_config(config: &Value) -> DynamicFBA {
     if let Some(sr) = map.get("substrate_update_reactions").and_then(|v| v.as_map()) {
         for (substrate, rxn_id) in sr {
             if let Some(rxn) = rxn_id.as_str() {
-                substrate_reactions.insert(substrate.clone(), rxn.to_string());
+                substrate_reactions.insert(substrate.to_string(), rxn.to_string());
             }
         }
     }
@@ -254,7 +249,7 @@ pub fn dfba_from_config(config: &Value) -> DynamicFBA {
             if let Some(bmap) = bound_val.as_map() {
                 let lower = bmap.get("lower").and_then(|v| v.as_f64());
                 let upper = bmap.get("upper").and_then(|v| v.as_f64());
-                config_bounds.insert(rxn_id.clone(), (lower, upper));
+                config_bounds.insert(rxn_id.to_string(), (lower, upper));
             }
         }
     }

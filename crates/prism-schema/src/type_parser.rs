@@ -6,6 +6,7 @@
 use indexmap::IndexMap;
 
 use crate::schema::Schema;
+use crate::value::Key;
 
 /// Parse a bigraph-schema type expression string into a Schema.
 ///
@@ -181,7 +182,7 @@ fn parse_array_type(params: &str) -> Schema {
 pub fn parse_tree_expression(expr: &str) -> Schema {
     // Split on '|' at top level only (not inside brackets like array[6|5,float])
     let parts = split_top_level(expr, '|');
-    let branches: indexmap::IndexMap<String, Schema> = parts
+    let branches: indexmap::IndexMap<Key, Schema> = parts
         .iter()
         .filter_map(|pair| {
             // Split on first ':' at top level for name:type
@@ -189,13 +190,13 @@ pub fn parse_tree_expression(expr: &str) -> Schema {
             if colon_parts.len() < 2 {
                 return None;
             }
-            let name = colon_parts[0].trim().to_string();
+            let name = colon_parts[0].trim();
             let type_str = colon_parts[1..].join(":"); // rejoin in case type has colons
             let type_str = type_str.trim();
             if name.is_empty() {
                 return None;
             }
-            Some((name, parse_type_expression(type_str)))
+            Some((Key::from(name), parse_type_expression(type_str)))
         })
         .collect();
 
@@ -207,13 +208,13 @@ pub fn parse_tree_expression(expr: &str) -> Schema {
 }
 
 /// Parse a port schema like "x:integer|y:string" into an IndexMap.
-fn parse_port_schema(expr: &str) -> IndexMap<String, Schema> {
+fn parse_port_schema(expr: &str) -> IndexMap<Key, Schema> {
     let parts = split_top_level(expr.trim(), '|');
     parts.iter()
         .filter_map(|part| {
             let kv = split_top_level(part.trim(), ':');
             if kv.len() >= 2 {
-                let name = kv[0].trim().to_string();
+                let name = Key::from(kv[0].trim());
                 let type_str = kv[1..].join(":");
                 Some((name, parse_type_expression(type_str.trim())))
             } else {
