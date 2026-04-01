@@ -7,6 +7,8 @@ digraph {
     // State nodes
     state_biomass [shape=circle, style=filled, fillcolor="#E4CF77", color="#b1a15c", penwidth=1, label="biomass", fontsize=12];
     state_substrates [shape=circle, style=filled, fillcolor="#E8E8E8", color="#b4b4b4", penwidth=1, label="substrates", fontsize=12];
+    state_substrates__acetate [shape=circle, style=filled, fillcolor="#E8E8E8", color="#b4b4b4", penwidth=1, label="acetate", fontsize=12];
+    state_substrates__glucose [shape=circle, style=filled, fillcolor="#E8E8E8", color="#b4b4b4", penwidth=1, label="glucose", fontsize=12];
 
     // Process nodes
     proc_kinetics [shape=box, style=filled, fillcolor="#D9A4A6", color="#D9A4A6", penwidth=0, label="kinetics", fontsize=12];
@@ -16,4 +18,7 @@ digraph {
     state_biomass -> proc_kinetics [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
 
     // Hierarchy
+    state_substrates -> state_substrates__acetate [arrowhead=none, penwidth=2];
+    state_substrates -> state_substrates__glucose [arrowhead=none, penwidth=2];
+    // Nested process hierarchy
 }

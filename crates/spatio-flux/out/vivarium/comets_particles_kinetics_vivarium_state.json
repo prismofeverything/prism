@@ -94,5 +94,154 @@
       },
       "sub_masses": {}
     }
+  },
+  "diffusion": {
+    "address": {
+      "protocol": "local",
+      "data": "DiffusionAdvection"
+    },
+    "config": {
+      "bounds": [
+        50.0,
+        50.0
+      ],
+      "n_bins": [
+        5,
+        5
+      ],
+      "diffusion_coeffs": {
+        "glucose": 0.1,
+        "acetate": 0.1
+      },
+      "default_diffusion_rate": 0.1,
+      "max_dt": 0.1,
+      "advection_coeffs": {},
+      "boundary_conditions": {},
+      "clip_negative": true
+    },
+    "inputs": {
+      "fields": [
+        "fields"
+      ]
+    },
+    "outputs": {
+      "fields": [
+        "fields"
+      ]
+    }
+  },
+  "brownian_movement": {
+    "address": {
+      "protocol": "local",
+      "data": "BrownianMovement"
+    },
+    "config": {
+      "interval": 1.0,
+      "bounds": [
+        50.0,
+        50.0
+      ],
+      "diffusion_rate": 0.5,
+      "advection_rate": [
+        0.0,
+        0.0
+      ]
+    },
+    "inputs": {
+      "particles": [
+        "particles"
+      ]
+    },
+    "outputs": {
+      "particles": [
+        "particles"
+      ]
+    }
+  },
+  "enforce_boundaries": {
+    "address": {
+      "protocol": "local",
+      "data": "ManageBoundaries"
+    },
+    "config": {
+      "buffer": 0.0001,
+      "bounds": [
+        50.0,
+        50.0
+      ]
+    },
+    "inputs": {
+      "particles": [
+        "particles"
+      ]
+    },
+    "outputs": {
+      "particles": [
+        "particles"
+      ]
+    }
+  },
+  "particle_exchange": {
+    "address": {
+      "protocol": "local",
+      "data": "ParticleExchange"
+    },
+    "config": {
+      "bounds": [
+        50.0,
+        50.0
+      ],
+      "n_bins": [
+        5,
+        5
+      ]
+    },
+    "inputs": {
+      "particles": [
+        "particles"
+      ],
+      "fields": [
+        "fields"
+      ]
+    },
+    "outputs": {
+      "particles": [
+        "particles"
+      ],
+      "fields": [
+        "fields"
+      ]
+    }
+  },
+  "particle_division": {
+    "address": {
+      "protocol": "local",
+      "data": "ParticleDivision"
+    },
+    "config": {
+      "division_mass_threshold": 5.0,
+      "division_jitter": 0.001
+    },
+    "inputs": {
+      "particles": [
+        "particles"
+      ]
+    },
+    "outputs": {
+      "particles": [
+        "particles"
+      ]
+    }
+  },
+  "emitter": {
+    "address": {
+      "protocol": "local",
+      "data": "RAMEmitter"
+    },
+    "config": {
+      "emit": {}
+    },
+    "inputs": {},
+    "outputs": {}
   }
 }

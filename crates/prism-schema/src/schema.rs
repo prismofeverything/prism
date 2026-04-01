@@ -1047,7 +1047,7 @@ impl fmt::Display for Schema {
 ///
 /// These are core process-bigraph operations for structural state changes
 /// like particle division, boundary spawning, and process composition.
-fn apply_add_remove(result: &mut crate::value::StateMap, update: &crate::value::StateMap) {
+pub fn apply_add_remove(result: &mut crate::value::StateMap, update: &crate::value::StateMap) {
     // _remove: delete listed keys
     if let Some(Value::List(keys)) = update.get("_remove") {
         for key in keys {

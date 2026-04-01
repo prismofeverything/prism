@@ -21,9 +21,9 @@ digraph {
     proc_diffusion [shape=box, style=filled, fillcolor="#D1BE56", color="#D1BE56", penwidth=0, label="diffusion", fontsize=12];
 
     // Wiring
-    state_fields__glucose__0__0 -> proc_dFBA_0_0_ [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
     state_fields__dissolved_biomass__0__0 -> proc_dFBA_0_0_ [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
     state_fields__acetate__0__0 -> proc_dFBA_0_0_ [style=dashed, penwidth=1, dir=both, label="substrates.acetate", fontsize=10];
+    state_fields__glucose__0__0 -> proc_dFBA_0_0_ [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
     state_fields -> proc_diffusion [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
 
     // Hierarchy

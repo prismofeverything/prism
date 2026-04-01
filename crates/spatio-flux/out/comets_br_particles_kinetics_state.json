@@ -207,12 +207,13 @@
   },
   "particles": {
     "p0": {
-      "id": "bQMvuoKj",
+      "id": "fRHDfgvK",
       "position": [
         25.0,
         40.0
       ],
       "mass": 0.1,
+      "radius": 1.4567312407894388,
       "local": {
         "glucose": 0.0,
         "acetate": 0.0

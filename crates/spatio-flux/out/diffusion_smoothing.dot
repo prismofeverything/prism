@@ -6,6 +6,8 @@ digraph {
 
     // State nodes
     state_fields [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="fields", fontsize=12];
+    state_fields__acetate [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="acetate", fontsize=12];
+    state_fields__glucose [shape=circle, style=filled, fillcolor="#F4E6B8", color="#beb38f", penwidth=1, label="glucose", fontsize=12];
 
     // Process nodes
     proc_diffusion [shape=box, style=filled, fillcolor="#D1BE56", color="#D1BE56", penwidth=0, label="diffusion", fontsize=12];
@@ -14,4 +16,7 @@ digraph {
     state_fields -> proc_diffusion [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
 
     // Hierarchy
+    state_fields -> state_fields__acetate [arrowhead=none, penwidth=2];
+    state_fields -> state_fields__glucose [arrowhead=none, penwidth=2];
+    // Nested process hierarchy
 }

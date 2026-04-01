@@ -496,11 +496,11 @@ mod tests {
         assert!(doc.processes.contains_key("monod_kinetics"));
         assert_eq!(doc.processes["monod_kinetics"].class_name, "MonodKinetics");
 
-        // State should have fields but not the process
+        // State should have fields and process specs (process specs are active state)
         let state_map = doc.state.as_map().unwrap();
         assert!(state_map.contains_key("fields"));
         assert!(state_map.contains_key("global_time"));
-        assert!(!state_map.contains_key("monod_kinetics"));
+        assert!(state_map.contains_key("monod_kinetics"));
 
         // Schema should be preserved
         assert!(doc.schema.is_some());

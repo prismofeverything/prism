@@ -1,12 +1,13 @@
 {
   "particles": {
     "p0": {
-      "id": "Jf9ZQOgy",
+      "id": "ZDsk5YoX",
       "position": [
         25.0,
         25.0
       ],
       "mass": 0.5,
+      "radius": 3.2573500793527996,
       "local": {},
       "exchange": {}
     }

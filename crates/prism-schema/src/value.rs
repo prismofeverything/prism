@@ -291,6 +291,26 @@ impl Value {
         Some(current)
     }
 
+    /// Get a mutable reference to a value at a path.
+    pub fn get_path_mut(&mut self, path: &[Key]) -> Option<&mut Value> {
+        let mut current = self;
+        for key in path {
+            match current {
+                Self::Map(map) => current = map.get_mut(key)?,
+                Self::Struct { layout, values } => {
+                    let idx = layout.index_of(key)?;
+                    current = values.get_mut(idx)?;
+                }
+                Self::List(list) => {
+                    let idx: usize = key.parse().ok()?;
+                    current = list.get_mut(idx)?;
+                }
+                _ => return None,
+            }
+        }
+        Some(current)
+    }
+
     /// Set a value at a path, creating intermediate maps as needed.
     /// Numeric string keys index into existing lists (lists are not
     /// auto-created, but existing list elements can be updated).

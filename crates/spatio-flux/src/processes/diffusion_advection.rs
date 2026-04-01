@@ -313,13 +313,13 @@ mod tests {
             "fields",
             Value::tree([(
                 "test",
-                Value::List(field.into_iter().map(Value::float).collect()),
+                Value::List(field.iter().copied().map(Value::float).collect()),
             )]),
         )]);
 
         let update = proc.update(&state, 1.0);
         let result = update.into_value().unwrap();
-        let result_field: Vec<f64> = result
+        let delta_field: Vec<f64> = result
             .get_path(&["fields".into(), "test".into()])
             .unwrap()
             .as_list()
@@ -328,7 +328,11 @@ mod tests {
             .filter_map(|v| v.as_f64())
             .collect();
 
-        let final_mass: f64 = result_field.iter().sum();
+        // The process outputs deltas, so apply them to get the final field
+        let final_field: Vec<f64> = field.iter().zip(delta_field.iter())
+            .map(|(orig, delta)| orig + delta)
+            .collect();
+        let final_mass: f64 = final_field.iter().sum();
         // With Neumann BCs, mass should be approximately conserved
         assert!(
             (initial_mass - final_mass).abs() < 1.0,

@@ -14,7 +14,7 @@
     "ParticleDivision",
     "ParticleExchange"
   ],
-  "runtime_ms": 7793,
+  "runtime_ms": 8093,
   "spatial_field_names": [
     "acetate",
     "dissolved biomass",

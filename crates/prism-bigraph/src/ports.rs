@@ -265,7 +265,7 @@ mod tests {
             ])),
         ]);
 
-        let iface = Interface {
+        let mut iface = Interface {
             inputs: IndexMap::from([
                 ("glc".to_string(), vec![Key::from("cell"), Key::from("glucose")]),
                 ("energy".to_string(), vec![Key::from("cell"), Key::from("atp")]),
@@ -275,7 +275,10 @@ mod tests {
                 ("energy".to_string(), vec![Key::from("cell"), Key::from("atp")]),
             ]),
             output_schemas: IndexMap::new(),
+            view_template: None,
+            simple_inputs: false,
         };
+        iface.init_view_template();
 
         let view = iface.view(&state);
         let map = view.as_map().unwrap();

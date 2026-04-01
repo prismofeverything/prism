@@ -605,7 +605,6 @@ impl Engine {
 
         let end_time = self.time + duration;
         let mut iter_count = 0u64;
-
         while self.time < end_time {
             let next_time = self.next_fire_time(end_time);
             match next_time {
@@ -1100,8 +1099,15 @@ impl Engine {
         let mut to_add: Vec<(String, ProcessSpec, ProcessNode)> = Vec::new();
         let mut to_remove: Vec<String> = Vec::new();
 
+        // Deduplicate changed paths to avoid scanning the same subtree repeatedly.
+        // Multiple agents may output to the same path (e.g. "environment"), which
+        // without dedup causes O(N²) clone+scan work.
+        let mut unique_paths: Vec<&Path> = changed_paths.iter().collect();
+        unique_paths.sort();
+        unique_paths.dedup();
+
         // Check each changed path for new process nodes underneath
-        for path in changed_paths {
+        for path in unique_paths {
             let state_at_path = self.state.get_path(path).cloned();
             if let Some(Value::Map(map)) = state_at_path {
                 // Scan children for process specs (maps with "address" key)
@@ -1259,10 +1265,31 @@ fn apply_projections_to(
     let mut changed = Vec::new();
     let mut structural = false;
     for (path, value, port_schema) in projections {
-        if !structural {
-            if let Some(map) = value.as_map() {
-                if map.contains_key("_add") || map.contains_key("_remove") {
-                    structural = true;
+        let has_add_remove = value.as_map()
+            .map(|m| m.contains_key("_add") || m.contains_key("_remove"))
+            .unwrap_or(false);
+        if has_add_remove {
+            structural = true;
+            // Fast path: apply _add/_remove in-place without cloning the target map.
+            if let Some(upd_map) = value.as_map() {
+                if let Some(Value::Map(target)) = state.get_path_mut(path) {
+                    prism_schema::apply_add_remove(target, upd_map);
+                    // Apply any non-structural keys (regular deltas alongside _add/_remove)
+                    let resolve_schema = match port_schema {
+                        Some(s) if !matches!(s, Schema::Any) => s,
+                        _ => &schema.schema_at_path(path),
+                    };
+                    let val_schema = match resolve_schema {
+                        Schema::Map { value: vs } => vs.as_ref(),
+                        _ => &Schema::Any,
+                    };
+                    for (k, v) in upd_map {
+                        if k == "_add" || k == "_remove" { continue; }
+                        let existing = target.get(k).cloned().unwrap_or(Value::None);
+                        target.insert(k.clone(), val_schema.apply_update(&existing, v));
+                    }
+                    changed.push(path.clone());
+                    continue;
                 }
             }
         }
@@ -1326,8 +1353,8 @@ mod tests {
             "growth",
             "growth",
             Value::None,
-            IndexMap::from([("level".to_string(), vec!["level".to_string()])]),
-            IndexMap::from([("level".to_string(), vec!["level".to_string()])]),
+            IndexMap::from([("level".to_string(), vec![Key::from("level")])]),
+            IndexMap::from([("level".to_string(), vec![Key::from("level")])]),
             1.0,
         );
 

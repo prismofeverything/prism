@@ -9,7 +9,7 @@
   "process_types": [
     "MonodKinetics"
   ],
-  "runtime_ms": 1,
+  "runtime_ms": 0,
   "spatial_field_names": [],
   "status": "ok"
 }

@@ -4,6 +4,6 @@ pub mod type_parser;
 pub mod value;
 
 pub use registry::TypeRegistry;
-pub use schema::Schema;
+pub use schema::{Schema, apply_add_remove};
 pub use type_parser::{parse_type_expression, parse_tree_expression};
 pub use value::{FieldIter, Key, Path, StateMap, StructLayout, Value};
