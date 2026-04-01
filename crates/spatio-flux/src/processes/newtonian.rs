@@ -159,6 +159,11 @@ impl RapierWorld {
     }
 
     fn step(&mut self, gravity: &Vector<f32>, dt: f32, n_substeps: usize) {
+        // Wake all bodies — we reset state from external source each tick,
+        // so rapier's sleep heuristic is unreliable.
+        for (_, body) in self.rigid_body_set.iter_mut() {
+            body.wake_up(true);
+        }
         let sub_dt = dt / n_substeps as f32;
         let integration_parameters = IntegrationParameters {
             dt: sub_dt,
@@ -341,10 +346,8 @@ impl Process for NewtonianParticles {
             let vel = particle_vel(particle);
 
             if world.body_map.contains_key(pid) {
-                // Update existing: sync position, velocity, mass/radius from state
                 world.update_particle(pid, pos, vel, mass, radius);
             } else {
-                // New particle
                 world.add_particle(
                     pid,
                     pos,
@@ -360,6 +363,7 @@ impl Process for NewtonianParticles {
         // Step physics
         let gravity = vector![self.gravity.0 as f32, self.gravity.1 as f32];
         world.step(&gravity, interval as f32, self.substeps);
+
 
         // Extract updated positions and velocities
         let mut result: IndexMap<String, Value> = IndexMap::new();
