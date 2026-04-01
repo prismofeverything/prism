@@ -11,7 +11,7 @@ from process_bigraph.processes.growth_division import grow_divide_agent
 def run_bench(duration, core):
     initial_mass = 1.0
     grow_divide = grow_divide_agent(
-        {'grow': {'rate': 0.03}},
+        {'grow': {'rate': 0.1}},
         {},
         ['environment', '0'])
 
@@ -37,7 +37,7 @@ def run_bench(duration, core):
 def main():
     core = allocate_core()
     print("duration,n_agents,wall_ms")
-    for dur in [10, 25, 50, 75, 100, 125, 150, 170]:
+    for dur in [5, 10, 20, 30, 40, 50, 55, 60, 65, 70, 75]:
         ms, n = run_bench(float(dur), core)
         print(f"{dur},{n},{ms:.0f}")
         print(f"  t={dur}: {n} agents, {ms:.0f}ms", file=sys.stderr)

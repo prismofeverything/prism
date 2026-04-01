@@ -74,7 +74,7 @@
 <text text-anchor="middle" x="584.5" y="-757.86" font-family="Times,serif" font-size="12.00">particle_exchange</text>
 </g>
 <!-- state_fields&#45;&gt;proc_particle_exchange -->
-<g id="edge9" class="edge">
+<g id="edge8" class="edge">
 <title>state_fields&#45;&gt;proc_particle_exchange</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M797.82,-912.33C760.03,-897.23 701.19,-870.87 656.5,-837.91 636.7,-823.31 617.71,-802.9 604.2,-786.92"/>
 <polygon fill="black" stroke="black" points="796.84,-915.71 807.43,-916.11 799.4,-909.19 796.84,-915.71"/>
@@ -124,7 +124,7 @@
 <text text-anchor="middle" x="835.5" y="-233.35" font-family="Times,serif" font-size="12.00">dFBA[*] (x100)</text>
 </g>
 <!-- state_fields__acetate__0__0&#45;&gt;proc_dFBA_0_0_ -->
-<g id="edge6" class="edge">
+<g id="edge4" class="edge">
 <title>state_fields__acetate__0__0&#45;&gt;proc_dFBA_0_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M717.62,-377.52C718.19,-354.94 722.07,-323 737.5,-300 748.99,-282.87 766.92,-269.45 784.32,-259.51"/>
 <polygon fill="black" stroke="black" points="714.12,-377.77 717.57,-387.78 721.12,-377.8 714.12,-377.77"/>
@@ -154,7 +154,7 @@
 <path fill="none" stroke="black" stroke-width="2" d="M835.5,-565.31C835.5,-531.76 835.5,-457.78 835.5,-424.17"/>
 </g>
 <!-- state_fields__dissolved_biomass__0__0&#45;&gt;proc_dFBA_0_0_ -->
-<g id="edge4" class="edge">
+<g id="edge6" class="edge">
 <title>state_fields__dissolved_biomass__0__0&#45;&gt;proc_dFBA_0_0_</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M835.5,-377.28C835.5,-346.2 835.5,-296.06 835.5,-265.02"/>
 <polygon fill="black" stroke="black" points="832,-377.66 835.5,-387.66 839,-377.66 832,-377.66"/>
@@ -223,7 +223,7 @@
 <text text-anchor="middle" x="396.5" y="-858.91" font-family="Times,serif" font-size="10.00">particles</text>
 </g>
 <!-- state_particles&#45;&gt;proc_particle_exchange -->
-<g id="edge8" class="edge">
+<g id="edge9" class="edge">
 <title>state_particles&#45;&gt;proc_particle_exchange</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M372.96,-909.12C412.78,-893.89 469.07,-869.24 512.5,-837.91 532.45,-823.52 551.44,-803.1 564.9,-787.06"/>
 <polygon fill="black" stroke="black" points="371.59,-905.9 363.47,-912.7 374.06,-912.45 371.59,-905.9"/>

@@ -560,36 +560,93 @@ impl Engine {
         let mut iter_count = 0u64;
 
         while self.time < end_time {
-            // Find ALL processes that fire at the next time point
             let next_time = self.next_fire_time(end_time);
-
             match next_time {
                 Some(fire_time) => {
                     self.time = fire_time;
-
-                    // Collect all processes firing at this time
                     let firing: Vec<String> = self.fronts
                         .iter()
                         .filter(|(_, front)| (front.next_time - fire_time).abs() < 1e-10)
                         .map(|(name, _)| name.clone())
                         .collect();
 
-                    // Run all of them and collect changed paths
                     let mut all_changed = Vec::new();
                     for name in &firing {
                         let changed = self.run_process(name);
                         all_changed.extend(changed);
                     }
 
-                    // Only scan for new processes when structural changes
-                    // (_add/_remove) occurred — skip on pure value updates.
-                    // The structural flag is set during trigger_steps below.
-                    // Process outputs rarely contain _add/_remove directly,
-                    // but composites might, so always discover after processes.
                     self.discover_processes(&all_changed);
-
-                    // Trigger steps ONCE after all processes at this time have run
                     self.trigger_steps(&all_changed);
+
+                    iter_count += 1;
+                    if iter_count > 100_000 {
+                        eprintln!("[engine] SAFETY: breaking after {iter_count} iterations at t={}", self.time);
+                        self.time = end_time;
+                        break;
+                    }
+                }
+                None => { self.time = end_time; }
+            }
+        }
+    }
+
+    /// Run and return accumulated deltas at each modified path.
+    /// Used by Composite to bypass snapshot+diff: the raw deltas are
+    /// mapped through the bridge directly.
+    pub fn run_collecting(&mut self, duration: f64) -> IndexMap<Path, Value> {
+        let end_time = self.time + duration;
+        let mut iter_count = 0u64;
+        let mut accumulated: IndexMap<Path, Value> = IndexMap::new();
+
+        while self.time < end_time {
+            let next_time = self.next_fire_time(end_time);
+
+            match next_time {
+                Some(fire_time) => {
+                    self.time = fire_time;
+
+                    let firing: Vec<String> = self.fronts
+                        .iter()
+                        .filter(|(_, front)| (front.next_time - fire_time).abs() < 1e-10)
+                        .map(|(name, _)| name.clone())
+                        .collect();
+
+                    let mut all_changed = Vec::new();
+                    for name in &firing {
+                        let deltas = self.run_process_raw(name);
+                        for (path, value) in &deltas {
+                            // Accumulate: merge delta into existing accumulated value
+                            let existing = accumulated.get(path).cloned();
+                            match existing {
+                                Some(prev) => {
+                                    // For floats, add; for maps, merge; for lists, replace
+                                    let merged = Schema::Any.apply_update(&prev, value);
+                                    accumulated.insert(path.clone(), merged);
+                                }
+                                None => {
+                                    accumulated.insert(path.clone(), value.clone());
+                                }
+                            }
+                            all_changed.push(path.clone());
+                        }
+                    }
+
+                    if self.registry.is_some() {
+                        self.discover_processes(&all_changed);
+                    }
+                    let step_deltas = self.trigger_steps_raw(&all_changed);
+                    for (path, value) in &step_deltas {
+                        let existing = accumulated.get(path).cloned();
+                        match existing {
+                            Some(prev) => {
+                                accumulated.insert(path.clone(), Schema::Any.apply_update(&prev, value));
+                            }
+                            None => {
+                                accumulated.insert(path.clone(), value.clone());
+                            }
+                        }
+                    }
 
                     iter_count += 1;
                     if iter_count > 100_000 {
@@ -603,6 +660,46 @@ impl Engine {
                 }
             }
         }
+
+        accumulated
+    }
+
+    /// Like run_process but also returns the raw projections (path → delta).
+    fn run_process_raw(&mut self, name: &str) -> Vec<(Path, Value)> {
+        let interval = match self.fronts.get(name) {
+            Some(front) => front.interval,
+            None => return Vec::new(),
+        };
+
+        let input_state = match self.interfaces.get(name) {
+            Some(iface) => iface.view(&self.state),
+            None => return Vec::new(),
+        };
+
+        let update = match self.nodes.get(name) {
+            Some(ProcessNode::Process(p)) => p.update(&input_state, interval),
+            _ => return Vec::new(),
+        };
+
+        self.fronts.get_mut(name).unwrap().next_time += interval;
+
+        if let Some(update_value) = update.into_value() {
+            let projections = match self.interfaces.get(name) {
+                Some(iface) => iface.project(&update_value),
+                None => return Vec::new(),
+            };
+            apply_projections_to(&mut self.state, &self.schema, &projections);
+            projections.into_iter()
+                .map(|(path, value, _schema)| (path, value))
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn trigger_steps_raw(&mut self, changed_paths: &[Path]) -> Vec<(Path, Value)> {
+        let (_changes, deltas) = self.trigger_steps_impl(changed_paths);
+        deltas
     }
 
     /// Run a single tick: advance to the next event and process it.
@@ -640,29 +737,31 @@ impl Engine {
     /// Execute one process and apply its update. Returns changed paths.
     /// Does NOT trigger steps — caller is responsible for that.
     fn run_process(&mut self, name: &str) -> Vec<Path> {
-        let interface = match self.interfaces.get(name) {
-            Some(i) => i.clone(),
-            None => return Vec::new(),
-        };
         let interval = match self.fronts.get(name) {
             Some(front) => front.interval,
             None => return Vec::new(),
         };
 
-        let input_state = interface.view(&self.state);
+        // Build view and call process without cloning Interface.
+        // We borrow interfaces and nodes immutably, then state mutably via the free fn.
+        let input_state = match self.interfaces.get(name) {
+            Some(iface) => iface.view(&self.state),
+            None => return Vec::new(),
+        };
 
         let update = match self.nodes.get(name) {
             Some(ProcessNode::Process(p)) => p.update(&input_state, interval),
             _ => return Vec::new(),
         };
 
-        // Advance the schedule
         self.fronts.get_mut(name).unwrap().next_time += interval;
 
         if let Some(update_value) = update.into_value() {
-            let projections = interface.project(&update_value);
-            // Processes output deltas — apply directly, no diff needed
-            let (changed, _structural) = self.apply_projections(&projections);
+            let projections = match self.interfaces.get(name) {
+                Some(iface) => iface.project(&update_value),
+                None => return Vec::new(),
+            };
+            let (changed, _) = apply_projections_to(&mut self.state, &self.schema, &projections);
             changed
         } else {
             Vec::new()
@@ -675,46 +774,23 @@ impl Engine {
     /// process discovery. Skipping discovery on non-structural ticks is a
     /// major performance win.
     fn apply_projections(&mut self, projections: &[(Path, Value, Option<Schema>)]) -> (Vec<Path>, bool) {
-        let mut changed = Vec::new();
-        let mut structural = false;
-        for (path, value, port_schema) in projections {
-            // Detect structural changes (_add/_remove in the update value)
-            if !structural {
-                if let Some(map) = value.as_map() {
-                    if map.contains_key("_add") || map.contains_key("_remove") {
-                        structural = true;
-                    }
-                }
-            }
-            let current = self.state.get_path(path).cloned().unwrap_or(Value::None);
-            // Use port-specific schema if it's more specific than Any.
-            // Otherwise walk the state schema for this path.
-            let new_value = match port_schema {
-                Some(schema) if !matches!(schema, Schema::Any) => {
-                    schema.apply_update(&current, value)
-                }
-                _ => {
-                    let path_schema = self.schema.schema_at_path(path);
-                    path_schema.apply_update(&current, value)
-                }
-            };
-            self.state.set_path(path, new_value);
-            changed.push(path.clone());
-        }
-        (changed, structural)
+        apply_projections_to(&mut self.state, &self.schema, projections)
     }
 
     /// Fire any steps whose inputs overlap with the changed paths.
-    fn trigger_steps(&mut self, changed_paths: &[Path]) {
+    fn trigger_steps(&mut self, changed_paths: &[Path]) -> Vec<Path> {
+        let (changes, _deltas) = self.trigger_steps_impl(changed_paths);
+        changes
+    }
+
+    /// Fire steps and return both changed paths AND raw (path, delta) projections.
+    fn trigger_steps_impl(&mut self, changed_paths: &[Path]) -> (Vec<Path>, Vec<(Path, Value)>) {
         let mut triggered: Vec<String> = Vec::new();
 
         for path in changed_paths {
-            // Check exact path matches
             if let Some(steps) = self.step_triggers.get(path) {
                 triggered.extend(steps.iter().cloned());
             }
-            // Check prefix matches (a change to "cell.glucose" should
-            // trigger a step wired to "cell")
             for i in 1..path.len() {
                 let prefix = path[..i].to_vec();
                 if let Some(steps) = self.step_triggers.get(&prefix) {
@@ -723,22 +799,18 @@ impl Engine {
             }
         }
 
-        // Deduplicate and sort by priority
         triggered.sort();
         triggered.dedup();
         triggered.sort_by(|a, b| {
             let pa = self.specs.get(a).map(|s| s.priority).unwrap_or(0.0);
             let pb = self.specs.get(b).map(|s| s.priority).unwrap_or(0.0);
-            pb.partial_cmp(&pa).unwrap_or(std::cmp::Ordering::Equal) // higher first
+            pb.partial_cmp(&pa).unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        // Run triggered steps with cascade: a step's output can trigger
-        // downstream steps, but each step runs at most once per cycle.
-        // Process discovery is deferred until after all steps complete
-        // to avoid adding new steps mid-cascade.
         let mut already_run = HashSet::new();
         let mut queue = triggered;
         let mut all_step_changes = Vec::new();
+        let mut all_step_deltas: Vec<(Path, Value)> = Vec::new();
         let mut any_structural = false;
 
         while let Some(step_name) = queue.pop() {
@@ -747,12 +819,10 @@ impl Engine {
             }
             already_run.insert(step_name.clone());
 
-            let interface = match self.interfaces.get(&step_name) {
-                Some(i) => i.clone(),
+            let input_state = match self.interfaces.get(&step_name) {
+                Some(iface) => iface.view(&self.state),
                 None => continue,
             };
-
-            let input_state = interface.view(&self.state);
 
             let update = match self.nodes.get(&step_name) {
                 Some(ProcessNode::Step(s)) => s.update(&input_state),
@@ -760,8 +830,17 @@ impl Engine {
             };
 
             if let Some(update_value) = update.into_value() {
-                let projections = interface.project(&update_value);
-                let (newly_changed, structural) = self.apply_projections(&projections);
+                let projections = match self.interfaces.get(&step_name) {
+                    Some(iface) => iface.project(&update_value),
+                    None => continue,
+                };
+
+                for (path, value, _schema) in &projections {
+                    all_step_deltas.push((path.clone(), value.clone()));
+                }
+
+                let (newly_changed, structural) = apply_projections_to(
+                    &mut self.state, &self.schema, &projections);
                 any_structural |= structural;
 
                 // Cascade: find downstream steps triggered by this step's output
@@ -773,7 +852,6 @@ impl Engine {
                             }
                         }
                     }
-                    // Also check prefix matches
                     for i in 1..path.len() {
                         let prefix = path[..i].to_vec();
                         if let Some(steps) = self.step_triggers.get(&prefix) {
@@ -790,12 +868,11 @@ impl Engine {
             }
         }
 
-        // Only discover new processes when structural changes (_add/_remove)
-        // occurred. Most ticks only update positions/masses — skipping
-        // discovery on those saves significant overhead.
         if any_structural && !all_step_changes.is_empty() {
             self.discover_processes(&all_step_changes);
         }
+
+        (all_step_changes, all_step_deltas)
     }
 
     /// Dynamically add a process to the running engine.
@@ -1077,6 +1154,35 @@ impl Engine {
             }
         }
     }
+}
+
+/// Apply projections to state — extracted as free function to avoid
+/// borrow conflicts (callers can hold references to other Engine fields
+/// while mutating state).
+fn apply_projections_to(
+    state: &mut Value,
+    schema: &Schema,
+    projections: &[(Path, Value, Option<Schema>)],
+) -> (Vec<Path>, bool) {
+    let mut changed = Vec::new();
+    let mut structural = false;
+    for (path, value, port_schema) in projections {
+        if !structural {
+            if let Some(map) = value.as_map() {
+                if map.contains_key("_add") || map.contains_key("_remove") {
+                    structural = true;
+                }
+            }
+        }
+        let current = state.get_path(path).cloned().unwrap_or(Value::None);
+        let new_value = match port_schema {
+            Some(s) if !matches!(s, Schema::Any) => s.apply_update(&current, value),
+            _ => schema.schema_at_path(path).apply_update(&current, value),
+        };
+        state.set_path(path, new_value);
+        changed.push(path.clone());
+    }
+    (changed, structural)
 }
 
 #[cfg(test)]

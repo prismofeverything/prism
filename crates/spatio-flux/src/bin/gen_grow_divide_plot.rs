@@ -1,25 +1,32 @@
 //! Generate an SVG comparison plot of Rust vs Python grow-divide benchmarks.
 
 fn main() {
-    // Rust data (release build, composite agents)
+    // Rust data (release build, composite agents, rate=0.1)
     let rust_data = [
-        (10.0, 1, 0.1),
-        (25.0, 2, 0.1),
-        (50.0, 4, 3.0),
-        (75.0, 8, 14.0),
-        (100.0, 16, 78.0),
-        (125.0, 32, 336.0),
-        (150.0, 64, 1472.0),
-        (170.0, 128, 4495.0),
+        (5.0, 1, 0.5),
+        (10.0, 2, 0.5),
+        (15.0, 2, 0.5),
+        (20.0, 4, 2.0),
+        (25.0, 8, 6.0),
+        (30.0, 8, 14.0),
+        (40.0, 32, 109.0),
+        (50.0, 64, 721.0),
+        (55.0, 128, 2302.0),
+        (60.0, 183, 4586.0),
     ];
 
-    // Python data (process-bigraph composite)
+    // Python data (process-bigraph composite, rate=0.1)
     let python_data = [
-        (10.0, 1, 18.0),
-        (25.0, 2, 50.0),
-        (50.0, 16, 392.0),
-        (75.0, 128, 3504.0),
-        (100.0, 1024, 34888.0),
+        (5.0, 1, 11.0),
+        (10.0, 2, 30.0),
+        (15.0, 2, 43.0),
+        (20.0, 4, 88.0),
+        (25.0, 8, 162.0),
+        (30.0, 8, 218.0),
+        (40.0, 32, 653.0),
+        (50.0, 64, 1605.0),
+        (55.0, 64, 2056.0),
+        (60.0, 128, 3594.0),
     ];
 
     let w = 600;
@@ -34,7 +41,7 @@ fn main() {
     let log_min = min_time.log10();
     let log_max = max_time.log10();
 
-    let max_dur = 180.0_f64;
+    let max_dur = 65.0_f64;
 
     let x_of = |dur: f64| -> i32 {
         margin as i32 + ((dur / max_dur) * pw as f64) as i32
@@ -70,7 +77,7 @@ fn main() {
     }
 
     // X axis labels
-    for &dur in &[0, 25, 50, 75, 100, 125, 150, 175] {
+    for &dur in &[0, 10, 20, 30, 40, 50, 60] {
         let x = x_of(dur as f64);
         svg.push_str(&format!(
             "<text x=\"{x}\" y=\"{}\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#666\">{dur}</text>",

@@ -167,32 +167,38 @@ impl Process for Composite {
             }
         }
 
-        // 2. Snapshot AFTER bridging inputs
-        let mut pre_run: IndexMap<String, Value> = IndexMap::new();
-        for (port, internal_path) in &self.output_bridge.mappings {
-            let val = engine.state().get_path(internal_path)
-                .cloned()
-                .unwrap_or(Value::None);
-            pre_run.insert(port.clone(), val);
-        }
+        // 2. Run inner engine — collect raw deltas
+        let raw_deltas = engine.run_collecting(interval);
 
-        // 3. Run inner engine
-        engine.run(interval);
-
-        static CC: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let n = CC.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        // Debug output removed — composite bridge verified working.
-
-        // 4. Compute deltas (what the inner processes changed)
+        // 3. Map raw deltas through the output bridge.
+        //    For each output port, find deltas whose paths fall under
+        //    the port's internal path and assemble the output.
         let mut output = IndexMap::new();
         for (port, internal_path) in &self.output_bridge.mappings {
-            let new_val = engine.state().get_path(internal_path)
-                .cloned()
-                .unwrap_or(Value::None);
-            let old_val = pre_run.get(port).unwrap_or(&Value::None);
-            let delta = compute_delta(old_val, &new_val);
-            if !is_zero_delta(&delta) {
-                output.insert(port.clone(), delta);
+            // Collect all deltas that fall under this port's internal path
+            let mut port_delta = IndexMap::new();
+            for (delta_path, delta_value) in &raw_deltas {
+                if delta_path == internal_path {
+                    // Exact match: the whole port was updated
+                    // Use the delta directly
+                    if !is_zero_delta(delta_value) {
+                        output.insert(port.clone(), delta_value.clone());
+                    }
+                    break;
+                } else if delta_path.starts_with(internal_path) && delta_path.len() > internal_path.len() {
+                    // Delta is under this port's path — nest it
+                    let sub_path = &delta_path[internal_path.len()..];
+                    // Build nested map from the sub-path
+                    let mut nested = delta_value.clone();
+                    for key in sub_path.iter().rev() {
+                        nested = Value::tree([(key.as_str(), nested)]);
+                    }
+                    // Merge into port_delta
+                    port_delta = merge_value_maps(port_delta, nested);
+                }
+            }
+            if !port_delta.is_empty() && !output.contains_key(port) {
+                output.insert(port.clone(), Value::Map(port_delta));
             }
         }
 
@@ -276,6 +282,20 @@ fn compute_delta(old: &Value, new: &Value) -> Value {
         }
         _ => new.clone(), // Fallback: full replacement
     }
+}
+
+/// Merge two Value::Map contents, recursing into nested maps.
+fn merge_value_maps(mut base: IndexMap<String, Value>, overlay: Value) -> IndexMap<String, Value> {
+    if let Value::Map(overlay_map) = overlay {
+        for (k, v) in overlay_map {
+            if let Some(Value::Map(existing)) = base.get(&k).cloned() {
+                base.insert(k, Value::Map(merge_value_maps(existing, v)));
+            } else {
+                base.insert(k, v);
+            }
+        }
+    }
+    base
 }
 
 /// Check if a delta is effectively zero (no change).

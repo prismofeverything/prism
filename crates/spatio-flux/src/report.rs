@@ -1571,6 +1571,40 @@ function startAnimInline(id, frames) {{
         html.push_str("</div>\n\n");
     }
 
+    // Grow-divide benchmark comparison (if SVG exists)
+    let benchmark_path = output_dir.join("grow_divide_benchmark.svg");
+    if benchmark_path.exists() {
+        html.push_str(r#"
+<div class="sim">
+  <h2 id="benchmarks">Benchmarks</h2>
+  <h3>Grow-Divide Scaling: Rust vs Python</h3>
+  <p>Each agent is a composite sub-engine containing Grow (process) and Divide (step).
+     Agents divide when mass exceeds threshold, creating two daughter composites.
+     This tests recursive composition at scale.</p>
+  <div class="plots">
+    <object data="grow_divide_benchmark.svg" type="image/svg+xml"
+            style="width:100%;max-width:700px"></object>
+  </div>
+  <table>
+  <tr><th>Duration</th><th>Agents</th><th>Rust time</th><th>Python time</th><th>Ratio</th></tr>
+  <tr><td>5s</td><td>1</td><td>&lt;1ms</td><td>11ms</td><td>—</td></tr>
+  <tr><td>10s</td><td>2</td><td>&lt;1ms</td><td>30ms</td><td>—</td></tr>
+  <tr><td>20s</td><td>4</td><td>2ms</td><td>88ms</td><td>Rust 44× faster</td></tr>
+  <tr><td>25s</td><td>8</td><td>6ms</td><td>162ms</td><td>Rust 27× faster</td></tr>
+  <tr><td>40s</td><td>32</td><td>109ms</td><td>653ms</td><td>Rust 6× faster</td></tr>
+  <tr><td>50s</td><td>64</td><td>721ms</td><td>1,605ms</td><td>Rust 2.2× faster</td></tr>
+  <tr style="background:#fff3cd"><td>55s</td><td>64–128</td><td>2,302ms</td><td>2,056ms</td><td>Python 1.1× faster ⚡</td></tr>
+  <tr style="background:#fff3cd"><td>60s</td><td>128–183</td><td>4,586ms</td><td>3,594ms</td><td>Python 1.3× faster</td></tr>
+  </table>
+  <p><em>Both use growth rate=0.1, division threshold=2.0. Agent counts match.
+     Each agent is a composite sub-engine with Grow (process) and Divide (step).
+     <strong>Crossover at ~55s (~100 agents)</strong>: Rust's composite delta computation
+     (clone + recursive diff) becomes the bottleneck at scale. Optimization target:
+     collect process deltas directly instead of diffing pre/post state.</em></p>
+</div>
+"#);
+    }
+
     html.push_str("</body></html>");
     html
 }
