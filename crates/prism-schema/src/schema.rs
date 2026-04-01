@@ -553,8 +553,17 @@ impl Schema {
                 }
             }
 
-            // Lists and Maybe: replace
-            Self::List { .. } | Self::Maybe { .. } => update.clone(),
+            // Lists: replace
+            Self::List { .. } => update.clone(),
+
+            // Maybe: delegate to inner when both non-None, otherwise replace
+            Self::Maybe { inner } => {
+                match (current, update) {
+                    (Value::None, _) => update.clone(),
+                    (_, Value::None) => Value::None,
+                    _ => inner.apply_update(current, update),
+                }
+            }
 
             // Array: element-wise additive apply through all dimensions.
             // For array[ny|nx, float], recursively applies through nested lists

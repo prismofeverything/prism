@@ -834,3 +834,551 @@ fn test_link_realize() {
     let inputs = map.get("inputs").unwrap().as_map().unwrap();
     assert!(inputs.contains_key("mass"));
 }
+
+// ═══════════════════════════════════════════════════════════
+// Full type × method coverage matrix
+// Types: Bool, Integer, Float, String, Enum, Delta, List,
+//        Map, Tree, Tuple, Array, Maybe, Overwrite,
+//        RecursiveTree, Link
+// Methods: default, check, apply, encode, realize, infer
+// ═══════════════════════════════════════════════════════════
+
+// ── Bool ──
+
+#[test]
+fn test_check_bool() {
+    let s = Schema::bool();
+    assert!(s.check(&Value::Bool(true)));
+    assert!(s.check(&Value::Bool(false)));
+    assert!(!s.check(&Value::float(1.0)));
+    assert!(!s.check(&Value::String("true".into())));
+}
+
+#[test]
+fn test_apply_bool_replace() {
+    let s = Schema::bool();
+    // Bools replace (no additive semantics)
+    assert_eq!(s.apply_update(&Value::Bool(false), &Value::Bool(true)), Value::Bool(true));
+}
+
+#[test]
+fn test_encode_bool() {
+    let s = Schema::bool();
+    assert_eq!(s.encode(&Value::Bool(true)), Value::Bool(true));
+}
+
+#[test]
+fn test_realize_bool() {
+    let s = Schema::bool();
+    assert_eq!(s.realize(&Value::Bool(true)), Value::Bool(true));
+    assert_eq!(s.realize(&Value::String("true".into())), Value::Bool(true));
+    assert_eq!(s.realize(&Value::String("false".into())), Value::Bool(false));
+}
+
+#[test]
+fn test_infer_bool() {
+    assert!(matches!(Schema::infer(&Value::Bool(true)), Schema::Bool { .. }));
+}
+
+// ── Integer ──
+
+#[test]
+fn test_check_integer() {
+    let s = Schema::integer();
+    assert!(s.check(&Value::Int(42)));
+    assert!(!s.check(&Value::float(42.0)));
+    assert!(!s.check(&Value::String("42".into())));
+}
+
+#[test]
+fn test_default_integer_with_default() {
+    let s = Schema::Integer { default: Some(99) };
+    assert_eq!(s.default_value(), Value::Int(99));
+}
+
+#[test]
+fn test_encode_integer() {
+    let s = Schema::integer();
+    assert_eq!(s.encode(&Value::Int(42)), Value::Int(42));
+}
+
+#[test]
+fn test_realize_integer_from_string() {
+    let s = Schema::integer();
+    assert_eq!(s.realize(&Value::String("123".into())), Value::Int(123));
+}
+
+#[test]
+fn test_infer_integer() {
+    assert!(matches!(Schema::infer(&Value::Int(5)), Schema::Integer { .. }));
+}
+
+// ── String ──
+
+#[test]
+fn test_check_string() {
+    let s = Schema::string();
+    assert!(s.check(&Value::String("hello".into())));
+    assert!(!s.check(&Value::Int(5)));
+}
+
+#[test]
+fn test_apply_string_replace() {
+    let s = Schema::string();
+    assert_eq!(
+        s.apply_update(&Value::String("old".into()), &Value::String("new".into())),
+        Value::String("new".into())
+    );
+}
+
+#[test]
+fn test_encode_string() {
+    let s = Schema::string();
+    assert_eq!(s.encode(&Value::String("hi".into())), Value::String("hi".into()));
+}
+
+#[test]
+fn test_realize_string() {
+    let s = Schema::string();
+    assert_eq!(s.realize(&Value::String("hi".into())), Value::String("hi".into()));
+}
+
+// ── Enum ──
+
+#[test]
+fn test_check_enum() {
+    let s = Schema::Enum { values: vec!["a".into(), "b".into(), "c".into()], default: None };
+    assert!(s.check(&Value::String("a".into())));
+    assert!(s.check(&Value::String("c".into())));
+    assert!(!s.check(&Value::String("d".into())));
+    assert!(!s.check(&Value::Int(1)));
+}
+
+#[test]
+fn test_apply_enum_replace() {
+    let s = Schema::Enum { values: vec!["x".into(), "y".into()], default: None };
+    assert_eq!(
+        s.apply_update(&Value::String("x".into()), &Value::String("y".into())),
+        Value::String("y".into())
+    );
+}
+
+#[test]
+fn test_encode_enum() {
+    let s = Schema::Enum { values: vec!["a".into()], default: None };
+    assert_eq!(s.encode(&Value::String("a".into())), Value::String("a".into()));
+}
+
+#[test]
+fn test_realize_enum() {
+    let s = Schema::Enum { values: vec!["a".into()], default: None };
+    assert_eq!(s.realize(&Value::String("a".into())), Value::String("a".into()));
+}
+
+#[test]
+fn test_infer_enum() {
+    // Enum can't be inferred from a plain string — it infers as String or Float
+    // This is expected: enum requires explicit schema declaration
+    let inferred = Schema::infer(&Value::String("hello".into()));
+    assert!(matches!(inferred, Schema::String { .. }));
+}
+
+// ── Delta ──
+
+#[test]
+fn test_default_delta() {
+    let s = Schema::Delta { default: None };
+    assert_eq!(s.default_value(), Value::float(0.0));
+    let s2 = Schema::Delta { default: Some(5.5) };
+    assert_eq!(s2.default_value(), Value::float(5.5));
+}
+
+#[test]
+fn test_check_delta() {
+    let s = Schema::Delta { default: None };
+    assert!(s.check(&Value::float(1.0)));
+    assert!(s.check(&Value::Int(1)));
+    assert!(!s.check(&Value::String("nope".into())));
+}
+
+#[test]
+fn test_apply_delta_additive() {
+    let s = Schema::Delta { default: None };
+    assert_eq!(s.apply_update(&Value::float(10.0), &Value::float(3.0)), Value::float(13.0));
+}
+
+#[test]
+fn test_encode_delta() {
+    let s = Schema::Delta { default: None };
+    assert_eq!(s.encode(&Value::float(5.5)), Value::float(5.5));
+}
+
+#[test]
+fn test_realize_delta() {
+    let s = Schema::Delta { default: None };
+    assert_eq!(s.realize(&Value::String("3.14".into())), Value::float(3.14));
+    assert_eq!(s.realize(&Value::Int(5)), Value::float(5.0));
+}
+
+// ── List ──
+
+#[test]
+fn test_default_list() {
+    let s = Schema::list(Schema::float());
+    assert_eq!(s.default_value(), Value::List(vec![]));
+}
+
+#[test]
+fn test_check_list() {
+    let s = Schema::list(Schema::float());
+    assert!(s.check(&Value::List(vec![Value::float(1.0), Value::float(2.0)])));
+    assert!(s.check(&Value::List(vec![]))); // empty list is valid
+    assert!(!s.check(&Value::List(vec![Value::String("nope".into())])));
+    assert!(!s.check(&Value::float(1.0)));
+}
+
+#[test]
+fn test_encode_list() {
+    let s = Schema::list(Schema::float());
+    let val = Value::List(vec![Value::float(1.0), Value::float(2.0)]);
+    assert_eq!(s.encode(&val), val);
+}
+
+#[test]
+fn test_realize_list() {
+    let s = Schema::list(Schema::integer());
+    let encoded = Value::List(vec![Value::String("1".into()), Value::String("2".into())]);
+    let realized = s.realize(&encoded);
+    let list = realized.as_list().unwrap();
+    assert_eq!(list[0].as_i64().unwrap(), 1);
+    assert_eq!(list[1].as_i64().unwrap(), 2);
+}
+
+#[test]
+fn test_infer_list() {
+    let inferred = Schema::infer(&Value::List(vec![Value::float(1.0)]));
+    assert!(matches!(inferred, Schema::List { .. }));
+}
+
+// ── Map ──
+
+#[test]
+fn test_encode_map() {
+    let s = Schema::map(Schema::float());
+    let val = Value::Map(IndexMap::from([
+        ("a".into(), Value::float(1.0)),
+        ("b".into(), Value::float(2.0)),
+    ]));
+    assert_eq!(s.encode(&val), val);
+}
+
+#[test]
+fn test_realize_map() {
+    let s = Schema::map(Schema::integer());
+    let encoded = Value::Map(IndexMap::from([
+        ("x".into(), Value::String("42".into())),
+    ]));
+    let realized = s.realize(&encoded);
+    assert_eq!(realized.as_map().unwrap().get("x").unwrap().as_i64().unwrap(), 42);
+}
+
+#[test]
+fn test_realize_map_from_json_string() {
+    let s = Schema::map(Schema::integer());
+    let json_str = Value::String(r#"{"a": 1, "b": 2}"#.into());
+    let realized = s.realize(&json_str);
+    let map = realized.as_map().unwrap();
+    assert_eq!(map.get("a").unwrap().as_i64().unwrap(), 1);
+    assert_eq!(map.get("b").unwrap().as_i64().unwrap(), 2);
+}
+
+#[test]
+fn test_infer_map() {
+    // A map with mixed value types infers as Tree (struct-like)
+    let val = Value::Map(IndexMap::from([
+        ("x".into(), Value::float(1.0)),
+        ("y".into(), Value::String("hello".into())),
+    ]));
+    let inferred = Schema::infer(&val);
+    assert!(matches!(inferred, Schema::Tree { .. }));
+}
+
+// ── Tree ──
+
+#[test]
+fn test_default_tree() {
+    let s = Schema::Tree {
+        branches: IndexMap::from([
+            ("a".into(), Schema::float()),
+            ("b".into(), Schema::string()),
+        ]),
+    };
+    let d = s.default_value();
+    let map = d.as_map().unwrap();
+    assert_eq!(map.get("a").unwrap().as_f64().unwrap(), 0.0);
+    assert_eq!(map.get("b").unwrap().as_str().unwrap(), "");
+}
+
+#[test]
+fn test_check_tree() {
+    let s = Schema::Tree {
+        branches: IndexMap::from([
+            ("x".into(), Schema::float()),
+            ("y".into(), Schema::string()),
+        ]),
+    };
+    let good = Value::tree([("x", Value::float(1.0)), ("y", Value::String("hi".into()))]);
+    assert!(s.check(&good));
+    assert!(!s.check(&Value::String("nope".into())));
+}
+
+// ── Tuple ──
+
+#[test]
+fn test_default_tuple() {
+    let s = Schema::tuple(vec![Schema::float(), Schema::string(), Schema::bool()]);
+    let d = s.default_value();
+    let list = d.as_list().unwrap();
+    assert_eq!(list.len(), 3);
+    assert_eq!(list[0].as_f64().unwrap(), 0.0);
+    assert_eq!(list[1].as_str().unwrap(), "");
+    assert_eq!(list[2], Value::Bool(false));
+}
+
+#[test]
+fn test_check_tuple() {
+    let s = Schema::tuple(vec![Schema::float(), Schema::string()]);
+    assert!(s.check(&Value::List(vec![Value::float(1.0), Value::String("hi".into())])));
+    // Wrong length
+    assert!(!s.check(&Value::List(vec![Value::float(1.0)])));
+    // Wrong types
+    assert!(!s.check(&Value::List(vec![Value::String("x".into()), Value::float(1.0)])));
+}
+
+#[test]
+fn test_encode_tuple() {
+    let s = Schema::tuple(vec![Schema::float(), Schema::string()]);
+    let val = Value::List(vec![Value::float(1.5), Value::String("hi".into())]);
+    assert_eq!(s.encode(&val), val);
+}
+
+#[test]
+fn test_infer_tuple() {
+    // Tuples can't be inferred (they look like lists)
+    let val = Value::List(vec![Value::float(1.0), Value::String("hi".into())]);
+    let inferred = Schema::infer(&val);
+    assert!(matches!(inferred, Schema::List { .. }));
+}
+
+// ── Array ──
+
+#[test]
+fn test_parse_array() {
+    let s = parse_type_expression("array[(3|4),float]");
+    match &s {
+        Schema::Array { shape, element } => {
+            assert_eq!(shape, &vec![3, 4]);
+            assert!(matches!(**element, Schema::Float { .. }));
+        }
+        _ => panic!("expected Array, got {:?}", s),
+    }
+}
+
+#[test]
+fn test_default_array() {
+    let s = Schema::array(vec![2, 3], Schema::float());
+    let d = s.default_value();
+    let rows = d.as_list().unwrap();
+    assert_eq!(rows.len(), 2);
+    let row0 = rows[0].as_list().unwrap();
+    assert_eq!(row0.len(), 3);
+    assert_eq!(row0[0].as_f64().unwrap(), 0.0);
+}
+
+#[test]
+fn test_check_array() {
+    let s = Schema::array(vec![2, 2], Schema::float());
+    let good = Value::List(vec![
+        Value::List(vec![Value::float(1.0), Value::float(2.0)]),
+        Value::List(vec![Value::float(3.0), Value::float(4.0)]),
+    ]);
+    assert!(s.check(&good));
+    assert!(!s.check(&Value::float(1.0)));
+}
+
+#[test]
+fn test_apply_array_elementwise() {
+    let s = Schema::array(vec![2], Schema::float());
+    let current = Value::List(vec![Value::float(1.0), Value::float(2.0)]);
+    let update = Value::List(vec![Value::float(0.5), Value::float(0.3)]);
+    let result = s.apply_update(&current, &update);
+    let list = result.as_list().unwrap();
+    assert_eq!(list[0].as_f64().unwrap(), 1.5);
+    assert_eq!(list[1].as_f64().unwrap(), 2.3);
+}
+
+#[test]
+fn test_encode_array() {
+    let s = Schema::array(vec![2], Schema::float());
+    let val = Value::List(vec![Value::float(1.0), Value::float(2.0)]);
+    assert_eq!(s.encode(&val), val);
+}
+
+#[test]
+fn test_realize_array() {
+    let s = Schema::array(vec![2], Schema::float());
+    let val = Value::List(vec![Value::float(1.0), Value::float(2.0)]);
+    assert_eq!(s.realize(&val), val);
+}
+
+// ── Maybe ──
+
+#[test]
+fn test_default_maybe() {
+    let s = Schema::maybe(Schema::float());
+    assert_eq!(s.default_value(), Value::None);
+}
+
+#[test]
+fn test_check_maybe() {
+    let s = Schema::maybe(Schema::float());
+    assert!(s.check(&Value::None));
+    assert!(s.check(&Value::float(5.5)));
+    assert!(!s.check(&Value::String("nope".into())));
+}
+
+#[test]
+fn test_apply_maybe() {
+    let s = Schema::maybe(Schema::float());
+    // Apply to None → set value
+    assert_eq!(s.apply_update(&Value::None, &Value::float(5.0)), Value::float(5.0));
+    // Apply to existing → additive (inner float semantics)
+    assert_eq!(s.apply_update(&Value::float(3.0), &Value::float(2.0)), Value::float(5.0));
+}
+
+#[test]
+fn test_encode_maybe() {
+    let s = Schema::maybe(Schema::float());
+    assert_eq!(s.encode(&Value::None), Value::None);
+    assert_eq!(s.encode(&Value::float(5.5)), Value::float(5.5));
+}
+
+#[test]
+fn test_realize_maybe() {
+    let s = Schema::maybe(Schema::float());
+    assert_eq!(s.realize(&Value::None), Value::None);
+    assert_eq!(s.realize(&Value::String("3.14".into())), Value::float(3.14));
+}
+
+// ── Overwrite ──
+
+#[test]
+fn test_default_overwrite() {
+    let s = Schema::overwrite(Schema::float_default(7.7));
+    assert_eq!(s.default_value(), Value::float(7.7));
+}
+
+#[test]
+fn test_check_overwrite() {
+    let s = Schema::overwrite(Schema::float());
+    assert!(s.check(&Value::float(1.0)));
+    assert!(!s.check(&Value::String("nope".into())));
+}
+
+#[test]
+fn test_encode_overwrite() {
+    let s = Schema::overwrite(Schema::float());
+    assert_eq!(s.encode(&Value::float(5.5)), Value::float(5.5));
+}
+
+#[test]
+fn test_realize_overwrite() {
+    let s = Schema::overwrite(Schema::float());
+    assert_eq!(s.realize(&Value::String("3.14".into())), Value::float(3.14));
+}
+
+// ── RecursiveTree ──
+
+#[test]
+fn test_parse_recursive_tree() {
+    let s = parse_type_expression("tree[float]");
+    assert!(matches!(s, Schema::RecursiveTree { .. }));
+}
+
+#[test]
+fn test_default_recursive_tree() {
+    let s = Schema::recursive_tree(Schema::float());
+    assert_eq!(s.default_value(), Value::Map(IndexMap::new()));
+}
+
+#[test]
+fn test_apply_recursive_tree_nested() {
+    let s = Schema::recursive_tree(Schema::float());
+    let current = Value::tree([
+        ("a", Value::tree([("b", Value::float(1.0))])),
+        ("c", Value::float(2.0)),
+    ]);
+    let update = Value::tree([
+        ("a", Value::tree([("b", Value::float(0.5))])),
+        ("d", Value::float(3.0)),
+    ]);
+    let result = s.apply_update(&current, &update);
+    let map = result.as_map().unwrap();
+    // a.b: 1.0 + 0.5 = 1.5
+    assert_eq!(
+        map.get("a").unwrap().as_map().unwrap().get("b").unwrap().as_f64().unwrap(),
+        1.5
+    );
+    // c: unchanged
+    assert_eq!(map.get("c").unwrap().as_f64().unwrap(), 2.0);
+    // d: new, 0.0 + 3.0 = 3.0
+    assert_eq!(map.get("d").unwrap().as_f64().unwrap(), 3.0);
+}
+
+#[test]
+fn test_encode_recursive_tree() {
+    let s = Schema::recursive_tree(Schema::float());
+    let val = Value::tree([("a", Value::tree([("b", Value::float(1.0))]))]);
+    assert_eq!(s.encode(&val), val);
+}
+
+#[test]
+fn test_realize_recursive_tree() {
+    let s = Schema::recursive_tree(Schema::float());
+    let val = Value::tree([("a", Value::tree([("b", Value::float(1.0))]))]);
+    assert_eq!(s.realize(&val), val);
+}
+
+#[test]
+fn test_infer_recursive_tree() {
+    // Can't distinguish recursive tree from Tree via inference
+    // A nested map infers as Tree with branches
+    let val = Value::tree([("a", Value::tree([("b", Value::float(1.0))]))]);
+    let inferred = Schema::infer(&val);
+    assert!(matches!(inferred, Schema::Tree { .. }));
+}
+
+// ── Link ──
+
+#[test]
+fn test_apply_link_replace() {
+    let s = Schema::link(
+        IndexMap::from([("x".into(), Schema::float())]),
+        IndexMap::from([("y".into(), Schema::float())]),
+    );
+    let old = Value::tree([("address", Value::String("local:A".into()))]);
+    let new = Value::tree([("address", Value::String("local:B".into()))]);
+    // Links replace entirely
+    let result = s.apply_update(&old, &new);
+    assert_eq!(result.as_map().unwrap().get("address").unwrap().as_str().unwrap(), "local:B");
+}
+
+#[test]
+fn test_infer_link_from_type_annotation() {
+    let state = Value::Map(IndexMap::from([
+        ("_type".to_string(), Value::String("step".into())),
+        ("address".to_string(), Value::String("local:Foo".into())),
+    ]));
+    let inferred = Schema::infer(&state);
+    assert!(matches!(inferred, Schema::Link { temporal: Some(false), .. }));
+}

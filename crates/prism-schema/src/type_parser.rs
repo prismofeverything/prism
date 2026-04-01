@@ -156,17 +156,21 @@ fn parse_array_type(params: &str) -> Schema {
     // Split on comma at top level to separate shape from element type
     let parts = split_top_level(params, ',');
     if parts.len() >= 2 {
-        // "10|10,float" → shape=[10,10], element=float
+        // "(3|4),float" or "10|10,float" → shape=[3,4] or [10,10], element=float
         let shape_str = parts[0].trim();
         let element_str = parts[1..].join(",");
-        let shape: Vec<usize> = shape_str
+        // Strip parens — (3|4) is a grouped shape specification
+        let shape_inner = shape_str
+            .trim_start_matches('(')
+            .trim_end_matches(')');
+        let shape: Vec<usize> = shape_inner
             .split('|')
             .filter_map(|s| s.trim().parse().ok())
             .collect();
         let element = parse_type_expression(element_str.trim());
         Schema::array(shape, element)
     } else {
-        // Just element type, no shape
+        // Just element type, no shape — or single dimension like "3,float" couldn't split
         let element = parse_type_expression(params.trim());
         Schema::array(vec![], element)
     }
