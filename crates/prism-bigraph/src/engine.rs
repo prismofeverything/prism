@@ -156,7 +156,7 @@ impl Engine {
             specs.insert(name.clone(), spec.clone());
         }
 
-        Self {
+        let mut engine = Self {
             state,
             schema: topology.state_schema,
             time: 0.0,
@@ -167,7 +167,80 @@ impl Engine {
             specs,
             previous_outputs: HashMap::new(),
             registry: None,
+        };
+
+        // Fire steps on initialization in dependency order.
+        // Build a simple topological sort: steps whose inputs come from
+        // other steps' outputs must run after those steps.
+        let step_names: Vec<String> = engine.specs.iter()
+            .filter(|(_, s)| s.interval.is_none())
+            .map(|(name, _)| name.clone())
+            .collect();
+
+        if !step_names.is_empty() {
+            // Map: output_path → step_name that produces it
+            let mut output_to_step: HashMap<Path, String> = HashMap::new();
+            for name in &step_names {
+                for path in engine.specs[name].outputs.values() {
+                    output_to_step.insert(path.clone(), name.clone());
+                }
+            }
+
+            // Build adjacency: step A → step B if B produces an input of A
+            let mut deps: HashMap<String, HashSet<String>> = HashMap::new();
+            for name in &step_names {
+                let d: HashSet<String> = engine.specs[name].inputs.values()
+                    .filter_map(|p| output_to_step.get(p).cloned())
+                    .filter(|dep| dep != name)
+                    .collect();
+                deps.insert(name.clone(), d);
+            }
+
+            // Topological sort (Kahn's algorithm)
+            let mut in_degree: HashMap<String, usize> = step_names.iter()
+                .map(|n| (n.clone(), deps.get(n).map(|d| d.len()).unwrap_or(0)))
+                .collect();
+            let mut queue: Vec<String> = in_degree.iter()
+                .filter(|(_, deg)| **deg == 0)
+                .map(|(n, _)| n.clone())
+                .collect();
+            queue.sort(); // deterministic ordering
+            let mut order: Vec<String> = Vec::new();
+            while let Some(name) = queue.pop() {
+                order.push(name.clone());
+                // For each step that depends on this one, decrement in-degree
+                for (other, other_deps) in &deps {
+                    if other_deps.contains(&name) {
+                        if let Some(deg) = in_degree.get_mut(other) {
+                            *deg -= 1;
+                            if *deg == 0 {
+                                queue.push(other.clone());
+                                queue.sort();
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Run steps in dependency order
+            for step_name in &order {
+                let interface = match engine.interfaces.get(step_name) {
+                    Some(i) => i.clone(),
+                    None => continue,
+                };
+                let input_state = interface.view(&engine.state);
+                let update = match engine.nodes.get(step_name) {
+                    Some(ProcessNode::Step(s)) => s.update(&input_state),
+                    _ => continue,
+                };
+                if let Some(update_value) = update.into_value() {
+                    let projections = interface.project(&update_value);
+                    engine.apply_projections(&projections);
+                }
+            }
         }
+
+        engine
     }
 
     /// Set the process registry for dynamic process discovery.

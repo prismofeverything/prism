@@ -95,6 +95,13 @@ pub enum Schema {
     Tuple {
         elements: Vec<Schema>,
     },
+
+    /// Recursive tree — a nested dict where every leaf matches the
+    /// leaf schema. Like Python bigraph-schema's `tree[float]`.
+    /// Values can be either the leaf type or another nested map.
+    RecursiveTree {
+        leaf: Box<Schema>,
+    },
 }
 
 impl Schema {
@@ -157,6 +164,10 @@ impl Schema {
         Self::Tuple { elements }
     }
 
+    pub fn recursive_tree(leaf: Schema) -> Self {
+        Self::RecursiveTree { leaf: Box::new(leaf) }
+    }
+
     pub fn maybe(inner: Schema) -> Self {
         Self::Maybe {
             inner: Box::new(inner),
@@ -217,6 +228,7 @@ impl Schema {
             Self::Tuple { elements } => {
                 Value::List(elements.iter().map(|s| s.default_value()).collect())
             }
+            Self::RecursiveTree { .. } => Value::map(),
         }
     }
 
@@ -254,6 +266,16 @@ impl Schema {
                 elements.len() == items.len()
                     && elements.iter().zip(items.iter()).all(|(s, v)| s.check(v))
             }
+            (Self::RecursiveTree { leaf }, v) => {
+                // A recursive tree value is either a leaf or a map of recursive trees
+                if leaf.check(v) {
+                    true
+                } else if let Value::Map(map) = v {
+                    map.values().all(|child| Self::RecursiveTree { leaf: leaf.clone() }.check(child))
+                } else {
+                    false
+                }
+            }
             _ => false,
         }
     }
@@ -275,6 +297,7 @@ impl Schema {
             }
             Self::Map { value } => value.schema_at_path(&path[1..]),
             Self::Array { element, .. } => element.schema_at_path(&path[1..]),
+            Self::RecursiveTree { .. } => self, // recursive tree applies at all depths
             _ => self, // Leaf schema applies to everything below
         }
     }
@@ -414,6 +437,36 @@ impl Schema {
                 }
             }
 
+            // RecursiveTree: merge like Map with leaf-type apply
+            Self::RecursiveTree { leaf } => {
+                match (current, update) {
+                    (Value::Map(cur), Value::Map(upd)) => {
+                        let mut result = cur.clone();
+                        apply_add_remove(&mut result, upd);
+                        for (k, v) in upd {
+                            if k == "_add" || k == "_remove" { continue; }
+                            let existing = cur.get(k).unwrap_or(&Value::None);
+                            match (existing, v) {
+                                // Both maps: recurse as tree
+                                (Value::Map(_), Value::Map(_)) => {
+                                    result.insert(k.clone(), self.apply_update(existing, v));
+                                }
+                                // Both leaves: apply leaf semantics
+                                (_, _) if existing.as_map().is_none() && v.as_map().is_none() => {
+                                    result.insert(k.clone(), leaf.apply_update(existing, v));
+                                }
+                                // Type mismatch (map vs leaf): update replaces
+                                _ => {
+                                    result.insert(k.clone(), v.clone());
+                                }
+                            }
+                        }
+                        Value::Map(result)
+                    }
+                    _ => leaf.apply_update(current, update),
+                }
+            }
+
             // Any: infer behavior from the value types
             Self::Any => {
                 match (current, update) {
@@ -482,6 +535,7 @@ impl fmt::Display for Schema {
                 }
                 write!(f, "]")
             }
+            Self::RecursiveTree { leaf } => write!(f, "tree[{leaf}]"),
         }
     }
 }

@@ -27,6 +27,19 @@ pub fn parse_type_expression(expr: &str) -> Schema {
         return Schema::Any;
     }
 
+    // Check for tree expression (a:float|b:string) before parameterized types.
+    // Must contain ':' at top level and not start with a bracket.
+    // Only trigger if it looks like "name:type|name:type"
+    if !expr.starts_with('[') {
+        let top_parts = split_top_level(expr, '|');
+        if top_parts.len() >= 2 && top_parts.iter().all(|p| {
+            let cp = split_top_level(p, ':');
+            cp.len() >= 2 && !cp[0].trim().is_empty()
+        }) {
+            return parse_tree_expression(expr);
+        }
+    }
+
     // Check for parameterized types: name[params]
     if let Some(bracket_start) = expr.find('[') {
         let name = &expr[..bracket_start];
@@ -61,6 +74,10 @@ pub fn parse_type_expression(expr: &str) -> Schema {
                 let values: Vec<String> = inner.split(',').map(|s| s.trim().to_string()).collect();
                 Schema::Enum { values, default: None }
             }
+            "tree" => {
+                let leaf = parse_type_expression(inner);
+                Schema::recursive_tree(leaf)
+            }
             "link" | "process" | "step" => Schema::Any, // process declarations
             _ => Schema::Any, // unknown parameterized type
         }
@@ -68,15 +85,26 @@ pub fn parse_type_expression(expr: &str) -> Schema {
         // Simple type name
         match expr {
             "float" | "mass" | "concentration" | "count"
-            | "positive_float" | "process_interval" => Schema::float(),
+            | "positive_float" | "process_interval" | "number"
+            | "nonnegative" => Schema::float(),
             "integer" => Schema::integer(),
             "string" => Schema::string(),
-            "bool" | "boolean" => Schema::bool(),
+            "bool" | "boolean" | "xor" => Schema::bool(),
+            "delta" => Schema::Delta { default: None },
             "set_float" => Schema::set_float(),
             "positive_array" => Schema::array(vec![], Schema::float()),
-            "any" => Schema::Any,
+            "any" | "node" => Schema::Any,
             "link" => Schema::Any,
-            _ => Schema::Any, // unknown type
+            _ => {
+                // Try parsing as a tree expression (a:float|b:string)
+                if expr.contains(':') && expr.contains('|') {
+                    let tree = parse_tree_expression(expr);
+                    if !matches!(tree, Schema::Any) {
+                        return tree;
+                    }
+                }
+                Schema::Any // truly unknown type
+            }
         }
     }
 }
