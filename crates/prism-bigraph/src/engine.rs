@@ -14,6 +14,76 @@ use ordered_float::OrderedFloat;
 use prism_schema::{Path, Schema, Value};
 
 use crate::factory::ProcessRegistry;
+
+/// Resolve wires for a process at a given path.
+///
+/// If the wire path starts with "..", resolve relative to the process's location
+/// (each ".." pops one level). Otherwise, treat as absolute from the state root.
+fn resolve_wires_from_process(
+    wires: &Value,
+    process_path: &[String],
+) -> IndexMap<String, Vec<String>> {
+    let parent: Vec<String> = if !process_path.is_empty() {
+        process_path[..process_path.len()-1].to_vec()
+    } else {
+        vec![]
+    };
+
+    fn resolve_one(path_list: &[Value], parent: &[String]) -> Vec<String> {
+        let elems: Vec<String> = path_list.iter()
+            .filter_map(|v| match v {
+                Value::String(s) => Some(s.clone()),
+                Value::Int(i) => Some(i.to_string()),
+                Value::Float(f) => Some(format!("{}", f.0 as i64)),
+                _ => None,
+            })
+            .collect();
+
+        let mut resolved = parent.to_vec();
+        for elem in &elems {
+            if elem == ".." {
+                resolved.pop();
+            } else {
+                resolved.push(elem.clone());
+            }
+        }
+        resolved
+    }
+
+    fn flatten_nested(
+        prefix: &str,
+        target: &Value,
+        parent: &[String],
+        result: &mut IndexMap<String, Vec<String>>,
+    ) {
+        match target {
+            Value::List(list) => {
+                result.insert(prefix.to_string(), resolve_one(list, parent));
+            }
+            Value::Map(map) => {
+                // Nested wires: {"substrates": {"glucose": ["fields","glucose",5,5]}}
+                // Flatten to "substrates.glucose" → resolved path
+                for (key, sub_target) in map {
+                    let sub_prefix = if prefix.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{prefix}.{key}")
+                    };
+                    flatten_nested(&sub_prefix, sub_target, parent, result);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut result = IndexMap::new();
+    if let Some(map) = wires.as_map() {
+        for (port, target) in map {
+            flatten_nested(port, target, &parent, &mut result);
+        }
+    }
+    result
+}
 use crate::ports::Interface;
 use crate::process::{Process, ProcessNode};
 use crate::topology::{ProcessSpec, Topology};
@@ -288,6 +358,70 @@ impl Engine {
         Ok(engine)
     }
 
+    /// Merge new schema and state into a running engine.
+    ///
+    /// This is the Rust equivalent of Python's `Composite.merge()`.
+    /// The schema is mutable state — merging can add new Link nodes
+    /// (which triggers process instantiation), change types (which
+    /// affects how apply_update works), or restructure the tree.
+    ///
+    /// Steps:
+    /// 1. Merge the new schema into the existing schema
+    /// 2. Merge the new state into the existing state (using the merged schema)
+    /// 3. Find any new Link nodes and instantiate their processes
+    pub fn merge_schema(
+        &mut self,
+        schema_update: Schema,
+        state_update: Value,
+    ) {
+        // 1. Merge schemas
+        self.schema = self.schema.resolve(&schema_update);
+
+        // 2. Apply state update using merged schema
+        if !state_update.is_none() {
+            let new_state = self.schema.apply_update(&self.state, &state_update);
+            self.state = new_state;
+        }
+
+        // 3. Fill defaults for new schema branches not present in state
+        if let Schema::Tree { branches } = &self.schema {
+            if let Some(state_map) = self.state.as_map_mut() {
+                for (key, child_schema) in branches {
+                    if !state_map.contains_key(key) {
+                        // New schema branch — fill with default
+                        let default_val = child_schema.default_value();
+                        state_map.insert(key.clone(), default_val);
+                    }
+                }
+            }
+        }
+
+        // 4. Discover and instantiate new processes from the merged schema
+        if let Some(registry) = &self.registry {
+            let registry = Arc::clone(registry);
+            let mut new_specs = IndexMap::new();
+            let mut new_instances = HashMap::new();
+
+            Self::extract_processes(
+                &self.schema,
+                &self.state,
+                &[],
+                &registry,
+                &mut new_specs,
+                &mut new_instances,
+            );
+
+            // Add only processes not already registered
+            for (name, spec) in new_specs {
+                if !self.nodes.contains_key(&name) {
+                    if let Some(node) = new_instances.remove(&name) {
+                        self.add_process(name, spec, node);
+                    }
+                }
+            }
+        }
+    }
+
     /// Recursively extract process specs from schema + state.
     fn extract_processes(
         schema: &Schema,
@@ -323,14 +457,13 @@ impl Engine {
                 let config = map.get("config").cloned().unwrap_or(Value::None);
 
                 if let Some(node) = registry.create(&class_name, config.clone()) {
-                    let parent_path = if path.len() > 1 { &path[..path.len()-1] } else { &[] };
                     let inputs_val = map.get("inputs").cloned().unwrap_or(Value::None);
                     let outputs_val = map.get("outputs").cloned().unwrap_or(Value::None);
 
-                    let inputs = crate::vivarium::flatten_wires_with_context_pub(
-                        &inputs_val, parent_path);
-                    let outputs = crate::vivarium::flatten_wires_with_context_pub(
-                        &outputs_val, parent_path);
+                    // Resolve wires: ".." navigates up from the process's own
+                    // location; plain paths are absolute from root.
+                    let inputs = resolve_wires_from_process(&inputs_val, path);
+                    let outputs = resolve_wires_from_process(&outputs_val, path);
 
                     let interval = match (&node, temporal) {
                         (ProcessNode::Process(p), _) => {
@@ -859,6 +992,8 @@ impl Engine {
                 // Check schema first — if it declares Link, this is a process
                 let child_schema = self.schema.schema_at_path(&child_path);
                 let is_link = matches!(child_schema, Schema::Link { .. });
+                if is_link {
+                }
 
                 // Fall back to address-scanning when schema is Any
                 let has_address = !is_link
@@ -911,13 +1046,10 @@ impl Engine {
                         .cloned()
                         .unwrap_or(Value::None);
 
-                    let inputs = crate::vivarium::flatten_wires_with_context_pub(
-                        &inputs_val,
-                        parent_path,
-                    );
-                    let outputs = crate::vivarium::flatten_wires_with_context_pub(
-                        &outputs_val,
-                        parent_path,
+                    // Resolve wires: ".." navigates up from the process's own
+                    // location; plain paths are absolute from root.
+                    let inputs = resolve_wires_from_process(&inputs_val, &child_path);
+                    let outputs = resolve_wires_from_process(&outputs_val, &child_path
                     );
 
                     let interval = match &node {

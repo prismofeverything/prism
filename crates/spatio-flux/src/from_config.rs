@@ -188,10 +188,15 @@ pub fn particle_division_from_config(config: &Value) -> ParticleDivision {
         .map(as_f64)
         .unwrap_or(0.001);
 
+    let max_particles = map
+        .get("max_particles")
+        .map(as_f64)
+        .unwrap_or(100.0) as usize;
+
     ParticleDivision {
         division_mass_threshold: threshold,
         jitter,
-        max_particles: 100,
+        max_particles,
     }
 }
 

@@ -10,7 +10,7 @@
     "ManageBoundaries",
     "PymunkParticleMovement"
   ],
-  "runtime_ms": 155,
+  "runtime_ms": 243,
   "spatial_field_names": [],
   "status": "ok"
 }

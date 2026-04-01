@@ -181,12 +181,7 @@ impl Process for Composite {
 
         static CC: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let n = CC.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if n < 3 {
-            let pre_g = pre_run.get("fields")
-                .and_then(|v| v.get_path(&["glucose".into(), "0".into(), "0".into()]));
-            let post_g = engine.state().get_path(&["fields".into(), "glucose".into(), "0".into(), "0".into()]);
-            eprintln!("[composite #{n}] glc[0,0]: pre={pre_g:?} post={post_g:?}");
-        }
+        // Debug output removed — composite bridge verified working.
 
         // 4. Compute deltas (what the inner processes changed)
         let mut output = IndexMap::new();
@@ -224,6 +219,45 @@ fn compute_delta(old: &Value, new: &Value) -> Value {
         (Value::Float(o), Value::Float(n)) => Value::float(n.0 - o.0),
         (Value::Int(o), Value::Int(n)) => Value::Int(n - o),
         (Value::Map(old_map), Value::Map(new_map)) => {
+            // Fast path: if key sets are identical, skip structural detection.
+            // Only build HashSets when key counts differ (structural change likely).
+            let keys_changed = old_map.len() != new_map.len()
+                || old_map.keys().any(|k| !new_map.contains_key(k));
+
+            if keys_changed {
+                let old_keys: std::collections::HashSet<&String> = old_map.keys().collect();
+                let new_keys: std::collections::HashSet<&String> = new_map.keys().collect();
+                let removed: Vec<&String> = old_keys.difference(&new_keys).copied().collect();
+                let added: Vec<&String> = new_keys.difference(&old_keys).copied().collect();
+                let mut delta = IndexMap::new();
+
+                if !removed.is_empty() {
+                    delta.insert("_remove".to_string(), Value::List(
+                        removed.iter().map(|k| Value::String((*k).clone())).collect()
+                    ));
+                }
+                if !added.is_empty() {
+                    let adds: IndexMap<String, Value> = added.iter()
+                        .map(|k| ((*k).clone(), new_map.get(*k).unwrap().clone()))
+                        .collect();
+                    delta.insert("_add".to_string(), Value::Map(adds));
+                }
+
+                // For surviving keys, compute normal deltas — but skip
+                // keys that were removed (they're gone) or added (they're new).
+                for (k, new_v) in new_map {
+                    if added.contains(&k) || removed.contains(&k) { continue; }
+                    let old_v = old_map.get(k).unwrap_or(&Value::None);
+                    let d = compute_delta(old_v, new_v);
+                    if !is_zero_delta(&d) {
+                        delta.insert(k.clone(), d);
+                    }
+                }
+
+                return Value::Map(delta);
+            }
+
+            // No structural changes — normal per-key delta
             let mut delta = IndexMap::new();
             for (k, new_v) in new_map {
                 let old_v = old_map.get(k).unwrap_or(&Value::None);

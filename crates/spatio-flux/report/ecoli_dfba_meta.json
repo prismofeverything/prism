@@ -9,7 +9,7 @@
   "process_types": [
     "DynamicFBA"
   ],
-  "runtime_ms": 2081,
+  "runtime_ms": 2074,
   "spatial_field_names": [],
   "status": "ok"
 }

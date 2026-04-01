@@ -10,7 +10,7 @@
     "DiffusionAdvection",
     "DynamicFBA"
   ],
-  "runtime_ms": 15254,
+  "runtime_ms": 15129,
   "spatial_field_names": [
     "acetate",
     "dissolved biomass",

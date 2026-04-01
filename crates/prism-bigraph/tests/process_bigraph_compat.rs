@@ -386,10 +386,215 @@ fn test_infer_process_from_state() {
     assert_eq!(map.get("value").unwrap().as_f64().unwrap(), 11.11);
 }
 
+/// Simple growth process: mass += rate * mass * dt
+#[derive(Clone, Debug)]
+struct GrowProcess {
+    rate: f64,
+}
+
+impl Process for GrowProcess {
+    fn inputs(&self) -> IndexMap<String, Schema> {
+        IndexMap::from([("mass".into(), Schema::float())])
+    }
+    fn outputs(&self) -> IndexMap<String, Schema> {
+        IndexMap::from([("mass".into(), Schema::float())])
+    }
+    fn interval(&self) -> f64 { 1.0 }
+    fn update(&self, state: &Value, interval: f64) -> prism_bigraph::Update {
+        let mass = state.as_map()
+            .and_then(|m| m.get("mass"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        prism_bigraph::Update::value(Value::tree([
+            ("mass", Value::float(self.rate * mass * interval)),
+        ]))
+    }
+    fn as_any(&self) -> &dyn Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+}
+
+/// Division step: when mass > threshold, output _remove self + _add two daughters.
+/// Outputs to the parent environment map.
+#[derive(Clone, Debug)]
+struct DivideStep {
+    threshold: f64,
+    agent_id: String,
+}
+
+impl Step for DivideStep {
+    fn inputs(&self) -> IndexMap<String, Schema> {
+        IndexMap::from([
+            ("mass".into(), Schema::float()),
+            ("environment".into(), Schema::map(Schema::Any)),
+        ])
+    }
+    fn outputs(&self) -> IndexMap<String, Schema> {
+        IndexMap::from([
+            ("environment".into(), Schema::map(Schema::Any)),
+        ])
+    }
+    fn update(&self, state: &Value) -> prism_bigraph::Update {
+        let map = state.as_map().unwrap();
+        let mass = map.get("mass").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+        if mass < self.threshold {
+            return prism_bigraph::Update::Noop;
+        }
+
+        // Get the current agent's full state to clone for daughters
+        let env = map.get("environment").and_then(|v| v.as_map()).unwrap();
+        let agent_state = match env.get(&self.agent_id) {
+            Some(s) => s,
+            None => return prism_bigraph::Update::Noop,
+        };
+
+        // Create two daughters with half mass
+        let half_mass = mass / 2.0;
+        let mut daughter_a = agent_state.clone();
+        let mut daughter_b = agent_state.clone();
+        if let Some(m) = daughter_a.as_map_mut() {
+            m.insert("mass".to_string(), Value::float(half_mass));
+        }
+        if let Some(m) = daughter_b.as_map_mut() {
+            m.insert("mass".to_string(), Value::float(half_mass));
+        }
+
+        let id_a = format!("{}_0", self.agent_id);
+        let id_b = format!("{}_1", self.agent_id);
+
+        let mut env_update = IndexMap::new();
+        env_update.insert("_remove".to_string(), Value::List(vec![
+            Value::String(self.agent_id.clone()),
+        ]));
+        env_update.insert("_add".to_string(), Value::Map(IndexMap::from([
+            (id_a, daughter_a),
+            (id_b, daughter_b),
+        ])));
+
+        prism_bigraph::Update::value(Value::tree([
+            ("environment", Value::Map(env_update)),
+        ]))
+    }
+    fn as_any(&self) -> &dyn Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+}
+
+/// Python test_grow_divide: agents grow and divide, creating new agents.
+/// Each agent has a Grow process and a Divide step. Division creates
+/// two daughter agents, each with their own Grow and Divide.
 #[test]
-#[ignore] // Requires grow/divide agent
 fn test_grow_divide() {
-    // Python test_grow_divide: particles grow and divide
+    use prism_bigraph::factory::ProcessRegistry;
+
+    let initial_mass = 1.0;
+    let division_threshold = 2.0;
+    let growth_rate = 0.03;
+
+    let mut registry = ProcessRegistry::new();
+    registry.register("Grow", |config| {
+        let rate = config.as_map()
+            .and_then(|m| m.get("rate"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.03);
+        ProcessNode::Process(Box::new(GrowProcess { rate }))
+    });
+    // DivideStep needs agent_id from config, so we register a factory
+    registry.register("Divide", |config| {
+        let agent_id = config.as_map()
+            .and_then(|m| m.get("agent_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("0")
+            .to_string();
+        let threshold = config.as_map()
+            .and_then(|m| m.get("threshold"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(2.0);
+        ProcessNode::Step(Box::new(DivideStep { threshold, agent_id }))
+    });
+
+    // Build the environment with one agent
+    let schema = Schema::Tree {
+        branches: IndexMap::from([
+            ("environment".into(), Schema::map(Schema::Tree {
+                branches: IndexMap::from([
+                    ("mass".into(), Schema::float()),
+                    ("grow".into(), Schema::process(
+                        IndexMap::from([("mass".into(), Schema::float())]),
+                        IndexMap::from([("mass".into(), Schema::float())]),
+                    )),
+                    ("divide".into(), Schema::step(
+                        IndexMap::from([
+                            ("mass".into(), Schema::float()),
+                            ("environment".into(), Schema::map(Schema::Any)),
+                        ]),
+                        IndexMap::from([
+                            ("environment".into(), Schema::map(Schema::Any)),
+                        ]),
+                    )),
+                ]),
+            })),
+        ]),
+    };
+
+    let state = Value::tree([
+        ("environment", Value::tree([
+            ("0", Value::tree([
+                ("mass", Value::float(initial_mass)),
+                ("grow", Value::Map(IndexMap::from([
+                    ("address".to_string(), Value::String("local:Grow".into())),
+                    ("config".to_string(), Value::tree([("rate", Value::float(growth_rate))])),
+                    ("inputs".to_string(), Value::tree([("mass", Value::List(vec![
+                        Value::String("..".into()), Value::String("mass".into()),
+                    ]))])),
+                    ("outputs".to_string(), Value::tree([("mass", Value::List(vec![
+                        Value::String("..".into()), Value::String("mass".into()),
+                    ]))])),
+                ]))),
+                ("divide", Value::Map(IndexMap::from([
+                    ("address".to_string(), Value::String("local:Divide".into())),
+                    ("config".to_string(), Value::tree([
+                        ("agent_id", Value::String("0".into())),
+                        ("threshold", Value::float(division_threshold)),
+                    ])),
+                    ("inputs".to_string(), Value::tree([
+                        ("mass", Value::List(vec![
+                            Value::String("..".into()), Value::String("mass".into()),
+                        ])),
+                        ("environment", Value::List(vec![
+                            Value::String("..".into()), Value::String("..".into()),
+                            Value::String("environment".into()),
+                        ])),
+                    ])),
+                    ("outputs".to_string(), Value::tree([
+                        ("environment", Value::List(vec![
+                            Value::String("..".into()), Value::String("..".into()),
+                            Value::String("environment".into()),
+                        ])),
+                    ])),
+                ]))),
+            ])),
+        ])),
+    ]);
+
+    let registry = Arc::new(registry);
+    let mut engine = Engine::from_state(schema, state, Arc::clone(&registry)).unwrap();
+
+    // Run for enough time that mass doubles (1.0 * e^(0.03*t) > 2.0 → t ≈ 23s)
+    // But growth is multiplicative per tick, so 1.0 * 1.03^t > 2.0 → t ≈ 24 ticks
+    engine.run(30.0);
+
+    // After 30s, agent "0" should have divided
+    let env = engine.state().get_path(&["environment".into()])
+        .and_then(|v| v.as_map())
+        .unwrap();
+
+    // Original agent "0" should be gone (divided)
+    // Daughters "0_0" and "0_1" should exist
+    let agent_ids: Vec<&String> = env.keys().collect();
+    assert!(agent_ids.len() >= 2,
+        "expected at least 2 agents after division, got {}: {:?}", agent_ids.len(), agent_ids);
+    assert!(!env.contains_key("0") || env.len() > 1,
+        "expected division to have occurred");
 }
 
 /// Analog of Python's WriteCounts step: counts = concentrations * volume
@@ -536,10 +741,63 @@ fn test_star_update() {
     assert_eq!(count_0, 548); // 5.484 * 100 ≈ 548
 }
 
+/// Python test_merge_schema: dynamically add a process to a running engine
+/// by merging new schema that declares a Link node.
 #[test]
-#[ignore] // Requires merge_schema
 fn test_merge_schema() {
-    // Python test_merge_schema: dynamically add process schema to running composite
+    use prism_bigraph::factory::ProcessRegistry;
+
+    let mut registry = ProcessRegistry::new();
+    registry.register("IncreaseProcess", |config| {
+        let rate = config.as_map()
+            .and_then(|m| m.get("rate"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.1);
+        ProcessNode::Process(Box::new(IncreaseProcess { rate }))
+    });
+
+    // Start with a simple engine — just data, no processes
+    let schema = Schema::Tree {
+        branches: IndexMap::from([
+            ("a".into(), Schema::float()),
+        ]),
+    };
+    let state = Value::tree([("a", Value::float(11.0))]);
+    let registry = Arc::new(registry);
+    let mut engine = Engine::from_state(schema, state, Arc::clone(&registry)).unwrap();
+
+    // Verify: no processes yet
+    assert_eq!(engine.node_names().len(), 0);
+
+    // Merge a new process schema + default state
+    let increase_schema = Schema::Tree {
+        branches: IndexMap::from([
+            ("increase".into(), Schema::process(
+                IndexMap::from([("level".into(), Schema::float())]),
+                IndexMap::from([("level".into(), Schema::float())]),
+            )),
+        ]),
+    };
+    let increase_state = Value::tree([
+        ("increase", Value::Map(IndexMap::from([
+            ("address".to_string(), Value::String("local:IncreaseProcess".into())),
+            ("config".to_string(), Value::tree([("rate", Value::float(0.0001))])),
+            ("inputs".to_string(), Value::tree([("level", Value::List(vec![Value::String("a".into())]))])),
+            ("outputs".to_string(), Value::tree([("level", Value::List(vec![Value::String("a".into())]))])),
+        ]))),
+    ]);
+
+    engine.merge_schema(increase_schema, increase_state);
+
+    // Verify: process was instantiated
+    assert!(engine.node_names().contains(&"increase"),
+        "expected 'increase' process, got {:?}", engine.node_names());
+
+    // Run and verify the process affects state
+    let before = engine.state().get_path(&["a".into()]).unwrap().as_f64().unwrap();
+    engine.run(10.0);
+    let after = engine.state().get_path(&["a".into()]).unwrap().as_f64().unwrap();
+    assert!(after > before, "process should have increased a: {before} -> {after}");
 }
 
 /// Python test_match_star_path

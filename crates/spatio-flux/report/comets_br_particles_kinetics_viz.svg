@@ -88,7 +88,7 @@
 <text text-anchor="middle" x="866.56" y="-449.07" font-family="Times,serif" font-size="12.00">particle_exchange</text>
 </g>
 <!-- state_fields&#45;&gt;proc_particle_exchange -->
-<g id="edge12" class="edge">
+<g id="edge11" class="edge">
 <title>state_fields&#45;&gt;proc_particle_exchange</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1079.88,-603.54C1042.09,-588.43 983.24,-562.08 938.56,-529.12 918.76,-514.51 899.76,-494.11 886.26,-478.13"/>
 <polygon fill="black" stroke="black" points="1078.9,-606.91 1089.48,-607.32 1081.46,-600.4 1078.9,-606.91"/>
@@ -102,7 +102,7 @@
 <text text-anchor="middle" x="1117.56" y="-271.56" font-family="Times,serif" font-size="12.00">spatial_dFBA</text>
 </g>
 <!-- state_fields__acetate&#45;&gt;proc_spatial_dFBA -->
-<g id="edge4" class="edge">
+<g id="edge5" class="edge">
 <title>state_fields__acetate&#45;&gt;proc_spatial_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1006.27,-408.9C1016.84,-389.06 1030.61,-365.58 1045.56,-346.22 1058.55,-329.39 1075.43,-312.64 1089.58,-299.69"/>
 <polygon fill="black" stroke="black" points="1003.03,-407.54 1001.49,-418.02 1009.23,-410.79 1003.03,-407.54"/>
@@ -110,7 +110,7 @@
 <text text-anchor="middle" x="1079.56" y="-349.22" font-family="Times,serif" font-size="10.00">fields.acetate</text>
 </g>
 <!-- state_fields__dissolved_biomass&#45;&gt;proc_spatial_dFBA -->
-<g id="edge5" class="edge">
+<g id="edge6" class="edge">
 <title>state_fields__dissolved_biomass&#45;&gt;proc_spatial_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1117.56,-365.13C1117.56,-342.61 1117.56,-319.95 1117.56,-303.07"/>
 <polygon fill="black" stroke="black" points="1114.06,-365.21 1117.56,-375.21 1121.06,-365.21 1114.06,-365.21"/>
@@ -118,7 +118,7 @@
 <text text-anchor="middle" x="1139.06" y="-349.22" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__glucose&#45;&gt;proc_spatial_dFBA -->
-<g id="edge6" class="edge">
+<g id="edge4" class="edge">
 <title>state_fields__glucose&#45;&gt;proc_spatial_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1226.75,-410.05C1219.65,-398.53 1211.6,-386.18 1203.56,-375.22 1183.95,-348.52 1158.96,-320.12 1140.98,-300.52"/>
 <polygon fill="black" stroke="black" points="1223.8,-411.93 1231.98,-418.65 1229.78,-408.29 1223.8,-411.93"/>
@@ -165,7 +165,7 @@
 <text text-anchor="middle" x="671.56" y="-349.22" font-family="Times,serif" font-size="10.00">particles</text>
 </g>
 <!-- state_particles&#45;&gt;proc_particle_exchange -->
-<g id="edge11" class="edge">
+<g id="edge12" class="edge">
 <title>state_particles&#45;&gt;proc_particle_exchange</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M688.63,-594.89C720.07,-578.66 761.56,-555.16 794.56,-529.12 813.74,-513.97 832.65,-493.77 846.27,-478"/>
 <polygon fill="black" stroke="black" points="686.94,-591.82 679.62,-599.47 690.12,-598.05 686.94,-591.82"/>
