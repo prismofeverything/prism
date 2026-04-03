@@ -14,8 +14,8 @@ digraph {
     proc_ecoli_dFBA [shape=box, style=filled, fillcolor="#A24E56", color="#A24E56", penwidth=0, label="ecoli dFBA", fontsize=12];
 
     // Wiring
-    state_fields__formate -> proc_ecoli_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.formate", fontsize=10];
     state_fields__biomass -> proc_ecoli_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__formate -> proc_ecoli_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.formate", fontsize=10];
     state_fields__glucose -> proc_ecoli_dFBA [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
 
     // Hierarchy

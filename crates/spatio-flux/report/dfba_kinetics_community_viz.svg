@@ -80,7 +80,7 @@
 <text text-anchor="middle" x="419.71" y="-14.9" font-family="Times,serif" font-size="12.00">monod_kinetics</text>
 </g>
 <!-- state_fields__acetate&#45;&gt;proc_monod_kinetics -->
-<g id="edge4" class="edge">
+<g id="edge5" class="edge">
 <title>state_fields__acetate&#45;&gt;proc_monod_kinetics</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M299.32,-112.88C315.63,-93.95 336.95,-71.29 358.71,-54 364.36,-49.51 370.66,-45.23 377,-41.29"/>
 <polygon fill="black" stroke="black" points="296.45,-110.85 292.65,-120.74 301.79,-115.38 296.45,-110.85"/>
@@ -104,7 +104,7 @@
 <text text-anchor="middle" x="174.71" y="-57" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__kinetic_biomass&#45;&gt;proc_monod_kinetics -->
-<g id="edge5" class="edge">
+<g id="edge4" class="edge">
 <title>state_fields__kinetic_biomass&#45;&gt;proc_monod_kinetics</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M461.17,-77.41C461.19,-69.37 459.91,-61.42 456.71,-54 455.14,-50.36 452.99,-46.92 450.5,-43.72"/>
 <polygon fill="black" stroke="black" points="457.66,-77.4 460.49,-87.61 464.65,-77.87 457.66,-77.4"/>

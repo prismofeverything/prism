@@ -9,7 +9,7 @@
   "process_types": [
     "DiffusionAdvection"
   ],
-  "runtime_ms": 3,
+  "runtime_ms": 2,
   "spatial_field_names": [
     "dissolved biomass",
     "glucose"

@@ -10,7 +10,7 @@
     "BrownianMovement",
     "ManageBoundaries"
   ],
-  "runtime_ms": 44,
+  "runtime_ms": 38,
   "spatial_field_names": [],
   "status": "ok"
 }

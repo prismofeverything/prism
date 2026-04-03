@@ -45,8 +45,8 @@ digraph {
     state_particles__p_7c6f59__mass -> proc_particles_p_7c6f59_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
     state_fields -> proc_diffusion [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
     state_particles -> proc_newtonian_particles [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
-    state_particles -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
     state_fields -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
+    state_particles -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
     state_particles -> proc_particle_division [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
     state_newtonian_particles__interval -> proc_enforce_boundaries [style=dashed, penwidth=1, arrowhead=normal, label="process_interval", fontsize=10];
     state_particles -> proc_enforce_boundaries [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];

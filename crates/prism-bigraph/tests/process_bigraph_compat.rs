@@ -8,13 +8,14 @@
 
 use std::any::Any;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use indexmap::IndexMap;
 use prism_bigraph::process::{Process, ProcessNode, Step};
 use prism_bigraph::factory::ProcessRegistry;
 use prism_bigraph::topology::{ProcessSpec, Topology};
-use prism_bigraph::{Engine, Key, Schema, Value};
+use prism_bigraph::{Engine, Key, Schema, Update, Value};
 
 // ═══════════════════════════════════════════════════════════
 // Test processes (analogs of Python IncreaseProcess, OperatorStep)
@@ -914,4 +915,393 @@ fn test_match_star_path() {
     assert!(match_star(&["first", "list", "test"], &["first", "*", "test"]));
     assert!(!match_star(&["first", "list", "tent"], &["first", "*", "test"]));
     assert!(match_star(&["first", "list", "test"], &["first", "list", "test"]));
+}
+
+// ═══════════════════════════════════════════════════════════
+// DynamicWorker — ported from Python process_bigraph/processes/dynamic_structure.py
+// ═══════════════════════════════════════════════════════════
+
+static WORKER_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+/// Process that modifies pool structure based on conditions.
+///
+/// Reads from 'sources' (the entire pool map) and 'self_value'.
+/// Writes structural changes (_add, _remove) to 'targets' (the pool map)
+/// and value deltas to 'self_value'.
+///
+/// Operations in priority order:
+/// 1. Self-remove when projected value drops below threshold_remove
+/// 2. Remove sources whose values are below threshold_remove
+/// 3. Rewire: replace self with different output wires (tests cache invalidation)
+/// 4. Spawn: add a new agent to the pool
+/// 5. Grow: increment self_value by growth_rate * interval
+#[derive(Clone, Debug)]
+struct DynamicWorker {
+    process_id: String,
+    growth_rate: f64,
+    spawn_growth_rate: f64,
+    propensity_spawn: f64,
+    propensity_remove: f64,
+    propensity_rewire: f64,
+    threshold_spawn: f64,
+    threshold_remove: f64,
+    threshold_rewire: f64,
+    max_pool_size: usize,
+    spawn_value: f64,
+}
+
+impl DynamicWorker {
+    fn from_config(config: &Value) -> Self {
+        let m = config.as_map();
+        let f = |key: &str, default: f64| -> f64 {
+            m.and_then(|m| m.get(key)).and_then(|v| v.as_f64()).unwrap_or(default)
+        };
+        let process_id = m.and_then(|m| m.get("process_id"))
+            .and_then(|v| v.as_str()).unwrap_or("0").to_string();
+        Self {
+            process_id,
+            growth_rate: f("growth_rate", 1.0),
+            spawn_growth_rate: f("spawn_growth_rate", 0.8),
+            propensity_spawn: f("propensity_spawn", 1.0),
+            propensity_remove: f("propensity_remove", 1.0),
+            propensity_rewire: f("propensity_rewire", 0.0),
+            threshold_spawn: f("threshold_spawn", 3.0),
+            threshold_remove: f("threshold_remove", -3.0),
+            threshold_rewire: f("threshold_rewire", 4.0),
+            max_pool_size: m.and_then(|m| m.get("max_pool_size"))
+                .and_then(|v| v.as_i64()).unwrap_or(15) as usize,
+            spawn_value: f("spawn_value", 0.5),
+        }
+    }
+
+    /// Extract {agent_id: value} from pool state, excluding self.
+    fn source_values(&self, sources: &Value) -> IndexMap<String, f64> {
+        let mut result = IndexMap::new();
+        if let Some(map) = sources.as_map() {
+            for (k, v) in map {
+                if k.as_str() == self.process_id { continue; }
+                if let Some(inner) = v.as_map() {
+                    if let Some(val) = inner.get("value").and_then(|v| v.as_f64()) {
+                        result.insert(k.to_string(), val);
+                    }
+                } else if let Some(val) = v.as_f64() {
+                    result.insert(k.to_string(), val);
+                }
+            }
+        }
+        result
+    }
+
+    fn make_spawn_config(&self, new_id: &str) -> Value {
+        let new_growth = self.spawn_growth_rate;
+        let mut next_spawn_growth = new_growth * 0.625;
+        if next_spawn_growth > 0.0 && next_spawn_growth < 0.6 {
+            next_spawn_growth = -0.5;
+        }
+        Value::tree([
+            ("process_id", Value::String(new_id.into())),
+            ("growth_rate", Value::float(new_growth)),
+            ("spawn_growth_rate", Value::float(next_spawn_growth)),
+            ("propensity_spawn", Value::float(if new_growth > 0.0 { 1.0 } else { 0.0 })),
+            ("propensity_remove", Value::float(1.0)),
+            ("propensity_rewire", Value::float(0.0)),
+            ("threshold_spawn", Value::float(self.threshold_spawn)),
+            ("threshold_remove", Value::float(self.threshold_remove)),
+            ("threshold_rewire", Value::float(self.threshold_rewire)),
+            ("max_pool_size", Value::Int(self.max_pool_size as i64)),
+            ("spawn_value", Value::float(self.spawn_value)),
+        ])
+    }
+
+    fn make_agent(agent_id: &str, value: f64, config: Value) -> Value {
+        Value::tree([
+            ("value", Value::float(value)),
+            ("worker", Value::Map(IndexMap::from([
+                ("address".into(), Value::String("local:DynamicWorker".into())),
+                ("config".into(), config),
+                ("inputs".into(), Value::tree([
+                    ("sources", Value::List(vec![Value::String("..".into())])),
+                    ("self_value", Value::List(vec![Value::String("value".into())])),
+                ])),
+                ("outputs".into(), Value::tree([
+                    ("targets", Value::List(vec![Value::String("..".into())])),
+                    ("self_value", Value::List(vec![Value::String("value".into())])),
+                ])),
+            ]))),
+        ])
+    }
+}
+
+impl Process for DynamicWorker {
+    fn inputs(&self) -> IndexMap<String, Schema> {
+        IndexMap::from([
+            ("sources".into(), Schema::map(Schema::Tree {
+                branches: IndexMap::from([("value".into(), Schema::float())]),
+            })),
+            ("self_value".into(), Schema::float()),
+        ])
+    }
+    fn outputs(&self) -> IndexMap<String, Schema> {
+        IndexMap::from([
+            ("targets".into(), Schema::map(Schema::Any)),
+            ("self_value".into(), Schema::float()),
+        ])
+    }
+    fn interval(&self) -> f64 { 1.0 }
+
+    fn update(&self, state: &Value, interval: f64) -> Update {
+        let self_val = state.get_field("self_value").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let sources = state.get_field("sources").cloned().unwrap_or(Value::map());
+        let source_vals = self.source_values(&sources);
+        let source_sum: f64 = source_vals.values().sum();
+        let source_count = source_vals.len();
+
+        let delta = self.growth_rate * interval;
+        let projected = self_val + delta;
+
+        // Priority 1: Self-remove when value too negative
+        if self.propensity_remove > 0.0
+            && projected * self.propensity_remove < self.threshold_remove
+        {
+
+            let mut targets = IndexMap::new();
+            targets.insert("_remove".into(), Value::List(vec![Value::String(self.process_id.clone())]));
+            return Update::value(Value::tree([
+                ("self_value", Value::float(delta)),
+                ("targets", Value::Map(targets)),
+            ]));
+        }
+
+        // Priority 2: Remove sources with very negative values
+        let removals: Vec<Value> = source_vals.iter()
+            .filter(|(_, sv)| self.propensity_remove > 0.0
+                && **sv * self.propensity_remove < self.threshold_remove)
+            .map(|(sid, _)| Value::String(sid.clone()))
+            .collect();
+        if !removals.is_empty() {
+            let mut targets = IndexMap::new();
+            targets.insert("_remove".into(), Value::List(removals));
+            return Update::value(Value::tree([
+                ("self_value", Value::float(delta)),
+                ("targets", Value::Map(targets)),
+            ]));
+        }
+
+        // Priority 3: Rewire
+        if self.propensity_rewire > 0.0
+            && source_count > 0
+            && source_sum * self.propensity_rewire > self.threshold_rewire
+        {
+
+            let best_peer = source_vals.iter()
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                .map(|(k, _)| k.clone()).unwrap();
+
+            let config = Value::tree([
+                ("process_id", Value::String(self.process_id.clone())),
+                ("growth_rate", Value::float(self.growth_rate)),
+                ("spawn_growth_rate", Value::float(self.spawn_growth_rate)),
+                ("propensity_spawn", Value::float(self.propensity_spawn)),
+                ("propensity_remove", Value::float(self.propensity_remove)),
+                ("propensity_rewire", Value::float(0.0)), // prevent re-rewire
+                ("threshold_spawn", Value::float(self.threshold_spawn)),
+                ("threshold_remove", Value::float(self.threshold_remove)),
+                ("threshold_rewire", Value::float(self.threshold_rewire)),
+                ("max_pool_size", Value::Int(self.max_pool_size as i64)),
+                ("spawn_value", Value::float(self.spawn_value)),
+            ]);
+
+            let rewired = Value::tree([
+                ("value", Value::float(projected)),
+                ("worker", Value::Map(IndexMap::from([
+                    ("address".into(), Value::String("local:DynamicWorker".into())),
+                    ("config".into(), config),
+                    ("inputs".into(), Value::tree([
+                        ("sources", Value::List(vec![Value::String("..".into())])),
+                        ("self_value", Value::List(vec![Value::String("value".into())])),
+                    ])),
+                    ("outputs".into(), Value::tree([
+                        ("targets", Value::List(vec![Value::String("..".into())])),
+                        ("self_value", Value::List(vec![
+                            Value::String("..".into()),
+                            Value::String(best_peer),
+                            Value::String("value".into()),
+                        ])),
+                    ])),
+                ]))),
+            ]);
+
+            let mut targets = IndexMap::new();
+            targets.insert("_add".into(), Value::Map(IndexMap::from([
+                (Key::from(self.process_id.as_str()), rewired),
+            ])));
+            return Update::value(Value::tree([
+                ("self_value", Value::float(0.0)),
+                ("targets", Value::Map(targets)),
+            ]));
+        }
+
+        // Priority 4: Spawn new agent
+        if self.propensity_spawn > 0.0
+            && projected * self.propensity_spawn > self.threshold_spawn
+            && source_count + 1 < self.max_pool_size
+        {
+
+            let counter = WORKER_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
+            let new_id = format!("{}_{}", self.process_id, counter);
+            let spawn_config = self.make_spawn_config(&new_id);
+            let new_agent = Self::make_agent(&new_id, self.spawn_value, spawn_config);
+
+            let mut targets = IndexMap::new();
+            targets.insert("_add".into(), Value::Map(IndexMap::from([
+                (Key::from(new_id.as_str()), new_agent),
+            ])));
+            return Update::value(Value::tree([
+                ("self_value", Value::float(self.spawn_value - self_val)),
+                ("targets", Value::Map(targets)),
+            ]));
+        }
+
+        // Default: grow
+
+        Update::value(Value::tree([
+            ("self_value", Value::float(delta)),
+            ("targets", Value::map()),
+        ]))
+    }
+
+    fn as_any(&self) -> &dyn Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+}
+
+fn make_worker_state(process_id: &str, propensity_rewire: f64) -> Value {
+    let config = Value::tree([
+        ("process_id", Value::String(process_id.into())),
+        ("growth_rate", Value::float(1.0)),
+        ("spawn_growth_rate", Value::float(0.8)),
+        ("propensity_spawn", Value::float(1.0)),
+        ("propensity_remove", Value::float(1.0)),
+        ("propensity_rewire", Value::float(propensity_rewire)),
+        ("threshold_spawn", Value::float(3.0)),
+        ("threshold_remove", Value::float(-3.0)),
+        ("threshold_rewire", Value::float(4.0)),
+        ("max_pool_size", Value::Int(15)),
+        ("spawn_value", Value::float(0.5)),
+    ]);
+    Value::Map(IndexMap::from([
+        ("address".into(), Value::String("local:DynamicWorker".into())),
+        ("config".into(), config),
+        ("inputs".into(), Value::tree([
+            ("sources", Value::List(vec![Value::String("..".into())])),
+            ("self_value", Value::List(vec![Value::String("value".into())])),
+        ])),
+        ("outputs".into(), Value::tree([
+            ("targets", Value::List(vec![Value::String("..".into())])),
+            ("self_value", Value::List(vec![Value::String("value".into())])),
+        ])),
+    ]))
+}
+
+fn pool_agents(state: &Value) -> Vec<String> {
+    state.get_field("pool")
+        .and_then(|v| v.as_map())
+        .map(|m| m.iter()
+            .filter(|(_, v)| v.as_map().map(|m| m.contains_key("value")).unwrap_or(false))
+            .map(|(k, _)| k.to_string())
+            .collect())
+        .unwrap_or_default()
+}
+
+/// Python test_dynamic_structure: spawn, remove, rewire, nesting,
+/// and verify process discovery works throughout.
+#[test]
+fn test_dynamic_structure() {
+    WORKER_COUNTER.store(0, Ordering::SeqCst);
+
+    let mut registry = ProcessRegistry::new();
+    registry.register("DynamicWorker", |config| {
+        ProcessNode::Process(Box::new(DynamicWorker::from_config(&config)))
+    });
+    let registry = Arc::new(registry);
+
+    let schema = Schema::Tree {
+        branches: IndexMap::from([
+            ("pool".into(), Schema::map(Schema::Tree {
+                branches: IndexMap::from([
+                    ("value".into(), Schema::float()),
+                    ("worker".into(), Schema::process(
+                        IndexMap::from([
+                            ("sources".into(), Schema::map(Schema::Tree {
+                                branches: IndexMap::from([("value".into(), Schema::float())]),
+                            })),
+                            ("self_value".into(), Schema::float()),
+                        ]),
+                        IndexMap::from([
+                            ("targets".into(), Schema::map(Schema::Any)),
+                            ("self_value".into(), Schema::float()),
+                        ]),
+                    )),
+                ]),
+            })),
+        ]),
+    };
+
+    // Start with 3 agents, each reading the entire pool as sources
+    let state = Value::tree([
+        ("pool", Value::tree([
+            ("a0", Value::tree([
+                ("value", Value::float(1.0)),
+                ("worker", make_worker_state("a0", 1.0)),
+            ])),
+            ("a1", Value::tree([
+                ("value", Value::float(1.0)),
+                ("worker", make_worker_state("a1", 1.0)),
+            ])),
+            ("a2", Value::tree([
+                ("value", Value::float(1.0)),
+                ("worker", make_worker_state("a2", 1.0)),
+            ])),
+        ])),
+    ]);
+
+    let mut engine = Engine::from_state(schema, state, Arc::clone(&registry)).unwrap();
+
+    // Verify initial state
+    let agents = pool_agents(engine.state());
+    assert_eq!(agents.len(), 3, "Expected 3 initial agents, got {}", agents.len());
+
+    // Phase 1: Growth + rewiring (t=0 to t=10)
+    engine.run(10.0);
+
+    let agents_after_growth = pool_agents(engine.state());
+    assert!(agents_after_growth.len() > 3,
+        "Pool should have grown beyond 3, got {}", agents_after_growth.len());
+
+    let peak_count = agents_after_growth.len();
+
+    // Phase 2: Continued growth then shrinkage (t=10 to t=40)
+    // Gen-2 agents with negative growth accumulate negative value and self-remove
+    engine.run(30.0);
+
+    let agents_final = pool_agents(engine.state());
+
+    // Pool should still have agents
+    assert!(!agents_final.is_empty(), "Pool should not be empty");
+    // Pool should have experienced structural changes (growth beyond initial 3)
+    assert!(peak_count > 3,
+        "Pool should have grown from initial 3, peak={peak_count}");
+
+    // Verify remaining agents have valid values (above remove threshold)
+    let pool = engine.state().get_field("pool").unwrap();
+    for aid in &agents_final {
+        if let Some(agent) = pool.get_field(aid) {
+            if let Some(val) = agent.get_field("value").and_then(|v| v.as_f64()) {
+                assert!(val >= -3.0,
+                    "Surviving agent {aid} has value {val} below remove threshold");
+            }
+        }
+    }
+
+    println!("test_dynamic_structure: 3 agents → {} peak → {} final",
+        peak_count, agents_final.len());
 }

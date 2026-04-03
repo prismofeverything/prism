@@ -1106,38 +1106,42 @@ impl Engine {
         unique_paths.sort();
         unique_paths.dedup();
 
-        // Check each changed path for new process nodes underneath
-        for path in unique_paths {
-            let state_at_path = self.state.get_path(path).cloned();
-            if let Some(Value::Map(map)) = state_at_path {
-                // Scan children for process specs (maps with "address" key)
-                self.scan_for_processes(&map, path, &registry, &mut to_add);
-            }
-        }
-
-        // Check for removed processes (processes whose state path no longer exists)
+        // Remove processes whose state was replaced by _add or whose parent
+        // was removed. This must happen BEFORE scanning so that replaced
+        // entries are re-discovered with their new config/wiring.
         let existing_names: Vec<String> = self.specs.keys().cloned().collect();
         for name in &existing_names {
-            // If process name contains dots, check if its parent state exists
             if let Some(dot_pos) = name.rfind('.') {
                 let parent_path: Vec<Key> = name[..dot_pos]
                     .split('.')
                     .map(|s| Key::from(s))
                     .collect();
                 if self.state.get_path(&parent_path).is_none() {
+                    // Parent state was removed (_remove)
                     to_remove.push(name.clone());
                 }
             }
         }
-
-        // Apply changes
-        for name in to_remove {
-            self.remove_process(&name);
+        for name in &to_remove {
+            self.remove_process(name);
         }
-        for (name, spec, node) in to_add {
-            if !self.nodes.contains_key(&name) {
-                self.add_process(name, spec, node);
+
+        // Check each changed path for new process nodes underneath
+        for path in unique_paths {
+            let state_at_path = self.state.get_path(path).cloned();
+            if let Some(Value::Map(map)) = state_at_path {
+                self.scan_for_processes(&map, path, &registry, &mut to_add);
             }
+        }
+
+        // Apply additions — if _add replaced an existing entry, the process
+        // still exists (wasn't removed above since parent still exists).
+        // Remove it so the new config/wiring takes effect.
+        for (name, spec, node) in to_add {
+            if self.nodes.contains_key(&name) {
+                self.remove_process(&name);
+            }
+            self.add_process(name, spec, node);
         }
     }
 
@@ -1159,9 +1163,19 @@ impl Engine {
                 child_path.push(key.clone());
                 let child_name = child_path.join(".");
 
-                // Already registered? Skip.
+                // Already registered? Skip if config hasn't changed.
                 if self.nodes.contains_key(&child_name) {
-                    continue;
+                    // Check if this is a replaced entry (_add with same key).
+                    // Compare stored config with current state config.
+                    let config_changed = self.specs.get(&child_name)
+                        .map(|spec| {
+                            let current_config = child_map.get("config");
+                            current_config != Some(&spec.config)
+                        })
+                        .unwrap_or(false);
+                    if !config_changed {
+                        continue;
+                    }
                 }
 
                 // Check schema first — if it declares Link, this is a process
@@ -1264,7 +1278,15 @@ fn apply_projections_to(
 ) -> (Vec<Path>, bool) {
     let mut changed = Vec::new();
     let mut structural = false;
+    // Track keys removed by _remove so we don't re-create them via set_path.
+    let mut removed_prefixes: Vec<Path> = Vec::new();
     for (path, value, port_schema) in projections {
+        // Skip projections into paths that were removed by a prior _remove
+        if removed_prefixes.iter().any(|prefix|
+            path.len() > prefix.len() && path[..prefix.len()] == prefix[..])
+        {
+            continue;
+        }
         let has_add_remove = value.as_map()
             .map(|m| m.contains_key("_add") || m.contains_key("_remove"))
             .unwrap_or(false);
@@ -1272,6 +1294,16 @@ fn apply_projections_to(
             structural = true;
             // Fast path: apply _add/_remove in-place without cloning the target map.
             if let Some(upd_map) = value.as_map() {
+                // Track removed keys so later projections don't re-create them
+                if let Some(Value::List(keys)) = upd_map.get("_remove") {
+                    for key in keys {
+                        if let Some(k) = key.as_str() {
+                            let mut removed_path = path.clone();
+                            removed_path.push(Key::from(k));
+                            removed_prefixes.push(removed_path);
+                        }
+                    }
+                }
                 if let Some(Value::Map(target)) = state.get_path_mut(path) {
                     prism_schema::apply_add_remove(target, upd_map);
                     // Apply any non-structural keys (regular deltas alongside _add/_remove)

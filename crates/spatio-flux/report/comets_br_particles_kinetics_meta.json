@@ -15,7 +15,7 @@
     "ParticleExchange",
     "SpatialDFBA"
   ],
-  "runtime_ms": 3706,
+  "runtime_ms": 374,
   "spatial_field_names": [
     "acetate",
     "dissolved biomass",

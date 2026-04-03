@@ -14,7 +14,7 @@
     "ParticleExchange",
     "PymunkParticleMovement"
   ],
-  "runtime_ms": 836,
+  "runtime_ms": 763,
   "spatial_field_names": [
     "acetate",
     "dissolved biomass",
