@@ -9,7 +9,7 @@
   "process_types": [
     "SpatialDFBA"
   ],
-  "runtime_ms": 23984,
+  "runtime_ms": 3969,
   "spatial_field_names": [
     "glucose",
     "acetate",

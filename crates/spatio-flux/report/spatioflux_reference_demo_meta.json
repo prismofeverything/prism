@@ -15,7 +15,7 @@
     "ParticleTotalMass",
     "PymunkParticleMovement"
   ],
-  "runtime_ms": 6319,
+  "runtime_ms": 5592,
   "spatial_field_names": [
     "acetate",
     "dissolved biomass",

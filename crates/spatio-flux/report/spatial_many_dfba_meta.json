@@ -7,7 +7,7 @@
   "n_steps": 60,
   "name": "spatial_many_dfba",
   "process_types": [],
-  "runtime_ms": 387,
+  "runtime_ms": 41,
   "spatial_field_names": [
     "acetate",
     "dissolved biomass",

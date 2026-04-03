@@ -22,7 +22,6 @@ static MODEL_CACHE: LazyLock<Mutex<HashMap<String, Arc<CobraModel>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// A parsed COBRA model ready for FBA.
-#[derive(Clone, Debug)]
 pub struct CobraModel {
     pub id: String,
     /// Metabolite IDs (row indices of S matrix).
@@ -41,6 +40,35 @@ pub struct CobraModel {
     pub met_index: HashMap<String, usize>,
     /// Reaction index lookup.
     pub rxn_index: HashMap<String, usize>,
+    /// Persistent solver for warm-started solve_with_bounds calls.
+    pub(crate) solver: Mutex<Option<FbaSolver>>,
+}
+
+impl Clone for CobraModel {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            metabolites: self.metabolites.clone(),
+            reactions: self.reactions.clone(),
+            stoichiometry: self.stoichiometry.clone(),
+            lower_bounds: self.lower_bounds.clone(),
+            upper_bounds: self.upper_bounds.clone(),
+            objective_idx: self.objective_idx,
+            met_index: self.met_index.clone(),
+            rxn_index: self.rxn_index.clone(),
+            solver: Mutex::new(None), // fresh solver for clones
+        }
+    }
+}
+
+impl std::fmt::Debug for CobraModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CobraModel")
+            .field("id", &self.id)
+            .field("metabolites", &self.metabolites.len())
+            .field("reactions", &self.reactions.len())
+            .finish()
+    }
 }
 
 /// Raw COBRA JSON structures for deserialization.
@@ -127,6 +155,7 @@ impl CobraModel {
             objective_idx,
             met_index,
             rxn_index,
+            solver: Mutex::new(None),
         })
     }
 
@@ -142,9 +171,10 @@ impl CobraModel {
     }
 
     /// Solve FBA with modified bounds.
-    /// Uses a one-shot HiGHS solve (rebuilds the LP each time).
+    /// Uses a persistent solver with warm-start when called repeatedly.
     pub fn solve_with_bounds(&self, lb: &[f64], ub: &[f64]) -> Option<FbaSolution> {
-        let mut solver = FbaSolver::new(self);
+        let mut guard = self.solver.lock().unwrap();
+        let solver = guard.get_or_insert_with(|| FbaSolver::new(self));
         solver.solve(lb, ub)
     }
 
@@ -209,80 +239,94 @@ pub fn load_model_cached(model_file: &str) -> Result<Arc<CobraModel>, String> {
 
 /// Persistent FBA solver for a COBRA model.
 ///
-/// Caches the row-wise stoichiometry structure so it doesn't need
-/// to be recomputed each solve. Rebuilds the HiGHS problem with
-/// updated bounds each call (the safe highs crate doesn't expose
-/// bound-update APIs, but avoiding the stoichiometry transpose
-/// and allocation is still a win).
+/// Builds the HiGHS LP once (stoichiometry + objective) and reuses it
+/// across solves. Only column bounds are updated between solves via FFI,
+/// allowing HiGHS to warm-start from the previous basis.
 pub struct FbaSolver {
-    /// Pre-computed row terms: for each active metabolite,
-    /// list of (reaction_index, coefficient).
-    row_terms: Vec<Vec<(usize, f64)>>,
+    /// Persistent HiGHS model (Some when ready, None during solve transition).
+    highs_model: Option<highs::Model>,
     n_rxns: usize,
     objective_idx: usize,
 }
 
-// FbaSolver has no FFI handles — fully safe.
+// HiGHS model is single-threaded but we guard access via Mutex in callers.
 unsafe impl Send for FbaSolver {}
 
 impl FbaSolver {
-    /// Build solver from a CobraModel (caches stoichiometry structure).
+    /// Build solver from a CobraModel. Creates the LP once.
     pub fn new(model: &CobraModel) -> Self {
         let n_mets = model.metabolites.len();
+        let n_rxns = model.reactions.len();
+
+        // Build row-wise stoichiometry
         let mut met_terms: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n_mets];
         for (j, col) in model.stoichiometry.iter().enumerate() {
             for &(i, coeff) in col {
                 met_terms[i].push((j, coeff));
             }
         }
-        // Keep only non-empty rows
-        let row_terms: Vec<Vec<(usize, f64)>> = met_terms
-            .into_iter()
-            .filter(|t| !t.is_empty())
-            .collect();
 
-        FbaSolver {
-            row_terms,
-            n_rxns: model.reactions.len(),
-            objective_idx: model.objective_idx,
-        }
-    }
-
-    /// Solve FBA with the given bounds.
-    pub fn solve(&self, lb: &[f64], ub: &[f64]) -> Option<FbaSolution> {
+        // Build the LP structure once
         let mut pb = RowProblem::default();
-
-        // Add columns with current bounds
-        let cols: Vec<highs::Col> = (0..self.n_rxns)
+        let cols: Vec<highs::Col> = (0..n_rxns)
             .map(|j| {
-                let cost = if j == self.objective_idx { -1.0 } else { 0.0 };
-                pb.add_column(cost, lb[j]..ub[j])
+                let cost = if j == model.objective_idx { -1.0 } else { 0.0 };
+                pb.add_column(cost, model.lower_bounds[j]..model.upper_bounds[j])
             })
             .collect();
 
-        // Add cached rows (stoichiometry doesn't change)
-        for terms in &self.row_terms {
+        for terms in &met_terms {
+            if terms.is_empty() { continue; }
             let row: Vec<(highs::Col, f64)> =
                 terms.iter().map(|&(j, c)| (cols[j], c)).collect();
             pb.add_row(0.0..=0.0, row);
         }
 
-        let mut model = pb.optimise(Sense::Minimise);
-        model.set_option("output_flag", false);
+        let mut highs_model = pb.optimise(Sense::Minimise);
+        highs_model.set_option("output_flag", false);
+
+        FbaSolver {
+            highs_model: Some(highs_model),
+            n_rxns,
+            objective_idx: model.objective_idx,
+        }
+    }
+
+    /// Solve FBA with the given bounds.
+    ///
+    /// Updates column bounds in-place via FFI and re-solves.
+    /// HiGHS warm-starts from the previous basis automatically.
+    pub fn solve(&mut self, lb: &[f64], ub: &[f64]) -> Option<FbaSolution> {
+        let model = self.highs_model.take()?;
+
+        // Update all column bounds in one FFI call
+        unsafe {
+            highs_sys::Highs_changeColsBoundsByRange(
+                // Model was consumed into SolvedModel last time, but we convert back.
+                // Here we need the raw pointer — use the model we have.
+                model.as_ptr() as *mut _,
+                0,
+                self.n_rxns as highs_sys::HighsInt - 1,
+                lb.as_ptr(),
+                ub.as_ptr(),
+            );
+        }
+
         let solved = model.solve();
 
-        match solved.status() {
+        let result = match solved.status() {
             HighsModelStatus::Optimal => {
                 let solution = solved.get_solution();
                 let fluxes = solution.columns().to_vec();
                 let objective_value = fluxes[self.objective_idx];
-                Some(FbaSolution {
-                    fluxes,
-                    objective_value,
-                })
+                Some(FbaSolution { fluxes, objective_value })
             }
             _ => None,
-        }
+        };
+
+        // Convert SolvedModel back to Model for reuse
+        self.highs_model = Some(solved.into());
+        result
     }
 }
 

@@ -17,6 +17,7 @@ ordered-float = { workspace = true }
 compact_str = { workspace = true }
 plotters = { workspace = true }
 highs = { workspace = true }
+highs-sys = { workspace = true }
 rapier2d = { workspace = true }
 
 [dev-dependencies]

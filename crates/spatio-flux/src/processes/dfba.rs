@@ -281,6 +281,7 @@ fn make_fallback_model() -> CobraModel {
         objective_idx: 0,
         met_index: Default::default(),
         rxn_index: [("biomass".into(), 0)].into(),
+        solver: Mutex::new(None),
     }
 }
 

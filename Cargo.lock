@@ -876,6 +876,7 @@ version = "0.1.0"
 dependencies = [
  "compact_str",
  "highs",
+ "highs-sys",
  "indexmap",
  "ordered-float",
  "plotters",

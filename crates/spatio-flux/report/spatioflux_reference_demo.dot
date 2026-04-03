@@ -53,8 +53,8 @@ digraph {
     state_particles__p_edfda1__sub_masses -> proc_particles_p_edfda1_aggregate_mass [style=dashed, penwidth=1, arrowhead=normal, label="sub_masses", fontsize=10];
     state_particles__p_edfda1__mass -> proc_particles_p_edfda1_aggregate_mass [style=dashed, penwidth=1, dir=both, label="total_mass", fontsize=10];
     state_fields -> proc_diffusion [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
-    state_particles -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
     state_fields -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
+    state_particles -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
     state_particles -> proc_particle_division [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
     state_newtonian_particles__interval -> proc_enforce_boundaries [style=dashed, penwidth=1, arrowhead=normal, label="process_interval", fontsize=10];
     state_particles -> proc_enforce_boundaries [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
