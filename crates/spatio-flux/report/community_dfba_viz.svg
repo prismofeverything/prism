@@ -190,7 +190,7 @@
 <text text-anchor="middle" x="846.32" y="-14.9" font-family="Times,serif" font-size="12.00">cdiff dFBA</text>
 </g>
 <!-- state_fields__acetate&#45;&gt;proc_cdiff_dFBA -->
-<g id="edge8" class="edge">
+<g id="edge9" class="edge">
 <title>state_fields__acetate&#45;&gt;proc_cdiff_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M666.04,-120.37C647.94,-106.92 625.08,-92.06 602.32,-83 556.14,-64.62 460.96,-90.84 494.32,-54 514.14,-32.11 702.87,-23.36 795.52,-20.36"/>
 <polygon fill="black" stroke="black" points="663.93,-123.16 674.01,-126.43 668.17,-117.59 663.93,-123.16"/>
@@ -204,7 +204,7 @@
 <text text-anchor="middle" x="996.32" y="-14.9" font-family="Times,serif" font-size="12.00">monod_kinetics</text>
 </g>
 <!-- state_fields__acetate&#45;&gt;proc_monod_kinetics -->
-<g id="edge22" class="edge">
+<g id="edge21" class="edge">
 <title>state_fields__acetate&#45;&gt;proc_monod_kinetics</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M713.54,-104.89C720.48,-86.22 731.41,-66.16 748.32,-54 775.04,-34.78 862.75,-40.73 895.32,-36 906.94,-34.31 919.28,-32.36 931.2,-30.4"/>
 <polygon fill="black" stroke="black" points="710.18,-103.88 710.26,-114.48 716.81,-106.15 710.18,-103.88"/>
@@ -240,7 +240,7 @@
 <text text-anchor="middle" x="1438.82" y="-57" font-family="Times,serif" font-size="10.00">substrates.ammonium</text>
 </g>
 <!-- state_fields__cdiff&#45;&gt;proc_cdiff_dFBA -->
-<g id="edge9" class="edge">
+<g id="edge7" class="edge">
 <title>state_fields__cdiff&#45;&gt;proc_cdiff_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M872.97,-120.08C863.16,-104.42 852.57,-84.52 847.32,-65 845.73,-59.07 845,-52.55 844.76,-46.34"/>
 <polygon fill="black" stroke="black" points="870.23,-122.29 878.6,-128.78 876.1,-118.49 870.23,-122.29"/>
@@ -254,7 +254,7 @@
 <text text-anchor="middle" x="71.32" y="-14.9" font-family="Times,serif" font-size="12.00">ecoli dFBA</text>
 </g>
 <!-- state_fields__ecoli&#45;&gt;proc_ecoli_dFBA -->
-<g id="edge6" class="edge">
+<g id="edge4" class="edge">
 <title>state_fields__ecoli&#45;&gt;proc_ecoli_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M12.08,-119.04C2.08,-99.31 -5.57,-73.9 6.32,-54 9.94,-47.94 15.01,-42.86 20.75,-38.63"/>
 <polygon fill="black" stroke="black" points="9.08,-120.84 16.94,-127.94 15.22,-117.49 9.08,-120.84"/>
@@ -262,7 +262,7 @@
 <text text-anchor="middle" x="27.82" y="-57" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__ecoli_core&#45;&gt;proc_ecoli_core_dFBA -->
-<g id="edge1" class="edge">
+<g id="edge2" class="edge">
 <title>state_fields__ecoli_core&#45;&gt;proc_ecoli_core_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M495.9,-125.09C464.12,-110.33 421.75,-92.73 382.32,-83 341.14,-72.84 220.86,-96.37 192.32,-65 174.7,-45.63 250,-32.57 309.56,-25.46"/>
 <polygon fill="black" stroke="black" points="494.46,-128.27 505,-129.36 497.44,-121.94 494.46,-128.27"/>
@@ -278,7 +278,7 @@
 <text text-anchor="middle" x="137.82" y="-57" font-family="Times,serif" font-size="10.00">substrates.formate</text>
 </g>
 <!-- state_fields__glucose&#45;&gt;proc_ecoli_core_dFBA -->
-<g id="edge2" class="edge">
+<g id="edge1" class="edge">
 <title>state_fields__glucose&#45;&gt;proc_ecoli_core_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1027.27,-124.99C1000.67,-109.93 964.68,-92.06 930.32,-83 804.59,-49.86 767.09,-83.02 638.32,-65 615.79,-61.85 610.66,-58.3 588.32,-54 539.93,-44.69 485.02,-35.67 443.22,-29.12"/>
 <polygon fill="black" stroke="black" points="1025.87,-128.22 1036.28,-130.18 1029.36,-122.16 1025.87,-128.22"/>
@@ -286,7 +286,7 @@
 <text text-anchor="middle" x="686.32" y="-57" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose&#45;&gt;proc_ecoli_dFBA -->
-<g id="edge4" class="edge">
+<g id="edge6" class="edge">
 <title>state_fields__glucose&#45;&gt;proc_ecoli_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1027.99,-124.94C1001.36,-109.65 965.09,-91.54 930.32,-83 790.64,-48.69 426,-83.15 283.32,-65 261.61,-62.24 256.69,-58.73 235.32,-54 197.87,-45.71 155.53,-36.69 123.26,-29.88"/>
 <polygon fill="black" stroke="black" points="1026.24,-127.97 1036.64,-130 1029.77,-121.93 1026.24,-127.97"/>
@@ -294,7 +294,7 @@
 <text text-anchor="middle" x="331.32" y="-57" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glucose&#45;&gt;proc_cdiff_dFBA -->
-<g id="edge7" class="edge">
+<g id="edge8" class="edge">
 <title>state_fields__glucose&#45;&gt;proc_cdiff_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1026.65,-126.79C996.88,-109.86 955.95,-86.34 920.32,-65 907.68,-57.43 893.95,-48.97 881.79,-41.38"/>
 <polygon fill="black" stroke="black" points="1025.09,-129.93 1035.51,-131.83 1028.55,-123.85 1025.09,-129.93"/>
@@ -332,7 +332,7 @@
 <text text-anchor="middle" x="1722.32" y="-57" font-family="Times,serif" font-size="10.00">substrates.glucose</text>
 </g>
 <!-- state_fields__glutamate&#45;&gt;proc_llactis_dFBA -->
-<g id="edge19" class="edge">
+<g id="edge17" class="edge">
 <title>state_fields__glutamate&#45;&gt;proc_llactis_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1966.52,-94.28C1970.22,-80.01 1976.08,-65.48 1985.32,-54 1989.56,-48.73 1994.81,-44.17 2000.5,-40.26"/>
 <polygon fill="black" stroke="black" points="1963.09,-93.55 1964.28,-104.07 1969.92,-95.1 1963.09,-93.55"/>
@@ -348,7 +348,7 @@
 <text text-anchor="middle" x="1827.82" y="-57" font-family="Times,serif" font-size="10.00">substrates.glycolate</text>
 </g>
 <!-- state_fields__llactis&#45;&gt;proc_llactis_dFBA -->
-<g id="edge20" class="edge">
+<g id="edge19" class="edge">
 <title>state_fields__llactis&#45;&gt;proc_llactis_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M2099.47,-111.48C2104.55,-93.28 2106.88,-71.75 2098.32,-54 2096.46,-50.14 2093.94,-46.58 2091.05,-43.32"/>
 <polygon fill="black" stroke="black" points="2096.07,-110.62 2096.41,-121.21 2102.75,-112.72 2096.07,-110.62"/>
@@ -356,7 +356,7 @@
 <text text-anchor="middle" x="2122.82" y="-57" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__monod_biomass&#45;&gt;proc_monod_kinetics -->
-<g id="edge21" class="edge">
+<g id="edge22" class="edge">
 <title>state_fields__monod_biomass&#45;&gt;proc_monod_kinetics</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M1136.17,-95.83C1129.47,-91 1122.46,-86.59 1115.32,-83 1081.6,-66.04 1064.3,-85.06 1032.32,-65 1024.29,-59.97 1017.33,-52.48 1011.72,-45"/>
 <polygon fill="black" stroke="black" points="1134.4,-98.88 1144.48,-102.14 1138.63,-93.3 1134.4,-98.88"/>
@@ -372,7 +372,7 @@
 <text text-anchor="middle" x="1909.82" y="-57" font-family="Times,serif" font-size="10.00">biomass</text>
 </g>
 <!-- state_fields__serine&#45;&gt;proc_llactis_dFBA -->
-<g id="edge17" class="edge">
+<g id="edge20" class="edge">
 <title>state_fields__serine&#45;&gt;proc_llactis_dFBA</title>
 <path fill="none" stroke="black" stroke-dasharray="5,2" d="M2174.29,-108.69C2170.1,-89.94 2162.42,-68.75 2148.32,-54 2137.86,-43.06 2123.66,-35.51 2109.47,-30.31"/>
 <polygon fill="black" stroke="black" points="2170.86,-109.38 2176.23,-118.52 2177.73,-108.03 2170.86,-109.38"/>

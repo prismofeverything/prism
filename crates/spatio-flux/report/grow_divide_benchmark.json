@@ -2,56 +2,56 @@
   {
     "agents": 1,
     "duration": 5.0,
-    "wall_ms": 0.094177
+    "wall_ms": 0.091451
   },
   {
     "agents": 2,
     "duration": 10.0,
-    "wall_ms": 0.171493
+    "wall_ms": 0.125877
   },
   {
     "agents": 4,
     "duration": 20.0,
-    "wall_ms": 0.334881
+    "wall_ms": 0.310093
   },
   {
     "agents": 16,
     "duration": 30.0,
-    "wall_ms": 1.1039400000000001
+    "wall_ms": 1.0674549999999998
   },
   {
     "agents": 32,
     "duration": 40.0,
-    "wall_ms": 2.430309
+    "wall_ms": 2.424474
   },
   {
     "agents": 64,
     "duration": 50.0,
-    "wall_ms": 5.507238
+    "wall_ms": 5.470307
   },
   {
     "agents": 128,
     "duration": 55.0,
-    "wall_ms": 10.069533999999999
+    "wall_ms": 10.008932999999999
   },
   {
     "agents": 256,
     "duration": 60.0,
-    "wall_ms": 17.517379
+    "wall_ms": 17.546424000000002
   },
   {
     "agents": 256,
     "duration": 65.0,
-    "wall_ms": 21.826249
+    "wall_ms": 21.648791
   },
   {
     "agents": 512,
     "duration": 70.0,
-    "wall_ms": 39.734524
+    "wall_ms": 39.743485
   },
   {
     "agents": 1024,
     "duration": 75.0,
-    "wall_ms": 76.029177
+    "wall_ms": 74.961577
   }
 ]

@@ -43,12 +43,12 @@ digraph {
     state_particles__Gn3AfJxL__local -> proc_particles_Gn3AfJxL_dFBA [style=dashed, penwidth=1, arrowhead=normal, label="substrates", fontsize=10];
     proc_particles_Gn3AfJxL_dFBA -> state_particles__Gn3AfJxL__exchange [style=dashed, penwidth=1, arrowhead=normal, label="substrates", fontsize=10];
     state_particles__Gn3AfJxL__mass -> proc_particles_Gn3AfJxL_dFBA [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
+    state_fields__acetate__0__0 -> proc_dFBA_0_0_ [style=dashed, penwidth=1, dir=both, label="substrates.acetate", fontsize=10];
     state_fields__glucose__0__0 -> proc_dFBA_0_0_ [style=dashed, penwidth=1, dir=both, label="substrates.glucose", fontsize=10];
     state_fields__dissolved_biomass__0__0 -> proc_dFBA_0_0_ [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
-    state_fields__acetate__0__0 -> proc_dFBA_0_0_ [style=dashed, penwidth=1, dir=both, label="substrates.acetate", fontsize=10];
     state_particles -> proc_particle_division [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
-    state_particles -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
     state_fields -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
+    state_particles -> proc_particle_exchange [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
     state_brownian_movement__interval -> proc_enforce_boundaries [style=dashed, penwidth=1, arrowhead=normal, label="process_interval", fontsize=10];
     state_particles -> proc_enforce_boundaries [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
     state_particles -> proc_brownian_movement [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
