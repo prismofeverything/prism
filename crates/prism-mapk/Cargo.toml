@@ -1,6 +1,6 @@
 [package]
-name = "prism-examples"
-description = "Example simulations using prism"
+name = "prism-mapk"
+description = "MAPK signalling as a Bigraphical Reactive System — port of kaleidoscope.systems.mapk"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,11 +13,8 @@ prism-viz = { workspace = true }
 indexmap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+plotters = { workspace = true }
 
 [[bin]]
-name = "growth_division"
-path = "src/main.rs"
-
-[[bin]]
-name = "phase_a_tutorial"
-path = "src/phase_a_tutorial.rs"
+name = "mapk"
+path = "src/bin/run.rs"

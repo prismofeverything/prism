@@ -620,6 +620,22 @@ dependencies = [
  "indexmap",
  "prism-bigraph",
  "prism-schema",
+ "prism-viz",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "prism-mapk"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "plotters",
+ "prism-bigraph",
+ "prism-schema",
+ "prism-viz",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

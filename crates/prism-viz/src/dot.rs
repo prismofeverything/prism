@@ -66,6 +66,247 @@ pub fn render_dot(doc: &Document, options: &DotOptions) -> String {
     render_topology_dot(&topology, &doc.state, options)
 }
 
+/// A link-graph hyperedge to draw on top of the place graph.
+///
+/// Each [`LinkEdge`] is modelled as one invisible "bond anchor" node
+/// plus a colored dashed spoke to every endpoint. With `rankdir=TB`
+/// Graphviz drops the anchor below the connected ports and routes
+/// the spokes through it — naturally producing a U-shape for 2-ended
+/// bonds, a 3-spoke star for arity-3 hyperedges, and so on.
+///
+/// This is also how the link half of a Milner bigraph is most
+/// faithfully drawn: a hyperedge is a single edge identity that many
+/// points map to, not a 2-ended connection.
+#[derive(Clone, Debug)]
+pub struct LinkEdge {
+    /// Endpoints — paths into the state tree. Length-1 is allowed
+    /// (a dangling port) but produces just a labeled spoke with no
+    /// connection partner; length-2 is the most common (a bond);
+    /// length ≥ 3 are hyperedges.
+    pub endpoints: Vec<Vec<Key>>,
+    /// Label printed on the bond anchor (typically the link variable
+    /// name).
+    pub label: String,
+    /// Stroke color for the spokes (a hex string).
+    pub color: String,
+}
+
+/// [`render_state_dot`] with optional link-graph hyperedges layered
+/// over the place graph. Useful for pattern-rule diagrams where the
+/// link graph adds bonds between place-graph nodes.
+pub fn render_state_dot_with_links(
+    state: &Value,
+    options: &DotOptions,
+    links: &[LinkEdge],
+) -> String {
+    let mut dot = render_state_dot_inner(state, options);
+    if !links.is_empty() && dot.ends_with("}\n") {
+        dot.truncate(dot.len() - 2);
+
+        // For 2-ended bonds the prettiest shape is a single curve
+        // between the two ports — splines=curved + a one-step edge
+        // gives Graphviz license to draw a real U rather than two
+        // straight spokes meeting at a point. For arity ≥ 3 we still
+        // need an anchor (a star center). The two cases coexist; the
+        // anchor approach also documents the bond identity, which is
+        // the right Milner reading of a hyperedge.
+        let _ = writeln!(dot, "    // Link graph");
+        for (i, e) in links.iter().enumerate() {
+            match e.endpoints.len() {
+                0 | 1 => continue,
+                2 => emit_bond_2(&mut dot, i, e),
+                _ => emit_bond_hyper(&mut dot, i, e),
+            }
+        }
+        dot.push_str("}\n");
+    }
+    dot
+}
+
+/// 2-ended bond: a single curved edge between the two ports, labelled
+/// with the link variable name. `constraint=false` keeps the bond out
+/// of the place-graph rank flow so it just decorates without pushing
+/// nodes around.
+fn emit_bond_2(dot: &mut String, _i: usize, e: &LinkEdge) {
+    let _ = writeln!(
+        dot,
+        "    {} -> {} [color=\"{}\", penwidth=2, dir=none, style=dashed, \
+         constraint=false, label=<<font color=\"{}\"><b>{}</b></font>>, \
+         fontcolor=\"{}\", fontsize=10];",
+        path_to_id(&e.endpoints[0]),
+        path_to_id(&e.endpoints[1]),
+        e.color,
+        e.color,
+        escape_dot_string(&e.label),
+        e.color,
+    );
+}
+
+/// Hyperedge (arity ≥ 3): one bond-anchor node plus a spoke to each
+/// endpoint. The anchor is laid out below the ports; spokes form a
+/// star or fan. `constraint=true` lets the edges influence rank so
+/// the anchor drops naturally.
+fn emit_bond_hyper(dot: &mut String, i: usize, e: &LinkEdge) {
+    let anchor = format!("bond_anchor_{i}");
+    let _ = writeln!(
+        dot,
+        "    {anchor} [shape=circle, style=filled, fillcolor=\"{}\", \
+         color=\"{}\", penwidth=0, width=0.12, height=0.12, fixedsize=true, \
+         label=\"\", xlabel=<<font color=\"{}\" point-size=\"10\"><b>{}</b></font>>];",
+        e.color, e.color, e.color, escape_dot_string(&e.label),
+    );
+    for endpoint in &e.endpoints {
+        let _ = writeln!(
+            dot,
+            "    {} -> {anchor} [color=\"{}\", penwidth=2, dir=none, \
+             style=dashed, arrowhead=none];",
+            path_to_id(endpoint),
+            e.color,
+        );
+    }
+}
+
+/// Render a [`Value`] tree as a Graphviz DOT string in the same
+/// bigraph-viz style as [`render_dot`], but without requiring any
+/// processes. Every nested map becomes a filled circle node; parent →
+/// child containment becomes a solid arrowhead-less edge.
+///
+/// Node labels prefer the value's `_type` (or `_control`) tag — that's
+/// what carries the sort label in pattern / reaction-rule diagrams —
+/// falling back to the dict key. Used for rendering rule patterns
+/// (which are state-only — no processes), one-shot state
+/// visualisations, and debugging snapshots.
+pub fn render_state_dot(state: &Value, options: &DotOptions) -> String {
+    render_state_dot_inner(state, options)
+}
+
+fn render_state_dot_inner(state: &Value, options: &DotOptions) -> String {
+    let mut dot = String::new();
+    let _ = writeln!(dot, "digraph {{");
+    let _ = writeln!(dot, "    rankdir={};", options.rankdir);
+    let _ = writeln!(
+        dot,
+        "    size=\"{},{}\";",
+        options.size.0, options.size.1
+    );
+    let _ = writeln!(dot, "    dpi={};", options.dpi);
+    // `splines=curved` forces edges to be drawn as Bézier curves —
+    // important for the link-graph layer: two-ended bonds need a real
+    // U-shape rather than the straight line Graphviz defaults to for
+    // unobstructed paths.
+    let _ = writeln!(dot, "    splines=curved;");
+    let _ = writeln!(dot);
+
+    // Walk the state, collecting one path per nested map.
+    let mut paths: Vec<Vec<Key>> = Vec::new();
+    walk_state_paths(state, &mut Vec::new(), &mut paths);
+
+    let _ = writeln!(dot, "    // State nodes");
+    for path in &paths {
+        let node_id = path_to_id(path);
+        let (label, sort_label) = state_label(path, state);
+        let (fill, border) = sort_node_color(sort_label.as_deref(), path);
+        let _ = writeln!(
+            dot,
+            "    {node_id} [shape=circle, style=filled, fillcolor=\"{fill}\", \
+             color=\"{border}\", penwidth=1.4, label=\"{label}\", fontsize={fs}];",
+            fs = options.node_label_size,
+        );
+    }
+    let _ = writeln!(dot);
+
+    let _ = writeln!(dot, "    // Hierarchy");
+    let empty_procs: HashSet<&str> = HashSet::new();
+    for (parent, child) in compute_hierarchy(&paths, &empty_procs) {
+        // The edge label is the child key — tells the reader which
+        // slot of the parent this child fills.
+        let edge_label = child.last().map(|s| s.as_str()).unwrap_or("");
+        let _ = writeln!(
+            dot,
+            "    {} -> {} [arrowhead=none, penwidth={pw}, label=\"{}\", \
+             fontcolor=\"#777777\", fontsize=9];",
+            path_to_id(&parent),
+            path_to_id(&child),
+            escape_dot_string(edge_label),
+            pw = options.pen_width,
+        );
+    }
+
+    let _ = writeln!(dot, "}}");
+    dot
+}
+
+/// Walk a [`Value`] tree adding a path for each map node (including
+/// the path-to-leaf entries that name-only carry a `_type` tag).
+fn walk_state_paths(value: &Value, path: &mut Vec<Key>, out: &mut Vec<Vec<Key>>) {
+    if let Some(iter) = value.iter_fields() {
+        for (k, child) in iter {
+            if k.starts_with('_') {
+                continue;
+            }
+            path.push(k.clone());
+            out.push(path.clone());
+            walk_state_paths(child, path, out);
+            path.pop();
+        }
+    }
+}
+
+/// Pick a label for a node at `path`. Prefers the value's `_type`
+/// (or `_control`) tag; falls back to the dict key.
+///
+/// Returns `(label, sort)` so the caller can use the sort for
+/// colouring.
+fn state_label(path: &[Key], state: &Value) -> (String, Option<String>) {
+    let key = path.last().map(|s| s.as_str()).unwrap_or("?");
+    let sort = state
+        .get_path(path)
+        .and_then(|v| {
+            v.get_field("_type")
+                .or_else(|| v.get_field("_control"))
+        })
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let label = sort.clone().unwrap_or_else(|| key.to_string());
+    (label, sort)
+}
+
+/// Look up a sort-tinted (fill, stroke) colour pair. Falls back to
+/// the path-based heuristic from [`state_node_color`] when no sort
+/// tag is present.
+fn sort_node_color(sort: Option<&str>, path: &[Key]) -> (String, String) {
+    if let Some(s) = sort {
+        let (f, b) = sort_palette(s);
+        return (f.to_string(), b.to_string());
+    }
+    let (f, b) = state_node_color(path);
+    (f.to_string(), b)
+}
+
+/// MAPK-friendly sort palette — matches `pattern.rs`. Generic sorts
+/// fall back to the spatio-flux teal.
+fn sort_palette(label: &str) -> (&'static str, &'static str) {
+    match label {
+        "MEK" => ("#9ecae1", "#3b6fb0"),
+        "ERK" => ("#7fbf7b", "#3a7a3a"),
+        "pERK" => ("#ef8a62", "#b85a1a"),
+        "Cell" => ("#f5f5f5", "#666666"),
+        "Compartment" => ("#e8e4d8", "#777067"),
+        "Cytoplasm" => ("#cfe3cf", "#5a7a5a"),
+        "Nucleus" => ("#f0d8b4", "#7d5b3a"),
+        "ERLumen" => ("#f5c6a4", "#a96a3a"),
+        // Pattern markers — neutral, slightly muted.
+        s if s.starts_with("◦") => ("#ffffff", "#888888"),
+        s if s.starts_with("●") => ("#ffe9d1", "#d95f02"),
+        s if s.starts_with("✗") => ("#fff5f5", "#c0392b"),
+        _ => ("#C3E1D6", "#98afa6"),
+    }
+}
+
+fn escape_dot_string(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 /// Render a Topology as a Graphviz DOT string.
 /// Deduplicate topology for visualization: for maps with multiple complex children
 /// (like particles with many IDs), keep only one representative in both the

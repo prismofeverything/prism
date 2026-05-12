@@ -1,3 +1,4 @@
+pub mod brs;
 pub mod composite;
 pub mod document;
 pub mod engine;
@@ -7,6 +8,8 @@ pub mod process;
 pub mod topology;
 pub mod update;
 pub mod vivarium;
+
+pub use brs::{BigraphicalReactiveSystem, BrsMode, FiredEvent};
 
 pub use document::Document;
 pub use vivarium::VivariumDocument;
