@@ -17,6 +17,8 @@
 //! Pure-Rust, no external dependencies — useful as a fallback when
 //! `dot` isn't installed, or as a stylistic counterpoint in reports.
 
+use std::f64::consts::PI;
+
 use prism_schema::reaction::Pattern;
 use prism_schema::Value;
 
@@ -25,30 +27,46 @@ use prism_schema::Value;
 /// Padding inside a compartment (between the ellipse border and the
 /// children's bounding box). Generous so the inner ovals don't crowd
 /// the outer curve.
-const PAD: f64 = 26.0;
-/// Horizontal gap between sibling children inside a compartment.
-const GAP: f64 = 16.0;
-/// Vertical space reserved for the compartment's label.
-const LABEL_H: f64 = 22.0;
+const PAD: f64 = 34.0;
+/// Gap between sibling children. Used both for horizontal-pair
+/// layouts and as the minimum clearance between adjacent children
+/// in the radial layout.
+const GAP: f64 = 22.0;
+/// Vertical space reserved for the compartment's label band.
+const LABEL_H: f64 = 28.0;
+/// Vertical space reserved for child-key captions just above a child.
+const KEY_LABEL_H: f64 = 16.0;
 /// Multiplier converting the children's bounding rectangle to the
 /// enclosing ellipse's horizontal axis.
-const ELLIPSE_FIT_W: f64 = 1.18;
-/// Vertical inflation factor — larger than the horizontal one so the
-/// ovals come out rounder (taller relative to width) rather than the
-/// squashed disks you get with isotropic inflation.
+///
+/// The inscribing inequality for a rectangle inside an ellipse is
+/// `(w/2a)² + (h/2b)² ≤ 1`. With both factors at √2 the rectangle
+/// just touches the curve at every corner; we use a touch more (1.55
+/// horizontally, 1.50 vertically → ≈0.86) so there's a clear margin
+/// between the content and the curve.
+const ELLIPSE_FIT_W: f64 = 1.55;
 const ELLIPSE_FIT_H: f64 = 1.50;
 /// Lower bound on the height-to-width ratio of any compartment
 /// ellipse. Keeps long shallow trees from rendering as razor-thin
 /// slivers; clamps to a minimum "round enough" aspect.
 const MIN_ASPECT: f64 = 0.55;
 /// Minimum width/height of any node.
-const MIN_W: f64 = 72.0;
-const MIN_H: f64 = 60.0;
+const MIN_W: f64 = 90.0;
+const MIN_H: f64 = 70.0;
 /// Site marker (dashed ellipse).
-const SITE_W: f64 = 62.0;
-const SITE_H: f64 = 36.0;
+const SITE_W: f64 = 72.0;
+const SITE_H: f64 = 42.0;
 /// LinkVar port (small filled circle).
-const PORT_R: f64 = 7.0;
+const PORT_R: f64 = 8.0;
+/// Vertical squash ratio for the inner ellipse children sit on in
+/// the radial layout. 1.0 = circle, < 1 = squashed. We squash a bit
+/// so the parent comes out gently elliptical rather than circular.
+const INNER_SQUASH: f64 = 0.62;
+/// Font sizes — bumped to roughly match Graphviz's 12pt default so
+/// the SVG view reads at the same scale as the DOT side view.
+const FONT_LABEL: f64 = 14.0;
+const FONT_BODY: f64 = 12.0;
+const FONT_KEY: f64 = 10.0;
 const FONT: &str = "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif";
 
 // ── Layout pass ─────────────────────────────────────────────────────
@@ -61,15 +79,24 @@ struct Lay {
 }
 
 #[derive(Clone, Debug)]
+struct PositionedChild {
+    key: String,
+    lay: Lay,
+    /// Position relative to the parent's centre.
+    dx: f64,
+    dy: f64,
+}
+
+#[derive(Clone, Debug)]
 enum LayKind {
     /// A sort'd compartment with children laid out inside.
     Sort {
         label: String,
-        children: Vec<(String, Lay)>,
+        children: Vec<PositionedChild>,
     },
     /// Forest of regions (top-level multi-rooted bigraph).
     Forest {
-        regions: Vec<(String, Lay)>,
+        regions: Vec<PositionedChild>,
     },
     Site,
     LinkVar(String),
@@ -82,17 +109,20 @@ fn layout(pat: &Pattern) -> Lay {
         Pattern::Site => Lay { w: SITE_W, h: SITE_H, kind: LayKind::Site },
         Pattern::Absent => {
             let label = "✗".to_string();
-            let w = text_width(&label) + 16.0;
-            Lay { w, h: 26.0, kind: LayKind::Absent(label) }
+            let w = (text_width(&label, FONT_BODY) + 18.0).max(46.0);
+            Lay { w, h: FONT_BODY * 2.4, kind: LayKind::Absent(label) }
         }
         Pattern::LinkVar(name) => {
-            // Width includes the xlabel hanging off the port.
-            let w = 2.0 * PORT_R + 6.0 + text_width(name.as_str());
-            Lay { w: w.max(2.0 * PORT_R + 4.0), h: 2.0 * PORT_R + 14.0, kind: LayKind::LinkVar(name.to_string()) }
+            // Width must accommodate the port circle AND the label
+            // beneath it; the label can be wider than the port.
+            let label_w = text_width(name.as_str(), FONT_BODY);
+            let w = (label_w + 8.0).max(2.0 * PORT_R + 8.0);
+            let h = 2.0 * PORT_R + FONT_BODY + 8.0;
+            Lay { w, h, kind: LayKind::LinkVar(name.to_string()) }
         }
         Pattern::Atom(v) => {
             let s = atom_str(v);
-            Lay { w: text_width(&s).max(40.0), h: 18.0, kind: LayKind::Atom(s) }
+            Lay { w: text_width(&s, FONT_BODY).max(48.0), h: FONT_BODY * 2.0, kind: LayKind::Atom(s) }
         }
         Pattern::List(items) => {
             let children: Vec<(String, Lay)> = items
@@ -119,7 +149,7 @@ fn layout(pat: &Pattern) -> Lay {
                         // Embed the redex key into the absent marker.
                         if let LayKind::Absent(_) = &child.kind {
                             let new_label = format!("✗ {k}");
-                            child.w = text_width(&new_label) + 16.0;
+                            child.w = (text_width(&new_label, FONT_BODY) + 18.0).max(46.0);
                             child.kind = LayKind::Absent(new_label);
                         }
                     }
@@ -134,45 +164,131 @@ fn layout(pat: &Pattern) -> Lay {
     }
 }
 
+/// Use radial-on-an-ellipse layout when a compartment has at least
+/// this many children. Fewer than this falls back to the horizontal
+/// pair / single-centered placement.
+const RADIAL_MIN_CHILDREN: usize = 3;
+
 fn compartment_layout(label: String, children: Vec<(String, Lay)>) -> Lay {
-    let (inner_w, inner_h) = pack_children(&children);
-    let label_w = text_width(&label) + 24.0;
-    let content_w = inner_w.max(label_w);
-    let content_h = inner_h + LABEL_H;
-    // Inflate independently so the resulting ellipse is rounder than
-    // a naive isotropic scaling would produce.
+    let (positioned, content_w, content_h) = position_children(children, true);
+    let label_w = text_width(&label, FONT_LABEL) + 28.0;
+    let content_w = content_w.max(label_w);
     let w = (content_w + 2.0 * PAD).max(MIN_W) * ELLIPSE_FIT_W;
-    let mut h = (content_h + 2.0 * PAD).max(MIN_H) * ELLIPSE_FIT_H;
-    // Enforce a minimum height-to-width aspect — keeps shallow trees
-    // from rendering as squashed disks.
+    let mut h = (content_h + LABEL_H + 2.0 * PAD).max(MIN_H) * ELLIPSE_FIT_H;
     if h / w < MIN_ASPECT {
         h = w * MIN_ASPECT;
     }
-    Lay { w, h, kind: LayKind::Sort { label, children } }
+    Lay { w, h, kind: LayKind::Sort { label, children: positioned } }
 }
 
 fn forest_layout(regions: Vec<(String, Lay)>) -> Lay {
-    let (w, h) = pack_children(&regions);
+    let (positioned, w, h) = position_children(regions, false);
     Lay {
         w: w + 2.0 * PAD,
         h: h + 2.0 * PAD,
-        kind: LayKind::Forest { regions },
+        kind: LayKind::Forest { regions: positioned },
     }
 }
 
-/// Pack children horizontally and return (bounding_width, bounding_height).
-fn pack_children(children: &[(String, Lay)]) -> (f64, f64) {
-    if children.is_empty() {
-        return (0.0, 0.0);
+/// Place each child at a position relative to the parent's centre.
+/// Returns `(positioned_children, bounding_w, bounding_h)`.
+///
+/// Layout choice:
+/// - 0 children: nothing.
+/// - 1 child: centred at the parent (with a small downward bias when
+///   `under_label = true` so the label fits at the top).
+/// - 2 children: horizontal pair, side by side. This is the Milner
+///   convention for two-child compartments and reads more naturally
+///   than the top/bottom pair an isotropic radial layout would give.
+/// - ≥ 3 children: radial layout — children sit on an inner ellipse
+///   whose aspect roughly matches the parent's. Looks like Milner's
+///   building diagrams (rooms around the inside of an outer ring).
+fn position_children(
+    children: Vec<(String, Lay)>,
+    under_label: bool,
+) -> (Vec<PositionedChild>, f64, f64) {
+    let n = children.len();
+    if n == 0 {
+        return (vec![], 0.0, 0.0);
     }
-    let total_w: f64 = children.iter().map(|(_, c)| c.w).sum::<f64>()
-        + GAP * (children.len() as f64 - 1.0).max(0.0);
-    let max_h: f64 = children.iter().map(|(_, c)| c.h).fold(0.0, f64::max);
-    // Children get a small caption above them — account for it.
-    (total_w, max_h + KEY_LABEL_H)
-}
+    let max_chw = children.iter().map(|(_, c)| c.w).fold(0.0, f64::max);
+    let max_chh = children.iter().map(|(_, c)| c.h).fold(0.0, f64::max);
+    let label_bias = if under_label { LABEL_H / 2.0 } else { 0.0 };
 
-const KEY_LABEL_H: f64 = 12.0;
+    if n == 1 {
+        let (key, lay) = children.into_iter().next().unwrap();
+        let w = lay.w;
+        let h = lay.h + KEY_LABEL_H;
+        let pc = PositionedChild { key, lay, dx: 0.0, dy: label_bias };
+        return (vec![pc], w, h);
+    }
+
+    if n == 2 {
+        // Horizontal pair on a shared centerline.
+        let total_w: f64 = children.iter().map(|(_, c)| c.w).sum::<f64>() + GAP;
+        let mut x = -total_w / 2.0;
+        let positioned: Vec<_> = children
+            .into_iter()
+            .map(|(key, lay)| {
+                let dx = x + lay.w / 2.0;
+                let dy = label_bias;
+                x += lay.w + GAP;
+                PositionedChild { key, lay, dx, dy }
+            })
+            .collect();
+        return (positioned, total_w, max_chh + KEY_LABEL_H);
+    }
+
+    // n >= RADIAL_MIN_CHILDREN: place on an inner ellipse with proper
+    // pairwise collision avoidance.
+    let n_f = n as f64;
+    let start_angle = -PI / 2.0;
+    let angles: Vec<f64> = (0..n)
+        .map(|i| start_angle + 2.0 * PI * (i as f64) / n_f)
+        .collect();
+
+    // Each adjacent pair (i, i+1 mod n) places two children at
+    // (rx·cos θᵢ, ry·sin θᵢ) and (rx·cos θⱼ, ry·sin θⱼ). To clear
+    // their bounding boxes (max_chw + GAP wide, max_chh + GAP tall),
+    // we need either |Δx| ≥ max_chw + GAP OR |Δy| ≥ max_chh + GAP.
+    // With ry = INNER_SQUASH · rx, that lets us solve each constraint
+    // for the minimum rx and take the tighter of the two for each
+    // pair, then the largest over all pairs.
+    let mut rx_required: f64 = max_chw.max(max_chh) * 0.5 + 6.0;
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let dcos = (angles[i].cos() - angles[j].cos()).abs();
+        let dsin = (angles[i].sin() - angles[j].sin()).abs();
+        let r_for_dx = if dcos > 1e-6 {
+            (max_chw + GAP) / dcos
+        } else {
+            f64::INFINITY
+        };
+        let r_for_dy = if dsin > 1e-6 {
+            (max_chh + GAP) / (dsin * INNER_SQUASH)
+        } else {
+            f64::INFINITY
+        };
+        // We can satisfy either constraint; pick the smaller of the
+        // two (the cheaper way out), then take the max across pairs.
+        let r_for_pair = r_for_dx.min(r_for_dy);
+        if r_for_pair > rx_required {
+            rx_required = r_for_pair;
+        }
+    }
+    let inner_rx = rx_required;
+    let inner_ry = inner_rx * INNER_SQUASH;
+
+    let mut positioned = Vec::with_capacity(n);
+    for ((key, lay), theta) in children.into_iter().zip(angles.iter()) {
+        let dx = inner_rx * theta.cos();
+        let dy = inner_ry * theta.sin() + label_bias;
+        positioned.push(PositionedChild { key, lay, dx, dy });
+    }
+    let bounding_w = 2.0 * (inner_rx + max_chw * 0.5);
+    let bounding_h = 2.0 * (inner_ry + max_chh * 0.5);
+    (positioned, bounding_w, bounding_h)
+}
 
 // ── Public renderers ────────────────────────────────────────────────
 
@@ -393,16 +509,17 @@ fn draw(lay: &Lay, cx: f64, cy: f64, out: &mut String, ports: &mut Vec<PortPos>)
                 "  <ellipse cx=\"{cx:.1}\" cy=\"{cy:.1}\" rx=\"{rx:.1}\" ry=\"{ry:.1}\" \
                  fill=\"{fill}\" stroke=\"{stroke}\" stroke-width=\"1.6\" />\n",
             ));
+            // Label baseline sits inside the label band at the top.
             out.push_str(&format!(
                 "  <text x=\"{cx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" \
-                 font-weight=\"600\" fill=\"#333\">{}</text>\n",
-                cy - ry + 16.0,
+                 font-size=\"{FONT_LABEL}\" font-weight=\"600\" fill=\"#333\">{}</text>\n",
+                cy - ry + LABEL_H * 0.75,
                 escape_xml(label),
             ));
-            draw_children(children, cx, cy - ry + LABEL_H + PAD, lay.w, out, ports);
+            draw_positioned(children, cx, cy, out, ports);
         }
         LayKind::Forest { regions } => {
-            draw_children(regions, cx, cy - lay.h / 2.0 + PAD, lay.w, out, ports);
+            draw_positioned(regions, cx, cy, out, ports);
         }
         LayKind::Site => {
             let rx = lay.w / 2.0;
@@ -414,8 +531,8 @@ fn draw(lay: &Lay, cx: f64, cy: f64, out: &mut String, ports: &mut Vec<PortPos>)
             ));
             out.push_str(&format!(
                 "  <text x=\"{cx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" \
-                 fill=\"#666\" font-style=\"italic\">◦ site</text>\n",
-                cy + 4.0,
+                 font-size=\"{FONT_BODY}\" fill=\"#666\" font-style=\"italic\">◦ site</text>\n",
+                cy + FONT_BODY * 0.35,
             ));
         }
         LayKind::LinkVar(name) => {
@@ -427,8 +544,8 @@ fn draw(lay: &Lay, cx: f64, cy: f64, out: &mut String, ports: &mut Vec<PortPos>)
             ));
             out.push_str(&format!(
                 "  <text x=\"{cx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" \
-                 fill=\"#444\" font-size=\"10\">{}</text>\n",
-                port_cy + PORT_R + 10.0,
+                 font-size=\"{FONT_BODY}\" fill=\"#444\">{}</text>\n",
+                port_cy + PORT_R + FONT_BODY,
                 escape_xml(name),
             ));
             ports.push(PortPos { name: name.clone(), x: cx, y: port_cy });
@@ -444,57 +561,47 @@ fn draw(lay: &Lay, cx: f64, cy: f64, out: &mut String, ports: &mut Vec<PortPos>)
             ));
             out.push_str(&format!(
                 "  <text x=\"{cx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" \
-                 fill=\"#c0392b\" font-weight=\"600\" font-size=\"10\">{}</text>\n",
-                cy + 4.0,
+                 font-size=\"{FONT_BODY}\" fill=\"#c0392b\" font-weight=\"600\">{}</text>\n",
+                cy + FONT_BODY * 0.35,
                 escape_xml(label),
             ));
         }
         LayKind::Atom(s) => {
             out.push_str(&format!(
                 "  <text x=\"{cx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" \
-                 fill=\"#555\" font-style=\"italic\">{}</text>\n",
-                cy + 4.0,
+                 font-size=\"{FONT_BODY}\" fill=\"#555\" font-style=\"italic\">{}</text>\n",
+                cy + FONT_BODY * 0.35,
                 escape_xml(s),
             ));
         }
     }
 }
 
-fn draw_children(
-    children: &[(String, Lay)],
-    cx_center: f64,
-    y_top: f64,
-    container_w: f64,
+fn draw_positioned(
+    children: &[PositionedChild],
+    parent_cx: f64,
+    parent_cy: f64,
     out: &mut String,
     ports: &mut Vec<PortPos>,
 ) {
-    if children.is_empty() {
-        return;
-    }
-    let total_w: f64 = children.iter().map(|(_, c)| c.w).sum::<f64>()
-        + GAP * (children.len() as f64 - 1.0).max(0.0);
-    let mut x = cx_center - total_w / 2.0;
-    for (key, child) in children {
-        let cx = x + child.w / 2.0;
-        // Optional key caption above the child (skipped for unnamed
-        // markers like Site to reduce visual noise).
+    for pc in children {
+        let child_cx = parent_cx + pc.dx;
+        let child_cy = parent_cy + pc.dy;
         let show_key = !matches!(
-            &child.kind,
+            &pc.lay.kind,
             LayKind::Site | LayKind::Absent(_) | LayKind::LinkVar(_) | LayKind::Atom(_)
-        ) && !key.is_empty();
-        let child_y = if show_key { y_top + KEY_LABEL_H } else { y_top };
+        ) && !pc.key.is_empty();
         if show_key {
+            // Caption just above the child's bounding box.
             out.push_str(&format!(
-                "  <text x=\"{cx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" \
-                 fill=\"#888\" font-size=\"9\">{}</text>\n",
-                y_top + 9.0,
-                escape_xml(key),
+                "  <text x=\"{child_cx:.1}\" y=\"{:.1}\" text-anchor=\"middle\" \
+                 font-size=\"{FONT_KEY}\" fill=\"#888\">{}</text>\n",
+                child_cy - pc.lay.h / 2.0 - 4.0,
+                escape_xml(&pc.key),
             ));
         }
-        draw(child, cx, child_y + child.h / 2.0, out, ports);
-        x += child.w + GAP;
+        draw(&pc.lay, child_cx, child_cy, out, ports);
     }
-    let _ = container_w;
 }
 
 // ── Palette ─────────────────────────────────────────────────────────
@@ -560,8 +667,10 @@ fn atom_str(v: &Value) -> String {
     }
 }
 
-fn text_width(s: &str) -> f64 {
-    7.0 * s.chars().count() as f64 + 8.0
+/// Estimate the rendered width of `s` at `font_size`. Rough average
+/// glyph advance ≈ 0.58 · font_size for sans-serif body text.
+fn text_width(s: &str, font_size: f64) -> f64 {
+    0.58 * font_size * s.chars().count() as f64 + 8.0
 }
 
 fn escape_xml(s: &str) -> String {
