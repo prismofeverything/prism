@@ -879,6 +879,7 @@ fn format_value(val: &Value, digits: usize) -> String {
         Value::List(l) => format!("[{} items]", l.len()),
         Value::Map(m) => format!("{{{} keys}}", m.len()),
         Value::Struct { layout, .. } => format!("{{{} fields}}", layout.fields.len()),
+        Value::Foreign(f) => format!("foreign:{}", f.type_name),
         Value::Bytes(b) => format!("<{} bytes>", b.len()),
     }
 }

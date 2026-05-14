@@ -119,6 +119,25 @@ pub enum Schema {
         /// None means unspecified (inferred at instantiation time).
         temporal: Option<bool>,
     },
+
+    /// Reference to a registered named type in the `TypeRegistry`. The
+    /// engine dispatches `apply`/`divide`/`serialize`/etc. through the
+    /// registry's `TypeMethods` for the named type. Mirrors
+    /// bigraph-schema's `{'_type': 'X', ...}` dict references.
+    ///
+    /// **Parameters** carry per-instance configuration (e.g.,
+    /// `{element: float}` for `list[float]`). They're stored as nested
+    /// schemas and may be read by the type's methods.
+    Custom {
+        /// Registered name. Must exist in the `TypeRegistry` at dispatch
+        /// time; otherwise apply/serialize/etc. fall back to defaults.
+        name: String,
+        /// Optional type parameters. Empty for parameter-free types
+        /// (e.g., `sacculus`); non-empty for parameterized ones
+        /// (e.g., `list { element: float }`).
+        #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+        parameters: IndexMap<Key, Schema>,
+    },
 }
 
 impl Schema {
@@ -322,6 +341,10 @@ impl Schema {
                 state.insert(Key::from("outputs"), Value::Map(default_inputs));
                 Value::Map(state)
             }
+            // Custom types' real defaults come from `TypeMethods::default`
+            // dispatched through the `TypeRegistry`. With no registry
+            // available at the Schema level, fall back to None.
+            Self::Custom { .. } => Value::None,
         }
     }
 
@@ -706,6 +729,12 @@ impl Schema {
                 }
             }
 
+            // Custom: dispatched through TypeRegistry — at the Schema
+            // level we don't have the registry, so fall back to update
+            // (replace). Engine integration uses `apply_update_with`
+            // to consult the registry instead.
+            Self::Custom { .. } => update.clone(),
+
             // Any: infer behavior from the value types
             Self::Any => {
                 match (current, update) {
@@ -747,6 +776,27 @@ impl Schema {
                 }
             }
         }
+    }
+
+    /// Apply an update consulting an optional `TypeRegistry` for
+    /// `Schema::Custom` dispatch. When `registry` is `Some` and the
+    /// schema is `Custom`, the registered `TypeMethods::apply` is
+    /// invoked; otherwise this delegates to [`Self::apply_update`].
+    ///
+    /// This is the **registry-aware** entry point the engine uses;
+    /// `apply_update` remains the standalone (no-registry) version.
+    pub fn apply_update_with(
+        &self,
+        registry: Option<&crate::registry::TypeRegistry>,
+        current: &Value,
+        update: &Value,
+    ) -> Value {
+        if let Self::Custom { name, .. } = self {
+            if let Some(reg) = registry {
+                return reg.type_apply(name, current, update);
+            }
+        }
+        self.apply_update(current, update)
     }
 
     /// Serialize a typed value to a JSON-compatible representation.
@@ -961,8 +1011,10 @@ fn render_port_schema(ports: &IndexMap<Key, Schema>) -> String {
         .join("|")
 }
 
-/// Convert a serde_json::Value to our Value type.
-fn json_to_value(v: &serde_json::Value) -> Value {
+/// Convert a `serde_json::Value` to our `Value` type. Foreign values
+/// cannot be reconstructed from JSON alone — they require a TypeMethods
+/// dispatch via the registry to be realized.
+pub fn json_to_value(v: &serde_json::Value) -> Value {
     match v {
         serde_json::Value::Null => Value::None,
         serde_json::Value::Bool(b) => Value::Bool(*b),
@@ -975,6 +1027,45 @@ fn json_to_value(v: &serde_json::Value) -> Value {
         serde_json::Value::Object(obj) => {
             Value::Map(obj.iter().map(|(k, v)| (Key::from(k.as_str()), json_to_value(v))).collect())
         }
+    }
+}
+
+/// Convert a `Value` to `serde_json::Value`. Foreign values are encoded
+/// as `null` here — opaque to plain JSON; round-tripping a Foreign
+/// requires its TypeMethods dispatch (`serialize` → JSON, `realize`
+/// → Foreign).
+pub fn value_to_json(v: &Value) -> serde_json::Value {
+    match v {
+        Value::None => serde_json::Value::Null,
+        Value::Bool(b) => serde_json::Value::Bool(*b),
+        Value::Int(i) => serde_json::Value::Number((*i).into()),
+        Value::Float(f) => serde_json::Number::from_f64(f.0)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        Value::String(s) => serde_json::Value::String(s.clone()),
+        Value::List(l) => {
+            serde_json::Value::Array(l.iter().map(value_to_json).collect())
+        }
+        Value::Map(m) => {
+            let mut obj = serde_json::Map::with_capacity(m.len());
+            for (k, v) in m.iter() {
+                obj.insert(k.to_string(), value_to_json(v));
+            }
+            serde_json::Value::Object(obj)
+        }
+        Value::Struct { layout, values } => {
+            let mut obj = serde_json::Map::with_capacity(values.len());
+            for (field, val) in layout.fields.iter().zip(values.iter()) {
+                obj.insert(field.to_string(), value_to_json(val));
+            }
+            serde_json::Value::Object(obj)
+        }
+        Value::Foreign(_) => serde_json::Value::Null,
+        Value::Bytes(b) => serde_json::Value::Array(
+            b.iter()
+                .map(|x| serde_json::Value::Number((*x as u64).into()))
+                .collect(),
+        ),
     }
 }
 
@@ -1032,6 +1123,18 @@ impl fmt::Display for Schema {
                     write!(f, "{k}:{v}")?;
                 }
                 write!(f, "]")
+            }
+            Self::Custom { name, parameters } => {
+                if parameters.is_empty() {
+                    write!(f, "{name}")
+                } else {
+                    write!(f, "{name}[")?;
+                    for (i, (k, v)) in parameters.iter().enumerate() {
+                        if i > 0 { write!(f, ",")?; }
+                        write!(f, "{k}:{v}")?;
+                    }
+                    write!(f, "]")
+                }
             }
         }
     }

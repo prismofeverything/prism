@@ -171,6 +171,13 @@ pub struct Engine {
 
     /// Process registry for dynamic process discovery.
     registry: Option<Arc<ProcessRegistry>>,
+
+    /// Optional type registry for `Schema::Custom` dispatch
+    /// (RT.4 — rich-type method dispatch). When set, the engine's
+    /// merge logic consults this registry's `TypeMethods` for custom-
+    /// typed paths; otherwise applies use the structural Schema
+    /// semantics (replace for Custom).
+    type_registry: Option<Arc<prism_schema::registry::TypeRegistry>>,
 }
 
 impl Engine {
@@ -251,6 +258,7 @@ impl Engine {
             specs,
             previous_outputs: HashMap::new(),
             registry: None,
+            type_registry: None,
             last_structural: false,
             pending_changes: Vec::new(),
             passthrough_paths: HashSet::new(),
@@ -575,6 +583,24 @@ impl Engine {
         self.registry = Some(registry);
     }
 
+    /// Attach a `TypeRegistry` for `Schema::Custom` dispatch (RT.4).
+    /// When set, the engine's merge logic consults this registry's
+    /// `TypeMethods` for paths with custom-typed schema; otherwise
+    /// the existing structural Schema semantics apply.
+    pub fn set_type_registry(
+        &mut self,
+        registry: Arc<prism_schema::registry::TypeRegistry>,
+    ) {
+        self.type_registry = Some(registry);
+    }
+
+    /// Borrow the attached type registry, if any.
+    pub fn type_registry(
+        &self,
+    ) -> Option<&Arc<prism_schema::registry::TypeRegistry>> {
+        self.type_registry.as_ref()
+    }
+
     /// Current simulation time.
     pub fn time(&self) -> f64 {
         self.time
@@ -583,6 +609,36 @@ impl Engine {
     /// Read-only access to the state tree.
     pub fn state(&self) -> &Value {
         &self.state
+    }
+
+    /// Read-only access to the engine's state schema (declared at
+    /// `Topology::state_schema` construction time). Useful for
+    /// introspection / serialization.
+    pub fn schema(&self) -> &Schema {
+        &self.schema
+    }
+
+    /// Borrow the registered process/step specs by name. Used by
+    /// renderers + introspection to discover wiring without needing
+    /// to reconstruct the original Topology.
+    pub fn specs(&self) -> &HashMap<String, ProcessSpec> {
+        &self.specs
+    }
+
+    /// Build a snapshot `Topology` from the engine's current state
+    /// (state_schema, current state, registered process specs). Useful
+    /// for renderers that want the full place-graph + wiring picture.
+    pub fn snapshot_topology(&self) -> Topology {
+        let mut processes: indexmap::IndexMap<String, ProcessSpec> =
+            indexmap::IndexMap::new();
+        for (name, spec) in &self.specs {
+            processes.insert(name.clone(), spec.clone());
+        }
+        Topology {
+            state_schema: self.schema.clone(),
+            initial_state: self.state.clone(),
+            processes,
+        }
     }
 
     /// Mutable access to the state tree (for composites bridging inputs).
@@ -833,7 +889,12 @@ impl Engine {
     /// major performance win.
     fn apply_projections(&mut self, projections: &[(Path, Value, Option<Schema>)]) -> (Vec<Path>, bool) {
         if self.passthrough_paths.is_empty() {
-            let result = apply_projections_to(&mut self.state, &self.schema, projections);
+            let result = apply_projections_to(
+                &mut self.state,
+                &self.schema,
+                projections,
+                self.type_registry.as_deref(),
+            );
             self.last_structural = result.1;
             return result;
         }
@@ -859,7 +920,12 @@ impl Engine {
             }
         }
 
-        let (mut changed, structural) = apply_projections_to(&mut self.state, &self.schema, &normal);
+        let (mut changed, structural) = apply_projections_to(
+            &mut self.state,
+            &self.schema,
+            &normal,
+            self.type_registry.as_deref(),
+        );
         let has_passthrough = !self.passthrough_deltas.is_empty();
         self.last_structural = structural || has_passthrough;
         for root in self.passthrough_paths.iter() {
@@ -1087,6 +1153,32 @@ impl Engine {
         self.nodes.keys().map(|s| s.as_str()).collect()
     }
 
+    /// Borrow a process node by name. Returns `None` if no node is
+    /// registered under that name.
+    pub fn node(&self, name: &str) -> Option<&ProcessNode> {
+        self.nodes.get(name)
+    }
+
+    /// Iterate every `(name, &ProcessNode)` currently registered in
+    /// the engine. Order matches `node_names()`.
+    pub fn nodes(&self) -> impl Iterator<Item = (&str, &ProcessNode)> {
+        self.nodes.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
+    /// Borrow a process node by name and try to downcast its inner
+    /// `Process` (or `Step`) to a concrete type `T`. Returns `None`
+    /// if the name doesn't resolve or the downcast fails.
+    ///
+    /// Use this when a caller needs the typed configuration of a
+    /// registered process (e.g. to query domain-specific methods that
+    /// aren't on the `Process` trait itself).
+    pub fn node_as<T: 'static>(&self, name: &str) -> Option<&T> {
+        match self.nodes.get(name)? {
+            ProcessNode::Process(p) => p.as_any().downcast_ref::<T>(),
+            ProcessNode::Step(s) => s.as_any().downcast_ref::<T>(),
+        }
+    }
+
     /// Scan changed state paths for new process nodes and instantiate them.
     /// Also remove processes whose parent state was deleted.
     fn discover_processes(&mut self, changed_paths: &[Path]) {
@@ -1275,6 +1367,7 @@ fn apply_projections_to(
     state: &mut Value,
     schema: &Schema,
     projections: &[(Path, Value, Option<Schema>)],
+    type_registry: Option<&prism_schema::registry::TypeRegistry>,
 ) -> (Vec<Path>, bool) {
     let mut changed = Vec::new();
     let mut structural = false;
@@ -1318,7 +1411,10 @@ fn apply_projections_to(
                     for (k, v) in upd_map {
                         if k == "_add" || k == "_remove" { continue; }
                         let existing = target.get(k).cloned().unwrap_or(Value::None);
-                        target.insert(k.clone(), val_schema.apply_update(&existing, v));
+                        target.insert(
+                            k.clone(),
+                            val_schema.apply_update_with(type_registry, &existing, v),
+                        );
                     }
                     changed.push(path.clone());
                     continue;
@@ -1326,10 +1422,11 @@ fn apply_projections_to(
             }
         }
         let current = state.get_path(path).cloned().unwrap_or(Value::None);
-        let new_value = match port_schema {
-            Some(s) if !matches!(s, Schema::Any) => s.apply_update(&current, value),
-            _ => schema.schema_at_path(path).apply_update(&current, value),
+        let resolved_schema = match port_schema {
+            Some(s) if !matches!(s, Schema::Any) => s.clone(),
+            _ => schema.schema_at_path(path).clone(),
         };
+        let new_value = resolved_schema.apply_update_with(type_registry, &current, value);
         state.set_path(path, new_value);
         changed.push(path.clone());
     }

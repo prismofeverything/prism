@@ -4,6 +4,7 @@
 //! hierarchical state tree is a `Value`, and every process update produces
 //! and consumes `Value`s through its ports.
 
+use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
@@ -59,12 +60,64 @@ impl PartialEq for StructLayout {
 }
 impl Eq for StructLayout {}
 
+/// Opaque carrier for type-registered "Foreign" values — rich runtime
+/// data that doesn't fit into the structural Value variants (numeric,
+/// container, etc.). Foreign values participate in the place graph
+/// through `TypeMethods` dispatch registered against the carrier's
+/// `type_name`.
+///
+/// **Equality** is pointer identity (`Arc::ptr_eq`) plus type-name
+/// match — Foreign values aren't structurally comparable in general,
+/// since the underlying types may not impl `Eq`.
+///
+/// **Serialization** is opaque at the serde-derive boundary; portable
+/// form is produced by `TypeMethods::serialize` and consumed by
+/// `TypeMethods::realize`.
+#[derive(Clone)]
+pub struct Foreign {
+    /// The registered type name. Drives method dispatch.
+    pub type_name: String,
+    /// Type-erased opaque payload. Must be `Send + Sync` so engine
+    /// state can be passed between processes/threads.
+    pub data: Arc<dyn Any + Send + Sync>,
+}
+
+impl Foreign {
+    pub fn new<T: Any + Send + Sync + 'static>(type_name: impl Into<String>, value: T) -> Self {
+        Self {
+            type_name: type_name.into(),
+            data: Arc::new(value),
+        }
+    }
+
+    /// Try to downcast the opaque payload to `&T`. Returns `None` if
+    /// the concrete type doesn't match.
+    pub fn downcast_ref<T: Any + Send + Sync + 'static>(&self) -> Option<&T> {
+        self.data.downcast_ref::<T>()
+    }
+}
+
+impl PartialEq for Foreign {
+    fn eq(&self, other: &Self) -> bool {
+        self.type_name == other.type_name && Arc::ptr_eq(&self.data, &other.data)
+    }
+}
+
+impl Eq for Foreign {}
+
+impl fmt::Debug for Foreign {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Foreign({})", self.type_name)
+    }
+}
+
 /// The universal value type for all simulation state.
 ///
 /// Mirrors the bigraph-schema type hierarchy:
 /// - Atoms: Bool, Int, Float, String
 /// - Containers: List, Map (ordered), Tree (recursive)
 /// - Struct: fixed-layout map compiled from schema (O(1) field access)
+/// - Foreign: type-erased rich values dispatched via `TypeMethods`
 /// - Special: None, Bytes (for serialized blobs like numpy arrays)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -84,6 +137,9 @@ pub enum Value {
         layout: Arc<StructLayout>,
         values: Vec<Value>,
     },
+    /// Opaque rich type — see [`Foreign`].
+    #[serde(skip)]
+    Foreign(Foreign),
     Bytes(Vec<u8>),
 }
 
@@ -413,7 +469,27 @@ impl Value {
             Self::List(_) => "list",
             Self::Map(_) => "map",
             Self::Struct { .. } => "struct",
+            Self::Foreign(_) => "foreign",
             Self::Bytes(_) => "bytes",
+        }
+    }
+
+    /// If this is a `Foreign` value, return the registered type name
+    /// it carries; otherwise `None`. Use this when dispatching through
+    /// a `TypeRegistry` against the actual registered name (not the
+    /// generic "foreign" label).
+    pub fn foreign_type_name(&self) -> Option<&str> {
+        match self {
+            Self::Foreign(f) => Some(&f.type_name),
+            _ => None,
+        }
+    }
+
+    /// Try to borrow the `Foreign` carrier inside this value.
+    pub fn as_foreign(&self) -> Option<&Foreign> {
+        match self {
+            Self::Foreign(f) => Some(f),
+            _ => None,
         }
     }
 }
@@ -470,6 +546,7 @@ impl fmt::Display for Value {
             Self::Bool(b) => write!(f, "{b}"),
             Self::Int(i) => write!(f, "{i}"),
             Self::Float(v) => write!(f, "{v}"),
+            Self::Foreign(fv) => write!(f, "<foreign:{}>", fv.type_name),
             Self::String(s) => write!(f, "\"{s}\""),
             Self::List(l) => {
                 write!(f, "[")?;

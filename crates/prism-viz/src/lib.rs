@@ -13,7 +13,7 @@
 //!   when Graphviz isn't installed or when you just want an inline
 //!   `<svg>` to embed in HTML.
 
-mod dot;
+pub mod dot;
 pub mod pattern;
 pub mod pattern_dot;
 
