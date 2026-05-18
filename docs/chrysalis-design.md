@@ -51,6 +51,39 @@ Why this choice:
 - Anonymous parallel is available via `List` — algebra's anonymity isn't
   lost, it's one of two presentations.
 
+## Categorical structure
+
+Bigraphs form a symmetric monoidal **s-category** (Milner). The
+objects are **interfaces** `⟨m, X⟩` — `m` sites/holes plus a set `X`
+of outer names. The morphisms are bigraphs themselves: a bigraph
+`G : I → J` has inner interface `I` (where it plugs in) and outer
+interface `J` (what it exposes). Composition `H ∘ G` plugs `G` into
+`H`'s sites and shares names. Tensor `G ⊗ H` is parallel composition
+with disjoint interfaces.
+
+This is not decoration. It tells chrysalis four things:
+
+1. **Wiring is categorical composition.** A `process`, `step`, or
+   `composite` is a morphism with `~{inputs}` as its domain interface
+   and `->{outputs}` as its codomain. The `~{} ->{}` notation is the
+   morphism's type signature, not a Python-shaped keyword arg block.
+2. **Composite-as-process is a fact, not a convenience.** Composites
+   and processes are both morphisms — they compose identically because
+   the category says so. The unified port-binding interface is the
+   categorical reality.
+3. **Tensor = `|`.** Parallel composition's algebra (associativity,
+   the empty bigraph as unit) is a theorem of the s-category, not a
+   choice we have to defend.
+4. **Pattern matching is morphism factorization.** A redex match
+   factors a state bigraph as `C ∘ (G ⊗ id)` where `G` is the matched
+   fragment and `C` is the surrounding context. prism's BRS matcher
+   is computing this factorization; naming it as such fixes the
+   algorithm's specification.
+
+The notation `process Grow[...] ~{in} ->{out} (body)` should be read
+as "define a morphism `Grow : ⟨in⟩ → ⟨out⟩` parameterized by
+config." The body is the morphism's content.
+
 ## Bigraph primitives as first-class atoms
 
 From Milner's BRS algebra. Currently buried inside
@@ -59,16 +92,21 @@ evaluates to a value:
 
 | Atom | Surface | Notes |
 |---|---|---|
-| ion | `K{port: link, …}` | node, control K, named ports |
+| ion (no body) | `K` or `K[args]` | bare control / control with args |
+| ion (with body) | `K[args](body)` | parens hold the nested content |
+| port-link binding | `K ~{port: link}` | Milner's link-graph; same notation for processes and pattern ions |
+| input ports (process/composite) | `K ~{port: target}` | domain interface of the morphism |
+| output ports (process/composite) | `K ->{port: target}` | codomain interface |
 | site (subtree var) | `?name` | binds in redex, expands in reactum |
-| name var (atom) | `?name` | distinct binding kind from site-var |
-| region / parallel | `a \| b` or `[a, b]` | side-by-side at same depth |
-| nesting | `a . b` | a contains b |
-| link / outer name | `~name` | shared bond |
+| name var (atom) | `?name` | distinguished from site-var by context — atoms can't be subtrees |
+| typed site | `?name : Sort` | site whose match must satisfy the sort |
+| region / parallel | `a \| b` | symmetric monoidal tensor |
+| nesting | `K[args](body)` | implicit; explicit `.` available if needed |
+| link / outer name | `~name` (bare token) | shared bond between ports |
 | closed link | `/name in expr` | link internal to expr (ν) |
-| absent | `absent` | matches `Pattern::absent()` |
+| unbound port | `!` | port has no link; visually distinct from numeric literals |
 | guard | `where expr` | predicate over bound names; closure on the rule |
-| instantiation | `?name => ?name` | carry-through redex → reactum |
+| instantiation | shared `?name` across redex/reactum | carry-through of bound sites/names |
 
 Once these are first-class operators, **normalization** matters:
 `(a \| b) \| c ≡ a \| (b \| c)`, `a \| nil ≡ a`, and for matching often
@@ -97,25 +135,24 @@ them.
 
 ```
 # Build a reaction in an update body, modify it, install a new BRS.
-rule = MassThresholdDivide(threshold: 2.0)
+rule = MassThresholdDivide[threshold: 2.0]
   .with_rate(0.5)
   .with_label('faster_divide')
 
 # Compose pattern fragments from values.
-inside = Compartment{kind: ?k} . (MEK{out: absent} | ERK{out: absent})
-custom = Reaction { redex: inside, reactum: ... }
+inside = Compartment[kind: ?k] (MEK ~{out: !} | ERK ~{out: !})
+custom = Reaction[redex: inside, reactum: ...]
 
-result {
-  add: { 'brs_evolved': BRS(rules: [rule, custom], mode: Gillespie) }
-}
+# Update-body result: emit a new BRS into state.
+{ add: {'brs_evolved': BRS[rules: [rule, custom], mode: Gillespie]} }
 
 # Read-only ops on rich domain types.
 coarse = mesh.coarsen(factor: 10)
 near = coarse.vertices_near(point: cell.position, radius: 0.5)
 
 # Pattern algebra in source — the bigraph atoms are methods too.
-combined = pattern_a.parallel(pattern_b)         # equivalently `a | b`
-nested   = container.nest(combined)              # equivalently `c . combined`
+combined = pattern_a | pattern_b                 # parallel composition
+nested   = container (combined)                  # nesting via body parens
 ```
 
 ### Tiers
@@ -140,36 +177,64 @@ flag as future scope but don't gate v1 on it.
 ### Boundary
 
 Methods are pure or near-pure value transformations. State mutation
-still happens **only** via `result { … }` from an update body —
-methods don't write to the engine's state directly. This preserves the
-projection/structural-diff model. Engine-level operations (scheduling,
-triggering, applying projections) are NOT exposed as methods — that's
-the runtime calling chrysalis, not the other way around.
+still happens **only** via the value returned by an update body
+(the final `|`-less expression) — methods don't write to the engine's
+state directly. This preserves the projection/structural-diff model.
+Engine-level operations (scheduling, triggering, applying projections)
+are NOT exposed as methods — that's the runtime calling chrysalis, not
+the other way around.
 
-## Surface language design
+## Syntactic kernel
 
-### Primitives
+The whole language is built from a small set of forms. Everything else
+is sugar over them.
 
-- **`process Name(config)`** — temporal computation. Outer parens are
-  config (baked in at instantiation). `update(port_params)` signature
-  IS the input port schema. `result { … }` block IS the output port
-  schema. `interval` always present, always last.
-- **`step Name(config)`** — reactive computation. Same shape as process
-  but no interval; fires on dependency-tracked state changes.
-- **`composite Name(config)`** — parameterized bigraph fragment.
-  Composites are first-class: produced by update bodies and discovered
-  via `realize()`.
-- **`pattern Name(args)`** — parameterized pattern fragment (NEW).
-  Evaluates to a `Pattern` value; usable inside `reaction` definitions
-  or as a sub-pattern.
-- **`reaction Name(config)`** — first-class reaction value (NEW).
-  Body: `redex: …`, `reactum: …`, optional `rate:`, `where:`.
+### Forms
 
-### Wiring arrow
+| Form | Use |
+|---|---|
+| `K`, `K[args]`, `K[args](body)` | term construction (control + named/positional args + optional nested body) |
+| `a \| b` | parallel composition (symmetric monoidal tensor) |
+| `K ~{port: target}` | input port bindings |
+| `K ->{port: target}` | output port bindings |
+| `~name` (bare token) | link variable |
+| `?name`, `?name : Sort` | pattern variable, optionally sort-constrained |
+| `!` | unbound port / empty |
+| `K[args] (body)` after a definer keyword | top-level definition (see Naming) |
+| `name = expr` | value binding (top-level or inside a body) |
+| `redex => reactum` | reaction rule (only valid inside `reaction K[…] (…)`) |
+| `let x = e in body` | local binding (sugar) |
+| `if c then a else b` | conditional (sugar) |
+| `value.method(args)` | UFCS: sugar for `method[args](value)` |
+| infix `+ - * / == < > && \|\|`, prefix `not` | sugar for control terms (`Add[a, b]`, `Not[x]`, etc.) |
+| `'literal text {expr}'` | string with embedded expression interpolation |
+| `\| ` at line end (body separator) | body is a `\|`-separated sequence; the line without `\|` is the value |
+| `# …` | line comment |
 
-`name: SubComponent(config) {in_ports: paths} --> {out_ports: paths}`
+### Naming convention
 
-### Path syntax (unified)
+**Meta-syntax is lowercase; object-syntax is capitalized.**
+
+- Lowercase **definer keywords** introduce entities: `process`, `step`,
+  `composite`, `reaction`, `pattern`, `let`, `if`, `where`, `in`.
+- Capitalized **controls** are the things being defined or
+  constructed: `Cell`, `Grow`, `MEK`, `Phosphorylate`, `InCompartment`,
+  `Reaction`, `ProcessDef`, `BRS`.
+
+The same name carries the definer/constructor duality:
+
+| Definer (lowercase, meta) | Constructor (capitalized, value) |
+|---|---|
+| `reaction Phosphorylate[…] (redex => reactum)` | `Reaction[redex, reactum, rate]` — build at runtime |
+| `process F[…] ~{} ->{} (body)` | `ProcessDef[expr, schema]` (tier 2) |
+| `pattern InCompartment[…] (body)` | `Pattern[…]` |
+
+`reaction X[args] (body)` desugars to a value `Reaction[args, body]`
+registered under the name `X`. Same content, two surface forms — the
+lowercase/capitalized distinction is what makes it readable that those
+*are* the same thing.
+
+### Path syntax
 
 | Symbol | Meaning |
 |---|---|
@@ -188,47 +253,63 @@ the runtime calling chrysalis, not the other way around.
   keys are string expressions. Use string interpolation `'{var}'` for
   computed keys.
 
+### Operator precedence
+
+From tight to loose:
+
+1. `.` (field access / method call)
+2. unary `-`, `not`
+3. `*`, `/`
+4. `+`, `-`, `++` (string concat)
+5. `==`, `!=`, `<`, `>`, `<=`, `>=`
+6. `&&`
+7. `||`
+8. `|` (parallel composition) — left-associative
+9. `=>` (reaction) — non-associative, one per `reaction` body
+
 ### Structural delta sugar
 
 `replace id with { 'key1': val1, 'key2': val2 }` desugars to
 `{ _remove: [id], _add: { key1: val1, key2: val2 } }`.
 
-### Expression language
+### Body convention
 
-Small AST interpreter (not codegen). Performance-critical numerical
-primitives stay in Rust (registered as native processes); chrysalis
-expresses logic.
+Process/step/composite/pattern bodies are a parallel composition of
+statements (each ending in `|`) followed by a final expression
+(no `|`) which is the body's value. Bindings introduced before the
+value expression are in scope inside it. The same convention applies
+inside update bodies and inside reaction redex/reactum positions.
 
-- Literals (Int, Float, String, Bool, record/map/list literals)
-- Local bindings via `=` (`delta = mass * rate * interval`)
-- Arithmetic, comparison, boolean ops
-- Path references (resolve via unified path syntax)
-- `if cond then … else …`
-- String interpolation `'{var}'`
-- Function-call-shaped composite instantiation: `Cell(mass: 0.5)`
-- **Method calls** `value.method(args)` resolved via `MethodRegistry`
-  (see "Value methods" section). Chainable: `rule.with_rate(0.5).with_label('x')`.
-- `result { … }` block as the return value of an update body
-- **Pattern construction** via the atoms table above, inside `pattern { … }`
-  blocks (implicitly quoted; `$expr` unquotes)
-- **Reaction construction** via `reaction { redex: …, reactum: …, rate: … }`
+```
+(
+  delta = mass * rate * interval |
+  ratio = delta / 2.0 |
+  {mass: delta, ratio: ratio}
+)
+```
+
+The trailing line without `|` carries semantic weight: it's the
+return value, and the lack of separator marks it visually.
 
 ## Compilation map
 
 | Chrysalis | Prism target |
 |---|---|
-| `process P(cfg) { update(…) { … } }` | `ProcessRegistry` entry; factory creates a `Process` whose `update()` runs the interpreted body |
-| `step S(cfg) { update(…) { … } }` | `ProcessRegistry` entry; factory creates a `Step` |
-| `composite C(cfg) { … }` | `ProcessRegistry` entry; factory produces a state subtree (with `_type: "C"` markers + sub-component wires) realize-eligible for `discover_processes` |
-| `pattern P(args) { … }` | function returning `Pattern` value |
-| `reaction R(cfg) { … }` | function returning `ReactionRule` value |
+| `process P[cfg] ~{in} ->{out} (body)` | `ProcessRegistry` entry; factory creates a `Process` whose update runs the interpreted body |
+| `step S[cfg] ~{in} ->{out} (body)` | `ProcessRegistry` entry; factory creates a `Step` |
+| `composite C[cfg] ~{in} ->{out} (body)` | `ProcessRegistry` entry; factory produces a state subtree (with `_type: "C"` markers + sub-component wires) realize-eligible for `discover_processes` |
+| `pattern P[args] (body)` | function returning `Pattern` value |
+| `reaction R[cfg] (redex => reactum)` | function returning `ReactionRule` value |
 | `expr { … }` block (tier 2) | `Value` with `_type: "Expr"` + inferred return-schema field; constructors live in `MethodRegistry`. `ProcessDef.from_expr(e, schema)` lifts to an installable process if `e.schema` matches |
-| `{in: path} --> {out: path}` | `Interface.inputs` / `Interface.outputs` IndexMaps |
+| `~{port: target}` | `Interface.inputs` IndexMap (domain of the morphism) |
+| `->{port: target}` | `Interface.outputs` IndexMap (codomain of the morphism) |
 | `^` in path | `..` in prism wire-resolution |
 | `@` in path | empty / current relative root |
-| `Cell(mass: 0.5)` inside a delta | `Value::Map` with `_type: "Cell"`, `config: {…}` — `discover_processes` instantiates |
+| `Cell[mass: 0.5]` inside a delta | `Value::Map` with `_type: "Cell"`, `config: {…}` — `discover_processes` instantiates |
 | `replace x with {…}` | `Value::Map` with `_remove: [x]`, `_add: {…}` |
 | `'{var}'` | string with template interpolation at runtime |
+| `!` (as port binding) | `Pattern::absent()` in patterns; no-link in concrete bigraphs |
+| `K \| L` | parallel composition; lowered to `IndexMap` siblings or `List` siblings depending on naming |
 
 ## Benchmark examples (acceptance test)
 
@@ -241,100 +322,119 @@ All must be expressible in chrysalis **with reactions, patterns, and
 (for tier 2) process-body Exprs constructed in surface syntax as
 values**.
 
-### 1. Grow/divide (updated)
+### 1. Grow/divide
 
 Division becomes a runtime-constructed
-`reaction MassThresholdDivide(threshold)` installed in a parent BRS,
+`reaction MassThresholdDivide[threshold]` installed in a parent BRS,
 not a hardcoded `step`. Tests: reactions-as-values, parameterized
 rules, `where` guards on patterns.
 
 ```
-reaction MassThresholdDivide(threshold: Float = 2.0) {
-  redex: {
-    ?cid: Cell { mass: ?m, … } where ?m > threshold
-  }
-  reactum: {
-    '{?cid}_0': Cell(mass: ?m / 2),
-    '{?cid}_1': Cell(mass: ?m / 2),
-  }
-}
+process Grow[rate: Float = 0.2]
+  ~{mass: Float, interval: Float = 0.1}
+  ->{mass: Float}
+(
+  delta = mass * rate * interval |
+  {mass: delta}
+)
 
-composite Environment(cells: Map[Cell], threshold = 2.0) {
-  cells: cells
-  divider: BRS(rules: [MassThresholdDivide(threshold: threshold)])
-    {state: cells} --> {state: cells}
-}
+composite Cell[id: String, mass: Float = 1.0, growth_rate: Float = 0.02]
+  ~{}
+  ->{mass}
+(
+  mass: mass |
+  Grow[rate: growth_rate] ~{mass: mass} ->{mass: mass}
+)
+
+reaction MassThresholdDivide[threshold: Float = 2.0] (
+  ?cid : Cell[mass: ?m] where ?m > threshold
+  =>
+  { '{?cid}_0' : Cell[mass: ?m / 2],
+    '{?cid}_1' : Cell[mass: ?m / 2] }
+)
+
+composite Environment[cells: Map[Cell], threshold: Float = 2.0]
+  ~{}
+  ->{cells}
+(
+  cells: cells |
+  BRS[rules: [MassThresholdDivide[threshold: threshold]]]
+    ~{state: cells} ->{state: cells}
+)
+
+main = Environment[cells: {'0': Cell[id: '0', mass: 1.2]}]
+main.run(10.0)
 ```
 
 ### 2. MAPK signaling
 
 Port of `crates/prism-mapk/src/rules.rs` to chrysalis. Seven reactions
-built from a shared `InCompartment(kind, contents)` pattern fragment.
+built from a shared `InCompartment[kind, contents]` pattern fragment.
 Tests: pattern composition / parameterized patterns, link variables
-(`~bond`), `absent`, deep nesting (Cytoplasm > Nucleus > pERK).
+(`~bond`), unbound ports (`!`), deep nesting (Cytoplasm > Nucleus > pERK).
 
 ```
-pattern InCompartment(kind, contents) {
-  Compartment {
-    kind: kind,
-    contents: contents,
-    rest: ?rest,
-  }
-}
+pattern InCompartment[kind, contents] (
+  Compartment[kind: kind] (contents | ?rest)
+)
 
-reaction Phosphorylate(rate: Float = 2.0) {
-  redex: InCompartment(?k, {
-    enzyme: MEK { outputs: absent },
-    substrate: ERK { name: ?n, outputs: absent },
-    bystanders: ?other,
-  })
-  reactum: InCompartment(?k, {
-    enzyme: MEK { outputs: { enzyme_port: ~bond } },
-    substrate: pERK { name: ?n, outputs: { substrate_port: ~bond } },
-    bystanders: ?other,
-  })
-}
+reaction Phosphorylate[rate: Float = 2.0] (
+  InCompartment[?k, MEK ~{out: !} | ERK[name: ?n] ~{out: !}]
+  =>
+  InCompartment[?k, MEK ~{out: ~bond} | pERK[name: ?n] ~{out: ~bond}]
+)
+
+reaction Dissociate[rate: Float = 0.5] (
+  InCompartment[?k, MEK ~{out: ~bond} | pERK[name: ?n] ~{out: ~bond}]
+  =>
+  InCompartment[?k, MEK ~{out: !} | pERK[name: ?n] ~{out: !}]
+)
+
+# (... five more analogous rules for dephosphorylation and translocation)
 ```
 
-### 3. Rosen M/R closure
+### 3. Rosen M/R closure (tier 1, static)
 
 F:A→B, B+F→φ, φ+B→F. Each entity carries a `blueprint` payload;
 lineage of mechanism flows through data. The B+F→φ rule matches on
 *shared* blueprint between two co-located ions.
 
 ```
-process F(blueprint: FRecipe, rate: Float) {
-  update(a_pool: Map[A], self: @, interval: Float) {
-    a = consume_one(a_pool)
-    result {
-      products: { '{fresh_id()}': B(blueprint: blueprint, source: a) }
-    }
-  }
-}
+process F[blueprint: FRecipe, rate: Float]
+  ~{a_pool: Map[A], self: @, interval: Float}
+  ->{products: Map[B]}
+(
+  a = a_pool.consume_one() |
+  {products: {'{fresh_id()}': B[blueprint: blueprint, source: a]}}
+)
 
-composite B(blueprint: FRecipe, source: A) {
-  blueprint: blueprint
+composite B[blueprint: FRecipe, source: A]
+  ~{}
+  ->{blueprint, source}
+(
+  blueprint: blueprint |
   source: source
-}
+)
 
-step Phi(blueprint: FRecipe) {
-  update(b: B) {
-    result {
-      add: F(blueprint: b.blueprint, rate: b.blueprint.rate)
-      remove: b
-    }
-  }
-}
+step Phi[blueprint: FRecipe]
+  ~{b: B}
+  ->{add: Map, remove: Set}
+(
+  { add: F[blueprint: b.blueprint, rate: b.blueprint.rate],
+    remove: b }
+)
 
-reaction MakePhi(rate: 0.3) {
-  redex:   { f: F { blueprint: ?bp, … }, b: B { blueprint: ?bp, … } }
-  reactum: { f: F { blueprint: ?bp, … }, phi: Phi(blueprint: ?bp) }
-}
+reaction MakePhi[rate: 0.3] (
+  F[blueprint: ?bp] | B[blueprint: ?bp]
+  =>
+  F[blueprint: ?bp] | Phi[blueprint: ?bp]
+)
 
-reaction MakeF(rate: 0.4) {
-  redex:   { phi: Phi { blueprint: ?bp }, b: B { blueprint: ?bp } }
-  reactum: { f: F(blueprint: ?bp, rate: ?bp.rate) }
-}
+reaction MakeF[rate: 0.4] (
+  Phi[blueprint: ?bp] | B[blueprint: ?bp]
+  =>
+  F[blueprint: ?bp, rate: ?bp.rate]
+)
 ```
 
 ### 3b. Evolving M/R (tier 2 — process bodies as first-class)
@@ -360,55 +460,60 @@ schema-preserving methods (`point_mutate`, `crossover`,
 matching.
 
 ```
-# Implicitly-quoted Expr block; every operation inside is schema-checked
+# Implicitly-quoted Expr; every operation inside is schema-checked
 # at construction time. Inferred schema:
-#   Schema::Link({a_pool, self, interval}, {products})
-default_F_body = expr {
-  update(a_pool: Map[A], self: @, interval: Float) {
-    a = a_pool.first()
-    result {
-      products: { '{fresh_id()}': B(blueprint: self.blueprint, source: a) }
-    }
-  }
-}
+#   ~{a_pool, self, interval} -> {products}
+default_F_body = expr (
+  a = a_pool.first() |
+  {products: {'{fresh_id()}': B[blueprint: self.blueprint, source: a]}}
+)
 
-process F(
+process F[
   blueprint: Expr where blueprint.schema = F.body_schema,
-  rate: Float,
-) {
-  update(a_pool: Map[A], self: @, interval: Float) {
-    # Mutation is a method on Expr — schema-preserving by construction.
-    new_blueprint = blueprint.point_mutate(rate: 0.05)
-    a = a_pool.first()
-    result {
-      products: { '{fresh_id()}': B(blueprint: new_blueprint, source: a) }
-    }
-  }
-}
+  rate: Float
+]
+  ~{a_pool: Map[A], self: @, interval: Float}
+  ->{products: Map[B]}
+(
+  new_blueprint = blueprint.point_mutate(rate: 0.05) |
+  a = a_pool.first() |
+  {products: {'{fresh_id()}': B[blueprint: new_blueprint, source: a]}}
+)
 
-composite B(
+composite B[
   blueprint: Expr where blueprint.schema = F.body_schema,
-  source: A,
-) {
-  blueprint: blueprint
+  source: A
+]
+  ~{}
+  ->{blueprint, source}
+(
+  blueprint: blueprint |
   source: source
-}
+)
 
 # Phi installs a fresh F process whose body IS b.blueprint.
 # ProcessDef.from_expr is schema-checked; phi cannot install a
 # malformed F.
-step Phi(...) {
-  update(b: B) {
-    new_F = ProcessDef.from_expr(b.blueprint, schema: F.signature)
-    result {
-      add: { '{fresh_id()}': new_F(blueprint: b.blueprint, rate: 1.0) }
-      remove: b
-    }
-  }
-}
+step Phi[]
+  ~{b: B}
+  ->{add: Map, remove: Set}
+(
+  let new_F = ProcessDef.from_expr(b.blueprint, schema: F.signature) in
+  { add: {'{fresh_id()}': new_F[blueprint: b.blueprint, rate: 1.0]},
+    remove: b }
+)
 
-reaction MakePhi(rate: 0.3) { ... }   # as before
-reaction MakeF(rate: 0.4) { ... }     # as before
+reaction MakePhi[rate: 0.3] (
+  F[blueprint: ?bp] | B[blueprint: ?bp]
+  =>
+  F[blueprint: ?bp] | Phi[blueprint: ?bp]
+)
+
+reaction MakeF[rate: 0.4] (
+  Phi[blueprint: ?bp] | B[blueprint: ?bp]
+  =>
+  F[blueprint: ?bp, rate: ?bp.rate]
+)
 ```
 
 If tier-1 examples round-trip from chrysalis source → prism runtime →
@@ -425,10 +530,11 @@ is the full target.
    and instantiates on the first tick.
 2. **Expression language has its own typed AST**; boundary with prism
    is `Schema` for state slots only.
-3. **Standalone steps with composite-typed parameters**. The `self: Cell`
-   in `step divide(…) { update(trigger, self: Cell) }` means divide is
-   reusable across composites that satisfy the Cell schema. Needs row
-   polymorphism / duck-typed schemas in the type checker.
+3. **Standalone steps with composite-typed parameters**. A step
+   declared as `step Divide[…] ~{trigger: Float, self: Cell} ->{…}`
+   means divide is reusable across composites that satisfy the Cell
+   schema. Needs row polymorphism / duck-typed schemas in the type
+   checker.
 4. **String interpolation `'{var}'` is the "compute me" operator** for
    dynamic map keys. No `@` for key disambiguation.
 5. **Records vs maps disambiguate structurally** (compile-time field set
@@ -447,17 +553,32 @@ is the full target.
    by definition — they cannot emit ill-typed offspring. This is the
    tagless-final / typed-AST approach, encoded via the existing
    `Schema` engine; no separate type theory needed.
+9. **Syntactic kernel committed** (see "Syntactic kernel" section):
+   `K[args](body)` for terms, `~{} ->{}` for port-graph interface
+   (the morphism's domain and codomain), `|` for parallel composition,
+   `?name` for pattern variables, `~name` for link variables, `!` for
+   unbound port, `=>` for reactions, lowercase definers
+   (`process`/`step`/`composite`/`reaction`/`pattern`) with capitalized
+   controls (`Cell`/`Grow`/`MEK`/`Phosphorylate`). Body is a
+   `|`-separated parallel composition with the last (un-`|`-ed) line
+   as the value. Single-quote strings with `'{expr}'` interpolation.
+10. **Bigraphs are an s-category** (see "Categorical structure"
+    section). Wiring is morphism composition; pattern matching is
+    morphism factorization; composite-as-process is the categorical
+    reality. This justifies the `~{} ->{}` interface and the `|`
+    algebra without separate motivation.
 
 ## Open design decisions
 
-- **Quoting / unquoting** for pattern literals. Likely: `pattern { … }`
-  is implicitly quoted; `$expr` unquotes. Same convention applies to
-  `expr { … }` blocks at tier 2.
+- **Quoting / unquoting** for pattern and expr literals. Likely:
+  `pattern X[…] (body)` and `expr (body)` bodies are implicitly
+  quoted; `$expr` inside unquotes. Settle the unquote sigil.
 - **Rate expressions, not constants.** `rate: |MEK| * |ERK| * k_on / V`
   — rate becomes an expression closing over matched bindings.
 - **Pattern variable kinds.** Two binding regimes: name-vars `?n`
-  (atomic) vs site-vars `?rest` (subtree). Distinguish syntactically or
-  by inference?
+  (atomic) vs site-vars `?rest` (subtree). Distinguished by context
+  (subtree position vs atomic position), but worth confirming in the
+  parser spec.
 - **Schema inference for composite outputs**: full inferred schema of
   `Cell` so `Map[Cell]` in `Environment` resolves.
 - **Type system surface for `self: Cell`**: row-typed / structural?
@@ -487,8 +608,9 @@ is the full target.
    closures `Fn(&Value, &[Value]) -> Result<Value>`. Each prism crate
    registers its types' methods (`Pattern::register_methods`,
    `ReactionRule::register_methods`, `BRS::register_methods`,
-   `Mesh::register_methods`, etc.). Bigraph primitives (`|`, `.`,
-   `ion`, `site`, `link`, `absent`) are exposed here.
+   `Mesh::register_methods`, etc.). Bigraph primitives (`|`, ion
+   construction, port-link binding, `?`-site, `~`-link, `!` for
+   unbound) are exposed here.
 5. Write `eval.rs`: interpreter for expression bodies. Evaluates
    pattern expressions to `Pattern` values, reaction expressions to
    `ReactionRule` values, scalars, and method calls (dispatched via

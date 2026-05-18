@@ -12,7 +12,11 @@ application domain.
 - **`docs/chrysalis-design.md`** — design for **chrysalis**, the
   surface PL compiling to this runtime. Homoiconicity goal, the
   bigraph atoms to canonize, the implied-assembly decision (trees
-  are bigraphs sugared), value methods via `MethodRegistry`, and
+  are bigraphs sugared), the categorical structure (bigraphs as
+  morphisms in an s-category — wiring is composition), the
+  syntactic kernel (`K[args](body)` terms, `~{} ->{}` port-graph
+  interface, `|` parallel composition, lowercase definers /
+  capitalized controls), value methods via `MethodRegistry`, and
   the tiered benchmark examples: tier 1 (grow/divide, MAPK, static
   M/R) for patterns + reactions as first-class values; tier 2
   (evolving M/R, after Fontana's AlChemy) for process bodies as
