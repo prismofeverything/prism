@@ -11,6 +11,7 @@ use std::fmt::Debug;
 
 use prism_schema::{Schema, Value};
 
+use crate::defer::Defer;
 use crate::ports::PortSchema;
 use crate::update::Update;
 
@@ -45,6 +46,25 @@ pub trait Process: Send + Sync + Debug {
     /// The returned `Value` should be a map keyed by output port names,
     /// containing the updates to apply to the connected state.
     fn update(&self, state: &Value, interval: f64) -> Update;
+
+    /// Lifecycle-aware variant of [`Process::update`]: returns a
+    /// [`Defer`] that the orchestrator resolves after running protocol
+    /// flushes. For synchronous (local) processes the default
+    /// implementation captures the result of `update()` into an
+    /// immediate Defer — no observable difference from calling
+    /// `update()` directly. Batching protocols (Ray, Pool) override
+    /// this to enqueue onto their shared runtime and return a
+    /// runtime-filled slot.
+    ///
+    /// The split exists so the Composite / Engine lifecycle can:
+    ///   1. Issue invoke() to every process,
+    ///   2. Flush every registered ProtocolRuntime,
+    ///   3. Collect each Defer's result.
+    ///
+    /// See `crates/prism-bigraph/src/defer.rs` for the rationale.
+    fn invoke(&self, state: &Value, interval: f64) -> Defer<Update> {
+        Defer::immediate(self.update(state, interval))
+    }
 
     /// Optional: provide initial state for ports this process manages.
     fn initial_state(&self) -> Value {

@@ -178,6 +178,27 @@ pub struct Engine {
     /// typed paths; otherwise applies use the structural Schema
     /// semantics (replace for Custom).
     type_registry: Option<Arc<prism_schema::registry::TypeRegistry>>,
+
+    /// Optional method registry for value-receiver method dispatch
+    /// (used by chrysalis to call into prism's Rust API from
+    /// surface-language expression bodies). Not consulted by the
+    /// engine itself — held here so processes that need it (e.g.
+    /// `chrysalis::runtime::ChrysalisBrs`) can access it via the
+    /// engine handle.
+    method_registry: Option<Arc<prism_schema::MethodRegistry>>,
+
+    /// Per-tick batching runtimes registered by protocols that need
+    /// to coalesce per-process `invoke()` calls into one batched RPC
+    /// (Ray, Pool). Flushed by [`Engine::flush_protocol_runtimes`].
+    /// Empty for synchronous-only setups — flush is a no-op.
+    protocol_runtimes: crate::protocol_runtime::ProtocolRuntimes,
+
+    /// Protocol resolver — dispatches `address.protocol` to a per-protocol
+    /// resolver. Defaults to a fresh [`crate::protocol::ProtocolRegistry`]
+    /// containing only the `local` protocol, which delegates to
+    /// `process_registry`. Add additional protocols via
+    /// [`Engine::register_protocol`] for parallel / rest / ray / etc.
+    protocol_registry: Arc<crate::protocol::ProtocolRegistry>,
 }
 
 impl Engine {
@@ -259,6 +280,9 @@ impl Engine {
             previous_outputs: HashMap::new(),
             registry: None,
             type_registry: None,
+            method_registry: None,
+            protocol_runtimes: crate::protocol_runtime::ProtocolRuntimes::new(),
+            protocol_registry: Arc::new(crate::protocol::ProtocolRegistry::new()),
             last_structural: false,
             pending_changes: Vec::new(),
             passthrough_paths: HashSet::new(),
@@ -350,6 +374,26 @@ impl Engine {
         state: Value,
         registry: Arc<ProcessRegistry>,
     ) -> Result<Self, String> {
+        Self::from_state_with_protocols(
+            schema,
+            state,
+            registry,
+            Arc::new(crate::protocol::ProtocolRegistry::new()),
+        )
+    }
+
+    /// Like [`Engine::from_state`] but accepts a custom protocol
+    /// registry. Use this when the state contains addresses for
+    /// protocols other than `local` (e.g. `parallel:Foo`,
+    /// `rest:Bar`) — they need to be resolvable at construction time
+    /// so processes get scheduled in the first tick rather than the
+    /// second.
+    pub fn from_state_with_protocols(
+        schema: Schema,
+        state: Value,
+        registry: Arc<ProcessRegistry>,
+        protocols: Arc<crate::protocol::ProtocolRegistry>,
+    ) -> Result<Self, String> {
         // Infer and merge schema from state annotations
         let merged_schema = Schema::infer_and_merge(&schema, &state);
 
@@ -364,6 +408,7 @@ impl Engine {
             &merged_schema,
             &state,
             &[],
+            &protocols,
             &registry,
             &mut topology.processes,
             &mut instances,
@@ -380,6 +425,7 @@ impl Engine {
         topology.initial_state = state;
         let mut engine = Engine::new(topology, instances);
         engine.set_registry(registry);
+        engine.set_protocol_registry(protocols);
         Ok(engine)
     }
 
@@ -424,6 +470,7 @@ impl Engine {
         // 4. Discover and instantiate new processes from the merged schema
         if let Some(registry) = &self.registry {
             let registry = Arc::clone(registry);
+            let protocols = Arc::clone(&self.protocol_registry);
             let mut new_specs = IndexMap::new();
             let mut new_instances = HashMap::new();
 
@@ -431,6 +478,7 @@ impl Engine {
                 &self.schema,
                 &self.state,
                 &[],
+                &protocols,
                 &registry,
                 &mut new_specs,
                 &mut new_instances,
@@ -452,7 +500,8 @@ impl Engine {
         schema: &Schema,
         state: &Value,
         path: &[Key],
-        registry: &ProcessRegistry,
+        protocols: &crate::protocol::ProtocolRegistry,
+        registry: &Arc<ProcessRegistry>,
         specs: &mut IndexMap<String, ProcessSpec>,
         instances: &mut HashMap<String, ProcessNode>,
     ) {
@@ -473,55 +522,61 @@ impl Engine {
                     None => return,
                 };
 
-                let class_name = map.get("address")
-                    .and_then(|a| match a {
-                        Value::Map(m) => m.get("data").and_then(|v| v.as_str().map(|s| s.to_string())),
-                        Value::String(s) => {
-                            if s.contains(':') { s.split(':').nth(1).map(|s| s.to_string()) }
-                            else { Some(s.clone()) }
-                        }
-                        _ => None,
-                    });
-
-                let class_name = match class_name {
-                    Some(n) if n != "RAMEmitter" => n,
+                // Parse the address through the protocol abstraction.
+                let address_val = match map.get("address") {
+                    Some(v) => v.clone(),
+                    None => return,
+                };
+                let parsed = match crate::protocol::ParsedAddress::parse(&address_val) {
+                    Ok(p) => p,
+                    Err(_) => return,
+                };
+                let class_name = match parsed.data.as_str() {
+                    Some(n) if n != "RAMEmitter" => n.to_string(),
                     _ => return,
                 };
 
                 let config = map.get("config").cloned().unwrap_or(Value::None);
 
-                if let Some(node) = registry.create(&class_name, config.clone()) {
-                    let inputs_val = map.get("inputs").cloned().unwrap_or(Value::None);
-                    let outputs_val = map.get("outputs").cloned().unwrap_or(Value::None);
+                let node = match protocols.instantiate(
+                    &parsed,
+                    config.clone(),
+                    registry,
+                ) {
+                    Ok(n) => n,
+                    Err(_) => return,
+                };
 
-                    // Resolve wires: ".." navigates up from the process's own
-                    // location; plain paths are absolute from root.
-                    let inputs = resolve_wires_from_process(&inputs_val, path);
-                    let outputs = resolve_wires_from_process(&outputs_val, path);
+                let inputs_val = map.get("inputs").cloned().unwrap_or(Value::None);
+                let outputs_val = map.get("outputs").cloned().unwrap_or(Value::None);
 
-                    let interval = match (&node, temporal) {
-                        (ProcessNode::Process(p), _) => {
-                            let cfg_interval = map.get("interval")
-                                .and_then(|v| v.as_f64())
-                                .or_else(|| config.as_map()
-                                    .and_then(|m| m.get("interval"))
-                                    .and_then(|v| v.as_f64()));
-                            Some(cfg_interval.unwrap_or_else(|| p.interval()))
-                        }
-                        (ProcessNode::Step(_), _) => None,
-                    };
+                // Resolve wires: ".." navigates up from the process's own
+                // location; plain paths are absolute from root.
+                let inputs = resolve_wires_from_process(&inputs_val, path);
+                let outputs = resolve_wires_from_process(&outputs_val, path);
 
-                    let name = path.join(".");
-                    specs.insert(name.clone(), ProcessSpec {
-                        process_type: class_name,
-                        config,
-                        inputs,
-                        outputs,
-                        interval,
-                        priority: 0.0,
-                    });
-                    instances.insert(name, node);
-                }
+                let interval = match (&node, temporal) {
+                    (ProcessNode::Process(p), _) => {
+                        let cfg_interval = map.get("interval")
+                            .and_then(|v| v.as_f64())
+                            .or_else(|| config.as_map()
+                                .and_then(|m| m.get("interval"))
+                                .and_then(|v| v.as_f64()));
+                        Some(cfg_interval.unwrap_or_else(|| p.interval()))
+                    }
+                    (ProcessNode::Step(_), _) => None,
+                };
+
+                let name = path.join(".");
+                specs.insert(name.clone(), ProcessSpec {
+                    process_type: class_name,
+                    config,
+                    inputs,
+                    outputs,
+                    interval,
+                    priority: 0.0,
+                });
+                instances.insert(name, node);
             }
             Schema::Tree { branches } => {
                 if let Some(map) = state.as_map() {
@@ -531,7 +586,7 @@ impl Engine {
                         let child_state = map.get(key).cloned().unwrap_or(Value::None);
                         Self::extract_processes(
                             child_schema, &child_state, &child_path,
-                            registry, specs, instances);
+                            protocols, registry, specs, instances);
                     }
                     // Also check state keys not in schema (might have _type annotations)
                     for (key, child_state) in map {
@@ -541,7 +596,7 @@ impl Engine {
                             let inferred = Schema::infer(child_state);
                             Self::extract_processes(
                                 &inferred, child_state, &child_path,
-                                registry, specs, instances);
+                                protocols, registry, specs, instances);
                         }
                     }
                 }
@@ -553,7 +608,7 @@ impl Engine {
                         child_path.push(key.clone());
                         Self::extract_processes(
                             value, child_state, &child_path,
-                            registry, specs, instances);
+                            protocols, registry, specs, instances);
                     }
                 }
             }
@@ -608,6 +663,80 @@ impl Engine {
         &self,
     ) -> Option<&Arc<prism_schema::registry::TypeRegistry>> {
         self.type_registry.as_ref()
+    }
+
+    /// Attach a `MethodRegistry` for value-receiver method dispatch.
+    /// Used by chrysalis to look up methods on values inside
+    /// expression bodies.
+    pub fn set_method_registry(
+        &mut self,
+        registry: Arc<prism_schema::MethodRegistry>,
+    ) {
+        self.method_registry = Some(registry);
+    }
+
+    /// Borrow the attached method registry, if any.
+    pub fn method_registry(
+        &self,
+    ) -> Option<&Arc<prism_schema::MethodRegistry>> {
+        self.method_registry.as_ref()
+    }
+
+    /// Register a protocol-level batching runtime. The engine calls
+    /// [`crate::protocol_runtime::ProtocolRuntime::flush_pending`] on
+    /// each registered runtime during the orchestrator's flush phase
+    /// (between the invoke pass and apply_updates). Sync-only setups
+    /// don't need to register anything — flush is a no-op then.
+    pub fn register_protocol_runtime(
+        &mut self,
+        runtime: Arc<dyn crate::protocol_runtime::ProtocolRuntime>,
+    ) {
+        self.protocol_runtimes.register(runtime);
+    }
+
+    /// Flush every registered protocol runtime. Called by the
+    /// orchestrator between the invoke pass and the collect phase.
+    /// Currently a no-op when no batching protocols are registered —
+    /// the `run_process` path uses direct `update()` calls until a
+    /// batching protocol lands.
+    pub fn flush_protocol_runtimes(&self) {
+        self.protocol_runtimes.flush_all();
+    }
+
+    /// Number of registered protocol runtimes — diagnostic.
+    pub fn protocol_runtime_count(&self) -> usize {
+        self.protocol_runtimes.len()
+    }
+
+    /// Borrow the protocol registry. Always present — defaults to a
+    /// registry containing only the `local` protocol if none was set
+    /// explicitly.
+    pub fn protocol_registry(&self) -> &Arc<crate::protocol::ProtocolRegistry> {
+        &self.protocol_registry
+    }
+
+    /// Replace the protocol registry. Use when registering additional
+    /// protocols (parallel, rest, ray, …).
+    pub fn set_protocol_registry(
+        &mut self,
+        registry: Arc<crate::protocol::ProtocolRegistry>,
+    ) {
+        self.protocol_registry = registry;
+    }
+
+    /// Register an additional protocol with the active registry.
+    /// Convenience over `set_protocol_registry`. Creates a new
+    /// registry under the hood, copying existing entries.
+    pub fn register_protocol(&mut self, protocol: Arc<dyn crate::protocol::Protocol>) {
+        let mut new_registry = crate::protocol::ProtocolRegistry::new();
+        // Re-register any protocols already present (apart from default local).
+        for name in self.protocol_registry.names() {
+            if let Some(existing) = self.protocol_registry.get(name) {
+                new_registry.register(Arc::clone(existing));
+            }
+        }
+        new_registry.register(protocol);
+        self.protocol_registry = Arc::new(new_registry);
     }
 
     /// Current simulation time.
@@ -1255,7 +1384,7 @@ impl Engine {
         &self,
         map: &prism_schema::StateMap,
         parent_path: &[Key],
-        registry: &ProcessRegistry,
+        registry: &Arc<ProcessRegistry>,
         results: &mut Vec<(String, ProcessSpec, ProcessNode)>,
     ) {
         for (key, val) in map {
@@ -1298,25 +1427,17 @@ impl Engine {
                     continue;
                 }
 
-                // Extract class name from address
-                let class_name = child_map
-                    .get("address")
-                    .and_then(|a| match a {
-                        Value::Map(m) => m.get("data")
-                            .and_then(|v| v.as_str().map(|s| s.to_string())),
-                        Value::String(s) => {
-                            // "local:ClassName" or just "ClassName"
-                            if s.contains(':') {
-                                s.split(':').nth(1).map(|s| s.to_string())
-                            } else {
-                                Some(s.clone())
-                            }
-                        }
-                        _ => None,
-                    });
-
-                let class_name = match class_name {
-                    Some(name) if name != "RAMEmitter" => name,
+                // Parse address through the protocol abstraction.
+                let address_val = match child_map.get("address") {
+                    Some(v) => v.clone(),
+                    None => continue,
+                };
+                let parsed = match crate::protocol::ParsedAddress::parse(&address_val) {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
+                let class_name = match parsed.data.as_str() {
+                    Some(name) if name != "RAMEmitter" => name.to_string(),
                     _ => continue,
                 };
 
@@ -1326,45 +1447,51 @@ impl Engine {
                     .cloned()
                     .unwrap_or(Value::None);
 
-                // Try to instantiate via registry
-                if let Some(node) = registry.create(&class_name, config.clone()) {
-                    let inputs_val = child_map
-                        .get("inputs")
-                        .cloned()
-                        .unwrap_or(Value::None);
-                    let outputs_val = child_map
-                        .get("outputs")
-                        .cloned()
-                        .unwrap_or(Value::None);
+                // Dispatch through the protocol registry.
+                let node = match self.protocol_registry.instantiate(
+                    &parsed,
+                    config.clone(),
+                    registry,
+                ) {
+                    Ok(n) => n,
+                    Err(_) => continue,
+                };
 
-                    // Resolve wires: ".." navigates up from the process's own
-                    // location; plain paths are absolute from root.
-                    let inputs = resolve_wires_from_process(&inputs_val, &child_path);
-                    let outputs = resolve_wires_from_process(&outputs_val, &child_path
-                    );
+                let inputs_val = child_map
+                    .get("inputs")
+                    .cloned()
+                    .unwrap_or(Value::None);
+                let outputs_val = child_map
+                    .get("outputs")
+                    .cloned()
+                    .unwrap_or(Value::None);
 
-                    let interval = match &node {
-                        ProcessNode::Process(p) => {
-                            let cfg_interval = config
-                                .as_map()
-                                .and_then(|m| m.get("interval"))
-                                .and_then(|v| v.as_f64());
-                            Some(cfg_interval.unwrap_or_else(|| p.interval()))
-                        }
-                        ProcessNode::Step(_) => None,
-                    };
+                // Resolve wires: ".." navigates up from the process's own
+                // location; plain paths are absolute from root.
+                let inputs = resolve_wires_from_process(&inputs_val, &child_path);
+                let outputs = resolve_wires_from_process(&outputs_val, &child_path);
 
-                    let spec = ProcessSpec {
-                        process_type: class_name,
-                        config,
-                        inputs,
-                        outputs,
-                        interval,
-                        priority: 0.0,
-                    };
+                let interval = match &node {
+                    ProcessNode::Process(p) => {
+                        let cfg_interval = config
+                            .as_map()
+                            .and_then(|m| m.get("interval"))
+                            .and_then(|v| v.as_f64());
+                        Some(cfg_interval.unwrap_or_else(|| p.interval()))
+                    }
+                    ProcessNode::Step(_) => None,
+                };
 
-                    results.push((child_name, spec, node));
-                }
+                let spec = ProcessSpec {
+                    process_type: class_name,
+                    config,
+                    inputs,
+                    outputs,
+                    interval,
+                    priority: 0.0,
+                };
+
+                results.push((child_name, spec, node));
             }
         }
     }
