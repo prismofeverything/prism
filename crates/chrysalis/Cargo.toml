@@ -1,0 +1,17 @@
+[package]
+name = "chrysalis"
+description = "Surface programming language compiling to the prism process-bigraph runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+prism-schema = { workspace = true }
+prism-bigraph = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+indexmap = { workspace = true }
+ordered-float = { workspace = true }
+compact_str = { workspace = true }
+rand = { workspace = true }

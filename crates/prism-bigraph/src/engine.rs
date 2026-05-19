@@ -457,7 +457,16 @@ impl Engine {
         instances: &mut HashMap<String, ProcessNode>,
     ) {
         match schema {
-            Schema::Link { temporal, .. } => {
+            Schema::Link { .. }
+            | Schema::StepLink { .. }
+            | Schema::ProcessLink { .. }
+            | Schema::CompositeLink { .. } => {
+                let temporal = match schema {
+                    Schema::Link { temporal, .. } => *temporal,
+                    Schema::StepLink { .. } => Some(false),
+                    Schema::ProcessLink { .. } | Schema::CompositeLink { .. } => Some(true),
+                    _ => None,
+                };
                 // This node is a process/step — extract spec from state
                 let map = match state.as_map() {
                     Some(m) => m,
@@ -1270,9 +1279,10 @@ impl Engine {
                     }
                 }
 
-                // Check schema first — if it declares Link, this is a process
+                // Check schema first — if it declares any link variant, this
+                // is a process node.
                 let child_schema = self.schema.schema_at_path(&child_path);
-                let is_link = matches!(child_schema, Schema::Link { .. });
+                let is_link = child_schema.is_link_kind();
                 if is_link {
                 }
 

@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::value::{Key, StateMap, Value};
 
+fn default_interval() -> f64 {
+    1.0
+}
+
 /// A schema describing the type of a value in the state tree.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "_type")]
@@ -79,6 +83,69 @@ pub enum Schema {
         inner: Box<Schema>,
     },
 
+    /// Const wrapper — immutable. apply / merge / reconcile preserve
+    /// the current value; updates are silently ignored. Mirrors
+    /// upstream `bigraph_schema.schema.Const`.
+    Const {
+        inner: Box<Schema>,
+    },
+
+    /// Quote wrapper — opaque, passes through apply/realize untouched.
+    /// Used for values that should be carried as-is (process instances,
+    /// binary blobs, etc.). Mirrors upstream `bigraph_schema.schema.Quote`.
+    Quote {
+        inner: Box<Schema>,
+    },
+
+    /// **Place-graph hole.** A site is an open inner-face position in
+    /// Milner's place graph (Def. 2.1). A schema with `Site` markers
+    /// describes a *context* into which another bigraph can be plugged
+    /// during composition. Sites carry no state on their own; once
+    /// filled, no site remains.
+    ///
+    /// `sort` is an optional place-sort label (Milner Ch. 6); empty
+    /// string means unsorted.
+    Site {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        sort: String,
+    },
+
+    /// **Inner link-graph name.** An open link endpoint facing inward
+    /// (Milner Def. 2.2). Inner names form the domain of the link map;
+    /// during composition `G ∘ F` each outer name of `F` is connected
+    /// to the inner name of `G` of the same name.
+    ///
+    /// `sort` is an optional link-sort label.
+    InnerName {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        sort: String,
+    },
+
+    /// **Outer link-graph name.** An open link endpoint facing outward
+    /// (Milner Def. 2.2). Outer names escape the bigraph and can be
+    /// joined to another bigraph's inner name of the same name.
+    ///
+    /// `sort` is an optional link-sort label.
+    OuterName {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        sort: String,
+    },
+
+    /// **Bigraphical interface** `I = ⟨m, X⟩` (Milner Def. 2.3).
+    /// Pairs a place-graph face (`places`, ordered) with a link-graph
+    /// face (`names`, name → sort). The trivial interface
+    /// `ε = ⟨0, ∅⟩` is `Interface { places: [], names: {} }`.
+    ///
+    /// The same node is used for both inner and outer faces; which
+    /// side it represents is determined by attachment to a composite
+    /// schema.
+    Interface {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        places: Vec<Schema>,
+        #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+        names: IndexMap<String, String>,
+    },
+
     /// Multidimensional array — element-wise additive apply.
     /// Like Python bigraph-schema's `array` type. Updates are added
     /// element-wise when shapes match.
@@ -108,8 +175,14 @@ pub enum Schema {
     /// not just data. The engine uses this to identify and instantiate
     /// processes without scanning state for "address" fields.
     ///
+    /// The generic `Link` variant is the parent type that doesn't
+    /// commit to temporal vs reactive semantics. For concrete process
+    /// or step typing, use [`Schema::ProcessLink`] / [`Schema::StepLink`].
+    /// `CompositeLink` extends `ProcessLink` with inner-state schema +
+    /// bridge wiring.
+    ///
     /// Corresponds to Python bigraph-schema's `Link` type and
-    /// process-bigraph's `ProcessLink`/`StepLink`.
+    /// process-bigraph's `ProcessLink`/`StepLink`/`CompositeLink`.
     Link {
         /// Schema for input ports: port_name → type
         inputs: IndexMap<Key, Schema>,
@@ -118,6 +191,56 @@ pub enum Schema {
         /// Whether this link has a temporal interval (process) or not (step).
         /// None means unspecified (inferred at instantiation time).
         temporal: Option<bool>,
+    },
+
+    /// A reactive step — fires on input change, no time interval.
+    /// Mirrors `process_bigraph.types.process.StepLink`. Carries an
+    /// optional priority for when multiple steps trigger simultaneously
+    /// (higher priority runs first).
+    StepLink {
+        inputs: IndexMap<Key, Schema>,
+        outputs: IndexMap<Key, Schema>,
+        #[serde(default)]
+        priority: f64,
+    },
+
+    /// A temporal process — runs every `interval` time units.
+    /// Mirrors `process_bigraph.types.process.ProcessLink`.
+    ProcessLink {
+        inputs: IndexMap<Key, Schema>,
+        outputs: IndexMap<Key, Schema>,
+        #[serde(default = "default_interval")]
+        interval: f64,
+    },
+
+    /// A composite link — a process whose body is itself a state subtree
+    /// with embedded sub-processes. The composite's *interface* is
+    /// `inputs`/`outputs`; its *internal schema* describes the shape of
+    /// its inner state. Mirrors
+    /// `process_bigraph.types.process.CompositeLink`.
+    ///
+    /// At instantiation time, the engine constructs a sub-engine running
+    /// the inner schema and bridges its observable slots to the outer
+    /// interface via the spec's `inputs`/`outputs` wires.
+    CompositeLink {
+        inputs: IndexMap<Key, Schema>,
+        outputs: IndexMap<Key, Schema>,
+        #[serde(default = "default_interval")]
+        interval: f64,
+        /// Schema for the composite's internal state.
+        inner_schema: Box<Schema>,
+    },
+
+    /// `Bridge` — a wiring map from port names to internal state paths.
+    /// First-class so wiring can be inspected / mutated like any other
+    /// schema-typed value. Mirrors
+    /// `process_bigraph.types.process.Bridge`.
+    Bridge {
+        /// External port → internal state path
+        #[serde(default)]
+        inputs: IndexMap<Key, Vec<Key>>,
+        #[serde(default)]
+        outputs: IndexMap<Key, Vec<Key>>,
     },
 
     /// Reference to a registered named type in the `TypeRegistry`. The
@@ -183,6 +306,133 @@ impl Schema {
         Self::Overwrite {
             inner: Box::new(inner),
         }
+    }
+
+    pub fn const_of(inner: Schema) -> Self {
+        Self::Const {
+            inner: Box::new(inner),
+        }
+    }
+
+    pub fn quote_of(inner: Schema) -> Self {
+        Self::Quote {
+            inner: Box::new(inner),
+        }
+    }
+
+    pub fn site() -> Self {
+        Self::Site {
+            sort: String::new(),
+        }
+    }
+
+    pub fn site_sorted(sort: impl Into<String>) -> Self {
+        Self::Site { sort: sort.into() }
+    }
+
+    pub fn inner_name(sort: impl Into<String>) -> Self {
+        Self::InnerName { sort: sort.into() }
+    }
+
+    pub fn outer_name(sort: impl Into<String>) -> Self {
+        Self::OuterName { sort: sort.into() }
+    }
+
+    pub fn interface() -> Self {
+        Self::Interface {
+            places: vec![],
+            names: IndexMap::new(),
+        }
+    }
+
+    pub fn step_link(
+        inputs: IndexMap<Key, Schema>,
+        outputs: IndexMap<Key, Schema>,
+    ) -> Self {
+        Self::StepLink {
+            inputs,
+            outputs,
+            priority: 0.0,
+        }
+    }
+
+    pub fn step_link_with_priority(
+        inputs: IndexMap<Key, Schema>,
+        outputs: IndexMap<Key, Schema>,
+        priority: f64,
+    ) -> Self {
+        Self::StepLink {
+            inputs,
+            outputs,
+            priority,
+        }
+    }
+
+    pub fn process_link(
+        inputs: IndexMap<Key, Schema>,
+        outputs: IndexMap<Key, Schema>,
+    ) -> Self {
+        Self::ProcessLink {
+            inputs,
+            outputs,
+            interval: 1.0,
+        }
+    }
+
+    pub fn process_link_with_interval(
+        inputs: IndexMap<Key, Schema>,
+        outputs: IndexMap<Key, Schema>,
+        interval: f64,
+    ) -> Self {
+        Self::ProcessLink {
+            inputs,
+            outputs,
+            interval,
+        }
+    }
+
+    pub fn composite_link(
+        inputs: IndexMap<Key, Schema>,
+        outputs: IndexMap<Key, Schema>,
+        inner_schema: Schema,
+    ) -> Self {
+        Self::CompositeLink {
+            inputs,
+            outputs,
+            interval: 1.0,
+            inner_schema: Box::new(inner_schema),
+        }
+    }
+
+    pub fn bridge() -> Self {
+        Self::Bridge {
+            inputs: IndexMap::new(),
+            outputs: IndexMap::new(),
+        }
+    }
+
+    /// Return the inputs/outputs port schemas for any link-typed
+    /// schema (Link, StepLink, ProcessLink, CompositeLink). Useful for
+    /// uniform engine code that doesn't care which kind of link it is.
+    pub fn link_ports(&self) -> Option<(&IndexMap<Key, Schema>, &IndexMap<Key, Schema>)> {
+        match self {
+            Self::Link { inputs, outputs, .. }
+            | Self::StepLink { inputs, outputs, .. }
+            | Self::ProcessLink { inputs, outputs, .. }
+            | Self::CompositeLink { inputs, outputs, .. } => Some((inputs, outputs)),
+            _ => None,
+        }
+    }
+
+    /// True if this schema is any kind of link/process/composite.
+    pub fn is_link_kind(&self) -> bool {
+        matches!(
+            self,
+            Self::Link { .. }
+                | Self::StepLink { .. }
+                | Self::ProcessLink { .. }
+                | Self::CompositeLink { .. }
+        )
     }
 
     /// Overwrite float — for positions, absolute values.
@@ -345,6 +595,30 @@ impl Schema {
             // dispatched through the `TypeRegistry`. With no registry
             // available at the Schema level, fall back to None.
             Self::Custom { .. } => Value::None,
+            // Wrap-style: delegate to inner (Const/Quote)
+            Self::Const { inner } | Self::Quote { inner } => inner.default_value(),
+            // Empty types — no value
+            Self::Site { .. }
+            | Self::InnerName { .. }
+            | Self::OuterName { .. }
+            | Self::Interface { .. } => Value::None,
+            // Typed link variants — default to a process spec shape
+            // matching what `Schema::Link` returns.
+            Self::StepLink { inputs, .. }
+            | Self::ProcessLink { inputs, .. }
+            | Self::CompositeLink { inputs, .. } => {
+                let mut map: IndexMap<Key, Value> = IndexMap::new();
+                let mut input_defaults: IndexMap<Key, Value> = IndexMap::new();
+                for (port, schema) in inputs {
+                    input_defaults.insert(port.clone(), schema.default_value());
+                }
+                map.insert(Key::from("address"), Value::String("local:Unknown".into()));
+                map.insert(Key::from("config"), Value::map());
+                map.insert(Key::from("inputs"), Value::Map(input_defaults));
+                Value::Map(map)
+            }
+            // Bridge: empty wiring map
+            Self::Bridge { .. } => Value::map(),
         }
     }
 
@@ -569,6 +843,20 @@ impl Schema {
     /// - `Any` → **inferred**: additive for numbers, merge for maps, replace otherwise.
     pub fn apply_update(&self, current: &Value, update: &Value) -> Value {
         match self {
+            // Const: immutable — apply is a no-op, current value preserved.
+            // Mirrors upstream `bigraph_schema.methods.apply` on Const.
+            Self::Const { .. } => current.clone(),
+
+            // Quote: opaque passthrough — last update wins as-is.
+            // Mirrors upstream `bigraph_schema.methods.apply` on Quote.
+            Self::Quote { .. } => update.clone(),
+
+            // Empty bigraph types carry no state — current preserved.
+            Self::Site { .. }
+            | Self::InnerName { .. }
+            | Self::OuterName { .. }
+            | Self::Interface { .. } => current.clone(),
+
             // Numeric types: additive (delta) by default
             Self::Float { .. } | Self::Delta { .. } => {
                 let base = current.as_f64().unwrap_or(0.0);
@@ -697,7 +985,13 @@ impl Schema {
             }
 
             // Link: not a data type — replace entirely if updated
-            Self::Link { .. } => update.clone(),
+            Self::Link { .. }
+            | Self::StepLink { .. }
+            | Self::ProcessLink { .. }
+            | Self::CompositeLink { .. } => update.clone(),
+
+            // Bridge: wiring data, replaced wholesale on update.
+            Self::Bridge { .. } => update.clone(),
 
             // RecursiveTree: merge like Map with leaf-type apply
             Self::RecursiveTree { leaf } => {
@@ -818,6 +1112,19 @@ impl Schema {
             (Self::Maybe { .. }, Value::None) => Value::None,
             (Self::Maybe { inner }, _) => inner.encode(value),
 
+            // Const: encode via inner — the value originally satisfies
+            // the inner schema; immutability doesn't affect encoding.
+            (Self::Const { inner }, _) => inner.encode(value),
+
+            // Quote: opaque — pass through verbatim.
+            (Self::Quote { .. }, _) => value.clone(),
+
+            // Empty bigraph types — no state to encode.
+            (Self::Site { .. }, _) => Value::None,
+            (Self::InnerName { .. }, _) => Value::None,
+            (Self::OuterName { .. }, _) => Value::None,
+            (Self::Interface { .. }, _) => Value::None,
+
             // List: serialize each element
             (Self::List { element }, Value::List(items)) => {
                 Value::List(items.iter().map(|v| element.encode(v)).collect())
@@ -924,6 +1231,20 @@ impl Schema {
             (Self::Overwrite { inner }, _) => inner.realize(encoded),
             (Self::Maybe { .. }, Value::None) => Value::None,
             (Self::Maybe { inner }, _) => inner.realize(encoded),
+
+            // Const: realize through inner — the immutability constraint
+            // is enforced at apply, not at realize.
+            (Self::Const { inner }, _) => inner.realize(encoded),
+
+            // Quote: opaque pass-through, never walk the encoded value.
+            // Mirrors upstream `realize(Quote)`.
+            (Self::Quote { .. }, _) => encoded.clone(),
+
+            // Empty bigraph types — no state to materialize.
+            (Self::Site { .. }, _) => Value::None,
+            (Self::InnerName { .. }, _) => Value::None,
+            (Self::OuterName { .. }, _) => Value::None,
+            (Self::Interface { .. }, _) => Value::None,
 
             // List
             (Self::List { element }, Value::List(items)) => {
@@ -1078,6 +1399,25 @@ impl fmt::Display for Schema {
             Self::Float { .. } => write!(f, "float"),
             Self::String { .. } => write!(f, "string"),
             Self::Delta { .. } => write!(f, "delta"),
+            Self::Const { inner } => write!(f, "const[{inner}]"),
+            Self::Quote { inner } => write!(f, "quote[{inner}]"),
+            Self::Site { sort } if sort.is_empty() => write!(f, "site"),
+            Self::Site { sort } => write!(f, "site[{sort}]"),
+            Self::InnerName { sort } if sort.is_empty() => write!(f, "inner_name"),
+            Self::InnerName { sort } => write!(f, "inner_name[{sort}]"),
+            Self::OuterName { sort } if sort.is_empty() => write!(f, "outer_name"),
+            Self::OuterName { sort } => write!(f, "outer_name[{sort}]"),
+            Self::Interface { places, names } => {
+                write!(f, "interface[{};{}]", places.len(), names.len())
+            }
+            Self::StepLink { .. } => write!(f, "step"),
+            Self::ProcessLink { interval, .. } => write!(f, "process[{interval}]"),
+            Self::CompositeLink { interval, inner_schema, .. } => {
+                write!(f, "composite[{interval},{inner_schema}]")
+            }
+            Self::Bridge { inputs, outputs } => {
+                write!(f, "bridge[{}→{}]", inputs.len(), outputs.len())
+            }
             Self::Overwrite { inner } => write!(f, "overwrite[{inner}]"),
             Self::List { element } => write!(f, "list[{element}]"),
             Self::Map { value } => write!(f, "map[{value}]"),
@@ -1224,5 +1564,65 @@ mod tests {
             ("name", Value::from("test")),
         ]);
         assert!(!schema.check(&bad));
+    }
+
+    #[test]
+    fn const_apply_preserves_current() {
+        let schema = Schema::const_of(Schema::float());
+        let current = Value::float(5.0);
+        let update = Value::float(99.0);
+        let result = schema.apply_update(&current, &update);
+        assert_eq!(result.as_f64(), Some(5.0), "const value must not change");
+    }
+
+    #[test]
+    fn quote_apply_replaces() {
+        let schema = Schema::quote_of(Schema::float());
+        let result = schema.apply_update(&Value::float(1.0), &Value::String("opaque".into()));
+        assert_eq!(result, Value::String("opaque".into()));
+    }
+
+    #[test]
+    fn empty_bigraph_types_carry_no_state() {
+        for s in [
+            Schema::site(),
+            Schema::site_sorted("organelle"),
+            Schema::inner_name(""),
+            Schema::outer_name(""),
+            Schema::interface(),
+        ] {
+            assert!(matches!(s.default_value(), Value::None));
+            // Apply ignores updates — current preserved.
+            let r = s.apply_update(&Value::None, &Value::float(99.0));
+            assert!(matches!(r, Value::None));
+        }
+    }
+
+    #[test]
+    fn typed_link_variants_classify_correctly() {
+        let step = Schema::step_link(IndexMap::new(), IndexMap::new());
+        let process =
+            Schema::process_link_with_interval(IndexMap::new(), IndexMap::new(), 0.5);
+        let composite = Schema::composite_link(
+            IndexMap::new(),
+            IndexMap::new(),
+            Schema::tree([("mass", Schema::float())]),
+        );
+
+        assert!(step.is_link_kind());
+        assert!(process.is_link_kind());
+        assert!(composite.is_link_kind());
+        assert!(!Schema::float().is_link_kind());
+    }
+
+    #[test]
+    fn link_ports_uniform_access() {
+        let inputs = IndexMap::from_iter([("mass".into(), Schema::float())]);
+        let outputs = IndexMap::from_iter([("mass".into(), Schema::float())]);
+        let process = Schema::process_link(inputs.clone(), outputs.clone());
+        let (i, o) = process.link_ports().unwrap();
+        assert_eq!(i.len(), 1);
+        assert_eq!(o.len(), 1);
+        assert_eq!(Schema::float().link_ports(), None);
     }
 }
