@@ -11,10 +11,11 @@ use std::time::Instant;
 use plotters::prelude::*;
 use prism_bigraph::{BigraphicalReactiveSystem, BrsMode, Process, Update};
 use prism_mapk::{initial_mapk_state, mapk_rules};
-use prism_schema::reaction::ReactionRule;
+use prism_schema::reaction::{apply_fire, find_matches, fire_rule_at, ReactionRule};
 use prism_schema::{Key, StateMap, Value};
 use prism_viz::{
-    render_pattern_dot, render_pattern_svg, render_to_file, rule_color,
+    render_cell_animation_svg, render_cell_snapshot_svg, render_pattern_dot, render_pattern_svg,
+    render_to_file, rule_color,
 };
 
 /// Per-snapshot population counts. Order matches the legend.
@@ -33,6 +34,7 @@ struct Counts {
 struct Snapshot {
     t: f64,
     counts: Counts,
+    state: Value,
 }
 
 struct Args {
@@ -102,6 +104,7 @@ fn main() {
     snapshots.push(Snapshot {
         t: 0.0,
         counts: count_populations(&state),
+        state: state.clone(),
     });
 
     let n_steps = (args.duration / args.interval).ceil() as usize;
@@ -117,6 +120,7 @@ fn main() {
         snapshots.push(Snapshot {
             t,
             counts: count_populations(&state),
+            state: state.clone(),
         });
     }
     let elapsed = start.elapsed();
@@ -139,6 +143,16 @@ fn main() {
     let use_graphviz = which_dot();
     let rule_images = render_rules(&mapk_rules(), &args.out_dir, &args.name, use_graphviz);
 
+    // Molecular-context outputs (ported from spatio-flux): cell
+    // cartoons, transition trace (one example per rule), and a
+    // smooth SMIL-animated walk through the firings.
+    let cell_snapshots = render_cell_snapshot_files(&snapshots, &args.out_dir, &args.name);
+    let rule_trace = build_rule_trace(&mapk_rules(), &initial_mapk_state(), 200);
+    let trace_images =
+        render_rule_trace_files(&rule_trace, &rule_images, &args.out_dir, &args.name);
+    let (animation_name, animation_svg) =
+        render_cell_animation_file(&snapshots, &args.out_dir, &args.name);
+
     let report_path = args.out_dir.join(format!("{}_report.html", args.name));
     write_report(
         &report_path,
@@ -147,14 +161,23 @@ fn main() {
         &fired,
         elapsed.as_secs_f64(),
         &rule_images,
+        &cell_snapshots,
+        &trace_images,
+        &animation_name,
+        &animation_svg,
     )
     .expect("report");
 
     println!("📂 {}", svg_path.display());
     println!(
-        "🎨 rules: side-view via {}{} + top-view via in-process SVG",
+        "🎨 rules: side-view via {} + top-view via in-process SVG",
         if use_graphviz { "graphviz" } else { "in-process SVG (fallback)" },
-        if use_graphviz { "" } else { "" },
+    );
+    println!(
+        "🧬 molecular context: {} snapshots, {} trace rows, animation = {}",
+        cell_snapshots.len(),
+        trace_images.len(),
+        animation_name,
     );
     println!("📰 {}", report_path.display());
 }
@@ -248,6 +271,183 @@ fn render_rules(
         });
     }
     out
+}
+
+// ── Molecular-context renderers ────────────────────────────────────
+
+/// One row of the per-rule transition trace: a rule label and a
+/// before/after pair of state snapshots that demonstrate that rule
+/// being applied once.
+#[derive(Clone, Debug)]
+struct RuleTraceEntry {
+    label: String,
+    before: Value,
+    after: Value,
+}
+
+/// Walk the rule set firing one rule at a time, capturing the first
+/// before/after pair for each distinct rule label. If a rule has no
+/// match on the current state, the walker fires another rule to
+/// advance the state and tries again — so e.g. `dephosphorylate`
+/// can be captured even though it needs nuclear pERK that doesn't
+/// exist initially.
+fn build_rule_trace(rules: &[ReactionRule], initial: &Value, max_steps: usize) -> Vec<RuleTraceEntry> {
+    use std::collections::HashSet;
+
+    let mut state = initial.clone();
+    let mut captured: Vec<RuleTraceEntry> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    for _ in 0..max_steps {
+        if seen.len() == rules.len() {
+            break;
+        }
+
+        // Pass 1: try to fire an unseen rule.
+        let mut fired = false;
+        for rule in rules {
+            if seen.contains(&rule.label) {
+                continue;
+            }
+            let matches = find_matches(&state, &rule.redex, None);
+            if let Some(m) = matches.first() {
+                if let Some(upd) = fire_rule_at(rule, m) {
+                    let before = state.clone();
+                    let after = apply_fire(&state, &upd);
+                    captured.push(RuleTraceEntry {
+                        label: rule.label.clone(),
+                        before,
+                        after: after.clone(),
+                    });
+                    seen.insert(rule.label.clone());
+                    state = after;
+                    fired = true;
+                    break;
+                }
+            }
+        }
+        if fired {
+            continue;
+        }
+
+        // Pass 2: no unseen rule was applicable — fire any rule that
+        // matches, to advance state toward an unseen rule's
+        // preconditions.
+        let mut advanced = false;
+        for rule in rules {
+            let matches = find_matches(&state, &rule.redex, None);
+            if let Some(m) = matches.first() {
+                if let Some(upd) = fire_rule_at(rule, m) {
+                    state = apply_fire(&state, &upd);
+                    advanced = true;
+                    break;
+                }
+            }
+        }
+        if !advanced {
+            break;
+        }
+    }
+
+    // Reorder to the rules() declaration order so the trace reads
+    // top-to-bottom in the same order as the rule catalog.
+    let mut ordered = Vec::with_capacity(rules.len());
+    for rule in rules {
+        if let Some(entry) = captured.iter().find(|e| e.label == rule.label) {
+            ordered.push(entry.clone());
+        }
+    }
+    ordered
+}
+
+/// Write `{name}_snapshot_{i}.svg` for each snapshot in `snapshots`.
+/// Returns the per-snapshot relative paths in order, so the HTML
+/// can `<img src>` them. Always picks 6 evenly-spaced snapshots
+/// (or fewer if the run is shorter).
+fn render_cell_snapshot_files(
+    snapshots: &[Snapshot],
+    out_dir: &Path,
+    name_prefix: &str,
+) -> Vec<(String, f64)> {
+    let n_snapshots = 6_usize.min(snapshots.len());
+    if n_snapshots == 0 {
+        return Vec::new();
+    }
+    let denom = (n_snapshots - 1).max(1) as f64;
+    let mut out = Vec::new();
+    for k in 0..n_snapshots {
+        let idx = ((k as f64) * (snapshots.len().saturating_sub(1) as f64) / denom).round() as usize;
+        let snap = &snapshots[idx.min(snapshots.len() - 1)];
+        let svg = render_cell_snapshot_svg(&snap.state, &format!("t = {:.0}", snap.t));
+        let fname = format!("{name_prefix}_snapshot_{k:02}.svg");
+        let _ = fs::write(out_dir.join(&fname), svg);
+        out.push((fname, snap.t));
+    }
+    out
+}
+
+/// Per-rule: write a before / after cell-cartoon SVG pair, returning
+/// the relative paths so the HTML can lay them out next to the rule's
+/// bigraph diagrams.
+#[derive(Clone, Debug)]
+struct TraceImages {
+    label: String,
+    cell_before: String,
+    cell_after: String,
+    /// Side-view bigraph (Graphviz DOT) — paired with the cell
+    /// cartoons in the "Reactions in molecular context" section.
+    bigraph_side_redex: String,
+    bigraph_side_reactum: String,
+}
+
+fn render_rule_trace_files(
+    trace: &[RuleTraceEntry],
+    rule_images: &[RuleImages],
+    out_dir: &Path,
+    name_prefix: &str,
+) -> Vec<TraceImages> {
+    let bigraph_lookup: std::collections::HashMap<&str, &RuleImages> =
+        rule_images.iter().map(|r| (r.label.as_str(), r)).collect();
+    let mut out = Vec::new();
+    for entry in trace {
+        let before_name = format!("{name_prefix}_trace_{}_before.svg", entry.label);
+        let after_name = format!("{name_prefix}_trace_{}_after.svg", entry.label);
+        let _ = fs::write(
+            out_dir.join(&before_name),
+            render_cell_snapshot_svg(&entry.before, "before"),
+        );
+        let _ = fs::write(
+            out_dir.join(&after_name),
+            render_cell_snapshot_svg(&entry.after, "after"),
+        );
+        let bigraph = bigraph_lookup.get(entry.label.as_str());
+        out.push(TraceImages {
+            label: entry.label.clone(),
+            cell_before: before_name,
+            cell_after: after_name,
+            bigraph_side_redex: bigraph.map(|b| b.dot_redex.clone()).unwrap_or_default(),
+            bigraph_side_reactum: bigraph.map(|b| b.dot_reactum.clone()).unwrap_or_default(),
+        });
+    }
+    out
+}
+
+/// Render the SMIL-animated cell SVG covering every snapshot, write
+/// it to a standalone file (for direct viewing), and also return the
+/// SVG body so the HTML can inline it. Inlining sidesteps the
+/// `<img>`-blocks-SMIL restriction and the `<object>`-zero-height
+/// quirk in Firefox.
+fn render_cell_animation_file(
+    snapshots: &[Snapshot],
+    out_dir: &Path,
+    name_prefix: &str,
+) -> (String, String) {
+    let states: Vec<Value> = snapshots.iter().map(|s| s.state.clone()).collect();
+    let times: Vec<f64> = snapshots.iter().map(|s| s.t).collect();
+    let svg = render_cell_animation_svg(&states, &times, 1.0);
+    let fname = format!("{name_prefix}_animation.svg");
+    let _ = fs::write(out_dir.join(&fname), &svg);
+    (fname, svg)
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -438,8 +638,23 @@ fn write_report(
     fired: &[prism_bigraph::FiredEvent],
     elapsed_s: f64,
     rule_images: &[RuleImages],
+    cell_snapshots: &[(String, f64)],
+    trace_images: &[TraceImages],
+    animation_name: &str,
+    animation_svg: &str,
 ) -> std::io::Result<()> {
     let svg = format!("{}_trajectories.svg", args.name);
+
+    // Per-run cache-buster: Firefox aggressively caches `<img>` on
+    // file:// URLs even across hard refreshes. Appending `?v={epoch}`
+    // to every src forces a fresh fetch each run.
+    let cb = format!(
+        "?v={}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    );
 
     // Tally firings per rule label.
     let mut rule_counts: std::collections::BTreeMap<&str, usize> =
@@ -479,6 +694,60 @@ fn write_report(
         row("complexes", |c| c.complexes),
     );
 
+    // Per-snapshot cell-cartoon panel. Six evenly-spaced snapshots,
+    // each rendered as an inline `<img src>` so the grid layout
+    // stays neat. The SVG files were written alongside the report.
+    let mut snapshot_cells = String::new();
+    for (fname, t) in cell_snapshots {
+        snapshot_cells.push_str(&format!(
+            "  <figure class=\"cell-snap\">\n\
+             \x20\x20  <img src=\"{fname}{cb}\" alt=\"cell at t={t:.0}\" />\n\
+             \x20\x20  <figcaption>t = {t:.0}</figcaption>\n\
+             \x20\x20</figure>\n"
+        ));
+    }
+
+    // Per-rule transition trace: bigraph (redex → reactum) on the
+    // left, cell cartoons (before → after) on the right.
+    let mut trace_rows = String::new();
+    for img in trace_images {
+        let color = rule_color(&img.label);
+        let blurb = rule_blurb(&img.label);
+        trace_rows.push_str(&format!(
+            r##"
+  <div class="trace-row">
+    <h4 style="color:{color}">
+      <span class="swatch" style="background:{color}"></span>
+      {label}
+    </h4>
+    <p class="rule-blurb">{blurb}</p>
+    <div class="trace-grid">
+      <div class="trace-half">
+        <div class="view-label">bigraph rewrite (side view)</div>
+        <div class="rule-pair">
+          <div><img src="{redex}{cb}" alt="{label} redex"></div>
+          <div class="arrow" aria-hidden="true">&rarr;</div>
+          <div><img src="{reactum}{cb}" alt="{label} reactum"></div>
+        </div>
+      </div>
+      <div class="trace-half">
+        <div class="view-label">cell state</div>
+        <div class="rule-pair">
+          <div><img src="{cell_before}{cb}" alt="cell before {label}"></div>
+          <div class="arrow" aria-hidden="true">&rarr;</div>
+          <div><img src="{cell_after}{cb}" alt="cell after {label}"></div>
+        </div>
+      </div>
+    </div>
+  </div>"##,
+            label = img.label,
+            redex = img.bigraph_side_redex,
+            reactum = img.bigraph_side_reactum,
+            cell_before = img.cell_before,
+            cell_after = img.cell_after,
+        ));
+    }
+
     // Per-rule cards: each shows both the side-view (Graphviz tree)
     // and the top-view (Milner nested-ovals SVG), side by side, with
     // a colored title bar and biology blurb.
@@ -498,22 +767,12 @@ fn write_report(
   </h4>
   <p class="rule-blurb">{blurb}</p>
 
-  <div class="view-label">side view (bigraph tree)</div>
   <div class="rule-pair">
-    <div><img src="{dot_redex}" alt="{label} redex (side view)"></div>
+    <div><img src="{svg_redex}{cb}" alt="{label} redex"></div>
     <div class="arrow" aria-hidden="true">&rarr;</div>
-    <div><img src="{dot_reactum}" alt="{label} reactum (side view)"></div>
-  </div>
-
-  <div class="view-label">top view (Milner nested compartments)</div>
-  <div class="rule-pair">
-    <div><img src="{svg_redex}" alt="{label} redex (top view)"></div>
-    <div class="arrow" aria-hidden="true">&rarr;</div>
-    <div><img src="{svg_reactum}" alt="{label} reactum (top view)"></div>
+    <div><img src="{svg_reactum}{cb}" alt="{label} reactum"></div>
   </div>
 </div>"##,
-            dot_redex = img.dot_redex,
-            dot_reactum = img.dot_reactum,
             svg_redex = img.svg_redex,
             svg_reactum = img.svg_reactum,
         ));
@@ -524,6 +783,9 @@ fn write_report(
 <html lang="en"><head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="pragma" content="no-cache" />
+<meta http-equiv="expires" content="0" />
 <title>MAPK BRS report — {name}</title>
 <style>
   :root {{
@@ -602,10 +864,62 @@ fn write_report(
     letter-spacing: 0.04em;
   }}
   .view-label:first-of-type {{ margin-top: 8px; }}
+  .snapshot-grid {{
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 14px;
+  }}
+  figure.cell-snap {{
+    margin: 0; padding: 8px;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+  }}
+  figure.cell-snap img {{ width: 100%; height: auto; display: block; }}
+  figure.cell-snap figcaption {{
+    text-align: center; font-size: 11px; color: var(--muted);
+    margin-top: 4px;
+  }}
+  .animation-frame {{
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 12px 12px 8px;
+    margin-top: 14px;
+  }}
+  .animation-frame img,
+  .animation-frame object {{ width: 100%; height: auto; display: block; }}
+  .trace-grid-outer {{
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+    margin-top: 18px;
+  }}
+  .trace-row {{
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 18px 22px 22px;
+  }}
+  .trace-row h4 {{ font-size: 16px; margin: 0 0 4px 0; }}
+  .trace-grid {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+    margin-top: 8px;
+  }}
+  .trace-half {{ min-width: 0; }}
+  @media (max-width: 880px) {{
+    .trace-grid {{ grid-template-columns: 1fr; }}
+    .snapshot-grid {{ grid-template-columns: repeat(2, 1fr); }}
+  }}
 </style>
 </head><body>
 
 <h1>MAPK as a bigraphical reactive system</h1>
+<!-- BUILD_MARKER_OBVS_KIWI_5C3F -->
+<p style="background:#ff0;padding:6px 10px;font-family:monospace;font-size:13px">BUILD: kiwi-5c3f — if you see this, you're on the latest HTML</p>
 <p class="meta">
   Gillespie SSA over {duration} time units (Δ = {interval}, seed = {seed}).
   {fired_n} firings, {snap_n} snapshots, {elapsed:.2}s wall-clock.
@@ -613,7 +927,7 @@ fn write_report(
 
 <h2>Population trajectories</h2>
 <figure>
-  <img src="{svg}" alt="trajectories" />
+  <img src="{svg}{cb}" alt="trajectories" />
 </figure>
 
 <div class="grid-2">
@@ -633,10 +947,40 @@ fn write_report(
   </div>
 </div>
 
+<h2>Cell at work</h2>
+<p>Continuous SMIL-animated walk through the trajectory. Each entity
+eases between its slot positions across snapshots; control changes
+(ERK ↔ pERK) and bond formation cross-fade.</p>
+<div class="animation-frame">
+  {animation_svg}
+  <p style="font-size:11px;color:var(--muted);margin:6px 0 0 0;text-align:right">
+    standalone: <a href="{animation_name}{cb}">{animation_name}</a>
+  </p>
+</div>
+
+<h2>Cell snapshots over time</h2>
+<p>Selected snapshots of the cell state. MEK sits in the cytosolic
+focal point; ERK / pERK occupy fixed slots in whatever compartment
+they currently inhabit. Bound MEK·pERK pairs snap into the kinase's
+active-site cleft and gain a green double-line bond glyph.</p>
+<div class="snapshot-grid">
+{snapshot_cells}
+</div>
+
+<h2>Reactions in molecular context</h2>
+<p>Two-column trace, one row per rule: <em>bigraph rewrite</em>
+(side-view tree of redex → reactum) on the left, <em>cell state</em>
+(before → after a single application of that rule) on the right.
+Sequenced from the initial state, advancing through whatever
+intermediate firings are needed to reach each rule's preconditions.</p>
+<div class="trace-grid-outer">{trace_rows}
+</div>
+
 <h2>Rule catalog</h2>
 <p>Each rule's redex (left) and reactum (right) — parametric bigraph
-rewrites. <em>Dashed gray</em> ellipses are open <code>Site</code>
-holes (capture any subtree); <em>filled circles</em> are
+rewrites in the top-down Milner nested-compartment style.
+<em>Dashed gray</em> ellipses are open <code>Site</code> holes
+(capture any subtree); <em>filled circles</em> are
 <code>LinkVar</code> endpoints (same color ⇒ same edge);
 <em>dashed red</em> boxes are <code>Absent</code> negative-application
 conditions (the key must be missing or empty).</p>
@@ -664,6 +1008,11 @@ conditions (the key must be missing or empty).</p>
         count_rows = count_rows,
         rules_html = rules_html,
         rule_cards = rule_cards,
+        animation_name = animation_name,
+        animation_svg = animation_svg,
+        snapshot_cells = snapshot_cells,
+        trace_rows = trace_rows,
+        cb = cb,
     );
     fs::write(path, html)
 }

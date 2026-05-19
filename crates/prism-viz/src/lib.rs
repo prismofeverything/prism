@@ -14,6 +14,7 @@
 //!   `<svg>` to embed in HTML.
 
 pub mod dot;
+pub mod mol_svg;
 pub mod pattern;
 pub mod pattern_dot;
 
@@ -21,6 +22,7 @@ pub use dot::{
     render_dot, render_state_dot, render_state_dot_with_links, render_to_file,
     save_dot, DotOptions, LinkEdge,
 };
+pub use mol_svg::{render_cell_animation_svg, render_cell_snapshot_svg};
 pub use pattern::{
     linkvar_color, render_pattern_svg, render_rule_pair_svg, rule_color, RULE_COLORS,
 };
