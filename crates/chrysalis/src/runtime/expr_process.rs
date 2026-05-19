@@ -71,16 +71,21 @@ impl Process for ExprProcess {
 
     fn update(&self, state: &Value, interval: f64) -> Update {
         // The engine delivers state as a Value::Map keyed by input
-        // port names. We bind each port to a variable of the same
-        // name in the eval environment, plus `interval` and any
-        // closure-captured config params.
+        // port names. Bind each port to a variable of the same name
+        // in the eval environment.
+        //
+        // Order: config first (param values), then state's port
+        // entries, finally `interval` from the runtime — that last
+        // assignment is canonical, since `interval` semantically IS
+        // the tick width and shouldn't be overridden by a (possibly
+        // missing) state slot.
         let mut env: IndexMap<Name, Value> = (*self.config).clone();
-        env.insert("interval".to_string(), Value::float(interval));
         if let Some(map) = state.as_map() {
             for (port_name, val) in map {
                 env.insert(port_name.to_string(), val.clone());
             }
         }
+        env.insert("interval".to_string(), Value::float(interval));
 
         match self.evaluator.eval_value(&self.body, &env) {
             Ok(value) => Update::value(value),

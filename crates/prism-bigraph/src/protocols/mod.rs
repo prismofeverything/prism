@@ -4,5 +4,7 @@
 //! via `register(Arc::new(ParallelProtocol::default()))` etc.
 
 pub mod parallel;
+pub mod rest;
 
 pub use parallel::{ParallelProcess, ParallelProtocol};
+pub use rest::{RestProcess, RestProtocol};

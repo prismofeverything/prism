@@ -15,3 +15,7 @@ ordered-float = { workspace = true }
 compact_str = { workspace = true }
 petgraph = { workspace = true }
 rand = { workspace = true }
+# Lightweight HTTP client for the `rest` protocol. Default features
+# disabled to keep deps slim — no TLS pulled in for tier 1 (localhost
+# REST servers). Add a "tls" feature later if remote HTTPS is needed.
+ureq = { version = "2", default-features = false, features = ["json"] }

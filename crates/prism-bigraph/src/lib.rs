@@ -19,7 +19,7 @@ pub use builder::EngineBuilder;
 pub use defer::{Defer, DeferSlot};
 pub use protocol::{LocalProtocol, ParsedAddress, Protocol, ProtocolError, ProtocolRegistry};
 pub use protocol_runtime::{ProtocolRuntime, ProtocolRuntimes};
-pub use protocols::ParallelProtocol;
+pub use protocols::{ParallelProtocol, RestProtocol};
 
 pub use document::Document;
 pub use vivarium::VivariumDocument;

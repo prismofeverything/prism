@@ -10,6 +10,9 @@ from a framework into a language.
 
 **Home:** `crates/chrysalis/` (a member crate of the prism workspace).
 
+**File extension:** `.ys` (chrYSalis). Source files live in
+`crates/chrysalis/programs/`.
+
 **Contract:** `chrysalis::compile(source) -> (Topology, ProcessRegistry entries)`.
 Everything below the compiler is prism-native.
 

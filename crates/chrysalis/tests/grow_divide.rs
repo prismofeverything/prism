@@ -79,14 +79,17 @@ fn debug_state_shape(state: &Value, indent: usize) -> String {
 
 #[test]
 fn grow_divide_pipeline_runs() {
+    // Tier-1 chrysalis acceptance for grow/divide:
+    //   - Cell at mass 1.2 grows past threshold 2.0
+    //   - BRS fires the runtime-constructed MassThresholdDivide
+    //     reaction (NOT a hardcoded step)
+    //   - At least one division happens — at least 2 cells remain
+    //
+    // Specific final masses depend on exact tick alignment between
+    // Grow's mass update and the BRS's match check; we just assert
+    // the structural property (division happened).
     let program = grow_divide::program();
     let result = chrysalis::compile::compile(&program).expect("compile");
-
-    eprintln!(
-        "INITIAL STATE:\n{}",
-        debug_state_shape(&result.initial_state, 0)
-    );
-    eprintln!("REGISTERED TYPES: {:?}", result.registry.type_names());
 
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
@@ -96,26 +99,17 @@ fn grow_divide_pipeline_runs() {
     .expect("engine init");
     engine.discover_all_processes();
 
-    eprintln!("ENGINE NODES AFTER DISCOVER: {:?}", engine.node_names());
-
-    engine.run(1.0);
-    eprintln!(
-        "AFTER 1s:\n{}",
-        debug_state_shape(engine.state(), 0)
-    );
-    eprintln!("ENGINE NODES AT t=1: {:?}", engine.node_names());
-
+    // Grow rate 0.02 → mass *= 1.02/tick. Crosses threshold 2.0 at
+    // ~tick 26. Run 40 ticks for some buffer.
     engine.run(40.0);
 
     let final_state = engine.state();
-    eprintln!(
-        "FINAL STATE:\n{}",
-        debug_state_shape(final_state, 0)
-    );
-
     let n = count_cells_in_environment(final_state);
     let masses = cell_masses(final_state);
-    eprintln!("final cell count = {n}, masses = {:?}", masses);
 
-    assert!(n >= 2, "expected at least one division; got {n} cells");
+    assert!(
+        n >= 2,
+        "expected at least one division; got {n} cells (masses {:?})",
+        masses
+    );
 }

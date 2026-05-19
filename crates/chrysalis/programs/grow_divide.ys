@@ -1,0 +1,56 @@
+# Grow / divide — chrysalis surface form
+# ──────────────────────────────────────────────────────────────────────
+# Tier-1 acceptance benchmark #1.
+#
+# A single cell grows multiplicatively. When its mass crosses
+# `threshold`, a runtime-constructed `MassThresholdDivide` reaction —
+# installed in a parent BRS, not a hardcoded `step` — fires and
+# replaces the cell with two daughters, each carrying half the parent's
+# mass.
+#
+# This exercises:
+#   - reactions as values (constructed at runtime, installed in a BRS)
+#   - parameterised rules (threshold flows through as config)
+#   - `where` guards on patterns
+#
+# The hand-built AST equivalent of this file lives in
+# `crates/chrysalis/src/fixtures/grow_divide.rs` until the parser lands.
+
+
+process Grow[rate: Float = 0.2]
+  ~{mass: Float, interval: Float = 0.1}
+  ->{mass: Float}
+(
+  delta = mass * rate * interval |
+  {mass: delta}
+)
+
+
+composite Cell[id: String, mass: Float = 1.0, growth_rate: Float = 0.02]
+  ~{}
+  ->{mass}
+(
+  mass: mass |
+  Grow[rate: growth_rate] ~{mass: mass} ->{mass: mass}
+)
+
+
+reaction MassThresholdDivide[threshold: Float = 2.0] (
+  ?cid : Cell[mass: ?m] where ?m > threshold
+  =>
+  { '{?cid}_0' : Cell[mass: ?m / 2],
+    '{?cid}_1' : Cell[mass: ?m / 2] }
+)
+
+
+composite Environment[cells: Map[Cell], threshold: Float = 2.0]
+  ~{}
+  ->{cells}
+(
+  cells: cells |
+  BRS[rules: [MassThresholdDivide[threshold: threshold]]]
+    ~{state: cells} ->{state: cells}
+)
+
+
+main = Environment[cells: {'0': Cell[id: '0', mass: 1.2]}]

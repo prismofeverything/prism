@@ -1,5 +1,12 @@
 //! Grow/divide example as a hand-built chrysalis AST.
 //!
+//! Surface form lives at
+//! [`crates/chrysalis/programs/grow_divide.ys`](../../../programs/grow_divide.ys);
+//! this module is the parser-free hand-built equivalent until task #12
+//! (the parser) lands. The two must stay in sync — when the parser
+//! does land, the e2e test will load the `.ys` and assert structural
+//! equality against the AST this module builds.
+//!
 //! Surface form (from `docs/chrysalis-design.md`):
 //!
 //! ```text

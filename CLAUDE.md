@@ -25,10 +25,14 @@ application domain.
 - **`crates/prism-mapk/src/rules.rs`** — canonical example of
   hand-written reaction rules in the Rust API. Source for chrysalis
   benchmark #2.
-- **`chrysalis-example`** (file at repo root) — current grow/divide
-  sketch in chrysalis surface syntax. Will be re-expressed in
-  fully-homoiconic form (parent-installed `MassThresholdDivide`
-  reaction) as part of the three-example acceptance test.
+- **`crates/chrysalis/programs/`** — `.ys` files (chrYSalis surface
+  syntax). The first one,
+  [`programs/grow_divide.ys`](crates/chrysalis/programs/grow_divide.ys),
+  is the canonical surface form of tier-1 benchmark #1. Parser is task
+  #12; until then, AST equivalents live in
+  `crates/chrysalis/src/fixtures/`.
+- **`chrysalis-example`** (file at repo root) — older sketch in
+  surface syntax. Superseded by `crates/chrysalis/programs/`.
 
 ## Conventions
 

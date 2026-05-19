@@ -119,32 +119,14 @@ pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
     };
     let env: IndexMap<Name, Value> = collect_top_level_bindings(program, &evaluator)?;
 
-    let initial_state = match &main_expr {
-        crate::ast::Expr::Term { control, args, .. } => {
-            if let Some(Def::Composite(composite_def)) = program.lookup(control) {
-                // Resolve params from supplied named args + defaults.
-                let mut composite_env: IndexMap<Name, Value> = env.clone();
-                for param in &composite_def.params {
-                    let supplied = args.iter().find_map(|a| match a {
-                        crate::ast::TermArg::Named { name, value } if name == &param.name => {
-                            Some(value)
-                        }
-                        _ => None,
-                    });
-                    let value = match (supplied, &param.default) {
-                        (Some(expr), _) => evaluator.eval_value(expr, &composite_env)?,
-                        (None, Some(default)) => evaluator.eval_value(default, &composite_env)?,
-                        (None, None) => Value::None,
-                    };
-                    composite_env.insert(param.name.clone(), value);
-                }
-                evaluator.eval_value(&composite_def.body, &composite_env)?
-            } else {
-                evaluator.eval_value(&main_expr, &env)?
-            }
-        }
-        _ => evaluator.eval_value(&main_expr, &env)?,
-    };
+    // Evaluate `main` to its outer-map form. For a composite call
+    // site, this produces `{_type, observable slots, _process: spec}`
+    // — same shape regardless of protocol. The engine discovers the
+    // `_process` spec on the first tick and instantiates the
+    // composite as a wrapped sub-engine. Crucially: data slots are
+    // siblings of `_process` at the root, so the composite's bridge
+    // can project to / read from them through normal wire resolution.
+    let initial_state = evaluator.eval_value(&main_expr, &env)?;
 
     let topology = Topology {
         state_schema: Schema::Any,
