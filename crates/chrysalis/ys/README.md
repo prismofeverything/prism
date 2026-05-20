@@ -23,6 +23,7 @@ behavioural parity with the hand-built fixture.
 |---|---|---|
 | [`grow-divide-unbounded.ys`](grow-divide-unbounded.ys) | [`fixtures/grow_divide.rs`](../src/fixtures/grow_divide.rs) | tier-1 #1. Target surface (units + `.divide()`); the fixture still runs the older literal-split subset end-to-end |
 | [`grow-divide-glucose.ys`](grow-divide-glucose.ys) | not yet | tier-1 #1b. Resource-limited: Monod growth on a shared, depleting glucose pool |
+| [`nuclear-shuttle.ys`](nuclear-shuttle.ys) | not yet | Motivates units *contexts*: concentration↔counts across nested compartments (cytoplasm/nucleus) |
 | `mapk.ys` *(planned)* | not yet | tier-1 benchmark #2 |
 | `mr_closure.ys` *(planned)* | not yet | tier-1 benchmark #3 (static M/R) |
 | `mr_evolving.ys` *(planned)* | not yet | tier-2 benchmark (evolving M/R closures) |

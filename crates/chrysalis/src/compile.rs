@@ -94,7 +94,11 @@ pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
             // Reactions and Patterns are values constructed at call sites,
             // not separate process types. Bindings (including `main`) are
             // top-level values evaluated at compile time.
-            Def::Reaction(_) | Def::Pattern(_) | Def::Binding { .. } => {}
+            Def::Reaction(_)
+            | Def::Pattern(_)
+            | Def::Unit(_)
+            | Def::Context(_)
+            | Def::Binding { .. } => {}
         }
     }
 

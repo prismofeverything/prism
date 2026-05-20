@@ -370,7 +370,10 @@ impl Evaluator {
                 let def = reaction_def.clone();
                 self.build_reaction_value(&def, args, env)
             }
-            Some(Def::Pattern(_)) | Some(Def::Binding { .. }) => Err(EvalError::InvalidForm {
+            Some(Def::Pattern(_))
+            | Some(Def::Unit(_))
+            | Some(Def::Context(_))
+            | Some(Def::Binding { .. }) => Err(EvalError::InvalidForm {
                 context: "value-term".into(),
                 message: format!("control `{}` is not callable in value context", control),
             }),

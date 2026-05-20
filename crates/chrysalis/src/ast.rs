@@ -94,6 +94,17 @@ pub enum SchemaExpr {
     /// `@` in a `self: @` declaration — the enclosing composite's
     /// own schema.
     SelfType,
+    /// `Quantity[unit: U, extensive?, affine?]` — a dimensioned scalar.
+    /// The magnitude is stored as a `Float`; the unit lives here in the
+    /// schema and is *erased* after the dimensional check (see
+    /// docs/chrysalis-design.md, "Units and quantities"). `extensive`
+    /// splits on divide (vs. copy); `affine` is a point quantity whose
+    /// differences are deltas (vs. a vector quantity).
+    Quantity {
+        unit: UnitExpr,
+        extensive: bool,
+        affine: bool,
+    },
 }
 
 impl SchemaExpr {
@@ -107,6 +118,13 @@ impl SchemaExpr {
         Self::Custom {
             name: name.into(),
             params: vec![],
+        }
+    }
+    pub fn quantity(unit: UnitExpr, extensive: bool, affine: bool) -> Self {
+        Self::Quantity {
+            unit,
+            extensive,
+            affine,
         }
     }
 }
@@ -216,6 +234,136 @@ impl PortBindings {
 }
 
 // =============================================================================
+// Units, dimensions, contexts
+// =============================================================================
+//
+// Units live in the schema, not in values; the magnitude is a plain
+// `Float`. A dimension (a rational-exponent vector over base dimensions)
+// is the compatibility layer; a unit is a scale/offset within one
+// dimension; a `context` bridges *different* dimensions when a physical
+// relation justifies it. See docs/chrysalis-design.md, "Units and
+// quantities" + "Contexts".
+
+/// A rational exponent on a base dimension (so √-dimensions are
+/// representable). Most dimensions use integer powers (`den == 1`).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Ratio {
+    pub num: i32,
+    pub den: i32,
+}
+
+impl Ratio {
+    pub fn int(n: i32) -> Self {
+        Self { num: n, den: 1 }
+    }
+    pub fn new(num: i32, den: i32) -> Self {
+        Self { num, den }
+    }
+}
+
+/// A dimension: base-dimension name → rational exponent. Empty is
+/// dimensionless. `[mass]` is `{mass: 1}`; `[substance]/[length]^3` is
+/// `{substance: 1, length: -3}`.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Dimension {
+    pub powers: IndexMap<Name, Ratio>,
+}
+
+impl Dimension {
+    pub fn dimensionless() -> Self {
+        Self::default()
+    }
+
+    /// Build from integer powers:
+    /// `Dimension::of(&[("substance", 1), ("length", -3)])`.
+    pub fn of(powers: &[(&str, i32)]) -> Self {
+        Self {
+            powers: powers
+                .iter()
+                .map(|(n, p)| ((*n).to_string(), Ratio::int(*p)))
+                .collect(),
+        }
+    }
+}
+
+/// A unit expression: a product / quotient / power of named units and
+/// scalar factors — `pg`, `1/s`, `molecule/fL`, `um^3`, `1e-12 kg`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum UnitExpr {
+    /// A named unit: `kg`, `s`, `mol`, `pg`, `um`, …
+    Named(Name),
+    /// A dimensionless scalar factor: the `1` in `1/s`, `1e-12` in `1e-12 kg`.
+    Scalar(f64),
+    Mul(Box<UnitExpr>, Box<UnitExpr>),
+    Div(Box<UnitExpr>, Box<UnitExpr>),
+    Pow(Box<UnitExpr>, Ratio),
+}
+
+impl UnitExpr {
+    pub fn named(n: impl Into<Name>) -> Self {
+        Self::Named(n.into())
+    }
+    pub fn scalar(f: f64) -> Self {
+        Self::Scalar(f)
+    }
+    pub fn mul(self, rhs: UnitExpr) -> Self {
+        Self::Mul(Box::new(self), Box::new(rhs))
+    }
+    pub fn div(self, rhs: UnitExpr) -> Self {
+        Self::Div(Box::new(self), Box::new(rhs))
+    }
+    pub fn pow(self, exp: Ratio) -> Self {
+        Self::Pow(Box::new(self), exp)
+    }
+    /// `1 / named` — the common reciprocal-unit form (`1/s`).
+    pub fn per(n: impl Into<Name>) -> Self {
+        Self::Scalar(1.0).div(Self::Named(n.into()))
+    }
+}
+
+/// `unit name : [dimension] = definition` — declares a unit by its
+/// relation to canonical units. `affine_offset` is `Some` for offset
+/// units (`degC = K + 273.15`), `None` for purely multiplicative units.
+#[derive(Clone, Debug)]
+pub struct UnitDef {
+    pub name: Name,
+    pub dimension: Dimension,
+    pub definition: UnitExpr,
+    pub affine_offset: Option<f64>,
+}
+
+/// `context Name(params) ( from <-> to : transform | ... )` — named,
+/// parameterized cross-dimension conversion rules. Parameters bind to
+/// constants, place-graph paths, or type metadata at the use site.
+#[derive(Clone, Debug)]
+pub struct ContextDef {
+    pub name: Name,
+    pub params: Vec<Param>,
+    pub rules: Vec<ContextRule>,
+}
+
+/// One rule in a context: `from <-> to : transform`. The transform
+/// `Expr` may reference `value` (the source magnitude) and the
+/// context's parameters.
+#[derive(Clone, Debug)]
+pub struct ContextRule {
+    pub from: Dimension,
+    pub to: Dimension,
+    /// `<->` (true) installs both directions; `->` (false) is one-way.
+    pub bidirectional: bool,
+    pub transform: Expr,
+}
+
+/// `using Name(args)` — activates a context over a composite's body and
+/// everything nested inside it. Args bind the context's params, e.g.
+/// `concentration(volume: @.volume)`.
+#[derive(Clone, Debug)]
+pub struct ContextUse {
+    pub name: Name,
+    pub args: Vec<TermArg>,
+}
+
+// =============================================================================
 // Top-level definitions
 // =============================================================================
 
@@ -226,6 +374,10 @@ pub enum Def {
     Composite(CompositeDef),
     Reaction(ReactionDef),
     Pattern(PatternDef),
+    /// `unit name : [dim] = definition` — a unit declaration.
+    Unit(UnitDef),
+    /// `context Name(params) (...)` — cross-dimension conversion rules.
+    Context(ContextDef),
     /// Top-level `name = expr` binding.
     Binding { name: Name, value: Expr },
 }
@@ -251,6 +403,9 @@ pub struct CompositeDef {
     pub name: Name,
     pub params: Vec<Param>,
     pub interface: Interface,
+    /// Contexts activated over this composite's body and everything
+    /// nested inside it (the place graph *is* the activation scope).
+    pub using: Vec<ContextUse>,
     pub body: Expr,
 }
 
@@ -304,6 +459,8 @@ fn def_name(def: &Def) -> &str {
         Def::Composite(d) => &d.name,
         Def::Reaction(d) => &d.name,
         Def::Pattern(d) => &d.name,
+        Def::Unit(d) => &d.name,
+        Def::Context(d) => &d.name,
         Def::Binding { name, .. } => name,
     }
 }
@@ -598,6 +755,21 @@ impl Expr {
             op: BinOp::Gt,
             lhs: Box::new(lhs),
             rhs: Box::new(rhs),
+        }
+    }
+
+    pub fn sub(lhs: Expr, rhs: Expr) -> Self {
+        Self::BinOp {
+            op: BinOp::Sub,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        }
+    }
+
+    pub fn neg(operand: Expr) -> Self {
+        Self::UnaryOp {
+            op: UnaryOp::Neg,
+            operand: Box::new(operand),
         }
     }
 

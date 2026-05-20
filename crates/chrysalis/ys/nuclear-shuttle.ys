@@ -1,0 +1,126 @@
+# Nuclear shuttle — multi-compartment concentration sensing (chrysalis)
+# ──────────────────────────────────────────────────────────────────────
+# The motivating example for units *contexts* (cross-dimension
+# conversion). See docs/chrysalis-design.md, "Contexts".
+#
+# A transcription factor (TF) is synthesised in the cytoplasm, shuttles
+# across the nuclear envelope, and a nuclear sensor switches a gene on
+# when the TF crosses a *concentration* threshold. The nucleus is 10×
+# smaller than the cytoplasm, so the same number of molecules is 10× the
+# concentration there.
+#
+# THE POINT: the nuclear `Sense` writes its threshold once, in
+# concentration — `tf > k_on` — and never mentions a volume. Yet it is
+# correct in a 100 fL nucleus and would be correct *unchanged* in the
+# 1000 fL cytoplasm, because the enclosing compartment's `concentration`
+# context supplies the right volume. counts↔concentration is a property
+# of *where the molecule is*, and the place graph already knows where it
+# is. (This is the thing that gets reimplemented, by hand and wrongly, a
+# dozen ways per model.)
+#
+# THE TEST: the gene switches on when nuclear concentration reaches
+# `k_on` — at ≈ k_on · nucleus.volume = 50 molecules, ten-fold fewer than
+# the cytoplasm would need for the same concentration. Growth-dilution
+# and division aren't shown here (see grow-divide-*); they "just work"
+# because volume is ordinary extensive state the context divides by.
+#
+# Spec only — parser is task #12.
+
+
+# ── Dimensioned scalar types ────────────────────────────────────────
+unit molecule : [substance] = mol / 6.02214076e23   # Avogadro — a unit, not a context
+unit um       : [length]    = 1e-6 m
+unit fL       : [length]^3  = um^3                   # 1 femtolitre = 1 cubic micron
+
+Count  = Quantity[unit: molecule,    extensive]   # conserved; splits on divide
+Volume = Quantity[unit: fL,          extensive]   # compartment size; grows/splits
+Conc   = Quantity[unit: molecule/fL]              # intensive; rate laws & thresholds
+Synth  = Quantity[unit: molecule/s]               # zeroth-order production
+Clear  = Quantity[unit: fL/s]                      # volumetric transport coefficient
+Time   = Quantity[unit: s]
+
+# The context: a [substance] count read as a [substance]/[length]^3
+# concentration through the enclosing compartment's volume.
+context concentration (volume: Volume) (
+  [substance] <-> [substance]/[length]^3 : value / volume
+)
+
+
+# Zeroth-order synthesis: +counts, no concentration involved.
+process Synthesize[rate: Synth = 50.0]
+  ~{interval: Time = 0.1}
+  ->{tf: Count}
+(
+  {tf: rate * interval}                  # molecule = molecule/s · s
+)
+
+
+# Sensor: a *concentration* threshold. `tf` is a Count and `k_on` a Conc;
+# the comparison only type-checks because an ambient `concentration`
+# context bridges them — and it uses whichever compartment this Sense is
+# placed in. Volume-agnostic and reusable; the place graph picks the V.
+process Sense[k_on: Conc = 0.5]
+  ~{tf: Count}
+  ->{active: Bool}
+(
+  {active: tf > k_on}                    # ⇒ (tf / <enclosing>.volume) > k_on
+)
+
+
+# Transport straddles two compartments, so there is no single ambient
+# volume — it names each one explicitly. The division is the very
+# relation the context encodes, written out because the process sits
+# above both compartments. Counts are conserved: what leaves cyt enters
+# nuc; the *driving force* is the concentration gradient.
+process Transport[perm: Clear = 5.0]
+  ~{cyt_tf: Count, cyt_vol: Volume,
+    nuc_tf: Count, nuc_vol: Volume, interval: Time = 0.1}
+  ->{cyt_tf: Count, nuc_tf: Count}
+(
+  cyt_conc = cyt_tf / cyt_vol |                          # molecule/fL
+  nuc_conc = nuc_tf / nuc_vol |
+  flux = perm * (cyt_conc - nuc_conc) * interval |       # molecule = fL/s · molecule/fL · s
+  {cyt_tf: -flux, nuc_tf: flux}
+)
+
+
+# ── Compartments (each scopes a concentration context over its body) ──
+
+composite Cytoplasm[volume: Volume = 1000.0, tf: Count = 0.0, synth: Synth = 50.0]
+  using concentration(volume: @.volume)
+  ~{}
+  ->{tf, volume}
+(
+  volume: volume |
+  tf: tf |
+  Synthesize[rate: synth] ->{tf: tf}
+)
+
+
+composite Nucleus[volume: Volume = 100.0, tf: Count = 0.0, k_on: Conc = 0.5]
+  using concentration(volume: @.volume)
+  ~{}
+  ->{tf, volume, active}
+(
+  volume: volume |
+  tf: tf |
+  active: false |
+  Sense[k_on: k_on] ~{tf: tf} ->{active: active}
+)
+
+
+composite Cell[id: String, cyt_vol: Volume = 1000.0, nuc_vol: Volume = 100.0]
+  ~{}
+  ->{cytoplasm, nucleus}
+(
+  cytoplasm: Cytoplasm[volume: cyt_vol] |
+  nucleus:   Nucleus[volume: nuc_vol] |
+  Transport[perm: 5.0]
+    ~{cyt_tf: cytoplasm.tf, cyt_vol: cytoplasm.volume,
+      nuc_tf: nucleus.tf,   nuc_vol: nucleus.volume}
+    ->{cyt_tf: cytoplasm.tf, nuc_tf: nucleus.tf}
+)
+
+
+main = Cell[id: '0']
+main.run(60.0)

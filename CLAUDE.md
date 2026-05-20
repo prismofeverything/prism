@@ -30,8 +30,11 @@ application domain.
   [`ys/grow-divide-unbounded.ys`](crates/chrysalis/ys/grow-divide-unbounded.ys),
   is the surface form of tier-1 benchmark #1;
   [`ys/grow-divide-glucose.ys`](crates/chrysalis/ys/grow-divide-glucose.ys)
-  is the resource-limited variant (#1b). Parser is task #12; until then,
-  AST equivalents live in `crates/chrysalis/src/fixtures/`.
+  is the resource-limited variant (#1b);
+  [`ys/nuclear-shuttle.ys`](crates/chrysalis/ys/nuclear-shuttle.ys)
+  motivates units *contexts* (concentration↔counts across nested
+  compartments). Parser is task #12; until then, AST equivalents live in
+  `crates/chrysalis/src/fixtures/`.
 - **`chrysalis-example`** (file at repo root) — older sketch in
   surface syntax. Superseded by `crates/chrysalis/ys/`.
 

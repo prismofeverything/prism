@@ -134,5 +134,10 @@ pub(crate) fn lower_schema(s: &crate::ast::SchemaExpr) -> Schema {
         // registry.
         crate::ast::SchemaExpr::Custom { .. } => Schema::Any,
         crate::ast::SchemaExpr::SelfType => Schema::Any,
+        // Units are *erased*: a Quantity's runtime value is a bare Float
+        // magnitude. The dimensional check happens in the (future) check
+        // phase, not here; see docs/chrysalis-design.md, "Units and
+        // quantities" → "Check once, erase, run raw".
+        crate::ast::SchemaExpr::Quantity { .. } => Schema::Float { default: None },
     }
 }

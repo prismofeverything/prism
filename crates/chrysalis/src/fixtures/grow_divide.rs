@@ -53,8 +53,8 @@
 use indexmap::IndexMap;
 
 use crate::ast::{
-    Block, CompositeDef, Def, Expr, Interface, Param, PortBindings, PortDecl, Program,
-    ReactionDef, SchemaExpr, StringLit, StringSeg, TermArg,
+    Block, CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, ReactionDef, SchemaExpr,
+    StringLit, StringSeg,
 };
 
 /// Build the complete grow/divide chrysalis program.
@@ -143,6 +143,7 @@ fn cell_def() -> CompositeDef {
         name: "Cell".into(),
         params,
         interface,
+        using: vec![],
         body,
     }
 }
@@ -235,6 +236,7 @@ fn environment_def() -> CompositeDef {
         name: "Environment".into(),
         params,
         interface,
+        using: vec![],
         body,
     }
 }

@@ -154,10 +154,11 @@ for parallel composition."
      (1 'ys-port-arrow-face)
      (2 'ys-port-arrow-face))
 
-    ;; Trailing `|' body separator — `|' at end-of-line (optionally
-    ;; followed by whitespace).  Distinguished from mid-line `|'
-    ;; (parallel composition) which keeps the default face.
-    ("\\(|\\)\\s-*$" 1 'ys-body-separator-face)
+    ;; Trailing `|' body separator — `|' at end-of-line, optionally
+    ;; followed by whitespace and/or a trailing `#' comment.
+    ;; Distinguished from mid-line `|' (parallel composition) which
+    ;; keeps the default face.
+    ("\\(|\\)\\s-*\\(?:#.*\\)?$" 1 'ys-body-separator-face)
 
     ;; Pattern variable: ?name
     ("\\(\\?[A-Za-z_][A-Za-z0-9_]*\\)" 1 'ys-pattern-var-face)

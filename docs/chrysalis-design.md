@@ -352,6 +352,15 @@ the genuine physical computation, never a re-validation. Crossing
 dimensions costs exactly one baked-in op, like a same-dimension unit
 conversion.
 
+A worked multi-compartment example —
+[`crates/chrysalis/ys/nuclear-shuttle.ys`](../crates/chrysalis/ys/nuclear-shuttle.ys)
+— synthesises a TF in the cytoplasm, shuttles it into a 10×-smaller
+nucleus, and fires a nuclear sensor on *concentration*: the sensor names
+no volume, yet is correct in either compartment because the enclosing
+region's context supplies it. Transport straddles both compartments, so
+it converts each side explicitly — the ambient/explicit contrast in one
+file.
+
 ### Surface syntax
 
 ```
@@ -393,6 +402,19 @@ against the slot.
 - Context resolution: a cross-dimension conversion resolves its context
   and factor-source (constant, place-graph path, or type metadata) in
   the check phase and erases to one runtime op, like a unit conversion.
+
+**Status (implemented).** `prism_schema::units` provides `Dimension`
+(rational exponents), `Unit`, `Context`/`Bridge`, and `resolve_conversion`
+→ `Conversion` — the erased, single-`f64`-op form (`Conversion::apply`).
+`chrysalis::units` resolves a program's `unit`/`context` declarations
+over the SI base units and dimensionally checks expression bodies,
+resolving in-scope context coercions (exercised by the `nuclear-shuttle`
+fixture tests: `Transport`'s `flux` works out to `[substance]`; `Sense`'s
+`tf > k_on` is a mismatch alone but type-checks under the nucleus's
+`concentration` context). **Remaining:** thread the resolved
+conversions through `eval` so a checked body runs on bare `f64`, with
+`ByState` factors (e.g. volume) read from the place graph at the
+conversion site.
 
 ## Syntactic kernel
 
