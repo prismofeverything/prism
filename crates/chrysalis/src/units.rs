@@ -188,6 +188,9 @@ impl UnitEnv {
     pub fn unit_of_schema(&self, s: &SchemaExpr) -> Result<Unit, UnitError> {
         match s {
             SchemaExpr::Quantity { unit, .. } => lower_unit_expr(unit, &self.units),
+            // An array carries its element's dimension element-wise — a
+            // field of concentrations *is* a concentration dimensionally.
+            SchemaExpr::Array { element, .. } => self.unit_of_schema(element),
             _ => Ok(dimensionless()),
         }
     }
@@ -537,5 +540,54 @@ mod tests {
         // The un-erased body compares a raw count to a concentration and
         // is wrong: 40 molecules already "exceeds" 0.5.
         assert!(active(&s.body, 40.0));
+    }
+
+    #[test]
+    fn arrays_carry_their_element_units() {
+        let prog = program();
+        let env = UnitEnv::from_program(&prog).unwrap();
+
+        // A concentration FIELD: Array[[2,2], Quantity[molecule/fL]] — the
+        // spatio-flux shape (a grid of concentrations).
+        let conc_field = SchemaExpr::array(
+            vec![2, 2],
+            SchemaExpr::quantity(
+                UnitExpr::named("molecule").div(UnitExpr::named("fL")),
+                false,
+                false,
+            ),
+        );
+        let conc_dim = Dimension::base("substance").div(&Dimension::base("length").pow(3));
+
+        // The array's dimension is its element's, applied element-wise.
+        let field_u = env.unit_of_schema(&conc_field).unwrap();
+        assert_eq!(field_u.dimension, conc_dim);
+
+        let mut vars = HashMap::new();
+        vars.insert("field".to_string(), field_u);
+        vars.insert(
+            "rate".to_string(),
+            env.unit_of_schema(&SchemaExpr::quantity(UnitExpr::per("s"), false, false))
+                .unwrap(),
+        );
+        vars.insert(
+            "interval".to_string(),
+            env.unit_of_schema(&SchemaExpr::quantity(UnitExpr::named("s"), false, false))
+                .unwrap(),
+        );
+
+        // field * rate * interval  →  still [substance]/[length]^3.
+        let scaled = Expr::mul(
+            Expr::mul(Expr::var("field"), Expr::var("rate")),
+            Expr::var("interval"),
+        );
+        assert_eq!(env.infer(&scaled, &vars, &[]).unwrap().dimension, conc_dim);
+
+        // field + rate  →  concentration vs 1/time: a dimension mismatch.
+        let bad = Expr::add(Expr::var("field"), Expr::var("rate"));
+        assert!(matches!(
+            env.infer(&bad, &vars, &[]),
+            Err(UnitError::DimensionMismatch { .. })
+        ));
     }
 }

@@ -416,9 +416,25 @@ checked body to a unit-free `Expr` with conversions baked in as ordinary
 arithmetic (`tf > k_on` → `tf > k_on * volume`), which runs on bare
 `f64` through `eval` with unit-correct results — the un-erased body gives
 the wrong answer (`lowered_sense_runs_unit_correct_through_eval`).
-**Remaining:** auto-supply a context factor (e.g. the enclosing volume)
-from the place graph during full engine runs; today it is bound
-explicitly at the conversion site.
+`compile()` then wires this into the live engine: it lowers each process
+body, surfaces each context factor as an input port, and the engine
+wires it from the enclosing compartment's slot — so a context coercion
+runs unit-correct inside a real composite (`tests/units_engine.rs`: a
+below-threshold count gives a negative result *only* because the volume
+coercion ran). `using`-path injection also handles a factor name that
+differs from the compartment slot — `compile()` injects each `using` arg
+into the child processes that declare it
+(`using_injection_handles_factor_name_differing_from_slot`).
+**Remaining (blocked):** routing a factor from an *ancestor* compartment
+across a composite boundary. Root-caused this session to a deeper engine
+bug — a composite **constructed in another composite's body** (living
+only in a sub-engine) does not execute; only composites in the
+root-discoverable state run (reproduced in
+`crates/chrysalis/tests/nested_composite.rs`; see the
+`project_composite_execution_gap` note). Until composite scheduling is
+fixed, the cross-boundary factor — and the nested consumer itself —
+can't run. The threading transform (intermediate input bridges) sits on
+top of that fix. Reproduced by `context_factor_crosses_composite_boundary`.
 
 ## Syntactic kernel
 
@@ -874,6 +890,21 @@ is the full target.
     concentrations track changing volumes natively. Resolved + erased in
     the check phase; runtime is one op. molecule↔mol stays a unit, not a
     context. See "Contexts (cross-dimension conversion)".
+13. **chrysalis must be fully schema-aware** (it was stamping
+    `Schema::Any` almost everywhere — a tier-1 shortcut that forced the
+    engine's address-scanning fallback, blocked clean method dispatch,
+    and prevented compile-time connection validation). `crate::schema`
+    derives the real schema from the AST: `process` → `ProcessLink`,
+    `step` → `StepLink`, `composite` → `CompositeLink` (with the
+    inner-state `Tree`), data slots typed, custom/rich types → `Custom`
+    (so the `TypeRegistry` dispatches their methods), and
+    `Array[shape, element]` carrying its element's units element-wise (a
+    field of concentrations *is* a concentration dimensionally). Staged:
+    (1) derive — done, tested; (2) thread into `topology.state_schema` +
+    composite inner schemas (keeping grow_divide green) — next; (3)
+    typed scheduling (should fix the nested-composite bug), method
+    dispatch, and compile-time wire-schema validation. This realizes the
+    schema-driven-dispatch goal end to end.
 
 ## Open design decisions
 

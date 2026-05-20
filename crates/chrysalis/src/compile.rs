@@ -22,16 +22,21 @@
 //! )?;
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
 use indexmap::IndexMap;
 
 use prism_bigraph::composite::{Bridge, Composite};
 use prism_bigraph::{Engine, ProcessNode, ProcessRegistry, Topology};
+use prism_schema::units::Context;
 use prism_schema::{MethodRegistry, Schema, Value};
 
-use crate::ast::{CompositeDef, Def, Name, Param, ProcessDef, Program, StepDef};
+use crate::ast::{
+    CompositeDef, ContextUse, Def, Expr, Name, Param, PortDecl, ProcessDef, Program, SchemaExpr,
+    StepDef, TermArg,
+};
+use crate::units::UnitEnv;
 use crate::eval::{brs_config_from_value, EvalError, Evaluator};
 use crate::runtime::brs::ChrysalisBrs;
 use crate::runtime::expr_process::ExprProcess;
@@ -62,6 +67,25 @@ pub enum CompileError {
 /// (typically a single process spec) that becomes the engine's
 /// initial state.
 pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
+    // Reject ill-typed connections up front — illegal connections are
+    // unrepresentable. Validated on the surface program (full unit info).
+    let connection_errors = crate::check::validate_connections(program);
+    if !connection_errors.is_empty() {
+        return Err(CompileError::Other(format!(
+            "{} invalid connection(s): {}",
+            connection_errors.len(),
+            connection_errors
+                .iter()
+                .map(|e| format!("{}::{}.{} — {}", e.composite, e.child, e.port, e.message))
+                .collect::<Vec<_>>()
+                .join("; ")
+        )));
+    }
+
+    // Resolve units/contexts, then erase: lower each process body to bare
+    // f64 and surface any context factor (e.g. `volume`) as an input port.
+    let unit_env = UnitEnv::from_program(program).ok();
+    let program = lower_program(program, unit_env.as_ref());
     let methods = Arc::new(MethodRegistry::new());
     let program_arc = Arc::new(program.clone());
     let evaluator = Arc::new(Evaluator::new(Arc::clone(&program_arc), Arc::clone(&methods)));
@@ -121,7 +145,7 @@ pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
             ));
         }
     };
-    let env: IndexMap<Name, Value> = collect_top_level_bindings(program, &evaluator)?;
+    let env: IndexMap<Name, Value> = collect_top_level_bindings(&program, &evaluator)?;
 
     // Evaluate `main` to its outer-map form. For a composite call
     // site, this produces `{_type, observable slots, _process: spec}`
@@ -337,4 +361,166 @@ fn resolve_params(
         out.insert(param.name.clone(), v);
     }
     Ok(out)
+}
+
+// ===============================================================
+// Units: erase process bodies + surface context factors as inputs
+// ===============================================================
+
+/// Lower every process body: erase units to bare-`f64` arithmetic and
+/// surface context factors (e.g. `volume`) as input ports. Unit/context
+/// declarations, composites, and non-unit programs are untouched.
+fn lower_program(program: &Program, env: Option<&UnitEnv>) -> Program {
+    let mut out = program.clone();
+    // 1. Erase process bodies, surfacing context factors as input ports.
+    for def in &mut out.defs {
+        if let Def::Process(p) = def {
+            *p = lower_process_def(p, env);
+        }
+    }
+    // 2. Map each process to its (post-erasure) input port names.
+    let proc_inputs: HashMap<String, HashSet<String>> = out
+        .defs
+        .iter()
+        .filter_map(|d| match d {
+            Def::Process(p) => Some((p.name.clone(), p.interface.inputs.keys().cloned().collect())),
+            _ => None,
+        })
+        .collect();
+    // 3. For composites with `using ctx(factor: path)`, wire each factor
+    //    into the child processes that declare it — honoring the path even
+    //    when the factor name differs from the compartment slot name.
+    for def in &mut out.defs {
+        if let Def::Composite(c) = def {
+            if !c.using.is_empty() {
+                let using = c.using.clone();
+                inject_using_factors(&mut c.body, &using, &proc_inputs);
+            }
+        }
+    }
+    out
+}
+
+/// Inject `using`-bound context factors as input wirings on the child
+/// process terms that declare them. An explicit call-site binding wins
+/// (explicit beats implicit).
+fn inject_using_factors(
+    e: &mut Expr,
+    using: &[ContextUse],
+    proc_inputs: &HashMap<String, HashSet<String>>,
+) {
+    match e {
+        Expr::Term {
+            control, ports, body, ..
+        } => {
+            if let Some(inputs) = proc_inputs.get(control) {
+                for cu in using {
+                    for arg in &cu.args {
+                        if let TermArg::Named { name, value } = arg {
+                            if inputs.contains(name) && !ports.inputs.contains_key(name) {
+                                ports.inputs.insert(name.clone(), value.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(b) = body {
+                inject_using_factors(b, using, proc_inputs);
+            }
+        }
+        Expr::Parallel(items) => {
+            for i in items {
+                inject_using_factors(i, using, proc_inputs);
+            }
+        }
+        Expr::KeyedEntry { value, .. } => inject_using_factors(value, using, proc_inputs),
+        Expr::Block(b) => {
+            for (_, v) in &mut b.bindings {
+                inject_using_factors(v, using, proc_inputs);
+            }
+            inject_using_factors(&mut b.value, using, proc_inputs);
+        }
+        _ => {}
+    }
+}
+
+/// Erase units in one process body. On any analysis failure (no unit
+/// env, un-typed body, unhandled form) the def is returned unchanged, so
+/// non-unit programs are unaffected.
+fn lower_process_def(def: &ProcessDef, env: Option<&UnitEnv>) -> ProcessDef {
+    let Some(env) = env else {
+        return def.clone();
+    };
+    let Ok(vars) = env.vars_for(&def.params, &def.interface) else {
+        return def.clone();
+    };
+    let ctxs: Vec<&Context> = env.contexts.values().collect();
+    let Ok(lowered) = env.lower_body(&def.body, &vars, &ctxs) else {
+        return def.clone();
+    };
+
+    let mut before = HashSet::new();
+    collect_free_vars(&def.body, &mut before);
+    let mut after = HashSet::new();
+    collect_free_vars(&lowered, &mut after);
+
+    let mut out = def.clone();
+    out.body = lowered;
+    // Context factors introduced by erasure (e.g. `volume`) become input
+    // ports. Default same-name wiring (build_spec_value) connects each to
+    // the enclosing compartment's slot — the slot a
+    // `using ctx(factor: @.factor)` clause names.
+    for factor in after.difference(&before) {
+        out.interface
+            .inputs
+            .entry(factor.clone())
+            .or_insert_with(|| PortDecl::required(SchemaExpr::Float));
+    }
+    out
+}
+
+/// Collect every `Var` name referenced in an expression. Used to find
+/// the factor vars erasure introduced (`after − before`).
+fn collect_free_vars(e: &Expr, out: &mut HashSet<String>) {
+    match e {
+        Expr::Var(n) => {
+            out.insert(n.clone());
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_free_vars(lhs, out);
+            collect_free_vars(rhs, out);
+        }
+        Expr::UnaryOp { operand, .. } => collect_free_vars(operand, out),
+        Expr::Block(b) => {
+            for (_, v) in &b.bindings {
+                collect_free_vars(v, out);
+            }
+            collect_free_vars(&b.value, out);
+        }
+        Expr::Record(fields) => {
+            for (_, v) in fields {
+                collect_free_vars(v, out);
+            }
+        }
+        Expr::KeyedEntry { value, .. } => collect_free_vars(value, out),
+        Expr::Method { receiver, args, .. } => {
+            collect_free_vars(receiver, out);
+            for a in args {
+                collect_free_vars(a, out);
+            }
+        }
+        Expr::If { cond, then_, else_ } => {
+            collect_free_vars(cond, out);
+            collect_free_vars(then_, out);
+            if let Some(e) = else_ {
+                collect_free_vars(e, out);
+            }
+        }
+        Expr::List(items) | Expr::Parallel(items) => {
+            for i in items {
+                collect_free_vars(i, out);
+            }
+        }
+        _ => {}
+    }
 }

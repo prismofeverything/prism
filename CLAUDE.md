@@ -9,6 +9,10 @@ application domain.
 - **`docs/prism-architecture.md`** — crate roles, the `Process` /
   `Step` / `BRS` / `Engine` primitives, the `discover_processes`
   reflection mechanism. Read this first.
+- **`docs/state-schema-unification.md`** — survey of the (currently
+  inconsistent) state / schema / node representations and the plan to
+  unify them into one schema-always-present, algebraic core. Read before
+  any engine/core work; schema and state are inseparable.
 - **`docs/chrysalis-design.md`** — design for **chrysalis**, the
   surface PL compiling to this runtime. Homoiconicity goal, the
   bigraph atoms to canonize, the implied-assembly decision (trees

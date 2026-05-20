@@ -25,8 +25,10 @@
 //! turns the framework into a language. See `docs/chrysalis-design.md`.
 
 pub mod ast;
+pub mod check;
 pub mod compile;
 pub mod eval;
 pub mod fixtures;
 pub mod runtime;
+pub mod schema;
 pub mod units;

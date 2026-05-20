@@ -105,6 +105,13 @@ pub enum SchemaExpr {
         extensive: bool,
         affine: bool,
     },
+    /// `Array[shape, element]` — a fixed-shape numeric array whose element
+    /// may itself be dimensioned (`Array[[6,5], Quantity[unit: …]]`), so a
+    /// spatial field carries units element-wise.
+    Array {
+        shape: Vec<usize>,
+        element: Box<SchemaExpr>,
+    },
 }
 
 impl SchemaExpr {
@@ -125,6 +132,12 @@ impl SchemaExpr {
             unit,
             extensive,
             affine,
+        }
+    }
+    pub fn array(shape: Vec<usize>, element: SchemaExpr) -> Self {
+        Self::Array {
+            shape,
+            element: Box::new(element),
         }
     }
 }

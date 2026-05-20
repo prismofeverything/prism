@@ -139,5 +139,9 @@ pub(crate) fn lower_schema(s: &crate::ast::SchemaExpr) -> Schema {
         // phase, not here; see docs/chrysalis-design.md, "Units and
         // quantities" → "Check once, erase, run raw".
         crate::ast::SchemaExpr::Quantity { .. } => Schema::Float { default: None },
+        crate::ast::SchemaExpr::Array { shape, element } => Schema::Array {
+            shape: shape.clone(),
+            element: Box::new(lower_schema(element)),
+        },
     }
 }
