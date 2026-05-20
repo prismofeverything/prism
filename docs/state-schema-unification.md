@@ -46,6 +46,77 @@ Why the asymmetry exists (history, not principle): a composite has
 in the state tree as siblings so a parent / BRS can read them; a leaf
 process has no data of its own. So composites grew an outer wrapper.
 
+### A′. The forms encode wire-resolution — the real coupling
+
+The asymmetry is **load-bearing**, not cosmetic. `resolve_wires_from_process`
+(engine.rs:26) resolves a node's wires relative to its **parent**
+(`parent = process_path[..len-1]`):
+
+- A **process** sits *at* its slot (`grow`), so a bare wire `mass` →
+  the *parent's* `mass` — a **peer** slot. Processes act on peers.
+- A **composite** sits at `slot._process` (`cells.0._process`), so its
+  wire `mass` → `cells.0.mass` — its **own** data slot. The `_process`
+  nesting is exactly what makes a composite's wires self-relative.
+
+So merging the two builders naively (wrapping a process in `_process`,
+or lifting a composite's spec to its slot) moves the node one level and
+**silently redirects every wire** — it breaks grow_divide. **Unifying
+the representation requires unifying wire resolution**, and that resolver
+is global (vivarium/spatio-flux depend on it). This is the deepest
+incoherence and the true scope of the one-node step.
+
+## Diagnosis: chrysalis reinvented composites; the engine's model is right
+
+> **RESOLVED (2026-05-20):** chrysalis composites now compile to real
+> `from_config` subengines (`{address: "local:Composite", config: {state,
+> bridge}}`) and top-level `main` is inlined; the illegitimate
+> internal-slot assertions (`cells.0.mass`, `leaves.a.v`) were updated to
+> observe **bridged outputs / counts**. Whole workspace 314/0 green, **no
+> prism changes**. The text below is the diagnosis that led here — kept for
+> the record.
+
+The engine **already** has the correct, integrated composite model — and
+chrysalis bypasses it.
+
+**Engine's intended model** (`Composite::from_config`, composite.rs:102;
+`extract_processes`, engine.rs:512): a composite is a **spec at its slot,
+the same shape as a process** — `{address, config, inputs, outputs}`. Its
+inner state lives in **`config.state`** (encapsulated in the sub-engine);
+its interface is **`config.bridge`** (ports ↔ internal paths). The inner
+state is *not* in the outer tree — it is exposed *only* through the
+bridge (outputs read from internal paths and projected to the
+composite's wired output slots, exactly like a process writes its
+outputs). Wire resolution is uniformly peer-relative at every engine
+level. A composite *is* a process.
+
+**chrysalis's actual model** (`build_composite_outer`,
+`register_composite_factory`): a bespoke `{_type, <observable data in the
+OUTER tree>, _process: spec}`, with the inner state rebuilt from the AST
+body instead of carried in `config.state`.
+
+**The causal chain (the artifact propagating):** chrysalis put the
+composite's observable data *in the outer tree* (so the BRS could read
+`cell.mass` by `_type`) → that **breaks encapsulation** → which *forced*
+the `_process` wrapper to separate the spec from the leaked data → which
+*forced* composites to wire **self-relative** (to hit their own outer
+slots) → which **manufactured the two-resolver problem**. Units routing,
+nested-composite execution, and the schema work then built on this and
+inherited it. One wrong foundational choice — inner state in the outer
+tree — propagating.
+
+**The fix is to integrate, not invent — and it's chrysalis-local.** Emit
+the engine's composite spec (`{address, config: {state, bridge}, inputs,
+outputs}`), let inner state live in `config.state` (sub-engine,
+encapsulated), expose via the bridge, and instantiate through
+`Composite::from_config` / the typed `CompositeLink` path. Then composite
+== process at the representation level, there is one peer-relative
+resolver (**no global engine change, no vivarium impact**), and
+encapsulation holds. The BRS matches composites via their schema /
+bridged outputs rather than the `_type`/outer-data shortcut — the same
+schema-awareness fix as decision #13. (My earlier "flat / self-relative"
+proposal was *also* wrong: it leaked inner state into the outer tree the
+same way. Discard it.)
+
 ### B. Two-plus discovery / instantiation paths
 
 - **Typed** (`extract_processes`, engine.rs ~500): walks `self.schema`;

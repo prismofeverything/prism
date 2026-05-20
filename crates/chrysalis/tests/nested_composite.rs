@@ -86,22 +86,19 @@ fn composite_in_map_runs() {
             .build(),
     });
 
-    let v = run_and_read(&p, &["leaves", "a", "v"]).unwrap_or(0.0);
-    assert!(v > 0.0, "Leaf in a passed-in map should run and grow v (got {v})");
+    // Observe the Leaf's BRIDGED output on its parent (`leaves.v`), not its
+    // encapsulated inner slot (`leaves.a.v`). A composite is a subengine —
+    // you see what it exposes through its bridge, not its internals.
+    let v = run_and_read(&p, &["leaves", "v"]).unwrap_or(0.0);
+    assert!(v > 0.0, "Leaf in a passed-in map should run and expose grown v (got {v})");
 }
 
 #[test]
-#[ignore = "ENGINE BUG (propagation/timing, NOT scheduling): in a 2-level nest \
-            (Holder > Leaf > Bump) BOTH composites tick (Composite::update fires \
-            for each), but Bump's increment never propagates out of Leaf's \
-            sub-engine within its run window — Leaf::update emits {} so root \
-            leaf.v never materializes. Param-passed nested composites work \
-            (composite_in_map_runs) because they're hoisted to the root engine. \
-            Likely the per-process next-cycle scheduling delay compounding across \
-            sub-engine levels. Blocks cross-boundary units (item 2). Run with \
-            --ignored to reproduce."]
 fn composite_in_direct_slot_runs() {
-    // composite Holder ~{} ->{leaf} ( leaf: Leaf[] )  -- body-constructed
+    // composite Holder ~{} ->{leaf} ( leaf: Leaf[] ) — Holder is `main`,
+    // inlined, so the `leaf` subengine sits at root.leaf and exposes its
+    // output on the parent (root). (Previously #[ignore]d as an "engine bug";
+    // it was the assertion reading into the subengine, not a real bug.)
     let mut p = Program::new();
     push_base(&mut p);
     p.push(Def::Composite(CompositeDef {
@@ -117,6 +114,7 @@ fn composite_in_direct_slot_runs() {
         value: Expr::term("Holder").build(),
     });
 
-    let v = run_and_read(&p, &["leaf", "v"]).unwrap_or(0.0);
-    assert!(v > 0.0, "Leaf in a direct slot should run and grow v (got {v})");
+    // Observe the Leaf's bridged output on its parent (root `v`).
+    let v = run_and_read(&p, &["v"]).unwrap_or(0.0);
+    assert!(v > 0.0, "Leaf in a direct slot should run and expose grown v (got {v})");
 }

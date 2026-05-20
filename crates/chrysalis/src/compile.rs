@@ -27,8 +27,8 @@ use std::sync::{Arc, OnceLock};
 
 use indexmap::IndexMap;
 
-use prism_bigraph::composite::{Bridge, Composite};
-use prism_bigraph::{Engine, ProcessNode, ProcessRegistry, Topology};
+use prism_bigraph::composite::Composite;
+use prism_bigraph::{ProcessNode, ProcessRegistry, Topology};
 use prism_schema::units::Context;
 use prism_schema::{MethodRegistry, Schema, Value};
 
@@ -97,14 +97,11 @@ pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
     // Register a factory per user-defined composite / process / step.
     for def in &program.defs {
         match def {
-            Def::Composite(composite_def) => {
-                register_composite_factory(
-                    &mut registry,
-                    composite_def,
-                    Arc::clone(&evaluator),
-                    Arc::clone(&registry_handle),
-                );
-            }
+            // Composites need no per-name factory: they compile to plain
+            // specs `{address: "local:Composite", config: {state, bridge}}`
+            // and instantiate through the generic `Composite` factory
+            // (registered below) via `Composite::from_config`.
+            Def::Composite(_) => {}
             Def::Process(process_def) => {
                 register_process_factory(
                     &mut registry,
@@ -129,6 +126,23 @@ pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
     // The chrysalis BRS is a built-in.
     register_chrysalis_brs_factory(&mut registry, Arc::clone(&evaluator));
 
+    // Generic composite: a composite compiles to a plain spec
+    // `{address: "local:Composite", config: {state, bridge}}` and is
+    // instantiated through the engine's ported `Composite::from_config`
+    // (the upstream model), not chrysalis's old `{_type, _process}` wrapper.
+    {
+        let handle = Arc::clone(&registry_handle);
+        registry.register("Composite", move |config| {
+            let registry = handle
+                .get()
+                .cloned()
+                .expect("registry handle not initialized");
+            let composite = Composite::from_config(&config, registry)
+                .unwrap_or_else(|| panic!("Composite::from_config failed: {config:?}"));
+            ProcessNode::Process(Box::new(composite))
+        });
+    }
+
     let registry = Arc::new(registry);
     let _ = registry_handle.set(Arc::clone(&registry));
 
@@ -147,14 +161,13 @@ pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
     };
     let env: IndexMap<Name, Value> = collect_top_level_bindings(&program, &evaluator)?;
 
-    // Evaluate `main` to its outer-map form. For a composite call
-    // site, this produces `{_type, observable slots, _process: spec}`
-    // — same shape regardless of protocol. The engine discovers the
-    // `_process` spec on the first tick and instantiates the
-    // composite as a wrapped sub-engine. Crucially: data slots are
-    // siblings of `_process` at the root, so the composite's bridge
-    // can project to / read from them through normal wire resolution.
-    let initial_state = evaluator.eval_value(&main_expr, &env)?;
+    // Evaluate `main`. If it's a composite call, `eval_top_level` inlines
+    // it: the root state becomes the composite's body, so its child
+    // processes/composites are discoverable and its contents inspectable.
+    // Nested composites compile to real subengine specs
+    // `{address: "local:Composite", config: {state, bridge}}` instantiated
+    // via `Composite::from_config` — see crate::eval::build_composite_outer.
+    let initial_state = evaluator.eval_top_level(&main_expr, &env)?;
 
     let topology = Topology {
         state_schema: Schema::Any,
@@ -195,89 +208,11 @@ fn collect_top_level_bindings(
 // Factory registration helpers
 // ===============================================================
 
-fn register_composite_factory(
-    registry: &mut ProcessRegistry,
-    def: &CompositeDef,
-    evaluator: Arc<Evaluator>,
-    registry_handle: Arc<OnceLock<Arc<ProcessRegistry>>>,
-) {
-    let def = def.clone();
-    let label = def.name.clone();
-    registry.register(label.clone(), move |config| {
-        let resolved = resolve_params(&def.params, &config, &evaluator)
-            .expect("composite param resolution failed");
-
-        // Eval composite body to produce the inner state Value.
-        let inner_state = match evaluator.eval_value(&def.body, &resolved) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("composite `{}` body eval failed: {e}", def.name);
-                Value::map()
-            }
-        };
-
-        // Build the bridge from the interface's wiring.
-        let mut input_bridge: IndexMap<String, Vec<prism_schema::Key>> = IndexMap::new();
-        for port in def.interface.inputs.keys() {
-            input_bridge.insert(port.clone(), vec![prism_schema::Key::from(port.as_str())]);
-        }
-        let mut output_bridge: IndexMap<String, Vec<prism_schema::Key>> = IndexMap::new();
-        for port in def.interface.outputs.keys() {
-            output_bridge.insert(port.clone(), vec![prism_schema::Key::from(port.as_str())]);
-        }
-
-        let input_schemas: IndexMap<String, Schema> = def
-            .interface
-            .inputs
-            .iter()
-            .map(|(n, d)| {
-                (
-                    n.clone(),
-                    crate::runtime::expr_process::lower_schema(&d.schema),
-                )
-            })
-            .collect();
-        let output_schemas: IndexMap<String, Schema> = def
-            .interface
-            .outputs
-            .iter()
-            .map(|(n, d)| {
-                (
-                    n.clone(),
-                    crate::runtime::expr_process::lower_schema(&d.schema),
-                )
-            })
-            .collect();
-
-        let topology = Topology {
-            state_schema: Schema::Any,
-            initial_state: inner_state,
-            processes: IndexMap::new(),
-        };
-        let mut engine = Engine::new(topology, HashMap::new());
-        let registry = registry_handle
-            .get()
-            .cloned()
-            .expect("registry handle not initialized");
-        engine.set_registry(registry);
-        engine.discover_all_processes();
-
-        let composite = Composite::new(
-            engine,
-            Bridge {
-                mappings: input_bridge,
-            },
-            Bridge {
-                mappings: output_bridge,
-            },
-            input_schemas,
-            output_schemas,
-            1.0,
-        );
-
-        ProcessNode::Process(Box::new(composite))
-    });
-}
+// NOTE: the old per-name `register_composite_factory` (which built a
+// `Composite::new` sub-engine and the bespoke `{_type, _process}` outer
+// map) was removed. Composites now compile to plain specs
+// `{address: "local:Composite", config: {state, bridge}}` and instantiate
+// through the single generic `Composite` factory (via `from_config`).
 
 fn register_process_factory(
     registry: &mut ProcessRegistry,

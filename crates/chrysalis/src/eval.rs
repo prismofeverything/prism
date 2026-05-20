@@ -407,35 +407,63 @@ impl Evaluator {
         ports: &PortBindings,
         env: &IndexMap<Name, Value>,
     ) -> Result<Value, EvalError> {
+        // A composite compiles to a real prism subengine spec — the same
+        // shape as any process — instantiated via `Composite::from_config`.
+        // Inner state (the body) is encapsulated in `config.state`; the
+        // `bridge` maps each interface port to its same-name internal path.
+        // Outputs land on the PARENT via normal (parent-relative) wires.
+        // See crates/prism-bigraph/tests/growth_division.rs for the proven
+        // subengine grow/divide pattern.
         let resolved = self.resolve_args_against_params(&def.name, args, &def.params, env)?;
-        let spec = self.build_spec_value(
-            &def.name,
-            &resolved,
-            ports,
-            &def.interface,
-            env,
-        )?;
-
-        let mut outer: IndexMap<Key, Value> = IndexMap::new();
-        outer.insert("_type".into(), Value::String(def.name.clone()));
-
-        // Data slot for each output port: initial value comes from the
-        // matching param if any, else None.
-        for port in def.interface.outputs.keys() {
-            let initial = resolved.get(port).cloned().unwrap_or(Value::None);
-            outer.insert(Key::from(port.as_str()), initial);
+        let inner_state = self.eval_value(&def.body, &resolved)?;
+        let mut bridge_in: IndexMap<Key, Value> = IndexMap::new();
+        for p in def.interface.inputs.keys() {
+            bridge_in.insert(
+                Key::from(p.as_str()),
+                Value::List(vec![Value::String(p.clone())]),
+            );
         }
-        // Data slot for each input port too (consumers of the composite
-        // may write here).
-        for port in def.interface.inputs.keys() {
-            if !outer.contains_key(port.as_str()) {
-                let initial = resolved.get(port).cloned().unwrap_or(Value::None);
-                outer.insert(Key::from(port.as_str()), initial);
+        let mut bridge_out: IndexMap<Key, Value> = IndexMap::new();
+        for p in def.interface.outputs.keys() {
+            bridge_out.insert(
+                Key::from(p.as_str()),
+                Value::List(vec![Value::String(p.clone())]),
+            );
+        }
+        let bridge = Value::Map(IndexMap::from([
+            (Key::from("inputs"), Value::Map(bridge_in)),
+            (Key::from("outputs"), Value::Map(bridge_out)),
+        ]));
+        let config = Value::Map(IndexMap::from([
+            (Key::from("state"), inner_state),
+            (Key::from("bridge"), bridge),
+        ]));
+        let composite_name: Name = "Composite".into();
+        let mut spec =
+            self.build_spec_value(&composite_name, &IndexMap::new(), ports, &def.interface, env)?;
+        if let Value::Map(m) = &mut spec {
+            m.insert(Key::from("config"), config);
+        }
+        Ok(spec)
+    }
+
+    /// Evaluate a top-level `main` expression. If it's a composite call,
+    /// **inline** it: the root state becomes the composite's body (its
+    /// contents are then discoverable + inspectable), rather than a wrapped
+    /// subengine spec that the root engine would never descend into.
+    pub fn eval_top_level(
+        &self,
+        expr: &Expr,
+        env: &IndexMap<Name, Value>,
+    ) -> Result<Value, EvalError> {
+        if let Expr::Term { control, args, .. } = expr {
+            if let Some(crate::ast::Def::Composite(def)) = self.program.lookup(control) {
+                let resolved =
+                    self.resolve_args_against_params(&def.name, args, &def.params, env)?;
+                return self.eval_value(&def.body, &resolved);
             }
         }
-
-        outer.insert("_process".into(), spec);
-        Ok(Value::Map(outer))
+        self.eval_value(expr, env)
     }
 
     /// Build a "pure" process / step spec — a `{address, config, inputs,
