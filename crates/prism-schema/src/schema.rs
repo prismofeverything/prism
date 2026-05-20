@@ -1090,6 +1090,15 @@ impl Schema {
                 return reg.type_apply(name, current, update);
             }
         }
+        // `_divide` sentinel on a Map: split the named child by the value
+        // schema, drop the mother, install the daughters. Faithful port of
+        // bigraph-schema `_handle_divide_sentinel`; needs the registry to
+        // run the schema-driven divide.
+        if let (Self::Map { value }, Some(reg)) = (self, registry) {
+            if update.as_map().is_some_and(|u| u.contains_key("_divide")) {
+                return apply_divide_sentinel(value, reg, current, update.as_map().unwrap());
+            }
+        }
         self.apply_update(current, update)
     }
 
@@ -1490,6 +1499,84 @@ impl fmt::Display for Schema {
 ///
 /// These are core process-bigraph operations for structural state changes
 /// like particle division, boundary spawning, and process composition.
+/// Process a `_divide` sentinel from a `Map` update — the faithful port of
+/// bigraph-schema's `methods/apply.py::_handle_divide_sentinel`.
+///
+/// Shape: `{ _divide: { mother: <key>, daughters: { <k1>: <override>, … } } }`
+/// (or `daughters: [<k1>, <k2>]` for pure type-driven splits). Two-phase:
+/// (1) `divide_by_schema(value_schema, mother)` produces baseline daughters
+/// (extensive fields split, intensive copied, sub-process specs shared so
+/// they re-realize); (2) each caller override is deep-merged on top (ids,
+/// fresh declarations). The mother key is removed and the daughters installed.
+fn apply_divide_sentinel(
+    value_schema: &Schema,
+    registry: &crate::registry::TypeRegistry,
+    current: &Value,
+    update_map: &crate::value::StateMap,
+) -> Value {
+    use crate::registry::{divide_by_schema, DivideContext};
+
+    let Some(current_map) = current.as_map() else {
+        return current.clone();
+    };
+    let Some(spec) = update_map.get("_divide").and_then(|v| v.as_map()) else {
+        return current.clone();
+    };
+    let Some(mother) = spec.get("mother").and_then(|v| v.as_str()) else {
+        return current.clone();
+    };
+    // Normalize daughters into (key, optional override) pairs.
+    let daughter_items: Vec<(crate::value::Key, Option<Value>)> = match spec.get("daughters") {
+        Some(Value::Map(d)) => d.iter().map(|(k, v)| (k.clone(), Some(v.clone()))).collect(),
+        Some(Value::List(l)) => l
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| (crate::value::Key::from(s), None)))
+            .collect(),
+        _ => return current.clone(),
+    };
+    if daughter_items.is_empty() {
+        return current.clone();
+    }
+    let Some(mother_state) = current_map.get(mother) else {
+        return current.clone();
+    };
+
+    let mut ctx = DivideContext::binary();
+    ctx.n_daughters = daughter_items.len();
+    let baselines = divide_by_schema(value_schema, mother_state, &ctx, registry);
+
+    let mut result = current_map.clone();
+    result.shift_remove(mother);
+    for (i, (key, override_val)) in daughter_items.into_iter().enumerate() {
+        let baseline = baselines.get(i).cloned().unwrap_or(Value::None);
+        let daughter = match override_val {
+            Some(ov) => merge_replace(&baseline, &ov),
+            None => baseline,
+        };
+        result.insert(key, daughter);
+    }
+    Value::Map(result)
+}
+
+/// Deep-merge `over` onto `base`, with `over` winning (replace semantics, not
+/// the additive merge of `apply_update`). Used for daughter overrides.
+fn merge_replace(base: &Value, over: &Value) -> Value {
+    match (base, over) {
+        (Value::Map(b), Value::Map(o)) => {
+            let mut m = b.clone();
+            for (k, v) in o {
+                let merged = match m.get(k) {
+                    Some(existing) => merge_replace(existing, v),
+                    None => v.clone(),
+                };
+                m.insert(k.clone(), merged);
+            }
+            Value::Map(m)
+        }
+        _ => over.clone(),
+    }
+}
+
 pub fn apply_add_remove(result: &mut crate::value::StateMap, update: &crate::value::StateMap) {
     // _remove: delete listed keys
     if let Some(Value::List(keys)) = update.get("_remove") {

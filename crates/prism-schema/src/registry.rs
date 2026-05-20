@@ -1221,6 +1221,78 @@ mod tests {
     }
 
     #[test]
+    fn divide_sentinel_splits_a_cell_in_a_map() {
+        // The engine-side trigger: a `_divide` sentinel in a Map update is
+        // consumed by the schema-aware apply, which runs the schema-driven
+        // divide on the named child and installs the daughters. This is how
+        // a reaction's `?c.divide()` becomes an actual split — the reaction
+        // marks intent, the schema-holding apply performs it.
+        let reg = TypeRegistry::new();
+        let cell = Schema::Tree {
+            branches: IndexMap::from([
+                (Key::from("mass"), Schema::Delta { default: None }),
+                (
+                    Key::from("body"),
+                    Schema::CompositeLink {
+                        inputs: IndexMap::new(),
+                        outputs: IndexMap::new(),
+                        interval: 1.0,
+                        inner_schema: Box::new(Schema::Any),
+                    },
+                ),
+            ]),
+        };
+        let cells_schema = Schema::Map {
+            value: Box::new(cell),
+        };
+        let body = Value::tree([
+            ("address", Value::String("local:Composite".to_string())),
+            ("config", Value::map()),
+        ]);
+        let cells = Value::tree([(
+            "0",
+            Value::tree([
+                ("_type", Value::String("Cell".to_string())),
+                ("mass", Value::float(2.0)),
+                ("body", body.clone()),
+            ]),
+        )]);
+        let update = Value::tree([(
+            "_divide",
+            Value::tree([
+                ("mother", Value::String("0".to_string())),
+                (
+                    "daughters",
+                    Value::tree([("0_0", Value::map()), ("0_1", Value::map())]),
+                ),
+            ]),
+        )]);
+
+        let result = cells_schema.apply_update_with(Some(&reg), &cells, &update);
+        let m = result.as_map().expect("result is a map");
+        assert!(m.get("0").is_none(), "mother removed");
+        assert_eq!(m.len(), 2, "two daughters installed");
+        for k in ["0_0", "0_1"] {
+            let d = m.get(k).unwrap_or_else(|| panic!("daughter {k} present"));
+            assert_eq!(
+                d.get_field("mass").and_then(|v| v.as_f64()),
+                Some(1.0),
+                "{k}: mass halved (Delta)"
+            );
+            assert_eq!(
+                d.get_field("_type").and_then(|v| v.as_str()),
+                Some("Cell"),
+                "{k}: _type shared"
+            );
+            assert_eq!(
+                d.get_field("body"),
+                Some(&body),
+                "{k}: composite body shared (re-realizes)"
+            );
+        }
+    }
+
+    #[test]
     fn rich_type_divide_partitions_extensive() {
         let mut reg = TypeRegistry::new();
         register_counter(&mut reg);
