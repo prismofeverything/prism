@@ -293,9 +293,13 @@ Goal: tier 1 grow/divide working homoiconically.
 
 ## References
 
-- `/home/pattern/code/process-bigraph/process_bigraph/types/process.py` — typed schema nodes
-- `/home/pattern/code/process-bigraph/process_bigraph/protocols/{parallel,pool,ray,rest,session}.py` — protocol implementations
-- `/home/pattern/code/process-bigraph/process_bigraph/processes/bigraphical_reactive_system.py` — upstream BRS
-- `/home/pattern/code/bigraph-schema/bigraph_schema/{schema,methods,json_codec,units}.py` — typed schema + multi-dispatch + JSON + units
-- `/home/pattern/code/rest-process/rest_process/server.py` — REST server wire protocol
-- `/home/pattern/code/process-bigraph/process_bigraph/composite.py` — Composite lifecycle reference
+Paths are relative to the prism repo root; the upstream Python repos
+(`process-bigraph`, `bigraph-schema`, `rest-process`) are assumed
+cloned alongside prism.
+
+- `../process-bigraph/process_bigraph/types/process.py` — typed schema nodes
+- `../process-bigraph/process_bigraph/protocols/{parallel,pool,ray,rest,session}.py` — protocol implementations
+- `../process-bigraph/process_bigraph/processes/bigraphical_reactive_system.py` — upstream BRS
+- `../bigraph-schema/bigraph_schema/{schema,methods,json_codec,units}.py` — typed schema + multi-dispatch + JSON + units
+- `../rest-process/rest_process/server.py` — REST server wire protocol
+- `../process-bigraph/process_bigraph/composite.py` — Composite lifecycle reference

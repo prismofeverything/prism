@@ -36,8 +36,9 @@ application domain.
 
 ## Conventions
 
-- Work from the workspace root (`/home/pattern/code/prism/`) — cargo
-  expects it.
+- Work from the repo root — cargo finds the workspace from any subdir,
+  and paths in these docs are written relative to it (never absolute,
+  never machine-specific).
 - prism is load-bearing infrastructure; design **on top** of it, not
   around it. Reflection via `discover_processes` is the substrate
   feature that makes higher-order computation already feasible.

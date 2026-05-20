@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """Run spatioflux_reference_demo for 20s in Python and dump timeseries."""
+import os
 import sys
-sys.path.insert(0, '/home/youdonotexist/code/spatio-flux')
+
+# spatio-flux, assumed cloned alongside prism; override with PRISM_SIBLINGS.
+_siblings = os.environ.get(
+    "PRISM_SIBLINGS",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."),
+)
+sys.path.insert(0, os.path.join(_siblings, "spatio-flux"))
 
 import json
 import numpy as np

@@ -32,31 +32,37 @@ Syntax highlighting + light indentation for chrysalis source.
 
 ## Installation
 
-### Option 1 — `use-package` + local path
+These snippets take one per-machine knob — where prism is checked out
+— and derive every path from it. Set it once in your init:
 
 ```elisp
-(use-package ys-mode
-  :load-path "/home/pattern/code/prism/crates/chrysalis/emacs"
-  :mode ("\\.ys\\'" . ys-mode))
+(defvar prism-root (expand-file-name "~/code/prism")
+  "Absolute path to the prism checkout on this machine.")
+
+(add-to-list 'load-path (expand-file-name "crates/chrysalis/emacs" prism-root))
 ```
 
-### Option 2 — minimal
+Then load the mode. A plain `require` is enough — the file's top-level
+`auto-mode-alist` entry hooks `.ys` buffers automatically:
 
 ```elisp
-(add-to-list 'load-path "/home/pattern/code/prism/crates/chrysalis/emacs")
 (require 'ys-mode)
 ```
 
-The mode's `auto-mode-alist` entry is `;;;###autoload`-tagged, so a
-`require` (or `package-initialize` if you ever package this) hooks
-`.ys` files automatically.
+Or, equivalently, via `use-package` (the `add-to-list` line above must
+run first, so the package is on `load-path`):
 
-### Option 3 — try without installing
+```elisp
+(use-package ys-mode
+  :mode ("\\.ys\\'" . ys-mode))
+```
+
+### Try it without touching your init
 
 In a running Emacs:
 
 ```elisp
-M-x load-file RET /home/pattern/code/prism/crates/chrysalis/emacs/ys-mode.el RET
+M-x load-file RET ~/code/prism/crates/chrysalis/emacs/ys-mode.el RET
 M-x ys-mode  ; in a .ys buffer
 ```
 

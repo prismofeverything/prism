@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """Benchmark grow-divide at increasing simulation durations."""
 import time
+import os
 import sys
-sys.path.insert(0, '/home/youdonotexist/code/process-bigraph')
-sys.path.insert(0, '/home/youdonotexist/code/bigraph-schema')
+
+# Sibling upstream repos, assumed cloned alongside prism; override the
+# parent dir with PRISM_SIBLINGS if your layout differs.
+_siblings = os.environ.get(
+    "PRISM_SIBLINGS",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."),
+)
+for _repo in ("process-bigraph", "bigraph-schema"):
+    sys.path.insert(0, os.path.join(_siblings, _repo))
 
 from process_bigraph import allocate_core, Composite
 from process_bigraph.processes.growth_division import grow_divide_agent
