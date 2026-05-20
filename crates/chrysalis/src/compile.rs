@@ -322,6 +322,25 @@ fn lower_program(program: &Program, env: Option<&UnitEnv>) -> Program {
             _ => None,
         })
         .collect();
+    // 2b. Thread context factors across composite boundaries. A factor
+    //     (e.g. `volume`) may be activated by an ANCESTOR composite but
+    //     consumed by a process nested inside a CHILD composite. Each
+    //     intermediate composite that doesn't itself provide the factor
+    //     must accept it as an input so the ancestor can route it inward;
+    //     the auto-built input bridge + same-name default wiring then carry
+    //     it down every link of the chain.
+    let factor_names: HashSet<String> = out
+        .defs
+        .iter()
+        .filter_map(|d| match d {
+            Def::Context(c) => Some(c.params.iter().map(|p| p.name.clone())),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    if !factor_names.is_empty() {
+        thread_factor_inputs(&mut out, &factor_names, &proc_inputs);
+    }
     // 3. For composites with `using ctx(factor: path)`, wire each factor
     //    into the child processes that declare it — honoring the path even
     //    when the factor name differs from the compartment slot name.
@@ -374,6 +393,135 @@ fn inject_using_factors(
                 inject_using_factors(v, using, proc_inputs);
             }
             inject_using_factors(&mut b.value, using, proc_inputs);
+        }
+        _ => {}
+    }
+}
+
+/// Thread context factors through nested composites. A composite that
+/// (transitively) contains a process declaring factor `F` as an input —
+/// but does NOT itself provide `F` via a `using` clause — gains `F` as an
+/// input port, so its parent can route the factor across the sub-engine
+/// boundary. The auto-built input bridge (`F → [F]`) plus same-name default
+/// wiring then carry `F` down every link from the activating ancestor to
+/// the consuming process.
+fn thread_factor_inputs(
+    out: &mut Program,
+    factor_names: &HashSet<String>,
+    proc_inputs: &HashMap<String, HashSet<String>>,
+) {
+    // Factors each composite already provides via `using` (so it serves its
+    // descendants from its own slot rather than threading further up).
+    let provides: HashMap<String, HashSet<String>> = out
+        .defs
+        .iter()
+        .filter_map(|d| match d {
+            Def::Composite(c) => Some((
+                c.name.clone(),
+                c.using
+                    .iter()
+                    .flat_map(|cu| cu.args.iter())
+                    .filter_map(|a| match a {
+                        TermArg::Named { name, .. } => Some(name.clone()),
+                        _ => None,
+                    })
+                    .collect::<HashSet<String>>(),
+            )),
+            _ => None,
+        })
+        .collect();
+
+    // Composite bodies, cloned for analysis.
+    let bodies: HashMap<String, Expr> = out
+        .defs
+        .iter()
+        .filter_map(|d| match d {
+            Def::Composite(c) => Some((c.name.clone(), c.body.clone())),
+            _ => None,
+        })
+        .collect();
+
+    // Fixpoint over `needs[C]` = the factors C must accept as inputs.
+    let mut needs: HashMap<String, HashSet<String>> =
+        bodies.keys().map(|n| (n.clone(), HashSet::new())).collect();
+    loop {
+        let mut changed = false;
+        let snapshot = needs.clone();
+        for (cname, body) in &bodies {
+            let mut child: HashSet<String> = HashSet::new();
+            collect_child_factor_needs(body, proc_inputs, factor_names, &snapshot, &mut child);
+            let prov = &provides[cname];
+            let entry = needs.get_mut(cname).unwrap();
+            for f in child {
+                if !prov.contains(&f) && entry.insert(f) {
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    // Surface the threaded factors as input ports.
+    for def in &mut out.defs {
+        if let Def::Composite(c) = def {
+            if let Some(fs) = needs.get(&c.name) {
+                for f in fs {
+                    c.interface
+                        .inputs
+                        .entry(f.clone())
+                        .or_insert_with(|| PortDecl::required(SchemaExpr::Float));
+                }
+            }
+        }
+    }
+}
+
+/// Collect the factors that the DIRECT child terms of a composite body
+/// require: a child process contributes the factors among its inputs; a
+/// child composite contributes its already-computed `needs`.
+fn collect_child_factor_needs(
+    e: &Expr,
+    proc_inputs: &HashMap<String, HashSet<String>>,
+    factor_names: &HashSet<String>,
+    needs: &HashMap<String, HashSet<String>>,
+    out: &mut HashSet<String>,
+) {
+    match e {
+        Expr::Term { control, body, .. } => {
+            if let Some(inputs) = proc_inputs.get(control) {
+                for f in inputs.intersection(factor_names) {
+                    out.insert(f.clone());
+                }
+            }
+            if let Some(n) = needs.get(control) {
+                for f in n {
+                    out.insert(f.clone());
+                }
+            }
+            if let Some(b) = body {
+                collect_child_factor_needs(b, proc_inputs, factor_names, needs, out);
+            }
+        }
+        Expr::Parallel(items) | Expr::List(items) => {
+            for i in items {
+                collect_child_factor_needs(i, proc_inputs, factor_names, needs, out);
+            }
+        }
+        Expr::KeyedEntry { value, .. } => {
+            collect_child_factor_needs(value, proc_inputs, factor_names, needs, out)
+        }
+        Expr::Map(entries) => {
+            for (_, v) in entries {
+                collect_child_factor_needs(v, proc_inputs, factor_names, needs, out);
+            }
+        }
+        Expr::Block(b) => {
+            for (_, v) in &b.bindings {
+                collect_child_factor_needs(v, proc_inputs, factor_names, needs, out);
+            }
+            collect_child_factor_needs(&b.value, proc_inputs, factor_names, needs, out);
         }
         _ => {}
     }

@@ -55,3 +55,13 @@ application domain.
   bigraph reading — see docs/chrysalis-design.md.
 - For chrysalis design changes, update `docs/chrysalis-design.md` in
   the same commit as code changes.
+- **Build the principled solution, not a workaround.** For core /
+  foundational work, implement the full design — and port the upstream
+  (bigraph-schema / process-bigraph) mechanism faithfully — from the
+  start. Do not propose or ship a bounded shortcut as "good enough":
+  half-measures calcify, get fixated as "right", and force costly
+  redesigns of everything built on top. `docs/state-schema-unification.md`
+  is the standard. Small, test-guarded steps are encouraged, but every
+  step is *toward* the full design, never a load-bearing workaround. If
+  there's nothing that consumes a new capability yet, build the consumer
+  so we know it works. See memory `feedback_no_half_measures`.

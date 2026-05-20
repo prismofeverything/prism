@@ -49,10 +49,19 @@ pub fn lower_schema(s: &SchemaExpr) -> Schema {
         // `@`-typed (self) slots resolve against the enclosing composite;
         // left to the threading step.
         SchemaExpr::SelfType => Schema::Any,
-        // Units erase to a Float magnitude at runtime; the dimensional
-        // metadata lives in the check pass (`crate::units`), not the
-        // runtime schema.
-        SchemaExpr::Quantity { .. } => Schema::Float { default: None },
+        // Unit *scale* erases to a bare magnitude at runtime (the
+        // dimensional check is the chrysalis check pass). But EXTENSIVITY is
+        // a divide-time property, not arithmetic — it must survive into the
+        // schema so `divide_by_schema` splits extensive quantities and
+        // shares intensive ones. Extensive → `Delta` (additive, halves on
+        // divide); intensive → `Float` (shares).
+        SchemaExpr::Quantity { extensive, .. } => {
+            if *extensive {
+                Schema::Delta { default: None }
+            } else {
+                Schema::Float { default: None }
+            }
+        }
         SchemaExpr::Array { shape, element } => Schema::Array {
             shape: shape.clone(),
             element: Box::new(lower_schema(element)),
@@ -158,6 +167,23 @@ mod tests {
 
     fn k(s: &str) -> Key {
         Key::from(s)
+    }
+
+    #[test]
+    fn extensive_quantity_lowers_to_delta_intensive_to_float() {
+        use crate::ast::{SchemaExpr, UnitExpr};
+        // Extensive (mass) must carry into the schema as `Delta` so divide
+        // halves it; intensive (rate) as `Float` so divide shares it.
+        let mass = SchemaExpr::quantity(UnitExpr::named("kg"), true, false);
+        let rate = SchemaExpr::quantity(UnitExpr::per("s"), false, false);
+        assert!(
+            matches!(lower_schema(&mass), Schema::Delta { .. }),
+            "extensive Quantity → Delta"
+        );
+        assert!(
+            matches!(lower_schema(&rate), Schema::Float { .. }),
+            "intensive Quantity → Float"
+        );
     }
 
     #[test]

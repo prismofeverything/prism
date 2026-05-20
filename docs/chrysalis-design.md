@@ -425,16 +425,20 @@ coercion ran). `using`-path injection also handles a factor name that
 differs from the compartment slot — `compile()` injects each `using` arg
 into the child processes that declare it
 (`using_injection_handles_factor_name_differing_from_slot`).
-**Remaining (blocked):** routing a factor from an *ancestor* compartment
-across a composite boundary. Root-caused this session to a deeper engine
-bug — a composite **constructed in another composite's body** (living
-only in a sub-engine) does not execute; only composites in the
-root-discoverable state run (reproduced in
-`crates/chrysalis/tests/nested_composite.rs`; see the
-`project_composite_execution_gap` note). Until composite scheduling is
-fixed, the cross-boundary factor — and the nested consumer itself —
-can't run. The threading transform (intermediate input bridges) sits on
-top of that fix. Reproduced by `context_factor_crosses_composite_boundary`.
+**Cross-boundary (RESOLVED 2026-05-20):** routing a factor from an
+*ancestor* compartment to a process nested inside a child composite. The
+earlier "blocked" diagnosis (a deeper composite-scheduling bug) was a
+mis-diagnosis — composites constructed in another composite's body DO
+execute as real sub-engines (see `project_composite_execution_gap`). The
+real fix is a small compile-time transform (`thread_factor_inputs` in
+`compile.rs`): a composite that transitively contains a process needing
+factor `F`, but doesn't itself provide `F` via `using`, gains `F` as an
+input port. The auto-built input bridge (`F → [F]`) plus same-name default
+wiring then carry `F` down each link from the activating ancestor to the
+consumer. Proven by `context_factor_crosses_composite_boundary`: the
+nested `Report` receives the `Tissue`'s volume across the `Cell`
+sub-engine boundary, so the below-threshold result is negative (the
+coercion ran) rather than 0 (never arrived) or positive (units ignored).
 
 ## Syntactic kernel
 
@@ -584,18 +588,31 @@ parameterized rules, `where` guards, `.divide()` dispatch, units.
 Surface:
 [`crates/chrysalis/ys/grow-divide-unbounded.ys`](../crates/chrysalis/ys/grow-divide-unbounded.ys).
 
-**Status (2026-05-20) — staged in two forms.** The homoiconic form shown
-below (division as a first-class reaction *value* that calls the cell's own
-`.divide()`) is the tier-1 *goal*. It is **not yet runnable**: it needs
-`type_divide` and a matchable read-only projection of the cell's
-encapsulated `mass` at the parent surface (an external reaction can't see
-into a subengine cell). What runs **today**, proven end-to-end in
-[`crates/chrysalis/tests/grow_divide.rs`](../crates/chrysalis/tests/grow_divide.rs),
-is the equivalent via **internal division**: a `Divide` *step inside* each
-cell reads its own mass and writes daughters up to the parent `cells` map
-through the bridge — the faithful port of upstream `growth_division.py`.
-Both forms live in the `.ys`. The progression (internal now, homoiconic
-next) is recorded in the `project_grow_divide_internal_first` memory.
+**Status (2026-05-20) — staged; three runnable rungs.**
+
+1. **Internal division** —
+   [`tests/grow_divide.rs`](../crates/chrysalis/tests/grow_divide.rs): a
+   `Divide` *step inside* each cell writes daughters up to the parent
+   `cells` map through the bridge. Faithful port of upstream
+   `growth_division.py`. (Cell `['0'] → ['0_0','0_1']`.)
+2. **Homoiconic external division** —
+   [`tests/grow_divide_homoiconic.rs`](../crates/chrysalis/tests/grow_divide_homoiconic.rs)
+   (fixture `grow_divide_homoiconic`): the research point — a first-class
+   `Divide` reaction installed in a parent `BRS` matches `?c :
+   Cell[mass:?m]` and replaces the matched cell. Enabled by (a) the
+   **container layout** — each cell is `{_type: Cell, mass: <exported>,
+   body: <subengine>}`, so the exported mass is a matchable per-cell
+   sibling (no collision) — and (b) the **name-aligned matcher**
+   (`prism_schema::reaction`): a redex key that names a state field binds
+   that field BY NAME, independent of order, tolerating extra fields. This
+   rung (Step 2a) uses a LITERAL split (`?m / 2`) in the reactum.
+3. **`?c.divide()`** (the code block below, the eventual surface): replace
+   the literal split with a `divide` value method dispatched to
+   `prism_schema`'s `type_divide` (extensive halves, intensive copies, id
+   reissued) — Step 2b, not yet wired.
+
+Memories: `project_grow_divide_internal_first`, `reference_matcher_name_aligned`,
+`reference_bridge_state_in_updates_out`.
 
 ```
 unit pg : [mass] = 1e-12 kg

@@ -3,4 +3,5 @@
 //! development before a parser exists.
 
 pub mod grow_divide;
+pub mod grow_divide_homoiconic;
 pub mod nuclear_shuttle;

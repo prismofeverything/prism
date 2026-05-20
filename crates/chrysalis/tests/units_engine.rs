@@ -263,19 +263,18 @@ fn run_tissue_excess(n0: f64) -> f64 {
     .expect("engine init");
     engine.discover_all_processes();
     engine.run(3.0);
+    // `Cell` exposes `excess` as an output, so it BRIDGES to its container
+    // (the root) — the "updates out" half of the bridge. We observe it
+    // there, the same legitimate bridged-output path the within-composite
+    // tests use; reaching into `cell.config.state` would be illegitimate.
     engine
         .state()
-        .get_path(&["cell".into(), "excess".into()])
+        .get_path(&["excess".into()])
         .and_then(|v| v.as_f64())
-        .unwrap_or_else(|| panic!("no cell.excess in final state: {:?}", engine.state()))
+        .unwrap_or_else(|| panic!("no excess in final state: {:?}", engine.state()))
 }
 
 #[test]
-#[ignore = "GAP: ancestor-scoped context factors are not yet threaded across \
-            composite boundaries. The ancestor's `volume` must route through the \
-            child composite's input bridge to reach the nested process; this \
-            config also needs composite-in-composite execution. Run with \
-            --ignored to reproduce; see docs/chrysalis-design.md 'Units'."]
 fn context_factor_crosses_composite_boundary() {
     // `Tissue` activates concentration(volume: @.volume); `Report` lives
     // inside the child `Cell` composite and needs that volume — it must be

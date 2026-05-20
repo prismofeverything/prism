@@ -134,11 +134,18 @@ pub(crate) fn lower_schema(s: &crate::ast::SchemaExpr) -> Schema {
         // registry.
         crate::ast::SchemaExpr::Custom { .. } => Schema::Any,
         crate::ast::SchemaExpr::SelfType => Schema::Any,
-        // Units are *erased*: a Quantity's runtime value is a bare Float
-        // magnitude. The dimensional check happens in the (future) check
-        // phase, not here; see docs/chrysalis-design.md, "Units and
-        // quantities" → "Check once, erase, run raw".
-        crate::ast::SchemaExpr::Quantity { .. } => Schema::Float { default: None },
+        // Unit *scale* is erased: a Quantity's runtime value is a bare Float
+        // magnitude (the dimensional check is the chrysalis check phase).
+        // EXTENSIVITY survives, though — it's a divide-time property, so an
+        // extensive quantity lowers to `Delta` (additive; halves on divide)
+        // and an intensive one to `Float` (shares). See `divide_by_schema`.
+        crate::ast::SchemaExpr::Quantity { extensive, .. } => {
+            if *extensive {
+                Schema::Delta { default: None }
+            } else {
+                Schema::Float { default: None }
+            }
+        }
         crate::ast::SchemaExpr::Array { shape, element } => Schema::Array {
             shape: shape.clone(),
             element: Box::new(lower_schema(element)),

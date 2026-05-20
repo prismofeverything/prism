@@ -20,7 +20,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 
 use crate::schema::{json_to_value, value_to_json, Schema};
-use crate::value::{Foreign, Value};
+use crate::value::{Foreign, Key, StateMap, Value};
 
 /// Context for `TypeMethods::divide` — informs partitioning strategy.
 /// Different types interpret it differently: mesh types read a
@@ -341,7 +341,12 @@ impl TypeRegistry {
                 return methods.divide(self, &entry.schema, state, ctx);
             }
         }
-        // Default: replicate the state for each daughter (intensive).
+        // No custom methods: divide by the type's schema — the faithful,
+        // schema-driven default (see `divide_by_schema`).
+        if let Some(entry) = self.types.get(name) {
+            return divide_by_schema(&entry.schema, state, ctx, self);
+        }
+        // Unknown type — share.
         vec![state.clone(); ctx.n_daughters.max(2)]
     }
 
@@ -403,6 +408,220 @@ impl Default for TypeRegistry {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Schema-driven divide — faithful port of bigraph-schema methods/divide.py
+// ════════════════════════════════════════════════════════════════════
+
+/// Split a value into `ctx.n_daughters` daughters, driven entirely by its
+/// **schema** — the Rust port of bigraph-schema's `methods/divide.py`.
+///
+/// Extensivity is encoded by the schema TYPE, not a side flag:
+/// - `Delta` / `Integer` are **extensive** → split so the daughters sum to
+///   the mother (the additive types: mass, counts, cumulative growth).
+/// - `Float` / `Bool` / `String` / `Enum` / names / interfaces are
+///   **intensive / opaque** → shared (copied) unchanged. (Plain floats are
+///   usually rates/ratios/positions; halving them corrupts the value — so a
+///   field that must halve declares itself `Delta`.)
+/// - `Tree` / `Map` / `RecursiveTree` / `Array` / `Tuple` recurse, dividing
+///   each field by ITS schema. Keys present in the value but absent from the
+///   schema are shared (they carry no divide semantics) — mirroring the
+///   upstream dict/Node walker.
+/// - `Link` / `ProcessLink` / `StepLink` / `CompositeLink` share the spec;
+///   the daughters re-realize fresh instances from `address` + `config`
+///   (upstream `divide(Link)` strips the live instance, keeps the
+///   declaration). Extensive *contents* therefore live in the divisible
+///   container around a composite, not inside its encapsulated spec.
+/// - `Custom` dispatches through the registry's `TypeMethods` (rich types).
+pub fn divide_by_schema(
+    schema: &Schema,
+    state: &Value,
+    ctx: &DivideContext,
+    registry: &TypeRegistry,
+) -> Vec<Value> {
+    let n = ctx.n_daughters.max(2);
+    match schema {
+        // ── Extensive scalars: split, preserving the sum ──
+        Schema::Delta { .. } => split_float(state, n),
+        Schema::Integer { .. } => split_int(state, n),
+
+        // ── Intensive / opaque scalars: share ──
+        Schema::Float { .. }
+        | Schema::Bool { .. }
+        | Schema::String { .. }
+        | Schema::Enum { .. }
+        | Schema::Any
+        | Schema::Site { .. }
+        | Schema::InnerName { .. }
+        | Schema::OuterName { .. }
+        | Schema::Interface { .. }
+        | Schema::Bridge { .. }
+        | Schema::Const { .. }
+        | Schema::Quote { .. } => share(state, n),
+
+        // ── Wrappers: delegate to inner ──
+        Schema::Maybe { inner } | Schema::Overwrite { inner } => {
+            divide_by_schema(inner, state, ctx, registry)
+        }
+
+        // ── Containers: recurse per field, each by its own schema ──
+        Schema::Tree { branches } => divide_named(branches, state, ctx, registry, n),
+        Schema::Map { value } => divide_uniform(value, state, ctx, registry, n),
+        Schema::RecursiveTree { leaf } => divide_recursive(leaf, state, ctx, registry, n),
+        Schema::List { element } | Schema::Array { element, .. } => {
+            divide_seq(element, state, n, ctx, registry)
+        }
+        Schema::Tuple { elements } => divide_tuple(elements, state, ctx, registry, n),
+
+        // ── Process / composite: share the spec; daughters re-realize ──
+        Schema::Link { .. }
+        | Schema::ProcessLink { .. }
+        | Schema::StepLink { .. }
+        | Schema::CompositeLink { .. } => share(state, n),
+
+        // ── Rich type: dispatch through the registry ──
+        Schema::Custom { name, .. } => registry.type_divide(name, state, ctx),
+    }
+}
+
+fn share(state: &Value, n: usize) -> Vec<Value> {
+    vec![state.clone(); n]
+}
+
+/// Extensive float: each daughter gets `total / n` (daughters sum to total).
+fn split_float(state: &Value, n: usize) -> Vec<Value> {
+    match state.as_f64() {
+        Some(total) => vec![Value::float(total / n as f64); n],
+        None => share(state, n),
+    }
+}
+
+/// Extensive integer: deterministic split preserving the sum — base `total/n`
+/// per daughter, the remainder distributed one apiece. (Upstream uses a
+/// binomial draw; this preserves the invariant `Σ daughters = total` without
+/// needing an rng — stochastic splitting can layer on via `DivideContext`.)
+fn split_int(state: &Value, n: usize) -> Vec<Value> {
+    match state.as_i64() {
+        Some(total) => {
+            let base = total / n as i64;
+            let extra = (total - base * n as i64).unsigned_abs() as usize;
+            let step = if total >= 0 { 1 } else { -1 };
+            (0..n)
+                .map(|i| Value::Int(if i < extra { base + step } else { base }))
+                .collect()
+        }
+        None => share(state, n),
+    }
+}
+
+/// Distribute the per-field daughter parts into `n` daughter maps.
+fn scatter(daughters: &mut [StateMap], key: &Key, parts: Vec<Value>) {
+    for (i, d) in daughters.iter_mut().enumerate() {
+        d.insert(key.clone(), parts.get(i).cloned().unwrap_or(Value::None));
+    }
+}
+
+/// `Tree`: each named branch divided by its own schema; un-typed keys shared.
+fn divide_named(
+    branches: &IndexMap<Key, Schema>,
+    state: &Value,
+    ctx: &DivideContext,
+    registry: &TypeRegistry,
+    n: usize,
+) -> Vec<Value> {
+    let Some(map) = state.as_map() else {
+        return share(state, n);
+    };
+    let mut daughters = vec![StateMap::new(); n];
+    for (k, v) in map {
+        match branches.get(k) {
+            Some(sub) => scatter(&mut daughters, k, divide_by_schema(sub, v, ctx, registry)),
+            None => scatter(&mut daughters, k, vec![v.clone(); n]),
+        }
+    }
+    daughters.into_iter().map(Value::Map).collect()
+}
+
+/// `Map`: every entry divided by the single value schema.
+fn divide_uniform(
+    value: &Schema,
+    state: &Value,
+    ctx: &DivideContext,
+    registry: &TypeRegistry,
+    n: usize,
+) -> Vec<Value> {
+    let Some(map) = state.as_map() else {
+        return share(state, n);
+    };
+    let mut daughters = vec![StateMap::new(); n];
+    for (k, v) in map {
+        scatter(&mut daughters, k, divide_by_schema(value, v, ctx, registry));
+    }
+    daughters.into_iter().map(Value::Map).collect()
+}
+
+/// `RecursiveTree`: nested maps with `leaf`-typed leaves.
+fn divide_recursive(
+    leaf: &Schema,
+    state: &Value,
+    ctx: &DivideContext,
+    registry: &TypeRegistry,
+    n: usize,
+) -> Vec<Value> {
+    let Some(map) = state.as_map() else {
+        return divide_by_schema(leaf, state, ctx, registry);
+    };
+    let mut daughters = vec![StateMap::new(); n];
+    for (k, v) in map {
+        scatter(&mut daughters, k, divide_recursive(leaf, v, ctx, registry, n));
+    }
+    daughters.into_iter().map(Value::Map).collect()
+}
+
+/// `Array` (stored as a `List`): each element divided by the element schema.
+fn divide_seq(
+    element: &Schema,
+    state: &Value,
+    n: usize,
+    ctx: &DivideContext,
+    registry: &TypeRegistry,
+) -> Vec<Value> {
+    let Some(list) = state.as_list() else {
+        return share(state, n);
+    };
+    let mut daughters: Vec<Vec<Value>> = vec![Vec::new(); n];
+    for v in list {
+        let parts = divide_by_schema(element, v, ctx, registry);
+        for (i, d) in daughters.iter_mut().enumerate() {
+            d.push(parts.get(i).cloned().unwrap_or(Value::None));
+        }
+    }
+    daughters.into_iter().map(Value::List).collect()
+}
+
+/// `Tuple`: positional, each element divided by its own schema.
+fn divide_tuple(
+    elements: &[Schema],
+    state: &Value,
+    ctx: &DivideContext,
+    registry: &TypeRegistry,
+    n: usize,
+) -> Vec<Value> {
+    let Some(list) = state.as_list() else {
+        return share(state, n);
+    };
+    if list.len() != elements.len() {
+        return share(state, n);
+    }
+    let mut daughters: Vec<Vec<Value>> = vec![Vec::new(); n];
+    for (v, sub) in list.iter().zip(elements) {
+        let parts = divide_by_schema(sub, v, ctx, registry);
+        for (i, d) in daughters.iter_mut().enumerate() {
+            d.push(parts.get(i).cloned().unwrap_or(Value::None));
+        }
+    }
+    daughters.into_iter().map(Value::List).collect()
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -933,6 +1152,72 @@ mod tests {
             realized.as_foreign().unwrap().downcast_ref::<Counter>().unwrap().value,
             5
         );
+    }
+
+    #[test]
+    fn schema_driven_divide_halves_extensive_shares_intensive() {
+        // The container layout: a Tree whose fields carry their divide
+        // semantics in their SCHEMA — `mass` is extensive (Delta → halves),
+        // `rate` is intensive (Float → shares), `body` is a sub-engine spec
+        // (CompositeLink → shared; daughters re-realize). `_type` has no
+        // schema entry → shared. No registered methods, no `_type` dispatch:
+        // divide is read entirely from the schema.
+        let reg = TypeRegistry::new();
+        let schema = Schema::Tree {
+            branches: IndexMap::from([
+                (Key::from("mass"), Schema::Delta { default: None }),
+                (Key::from("rate"), Schema::Float { default: None }),
+                (
+                    Key::from("body"),
+                    Schema::CompositeLink {
+                        inputs: IndexMap::new(),
+                        outputs: IndexMap::new(),
+                        interval: 1.0,
+                        inner_schema: Box::new(Schema::Any),
+                    },
+                ),
+            ]),
+        };
+        let body = Value::tree([
+            ("address", Value::String("local:Composite".to_string())),
+            ("config", Value::map()),
+        ]);
+        let mother = Value::tree([
+            ("_type", Value::String("Cell".to_string())),
+            ("mass", Value::float(2.0)),
+            ("rate", Value::float(0.6)),
+            ("body", body.clone()),
+        ]);
+
+        let daughters = divide_by_schema(&schema, &mother, &DivideContext::binary(), &reg);
+        assert_eq!(daughters.len(), 2);
+        for d in &daughters {
+            assert_eq!(
+                d.get_field("mass").and_then(|v| v.as_f64()),
+                Some(1.0),
+                "mass is extensive (Delta) → halves"
+            );
+            assert_eq!(
+                d.get_field("rate").and_then(|v| v.as_f64()),
+                Some(0.6),
+                "rate is intensive (Float) → shares"
+            );
+            assert_eq!(
+                d.get_field("_type").and_then(|v| v.as_str()),
+                Some("Cell"),
+                "untyped key shared"
+            );
+            assert_eq!(
+                d.get_field("body"),
+                Some(&body),
+                "composite spec shared (daughters re-realize)"
+            );
+        }
+        let total: f64 = daughters
+            .iter()
+            .map(|d| d.get_field("mass").and_then(|v| v.as_f64()).unwrap())
+            .sum();
+        assert_eq!(total, 2.0, "extensive mass conserved across daughters");
     }
 
     #[test]

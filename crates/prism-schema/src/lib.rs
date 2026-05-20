@@ -18,7 +18,7 @@ pub use reaction::{
     apply_fire, find_matches, fire_rule, fire_rule_at, instantiate, is_active,
 };
 pub use reconcile::reconcile;
-pub use registry::TypeRegistry;
+pub use registry::{divide_by_schema, DivideContext, TypeRegistry};
 pub use schema::{Schema, apply_add_remove};
 pub use type_parser::{parse_type_expression, parse_tree_expression};
 pub use units::{

@@ -405,50 +405,87 @@ fn match_against_map(
         None => return false,
     };
 
-    let site_count = user_entries
-        .iter()
-        .filter(|(_, v)| matches!(v, Pattern::Site))
-        .count();
-    let non_site_count = user_entries.len() - site_count;
+    let state_key_set: std::collections::HashSet<&Key> = state_keys.iter().collect();
 
-    // Need one state key per non-Site redex entry.
-    if non_site_count > state_keys.len() {
-        return false;
+    // ── Phase 1: name-aligned entries (match by KEY NAME) ───────────
+    // A redex key that is also a state key is a field SELECTOR: bind its
+    // pattern to that exact field. This makes field matching independent of
+    // declaration / insertion order — `mass: ?m` always binds the `mass`
+    // field, never a positional neighbour. Sites capture the bare value
+    // (a named selector picks one value, it does not absorb a region).
+    let mut consumed: std::collections::HashSet<Key> = std::collections::HashSet::new();
+    let mut label_entries: Vec<(Key, &Pattern)> = Vec::new();
+    for (rkey, rpat) in &user_entries {
+        if state_key_set.contains(rkey) {
+            let sval = state
+                .get_field(rkey.as_str())
+                .expect("state_key_set membership implies the field exists");
+            if !try_pair(rkey, *rpat, rkey, sval, false, bindings) {
+                return false;
+            }
+            bindings
+                .key_map
+                .entry(rkey.clone())
+                .or_insert_with(|| rkey.clone());
+            consumed.insert(rkey.clone());
+        } else {
+            label_entries.push((rkey.clone(), *rpat));
+        }
     }
 
-    let has_surplus = user_entries.len() < state_keys.len();
+    // ── Phase 2: label entries (structural / positional) ────────────
+    // Redex keys NOT present in the state are labels (e.g. `substrate:
+    // ERK`, `rest: Site`): match their patterns against the REMAINING state
+    // keys by structure, with Milner "rest capture" into the last label
+    // Site. Surplus state keys with no label Site to absorb them are
+    // tolerated — a named selector matches a node that has extra fields.
+    let remaining_state: Vec<Key> = state_keys
+        .iter()
+        .filter(|k| !consumed.contains(*k))
+        .cloned()
+        .collect();
 
-    // Backtracking assignment of state keys to redex entries.
-    let mut assignment: Vec<Option<Key>> = vec![None; user_entries.len()];
-    let mut used = vec![false; state_keys.len()];
+    let label_non_site = label_entries
+        .iter()
+        .filter(|(_, v)| !matches!(v, Pattern::Site))
+        .count();
+    if label_non_site > remaining_state.len() {
+        return false;
+    }
+    let has_surplus = label_entries.len() < remaining_state.len();
 
-    if try_assign(
+    let mut assignment: Vec<Option<Key>> = vec![None; label_entries.len()];
+    let mut used = vec![false; remaining_state.len()];
+
+    if !try_assign(
         0,
-        &user_entries,
-        &state_keys,
+        &label_entries,
+        &remaining_state,
         state,
         &mut assignment,
         &mut used,
         has_surplus,
         bindings,
     ) {
-        // Absorb surplus state keys into the last Site (Milner: a single
-        // site is a hole that captures the entire leftover region).
-        if has_surplus {
-            absorb_surplus(state, &user_entries, &assignment, bindings);
-        }
-
-        // Record the key map at this level.
-        for (i, (redex_key, _)) in user_entries.iter().enumerate() {
-            if let Some(state_key) = &assignment[i] {
-                bindings.key_map.entry(redex_key.clone())
-                    .or_insert_with(|| state_key.clone());
-            }
-        }
-        true
-    } else {
-        false
+        return false;
     }
+
+    // Absorb surplus state keys into the last label Site (Milner: a site is
+    // a hole that captures the leftover region). With no label Site, extra
+    // fields are simply tolerated.
+    if has_surplus {
+        absorb_surplus(state, &label_entries, &assignment, &consumed, bindings);
+    }
+
+    for (i, (redex_key, _)) in label_entries.iter().enumerate() {
+        if let Some(state_key) = &assignment[i] {
+            bindings
+                .key_map
+                .entry(redex_key.clone())
+                .or_insert_with(|| state_key.clone());
+        }
+    }
+    true
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -584,6 +621,7 @@ fn absorb_surplus(
     state: &Value,
     user_entries: &[(Key, &Pattern)],
     assignment: &[Option<Key>],
+    consumed: &std::collections::HashSet<Key>,
     bindings: &mut Bindings,
 ) {
     let assigned: std::collections::HashSet<&Key> = assignment
@@ -593,7 +631,9 @@ fn absorb_surplus(
     let mut surplus = StateMap::new();
     if let Some(iter) = state.iter_fields() {
         for (k, v) in iter {
-            if k.starts_with('_') || assigned.contains(k) {
+            // Skip private keys, keys bound by a label, and keys already
+            // consumed by a name-aligned selector.
+            if k.starts_with('_') || assigned.contains(k) || consumed.contains(k) {
                 continue;
             }
             surplus.insert(k.clone(), v.clone());
@@ -857,6 +897,56 @@ mod tests {
 
     fn val_str(s: &str) -> Value {
         Value::String(s.to_string())
+    }
+
+    #[test]
+    fn named_field_matches_by_name_not_position() {
+        // `Cell[mass: ?m]`: `mass` must bind the float field BY NAME —
+        // regardless of where `mass` sits among the node's fields, and with
+        // unmentioned fields (`body`, `a`, `b`, `c`) tolerated. This guards
+        // against the matcher reverting to positional/surplus binding (which
+        // would capture a `{mass, body}` dict and break guards on `?m`).
+        let check = |cell: Value, label: &str| {
+            let redex = Pattern::map([(
+                "cell",
+                Pattern::sort("Cell", [("mass", Pattern::site())]),
+            )]);
+            let state = Value::tree([("c0", cell)]);
+            let matches = find_matches(&state, &redex, None);
+            assert_eq!(matches.len(), 1, "{label}: should match Cell[mass]");
+            assert_eq!(
+                matches[0].bindings.sites.get("mass"),
+                Some(&Value::float(2.5)),
+                "{label}: `mass` must bind the bare float 2.5 by NAME, not position"
+            );
+        };
+
+        check(
+            Value::tree([
+                ("_type", val_str("Cell")),
+                ("mass", Value::float(2.5)),
+                ("body", Value::tree([("x", Value::float(9.0))])),
+            ]),
+            "mass-first",
+        );
+        check(
+            Value::tree([
+                ("_type", val_str("Cell")),
+                ("body", Value::tree([("x", Value::float(9.0))])),
+                ("mass", Value::float(2.5)),
+            ]),
+            "mass-last",
+        );
+        check(
+            Value::tree([
+                ("_type", val_str("Cell")),
+                ("a", Value::float(1.0)),
+                ("b", Value::float(2.0)),
+                ("mass", Value::float(2.5)),
+                ("c", Value::float(3.0)),
+            ]),
+            "mass-middle-of-5",
+        );
     }
 
     #[test]
