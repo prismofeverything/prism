@@ -30,7 +30,9 @@ use indexmap::IndexMap;
 use prism_bigraph::composite::Composite;
 use prism_bigraph::{ProcessNode, ProcessRegistry, Topology};
 use prism_schema::units::Context;
-use prism_schema::{MethodRegistry, Schema, Value};
+use prism_schema::{
+    divide_by_schema, DivideContext, Key, MethodRegistry, Schema, StateMap, TypeRegistry, Value,
+};
 
 use crate::ast::{
     CompositeDef, ContextUse, Def, Expr, Name, Param, PortDecl, ProcessDef, Program, SchemaExpr,
@@ -86,7 +88,9 @@ pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
     // f64 and surface any context factor (e.g. `volume`) as an input port.
     let unit_env = UnitEnv::from_program(program).ok();
     let program = lower_program(program, unit_env.as_ref());
-    let methods = Arc::new(MethodRegistry::new());
+    let mut methods = MethodRegistry::new();
+    register_divide_methods(&mut methods, &program);
+    let methods = Arc::new(methods);
     let program_arc = Arc::new(program.clone());
     let evaluator = Arc::new(Evaluator::new(Arc::clone(&program_arc), Arc::clone(&methods)));
 
@@ -169,8 +173,14 @@ pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
     // via `Composite::from_config` — see crate::eval::build_composite_outer.
     let initial_state = evaluator.eval_top_level(&main_expr, &env)?;
 
+    // No `Schema::Any` escape hatch: derive the real schema from the
+    // evaluated state. (`from_state` will `infer_and_merge` this too, but
+    // making it explicit here is the honest representation — the engine
+    // carries a concrete schema tree parallel to state, not `Any`.)
+    let state_schema = Schema::infer(&initial_state);
+
     let topology = Topology {
-        state_schema: Schema::Any,
+        state_schema,
         initial_state: initial_state.clone(),
         processes: IndexMap::new(),
     };
@@ -274,6 +284,43 @@ fn register_chrysalis_brs_factory(
             Arc::clone(&evaluator),
         )))
     });
+}
+
+/// Register a **type-relative** `divide` value method per composite.
+/// Dispatched on the value's type (`?c.divide()` keys on the cell's
+/// `_type`), it derives the instance schema (`composite_instance_schema` —
+/// the program's real schema, single source) and runs the schema-driven
+/// `divide_by_schema`: extensive fields (`mass`) halve, everything else is
+/// shared. Each daughter's `id` is reissued. No literal `mass / 2`, no
+/// ad-hoc registry — divide is relative to the value's type, as it should be.
+fn register_divide_methods(methods: &mut MethodRegistry, program: &Program) {
+    // Instance schemas carry no `Custom` nodes, so an empty registry suffices.
+    let empty = Arc::new(TypeRegistry::new());
+    for def in &program.defs {
+        let Def::Composite(c) = def else { continue };
+        let schema = crate::schema::composite_instance_schema(c);
+        // Skip composites with no divisible (extensive) data field.
+        if matches!(&schema, Schema::Tree { branches } if branches.is_empty()) {
+            continue;
+        }
+        let reg = Arc::clone(&empty);
+        methods.register(c.name.clone(), "divide", move |recv, args| {
+            // The id is PASSED IN (`?cell.divide(?cid)`), so the cell stores
+            // no id — the map key IS the id. Daughters key as `<id>_0`/`_1`.
+            let id = args
+                .first()
+                .and_then(|v| v.as_str())
+                .unwrap_or("c")
+                .to_string();
+            let ctx = DivideContext::binary();
+            let daughters = divide_by_schema(&schema, recv, &ctx, &reg);
+            let mut out = StateMap::new();
+            for (i, d) in daughters.into_iter().enumerate() {
+                out.insert(Key::from(format!("{id}_{i}").as_str()), d);
+            }
+            Ok(Value::Map(out))
+        });
+    }
 }
 
 /// Resolve a definer's `params` from the user-supplied `config`,

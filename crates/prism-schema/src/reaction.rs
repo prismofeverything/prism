@@ -69,6 +69,11 @@ pub enum Pattern {
     Map(IndexMap<Key, Pattern>),
     /// List pattern, element-wise.
     List(Vec<Pattern>),
+    /// As-pattern: match `inner`, AND bind the whole matched node to
+    /// `name` (captured as a site). The chrysalis surface form is a
+    /// nested typed site, `?name::Sort` — e.g. `?cid : ?cell::Cell` binds
+    /// the entry key to `?cid` and the matched cell value to `?cell`.
+    Bind { name: Key, inner: Box<Pattern> },
 }
 
 impl Pattern {
@@ -611,6 +616,17 @@ fn try_pair(
             }
             _ => false,
         },
+        // As-pattern: match `inner`, then capture the WHOLE matched node
+        // under `name` (a site), so a reaction can name + reuse it
+        // (`?cell::Cell` → guard/reactum use `?cell`).
+        Pattern::Bind { name, inner } => {
+            if try_pair(redex_key, inner, state_key, state_value, has_surplus, bindings) {
+                bindings.sites.insert(name.clone(), state_value.clone());
+                true
+            } else {
+                false
+            }
+        }
     }
 }
 
@@ -711,6 +727,8 @@ fn instantiate_walk(
                 .map(|p| instantiate_walk(p, bindings, instantiation, edges))
                 .collect(),
         ),
+        // A Bind on the reactum side is just its inner pattern.
+        Pattern::Bind { inner, .. } => instantiate_walk(inner, bindings, instantiation, edges),
     }
 }
 
@@ -777,6 +795,10 @@ fn instantiate_map(
                         .map(|p| instantiate_walk(p, bindings, instantiation, edges))
                         .collect(),
                 );
+                result.insert(key.clone(), v);
+            }
+            Pattern::Bind { inner, .. } => {
+                let v = instantiate_walk(inner, bindings, instantiation, edges);
                 result.insert(key.clone(), v);
             }
         }

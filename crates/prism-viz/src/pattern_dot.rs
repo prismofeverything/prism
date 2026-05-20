@@ -149,6 +149,8 @@ fn walk_into_state(
             }
             Value::List(out)
         }
+        // An as-pattern (`?name::Sort`) renders as its inner pattern.
+        Pattern::Bind { inner, .. } => walk_into_state(inner, key_hint, path, anchors),
     }
 }
 

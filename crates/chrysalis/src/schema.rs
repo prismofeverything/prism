@@ -69,6 +69,27 @@ pub fn lower_schema(s: &SchemaExpr) -> Schema {
     }
 }
 
+/// The schema of a composite INSTANCE as it sits in a parent map — its
+/// exported scalar data fields (the bridged outputs that land as siblings,
+/// e.g. `mass`). These carry the divide semantics: an extensive `Mass`
+/// output is a `Delta` (halves), an intensive one a `Float` (shares). Other
+/// keys (`_type`, `id`, the subengine body) aren't in the branch set, so
+/// `divide_by_schema` shares them. This is what a value method like
+/// `.divide()` dispatches against — relative to the value's type.
+pub fn composite_instance_schema(def: &CompositeDef) -> Schema {
+    let mut branches: IndexMap<Key, Schema> = IndexMap::new();
+    for (name, decl) in &def.interface.outputs {
+        let s = lower_schema(&decl.schema);
+        if matches!(
+            s,
+            Schema::Float { .. } | Schema::Delta { .. } | Schema::Integer { .. }
+        ) {
+            branches.insert(Key::from(name.as_str()), s);
+        }
+    }
+    Schema::Tree { branches }
+}
+
 fn port_schemas(ports: &IndexMap<crate::ast::Name, PortDecl>) -> IndexMap<Key, Schema> {
     ports
         .iter()

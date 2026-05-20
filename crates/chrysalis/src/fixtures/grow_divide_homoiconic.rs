@@ -68,14 +68,6 @@ fn container(m: Expr) -> Expr {
     Expr::Record(fields)
 }
 
-/// `'{?cid}{suffix}'` — a daughter key templated on the matched cell key.
-fn daughter_key(suffix: &str) -> StringLit {
-    StringLit::template(vec![
-        StringSeg::Expr(Expr::var("?cid")),
-        StringSeg::Lit(suffix.into()),
-    ])
-}
-
 // ── process Grow ────────────────────────────────────────────────────
 
 fn grow_def() -> crate::ast::ProcessDef {
@@ -121,10 +113,13 @@ fn cell_def() -> CompositeDef {
     ];
 
     // Reads its mass from the enclosing container and writes the grown
-    // value back: `~{mass} ->{mass}`.
+    // value back: `~{mass} ->{mass}`. `mass` is the EXTENSIVE `Mass`
+    // quantity, so the cell's instance schema types it as `Delta` — which is
+    // what makes `.divide()` halve it (schema-driven, not hard-coded).
+    let mass_t = || SchemaExpr::quantity(crate::ast::UnitExpr::named("kg"), true, false);
     let interface = Interface::new()
-        .with_input("mass", PortDecl::required(SchemaExpr::Float))
-        .with_output("mass", PortDecl::required(SchemaExpr::Float));
+        .with_input("mass", PortDecl::required(mass_t()))
+        .with_output("mass", PortDecl::required(mass_t()));
 
     let body = Expr::parallel(vec![
         Expr::entry("mass", Expr::var("mass")),
@@ -156,26 +151,26 @@ fn divide_def() -> ReactionDef {
         Expr::float(2.0),
     )];
 
-    // Redex: `?cid : Cell[mass: ?m]` — matches a container by its `_type:
-    // Cell` tag and binds `?m` to the `mass` field BY NAME (the matcher is
-    // name-aligned: see prism_schema::reaction). The extra `body` subengine
-    // is tolerated, and binding is independent of field order.
+    // Redex: `?cid : ?cell::Cell` — the entry key binds to `?cid`, and the
+    // matched cell VALUE binds to `?cell` (a nested typed site = as-pattern;
+    // `?cell` is captured by `Pattern::Bind`). No `?m` needed — the guard
+    // reads the cell directly.
     let redex = Expr::site_typed(
         "?cid",
-        Expr::term("Cell")
-            .arg_named("mass", Expr::site("?m"))
-            .build(),
+        Expr::site_typed("?cell", Expr::term("Cell").build()),
     );
-    let guard = Some(Expr::gt(Expr::var("?m"), Expr::var("threshold")));
 
-    // Reactum: two daughter containers at half mass (Step 2a literal split;
-    // Step 2b replaces this with `?cid.divide()`). The BRS removes the
-    // matched `?cid` and `_add`s these.
-    let half = || Expr::div(Expr::var("?m"), Expr::float(2.0));
-    let reactum = Expr::Map(vec![
-        (daughter_key("_0"), container(half())),
-        (daughter_key("_1"), container(half())),
-    ]);
+    // Guard: `?cell.mass > threshold` — field access on the bound cell.
+    let guard = Some(Expr::gt(
+        Expr::Path(crate::ast::PlacePath::local("?cell").dot("mass")),
+        Expr::var("threshold"),
+    ));
+
+    // Reactum: `?cell.divide(?cid)` — the cell divides ITSELF (the
+    // type-relative, schema-driven `divide` method): extensive mass halves,
+    // the rest shared, daughters keyed `?cid_0`/`?cid_1` from the passed id.
+    // The BRS removes the matched `?cid` and `_add`s the daughters.
+    let reactum = Expr::method(Expr::var("?cell"), "divide", vec![Expr::var("?cid")]);
 
     ReactionDef {
         name: "Divide".into(),

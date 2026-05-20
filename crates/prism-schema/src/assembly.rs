@@ -343,6 +343,9 @@ pub fn to_value(pattern: &Pattern) -> Result<Value, String> {
         Pattern::Absent => {
             Err("to_value: pattern has Absent markers (only valid in redex)".into())
         }
+        Pattern::Bind { .. } => {
+            Err("to_value: pattern has Bind markers (only valid in redex)".into())
+        }
         Pattern::Atom(v) => Ok(v.clone()),
         Pattern::Map(m) => {
             let mut out = StateMap::new();

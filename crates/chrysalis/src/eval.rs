@@ -767,18 +767,21 @@ impl Evaluator {
                         Ok(Pattern::Site)
                     }
                     Some(sub) => {
-                        let pat = self.eval_pattern(sub, env, bindings)?;
+                        // A NESTED typed site `?name::Sort` is an AS-PATTERN:
+                        // match `Sort` AND bind the whole matched node to
+                        // `?name` (captured as a site), so the guard/reactum
+                        // can reuse it (`?cid : ?cell::Cell` → use `?cell`).
+                        // The TOP-LEVEL `?name : Sort` is the key binding,
+                        // handled by `eval_pattern_top`.
+                        let inner = self.eval_pattern(sub, env, bindings)?;
                         bindings.insert(
                             name.clone(),
-                            BindingSource::OuterKey(Key::from(name.as_str())),
+                            BindingSource::Site(Key::from(name.as_str())),
                         );
-                        // Return a one-entry Map where the redex key is the
-                        // chrysalis variable name and the value is the
-                        // sub-pattern. Auto-append `_rest` site.
-                        let mut map: IndexMap<Key, Pattern> = IndexMap::new();
-                        map.insert(Key::from(name.as_str()), pat);
-                        map.insert(Key::from("_rest"), Pattern::Site);
-                        Ok(Pattern::Map(map))
+                        Ok(Pattern::Bind {
+                            name: Key::from(name.as_str()),
+                            inner: Box::new(inner),
+                        })
                     }
                 }
             }

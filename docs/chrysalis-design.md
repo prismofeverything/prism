@@ -606,13 +606,31 @@ Surface:
    (`prism_schema::reaction`): a redex key that names a state field binds
    that field BY NAME, independent of order, tolerating extra fields. This
    rung (Step 2a) uses a LITERAL split (`?m / 2`) in the reactum.
-3. **`?c.divide()`** (the code block below, the eventual surface): replace
-   the literal split with a `divide` value method dispatched to
-   `prism_schema`'s `type_divide` (extensive halves, intensive copies, id
-   reissued) — Step 2b, not yet wired.
+3. **`?c.divide()` — NOW LIVE (2026-05-20).**
+   `tests/grow_divide_homoiconic.rs` runs the real reaction and divides for
+   real (`0` → `{0_0, 0_1}`, mother removed). Surface:
 
-Memories: `project_grow_divide_internal_first`, `reference_matcher_name_aligned`,
-`reference_bridge_state_in_updates_out`.
+   ```
+   reaction Divide[threshold :: Mass = 2.0] (
+     ?cid : ?cell::Cell  where ?cell.mass > threshold  =>  ?cell.divide(?cid)
+   )
+   ```
+
+   - **`::` = typing, `:` = key:value** (disambiguates the overloaded colon).
+   - **As-pattern:** a nested typed site `?cell::Cell` binds the matched cell
+     VALUE to `?cell` (`prism_schema::reaction::Pattern::Bind`); the
+     top-level `?cid : …` still binds the key.
+   - **`.divide()` is type-relative + schema-driven:** a value method
+     (`MethodRegistry`) dispatched on the cell's `_type`, deriving the cell's
+     instance schema from the program (mass = extensive → `Delta`) and
+     running `divide_by_schema` — extensive halves, the rest shared, **no
+     literal `mass / 2`**. The id is passed in (`divide(?cid)`), so the cell
+     stores no id (the map key IS the id). The BRS does the structural
+     rewrite (`_remove ?cid` + `_add daughters`) — a reaction changes
+     structure; it does not emit a divide sentinel.
+
+Memories: `project_grow_divide_internal_first`, `reference_schema_driven_divide`,
+`reference_matcher_name_aligned`, `reference_bridge_state_in_updates_out`.
 
 ```
 unit pg : [mass] = 1e-12 kg

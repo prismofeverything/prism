@@ -94,23 +94,22 @@ main = Environment[cells: {'0': Cell[id: '0', mass: 1.2] ->{environment: @}}]
 main.run(50.0)
 
 
-# ── Tier-1 stretch: homoiconic division (NOT yet runnable) ──────────────
-# The research goal this benchmark exists to prove: division as a
-# first-class reaction VALUE, installed in a BRS at the parent, where the
-# matched cell divides itself via a `.divide()` METHOD (prism `type_divide`:
-# extensive fields like mass halve, intensive config copies, the id is
-# reissued — the rule never hard-codes `mass / 2`).
+# ── Homoiconic division — NOW RUNS (the research goal) ──────────────────
+# Division as a first-class reaction VALUE in a parent BRS, where the matched
+# cell divides ITSELF via a type-relative, schema-driven `.divide()` method:
+# extensive fields (mass) halve, intensive copy — the rule never hard-codes
+# `mass / 2`. Proven by crates/chrysalis/tests/grow_divide_homoiconic.rs.
 #
-# Blocked on: (a) `type_divide`; (b) a matchable read-only projection of
-# each cell's `mass` at the parent surface (a cell is an encapsulated
-# subengine, so an external reaction can't see its mass today). See
-# docs/chrysalis-design.md and the memory project_grow_divide_internal_first.
+# Notation: `::` is typing, `:` is key:value (disambiguating the colon). A
+# nested typed site `?cell::Cell` is an as-pattern: it binds the matched cell
+# VALUE to `?cell` (the top-level `?cid : …` binds the key). `divide` takes
+# the id, so a cell stores no id (the map key IS the id).
 #
-#   reaction Divide[threshold: Mass = 2.0] (
-#     ?c : Cell[mass: ?m] where ?m > threshold  =>  ?c.divide()
+#   reaction Divide[threshold :: Mass = 2.0] (
+#     ?cid : ?cell::Cell  where ?cell.mass > threshold  =>  ?cell.divide(?cid)
 #   )
 #
-#   composite Environment[cells: Map[Cell], threshold: Mass = 2.0]
+#   composite Environment[cells :: Map[Cell], threshold :: Mass = 2.0]
 #     ~{} ->{cells}
 #   (
 #     cells: cells |

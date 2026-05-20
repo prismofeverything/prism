@@ -155,6 +155,8 @@ fn layout(pat: &Pattern) -> Lay {
                 None => forest_layout(children),
             }
         }
+        // An as-pattern (`?name::Sort`) renders as its inner pattern.
+        Pattern::Bind { inner, .. } => layout(inner),
     }
 }
 
