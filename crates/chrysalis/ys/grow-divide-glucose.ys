@@ -1,0 +1,106 @@
+# Grow / divide on a shared glucose pool — chrysalis surface form
+# ──────────────────────────────────────────────────────────────────────
+# Tier-1 benchmark #1b: resource-limited growth.
+#
+# The same cells as `grow-divide-unbounded.ys` — same `Grow`, same
+# `Divide` reaction — but now growth is bounded by a finite glucose pool
+# shared across the whole environment. Each cell:
+#   - reads the shared glucose level through an input port,
+#   - grows at a Monod-saturating rate   mu = mu_max · S / (k_half + S),
+#   - draws glucose from the pool in proportion to the biomass it makes
+#     (yield Y):   consumed = grew / Y.
+#
+# As the population goes exponential, total uptake goes exponential too,
+# so the pool depletes and mu → 0. Biomass approaches an asymptote set by
+# the initial glucose and the yield.
+#
+#   THE TEST: total biomass *saturates* rather than diverging, and final
+#   biomass ≈ Y · S₀ (every fmol of glucose becomes Y pg of biomass).
+#
+# Exchange wiring: each Cell exposes a `glucose` port; the Environment's
+# `glucose` field bridges to every cell's port — one shared link (a
+# hyperedge over all cells), so all cells read the same level and their
+# uptake deltas accumulate on the one pool. The cell emits glucose as a
+# negative `delta` (uptake); the pool's additive apply depletes it.
+#
+# Spec only — parser is task #12. See docs/chrysalis-design.md,
+# "Units and quantities" and benchmark example 1b.
+
+
+# ── Dimensioned scalar types ────────────────────────────────────────
+# `Glucose` (the pool) and `HalfSat` (the Monod constant) share the
+# dimension [substance] but differ in extensivity — extensivity is
+# orthogonal to dimension. The pool depletes/splits; the constant copies.
+unit pg   : [mass]      = 1e-12 kg
+unit fmol : [substance] = 1e-15 mol
+
+Mass    = Quantity[unit: pg,     extensive]   # cell biomass
+Glucose = Quantity[unit: fmol,   extensive]   # the shared pool — depletes
+HalfSat = Quantity[unit: fmol]                # Monod K — intensive, same dim
+Rate    = Quantity[unit: 1/s]                 # intensive
+Yield   = Quantity[unit: pg/fmol]             # biomass per glucose, [mass]/[substance]
+Time    = Quantity[unit: s]
+
+
+# Monod-limited growth that consumes glucose from the shared pool.
+process Grow[
+  mu_max: Rate    = 0.2,
+  k_half: HalfSat = 50.0,
+  yield:  Yield   = 0.5
+]
+  ~{mass: Mass, glucose: Glucose, interval: Time = 0.1}
+  ->{mass: Mass, glucose: Glucose}
+(
+  mu       = mu_max * glucose / (k_half + glucose) |   # 1/s · (fmol/fmol) = 1/s
+  grew     = mu * mass * interval |                    # (1/s)·pg·s = pg
+  consumed = grew / yield |                            # pg / (pg/fmol) = fmol
+  {mass: grew, glucose: -consumed}                     # +biomass here; −glucose upstream
+)
+
+
+composite Cell[
+  id:     String,
+  mass:   Mass    = 1.0,
+  mu_max: Rate    = 0.2,
+  k_half: HalfSat = 50.0,
+  yield:  Yield   = 0.5
+]
+  ~{glucose: Glucose}                  # reads the shared pool
+  ->{mass: Mass, glucose: Glucose}     # exposes biomass and its glucose draw
+(
+  mass: mass |
+  Grow[mu_max: mu_max, k_half: k_half, yield: yield]
+    ~{mass: mass, glucose: glucose}    # grow sees own mass + shared glucose
+    ->{mass: mass, glucose: glucose}   # biomass → own field; uptake delta → shared port
+)
+
+
+# Identical to the unbounded model: mass (extensive) splits between the
+# daughters; the Monod params (intensive) copy unchanged.
+reaction Divide[threshold: Mass = 2.0] (
+  ?c : Cell[mass: ?m] where ?m > threshold
+  =>
+  ?c.divide()
+)
+
+
+composite Environment[
+  cells:     Map[Cell],
+  glucose:   Glucose = 1000.0,   # finite shared pool — the growth limiter
+  threshold: Mass    = 2.0
+]
+  ~{}
+  ->{cells, glucose}
+(
+  glucose: glucose |             # the one shared pool; cells deplete it
+  cells: cells |
+  BRS[rules: [Divide[threshold: threshold]]]
+    ~{state: cells} ->{state: cells}
+)
+
+
+main = Environment[
+  glucose: 1000.0,
+  cells: {'0': Cell[id: '0', mass: 1.2]}
+]
+main.run(300.0)   # long enough to deplete the pool and reach the asymptote

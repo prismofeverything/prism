@@ -11,7 +11,7 @@ from a framework into a language.
 **Home:** `crates/chrysalis/` (a member crate of the prism workspace).
 
 **File extension:** `.ys` (chrYSalis). Source files live in
-`crates/chrysalis/programs/`.
+`crates/chrysalis/ys/`.
 
 **Contract:** `chrysalis::compile(source) -> (Topology, ProcessRegistry entries)`.
 Everything below the compiler is prism-native.
@@ -138,7 +138,7 @@ them.
 
 ```
 # Build a reaction in an update body, modify it, install a new BRS.
-rule = MassThresholdDivide[threshold: 2.0]
+rule = Divide[threshold: 2.0]
   .with_rate(0.5)
   .with_label('faster_divide')
 
@@ -186,6 +186,213 @@ state directly. This preserves the projection/structural-diff model.
 Engine-level operations (scheduling, triggering, applying projections)
 are NOT exposed as methods — that's the runtime calling chrysalis, not
 the other way around.
+
+## Units and quantities
+
+Scalars carry **dimension** and **unit** in their *schema*, never in the
+value. A `mass` field is a `Value::Float`; what makes it a mass is its
+type. Units add no new value representation — they sit where prism
+already reads `extensive` / `delta` / custom-type dispatch.
+
+The *model* is pint's (a runtime dimensional system — uom's
+compile-time, type-level units cannot describe schemas defined in data,
+which chrysalis schemas are). The *execution* is uom's (erased,
+zero-cost). chrysalis gets both because it is a compiler, not a runtime
+wrapper — see "check once, erase, run raw".
+
+| Layer | Representation | Role |
+|---|---|---|
+| **Dimension** | base-dimension → **rational** exponent (`[mass]^1`, `[substance]^1·[length]^-3`) | **compatibility** — ports wire iff dimensions are *equal* |
+| **Unit** | belongs to one dimension; `(scale, offset, affine?)` vs. the dimension's canonical unit | **conversion** — m/ft, pg/kg, molecule/mol (Avogadro) are units of the *same* dimension |
+| **Quantity** | a field schema: `(unit, extensive?, affine?)` | the typed scalar; the stored value is a bare `Float` magnitude in `unit` |
+
+Base dimensions are the SI seven (`[length] [mass] [time] [substance]
+[temperature] [current] [luminous]`) plus dimensionless. Exponents are
+rationals, so √-dimensions (noise density, fractal scalings) are
+representable; biology uses integer powers, but the dimension group must
+be correct in general.
+
+### Check once, erase, run raw (no per-op churn)
+
+Units usually fail in practice because a library (pint, `Quantity`
+wrappers) boxes every number as `(magnitude, unit)` and re-validates
+dimensions on *every* arithmetic op — box/unbox churn to re-prove what
+is already proven. chrysalis does not pay this, because it is a
+**language with a check phase**, not a library evaluated per-op:
+
+1. **Check (compile time).** Dimensional inference runs once over each
+   expression body. `+`/`−` require equal dimensions; `*`/`/` compose
+   them; `^` scales exponents; a literal in a dimensioned slot takes
+   that slot's unit. Mismatches are construction errors (illegal
+   programs unrepresentable — resolved decision #8).
+2. **Lower + erase (construction time).** The checked body lowers to
+   raw-`f64` ops; **units are erased**. Where a value in unit A meets a
+   slot in unit B, the compiler bakes a single constant multiply (plus
+   an add, for affine), factor computed once; same-unit paths get
+   nothing. Wiring resolves each conversion per *wire*, once, when the
+   topology is built — not per tick.
+3. **Run (runtime).** The engine executes bare `f64`: no `Quantity`
+   objects, no dimension vectors, no per-op checks, no allocation —
+   identical cost to hand-written unitless code, save the occasional
+   baked-in constant on a converting wire.
+
+This is F#-/uom-style **erasure** achieved over *runtime-defined*
+schemas: pint's flexibility (units in data) with uom's zero cost (units
+gone before execution). A library cannot do this — with no compile phase
+it must check every op; a language can. The one caveat is
+schema-as-state: if a process rewrites a field's unit at runtime, the
+affected wires/bodies are re-checked at that structural event —
+amortized to the mutation, never per arithmetic op.
+
+### Compatibility and conversion (wiring is dimension-checked)
+
+Wiring is composition in the s-category. The check-phase rule:
+**dimensions must be equal** (`[mass]`→`[mass]` wires; `[mass]`→
+`[time]^-1` errors); **units may differ**, and the conversion (scale, or
+scale+offset for affine) is computed once and baked into the wire.
+Crossing *dimensions* is possible only through a **context** (below).
+
+### Affine quantities reuse prism's `delta`
+
+The subtle case is **affine** quantities — temperature, position,
+absolute time — where a *value* and a *difference* differ ("37 °C" vs
+"+0.5 °C"; "1 K" is ambiguous). prism already encodes this split: a
+state field is an *absolute* (affine) quantity; a process update
+`{x: delta}` is a *difference* (a vector). prism's `delta` schema type
+*is* the vector companion. For multiplicative units (offset 0) absolute
+and delta coincide — which is why grow/divide never noticed. The affine
+algebra (checked, then erased):
+
+| op | result |
+|---|---|
+| absolute − absolute | delta |
+| absolute + delta | absolute |
+| absolute + absolute | **error** |
+| delta ± delta | delta |
+| `*` / `/` on an affine absolute | **error** (operate on the delta) |
+
+### Extensivity is orthogonal to dimension
+
+Whether a quantity **splits or copies on divide** is a separate axis
+from dimension: mass `[mass]` is *extensive* (splits); concentration
+`[substance]·[length]^-3` is *intensive* (copies). So `Quantity` carries
+an `extensive` flag independent of unit; it affects only divide, not
+wiring or arithmetic. This is the flag
+`prism_schema::TypeRegistry::type_divide` already keys on (its
+`DivideContext`: "extensive scalars halve unconditionally; intensive
+scalars copy").
+
+A composite's `divide()` (a value method dispatched via `type_divide`)
+recurses its fields by role: the **identity** (`id`, resolved decision
+#6) is reissued per daughter; **extensive** scalars split; **intensive**
+scalars copy; nested composites/collections divide by their own type
+(lists partition, graphs cleave). The `Divide` reaction calls
+`?c.divide()` and splices the daughters in place of the matched cell —
+so adding `volume: Quantity[unit: fL, extensive]` to `Cell` makes
+division halve volume too, with no rule change.
+
+### Contexts (cross-dimension conversion)
+
+Some conversions cross dimensions and hold only in a physical situation,
+so they cannot live in the global unit table. A **context** (after
+pint's `@context`) is a named, parameterized set of cross-dimension
+transformation rules. Two matter for biology:
+
+- **Molar mass** — `[mass] ↔ [substance]`, via a species' molar mass
+  (glucose ≈ 180.16 g/mol). The factor is the substance's own property.
+- **Concentration** — `[substance] ↔ [substance]·[length]^-3`, via the
+  enclosing compartment's **volume** — and the factor is *state* that
+  changes as the cell grows.
+
+molecule↔mol is **not** a context — it is a unit (a fixed Avogadro scale
+*within* `[substance]`). Contexts are only for crossing dimensions.
+
+```
+context concentration (volume: Volume) (
+  [substance] <-> [substance]/[length]^3 : value / volume
+)
+context molar (mw: MolarMass) (
+  [mass] <-> [substance] : value / mw
+)
+```
+
+`value` is the source quantity; `<->` is bidirectional. A parameter
+(`volume`, `mw`) is bound at the conversion site by ordinary name
+resolution — a constant, a place-graph path, or the value's type
+metadata. Two ways this differs from pint, both bigraph-native:
+
+1. **Parameters can be place-graph state.** `volume` resolves to the
+   enclosing compartment's volume, so concentrations track a growing
+   cell's volume with no extra machinery. This is *why* concentration is
+   intensive: it is amount(extensive) / volume(extensive), so on divide
+   both halve and the ratio is preserved — resolved decision #11's
+   extensivity falls out of the context relation rather than being
+   declared.
+2. **Activation is structural, not a `with` block.** A region brings a
+   context into scope for everything nested inside it; the place graph
+   *is* the scope:
+
+   ```
+   composite Cytoplasm[volume: Volume] using concentration(volume: @.volume) (
+     ...   # a [substance] amount in here reads as a concentration
+   )
+   ```
+
+   A reaction in the cytoplasm whose rate law is written in concentration
+   units gets each amount read as `amount / cytoplasm.volume`
+   automatically — the right volume because that is where the substance
+   physically sits. One-off boundary conversions stay explicit, e.g.
+   `g.to[mol](molar)` (the `mw` resolves from the value's type).
+
+**Still zero-cost.** The context lookup, the check that the bridge is
+legitimate, and the choice of factor-source happen once in the check
+phase and are **erased**. At runtime a context conversion is a single
+arithmetic op (`x / volume`) against a constant or a state reference —
+the genuine physical computation, never a re-validation. Crossing
+dimensions costs exactly one baked-in op, like a same-dimension unit
+conversion.
+
+### Surface syntax
+
+```
+# A unit belongs to a dimension, defined by relation to a canonical unit
+# (SI base units kg, m, s, mol, K, … are built in). '*'/'/' give
+# multiplicative units; '+' marks an affine offset.
+unit pg       : [mass]        = 1e-12 kg
+unit fmol     : [substance]   = 1e-15 mol
+unit molecule : [substance]   = mol / 6.02214076e23     # Avogadro — same dimension
+unit degC     : [temperature] = K + 273.15              # affine
+
+# A dimensioned scalar type names a (unit, flags); dimension is inferred
+# from the unit. `extensive` opts into splitting on divide (default
+# intensive); `affine` marks a point quantity (default vector).
+Mass = Quantity[unit: pg,   extensive]
+Rate = Quantity[unit: 1/s]                 # intensive
+Conc = Quantity[unit: fmol/fL]             # [substance]·[length]^-3
+Temp = Quantity[unit: degC, affine]        # differences are deltas
+```
+
+`Quantity[…]` lowers to a `Float` schema annotated with the unit;
+field-position literals read in the field's unit (`Cell[mass: 1.2]` is
+1.2 pg). A unit-annotated literal (`1.2 pg`) is dimension-checked
+against the slot.
+
+### Runtime support required
+
+- prism-schema: a `Dimension` (rational-exponent vector) and `Unit`
+  `(dimension, scale, offset, affine)`, a unit registry, and optional
+  `unit`/`extensive`/`affine` metadata on the `Float` schema. Dimension
+  equality + conversion-factor computation are ordinary functions called
+  by the checker — never on the hot path.
+- A dimensional-inference pass in the chrysalis compiler (the "check"
+  phase) that erases to raw-`f64` bodies with conversions baked as
+  constants.
+- `type_divide` reads the `extensive` flag for scalar fields; affine
+  arithmetic rules in `eval.rs`. uom may back canonical-SI scale
+  constants internally; it is not the surface or runtime value model.
+- Context resolution: a cross-dimension conversion resolves its context
+  and factor-source (constant, place-graph path, or type metadata) in
+  the check phase and erases to one runtime op, like a unit conversion.
 
 ## Syntactic kernel
 
@@ -325,48 +532,102 @@ All must be expressible in chrysalis **with reactions, patterns, and
 (for tier 2) process-body Exprs constructed in surface syntax as
 values**.
 
-### 1. Grow/divide
+### 1. Grow/divide (unbounded)
 
-Division becomes a runtime-constructed
-`reaction MassThresholdDivide[threshold]` installed in a parent BRS,
-not a hardcoded `step`. Tests: reactions-as-values, parameterized
-rules, `where` guards on patterns.
+Division becomes a runtime-constructed `reaction Divide[threshold]`
+installed in a parent BRS, not a hardcoded `step` — and it calls the
+cell's own `.divide()` instead of hard-coding the split, so the rule is
+agnostic to which fields are extensive. Tests: reactions-as-values,
+parameterized rules, `where` guards, `.divide()` dispatch, units.
+Surface:
+[`crates/chrysalis/ys/grow-divide-unbounded.ys`](../crates/chrysalis/ys/grow-divide-unbounded.ys).
 
 ```
-process Grow[rate: Float = 0.2]
-  ~{mass: Float, interval: Float = 0.1}
-  ->{mass: Float}
+unit pg : [mass] = 1e-12 kg
+Mass = Quantity[unit: pg, extensive]
+Rate = Quantity[unit: 1/s]
+Time = Quantity[unit: s]
+
+process Grow[rate: Rate = 0.2]
+  ~{mass: Mass, interval: Time = 0.1}
+  ->{mass: Mass}
 (
-  delta = mass * rate * interval |
+  delta = mass * rate * interval |   # [mass] = [mass]·[1/time]·[time]
   {mass: delta}
 )
 
-composite Cell[id: String, mass: Float = 1.0, growth_rate: Float = 0.02]
-  ~{}
-  ->{mass}
+composite Cell[id: String, mass: Mass = 1.0, growth_rate: Rate = 0.02]
+  ~{} ->{mass}
 (
   mass: mass |
   Grow[rate: growth_rate] ~{mass: mass} ->{mass: mass}
 )
 
-reaction MassThresholdDivide[threshold: Float = 2.0] (
-  ?cid : Cell[mass: ?m] where ?m > threshold
+reaction Divide[threshold: Mass = 2.0] (
+  ?c : Cell[mass: ?m] where ?m > threshold
   =>
-  { '{?cid}_0' : Cell[mass: ?m / 2],
-    '{?cid}_1' : Cell[mass: ?m / 2] }
+  ?c.divide()           # mass (extensive) halves; rate (intensive) copies; id reissued
 )
 
-composite Environment[cells: Map[Cell], threshold: Float = 2.0]
-  ~{}
-  ->{cells}
+composite Environment[cells: Map[Cell], threshold: Mass = 2.0]
+  ~{} ->{cells}
 (
   cells: cells |
-  BRS[rules: [MassThresholdDivide[threshold: threshold]]]
-    ~{state: cells} ->{state: cells}
+  BRS[rules: [Divide[threshold: threshold]]] ~{state: cells} ->{state: cells}
 )
 
 main = Environment[cells: {'0': Cell[id: '0', mass: 1.2]}]
 main.run(10.0)
+```
+
+### 1b. Grow/divide on a shared resource (glucose)
+
+Same cells and the same `Divide` rule, but growth is bounded by a finite
+glucose pool shared across the environment — one link (a hyperedge) over
+all cells. Each cell reads the pool, grows at a Monod-saturating rate
+`mu = mu_max·S/(k_half+S)`, and draws glucose in proportion to biomass
+made (`consumed = grew/yield`), emitted as a negative `delta` the pool's
+additive apply depletes. As the population goes exponential the pool
+empties and `mu → 0`, so total biomass *saturates* at ≈ `yield·S₀`
+rather than diverging — that asymptote is the test. Adds: input/output
+exchange ports bridged to a shared parent field; and `HalfSat`, a
+quantity of the *same dimension* as the pool but intensive — extensivity
+⊥ dimension. Surface:
+[`crates/chrysalis/ys/grow-divide-glucose.ys`](../crates/chrysalis/ys/grow-divide-glucose.ys).
+
+```
+Glucose = Quantity[unit: fmol, extensive]   # the shared pool — depletes
+HalfSat = Quantity[unit: fmol]              # Monod K — intensive, same dimension
+Yield   = Quantity[unit: pg/fmol]           # biomass per glucose
+
+process Grow[mu_max: Rate = 0.2, k_half: HalfSat = 50.0, yield: Yield = 0.5]
+  ~{mass: Mass, glucose: Glucose, interval: Time = 0.1}
+  ->{mass: Mass, glucose: Glucose}
+(
+  mu       = mu_max * glucose / (k_half + glucose) |
+  grew     = mu * mass * interval |
+  consumed = grew / yield |
+  {mass: grew, glucose: -consumed}     # +biomass here; −glucose to the shared pool
+)
+
+composite Cell[id: String, mass: Mass = 1.0,
+               mu_max: Rate = 0.2, k_half: HalfSat = 50.0, yield: Yield = 0.5]
+  ~{glucose: Glucose} ->{mass: Mass, glucose: Glucose}
+(
+  mass: mass |
+  Grow[mu_max: mu_max, k_half: k_half, yield: yield]
+    ~{mass: mass, glucose: glucose} ->{mass: mass, glucose: glucose}
+)
+
+# Divide as in #1. The Environment holds the shared `glucose: Glucose`
+# pool, which bridges to every cell's glucose port.
+composite Environment[cells: Map[Cell], glucose: Glucose = 1000.0, threshold: Mass = 2.0]
+  ~{} ->{cells, glucose}
+(
+  glucose: glucose |
+  cells: cells |
+  BRS[rules: [Divide[threshold: threshold]]] ~{state: cells} ->{state: cells}
+)
 ```
 
 ### 2. MAPK signaling
@@ -570,6 +831,23 @@ is the full target.
     morphism factorization; composite-as-process is the categorical
     reality. This justifies the `~{} ->{}` interface and the `|`
     algebra without separate motivation.
+11. **Units live in the schema; the checker erases them.** Quantities
+    are dimension + unit + extensivity metadata on `Float` schemas, not
+    boxed values. Compatibility is dimension equality (rational
+    exponents); differing units auto-convert; affine quantities reuse
+    prism's `delta` as their vector companion. Dimensional checking is a
+    one-time compile/construction pass and units are **erased** before
+    execution — runtime is bare `f64`, no per-op validation. See "Units
+    and quantities".
+12. **Cross-dimension conversion is contextual.** A `context` gives
+    named, parameterized rules between dimensions — molar mass
+    (`[mass]↔[substance]`) and concentration
+    (`[substance]↔[substance]/[length]^3`). Unlike pint, parameters may
+    be place-graph state (a compartment's `volume`) and activation is
+    structural (a region scopes a context over its contents), so
+    concentrations track changing volumes natively. Resolved + erased in
+    the check phase; runtime is one op. molecule↔mol stays a unit, not a
+    context. See "Contexts (cross-dimension conversion)".
 
 ## Open design decisions
 

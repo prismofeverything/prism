@@ -1,11 +1,13 @@
 //! Grow/divide example as a hand-built chrysalis AST.
 //!
 //! Surface form lives at
-//! [`crates/chrysalis/programs/grow_divide.ys`](../../../programs/grow_divide.ys);
-//! this module is the parser-free hand-built equivalent until task #12
-//! (the parser) lands. The two must stay in sync — when the parser
-//! does land, the e2e test will load the `.ys` and assert structural
-//! equality against the AST this module builds.
+//! [`crates/chrysalis/ys/grow-divide-unbounded.ys`](../../ys/grow-divide-unbounded.ys).
+//! This module is the parser-free hand-built equivalent until task #12
+//! (the parser) lands. NOTE: the `.ys` file is the *target* surface and
+//! now uses units + a `.divide()` method call; this module still encodes
+//! the original literal-split form (`mass / 2` in the reactum), which is
+//! what the runtime executes today. They reconverge when method dispatch
+//! + units land and the e2e test loads the `.ys`.
 //!
 //! Surface form (from `docs/chrysalis-design.md`):
 //!

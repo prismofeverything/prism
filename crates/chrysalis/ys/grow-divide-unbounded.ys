@@ -1,0 +1,82 @@
+# Grow / divide, unbounded — chrysalis surface form
+# ──────────────────────────────────────────────────────────────────────
+# Tier-1 acceptance benchmark #1.
+#
+# A single cell grows multiplicatively with no resource limit, so the
+# population diverges exponentially. When a cell's mass crosses
+# `threshold`, the runtime-constructed `Divide` reaction fires and
+# replaces the cell with the daughters produced by the cell's own
+# `divide` method.
+#
+# Contrast `grow-divide-glucose.ys`, where a finite shared glucose pool
+# bounds growth into an asymptotic curve.
+#
+# Exercises:
+#   - reactions as values (constructed at runtime, installed in a BRS)
+#   - `.divide()` as a value method dispatched on the composite's type
+#     (prism `type_divide`): each field is split by its role — extensive
+#     fields (mass) halve, intensive config (rate) copies, the id is
+#     reissued. The reaction never hard-codes `mass / 2`. Add an
+#     extensive field later (e.g. volume) and division halves it too,
+#     with no change to the rule.
+#   - units on scalars: mass in picograms, carried in the schema
+#   - `where` guards on patterns
+#
+# Spec only — the parser is task #12. The currently-runnable AST lives in
+# crates/chrysalis/src/fixtures/grow_divide.rs, which still encodes the
+# older literal-split form; this file is the target surface. See
+# docs/chrysalis-design.md, "Units and quantities".
+
+
+# ── Dimensioned scalar types ────────────────────────────────────────
+# Units live in the schema; values stay plain Floats. Canonical SI base
+# units (kg, m, s, mol, K, …) are built in. `extensive` opts a quantity
+# into splitting on divide; the default is intensive (copy).
+unit pg : [mass] = 1e-12 kg
+
+Mass = Quantity[unit: pg, extensive]   # picograms; splits on divide
+Rate = Quantity[unit: 1/s]             # intensive; copies on divide
+Time = Quantity[unit: s]               # so mass·rate·interval checks to [mass]
+
+
+process Grow[rate: Rate = 0.2]
+  ~{mass: Mass, interval: Time = 0.1}
+  ->{mass: Mass}
+(
+  delta = mass * rate * interval |     # [mass] = [mass]·[1/time]·[time]  ✓
+  {mass: delta}
+)
+
+
+composite Cell[id: String, mass: Mass = 1.0, growth_rate: Rate = 0.02]
+  ~{}
+  ->{mass}
+(
+  mass: mass |
+  Grow[rate: growth_rate] ~{mass: mass} ->{mass: mass}
+)
+
+
+# `Divide` triggers the cell's own `divide` method instead of hard-coding
+# the split. `divide` dispatches on Cell's type: `mass` (extensive)
+# halves, `growth_rate` (intensive) copies, `id` is reissued per
+# daughter. The matched cell is replaced by the daughters it returns.
+reaction Divide[threshold: Mass = 2.0] (
+  ?c : Cell[mass: ?m] where ?m > threshold
+  =>
+  ?c.divide()
+)
+
+
+composite Environment[cells: Map[Cell], threshold: Mass = 2.0]
+  ~{}
+  ->{cells}
+(
+  cells: cells |
+  BRS[rules: [Divide[threshold: threshold]]]
+    ~{state: cells} ->{state: cells}
+)
+
+
+main = Environment[cells: {'0': Cell[id: '0', mass: 1.2]}]
+main.run(10.0)
