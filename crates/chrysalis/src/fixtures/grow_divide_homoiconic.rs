@@ -28,7 +28,7 @@ use indexmap::IndexMap;
 
 use crate::ast::{
     Block, CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, ReactionDef, SchemaExpr,
-    StringLit, StringSeg,
+    StringLit,
 };
 
 /// Build the homoiconic grow/divide program.

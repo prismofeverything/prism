@@ -175,11 +175,11 @@ impl Bridge {
         match (self, reversed) {
             (Bridge::ScaleConst(k), false) => Conversion::Scale(*k),
             (Bridge::ScaleConst(k), true) => Conversion::Scale(1.0 / k),
-            (Bridge::DivByParam(_), false) | (Bridge::MulByParam(_), true) => {
-                Conversion::ByState { op: StateOp::DivBy }
+            (Bridge::DivByParam(p), false) | (Bridge::MulByParam(p), true) => {
+                Conversion::ByState { op: StateOp::DivBy, param: p.clone() }
             }
-            (Bridge::MulByParam(_), false) | (Bridge::DivByParam(_), true) => {
-                Conversion::ByState { op: StateOp::MulBy }
+            (Bridge::MulByParam(p), false) | (Bridge::DivByParam(p), true) => {
+                Conversion::ByState { op: StateOp::MulBy, param: p.clone() }
             }
         }
     }
@@ -234,11 +234,13 @@ pub enum Conversion {
     Scale(f64),
     /// `m * scale + offset` — affine (offset-unit) conversion.
     Affine { scale: f64, offset: f64 },
-    /// `m {/, *} factor` where `factor` is supplied from state at the
+    /// `m {/, *} <param>` where the factor is supplied from state at the
     /// conversion site (e.g. the enclosing compartment's volume). The
     /// *choice* of op was resolved once; only the genuine arithmetic
-    /// remains at runtime.
-    ByState { op: StateOp },
+    /// remains at runtime. `param` names the state field — prism's `apply`
+    /// supplies its value as `state_factor`, while chrysalis bakes
+    /// `value / <param>` into the (unit-erased) body.
+    ByState { op: StateOp, param: String },
 }
 
 impl Conversion {
@@ -250,7 +252,7 @@ impl Conversion {
             Conversion::Identity => magnitude,
             Conversion::Scale(k) => magnitude * k,
             Conversion::Affine { scale, offset } => magnitude * scale + offset,
-            Conversion::ByState { op } => match op {
+            Conversion::ByState { op, .. } => match op {
                 StateOp::DivBy => magnitude / state_factor,
                 StateOp::MulBy => magnitude * state_factor,
             },

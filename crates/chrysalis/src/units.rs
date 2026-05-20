@@ -17,7 +17,9 @@ use std::collections::HashMap;
 
 use indexmap::IndexMap;
 
-use prism_schema::units::{Bridge, Context, ContextRule, Dimension, Unit};
+use prism_schema::units::{
+    resolve_conversion, Bridge, Context, ContextRule, Conversion, Dimension, StateOp, Unit,
+};
 
 use crate::ast::{self, BinOp, Block, Def, Expr, Program, SchemaExpr, UnaryOp, UnitExpr};
 
@@ -349,12 +351,13 @@ impl UnitEnv {
         op: &BinOp,
         ctxs: &[&Context],
     ) -> Result<Expr, UnitError> {
-        let rw = plan_coercion(from, to, ctxs).ok_or_else(|| UnitError::DimensionMismatch {
-            op: format!("{op:?}"),
-            left: to.dimension.clone(),
-            right: from.dimension.clone(),
-        })?;
-        Ok(apply_rewrite(rhs, rw))
+        let conv =
+            resolve_conversion(from, to, ctxs).ok_or_else(|| UnitError::DimensionMismatch {
+                op: format!("{op:?}"),
+                left: to.dimension.clone(),
+                right: from.dimension.clone(),
+            })?;
+        Ok(apply_rewrite(rhs, conv))
     }
 }
 
@@ -366,60 +369,23 @@ fn binop(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
     }
 }
 
-/// How to rewrite a value expression so it reads in a target unit.
-enum Rewrite {
-    Id,
-    Scale(f64),
-    MulParam(String),
-    DivParam(String),
-}
-
-fn apply_rewrite(e: Expr, rw: Rewrite) -> Expr {
-    match rw {
-        Rewrite::Id => e,
-        Rewrite::Scale(k) => Expr::mul(e, Expr::float(k)),
-        Rewrite::MulParam(p) => Expr::mul(e, Expr::var(p)),
-        Rewrite::DivParam(p) => Expr::div(e, Expr::var(p)),
-    }
-}
-
-/// Plan the conversion of a `from`-unit value into `to`'s unit, using
-/// in-scope contexts for cross-dimension bridges. `None` is unbridgeable.
-fn plan_coercion(from: &Unit, to: &Unit, ctxs: &[&Context]) -> Option<Rewrite> {
-    if from.dimension == to.dimension {
-        let factor = from.scale / to.scale;
-        return Some(if (factor - 1.0).abs() < 1e-12 {
-            Rewrite::Id
-        } else {
-            Rewrite::Scale(factor)
-        });
-    }
-    for ctx in ctxs {
-        for rule in &ctx.rules {
-            if rule.from == from.dimension && rule.to == to.dimension {
-                return Some(bridge_forward(&rule.bridge));
-            }
-            if rule.bidirectional && rule.to == from.dimension && rule.from == to.dimension {
-                return Some(bridge_reverse(&rule.bridge));
-            }
+/// Bake a resolved [`Conversion`] into the (unit-erased) value expression:
+/// a same-dimension scale multiplies, an affine unit adds its offset, and a
+/// context bridge becomes `value {/, *} <param>` (the factor supplied from
+/// the named state field). Resolution itself lives in
+/// `prism_schema::units::resolve_conversion` — chrysalis no longer
+/// re-implements it (one resolver, one `Conversion` type).
+fn apply_rewrite(e: Expr, conv: Conversion) -> Expr {
+    match conv {
+        Conversion::Identity => e,
+        Conversion::Scale(k) => Expr::mul(e, Expr::float(k)),
+        Conversion::Affine { scale, offset } => {
+            Expr::add(Expr::mul(e, Expr::float(scale)), Expr::float(offset))
         }
-    }
-    None
-}
-
-fn bridge_forward(b: &Bridge) -> Rewrite {
-    match b {
-        Bridge::ScaleConst(k) => Rewrite::Scale(*k),
-        Bridge::DivByParam(p) => Rewrite::DivParam(p.clone()),
-        Bridge::MulByParam(p) => Rewrite::MulParam(p.clone()),
-    }
-}
-
-fn bridge_reverse(b: &Bridge) -> Rewrite {
-    match b {
-        Bridge::ScaleConst(k) => Rewrite::Scale(1.0 / k),
-        Bridge::DivByParam(p) => Rewrite::MulParam(p.clone()),
-        Bridge::MulByParam(p) => Rewrite::DivParam(p.clone()),
+        Conversion::ByState { op, param } => match op {
+            StateOp::DivBy => Expr::div(e, Expr::var(param)),
+            StateOp::MulBy => Expr::mul(e, Expr::var(param)),
+        },
     }
 }
 
