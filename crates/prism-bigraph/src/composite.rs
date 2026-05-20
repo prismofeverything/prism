@@ -5,13 +5,22 @@
 //! its internal state. When embedded in a parent engine, the parent sees
 //! it as a single Process node.
 //!
-//! Bridge pattern:
-//! - Input bridge: maps external port names to internal state paths.
-//!   When update() is called, external input values are written into
-//!   the internal state at the bridged paths.
-//! - Output bridge: maps internal state paths to external port names.
-//!   After running the internal engine, output values are read from
-//!   the internal state at the bridged paths and returned as the update.
+//! Bridge pattern — ASYMMETRIC, and the asymmetry is load-bearing:
+//! - Input bridge: **STATE in.** Maps external port names to internal
+//!   state paths; external input values are SET (overwritten) into the
+//!   internal state at those paths before the inner engine runs.
+//! - Output bridge: **UPDATES out.** Maps internal state paths to external
+//!   port names; after running, the composite emits a *delta* per port —
+//!   NOT raw state. A regular port diffs pre/post; a **passthrough** port
+//!   (one whose internal path is absent from the inner state) instead
+//!   forwards the inner update's RAW delta with `_add`/`_remove` intact.
+//!
+//! Why the asymmetry matters: structural change has to cross the boundary
+//! as an *update*, not as replaced state. A subengine that OMITS a slot
+//! makes that port a passthrough, so an inner step's `{_remove, _add}`
+//! reaches the parent unchanged — this is how a cell divides itself
+//! (removes itself, adds daughters) up into its container. See
+//! `tests/growth_division.rs` and the chrysalis grow/divide fixture.
 
 use std::any::Any;
 use std::collections::HashMap;

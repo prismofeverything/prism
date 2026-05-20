@@ -1,68 +1,81 @@
-//! Grow/divide example as a hand-built chrysalis AST.
+//! Grow/divide example as a hand-built chrysalis AST — **internal division**.
 //!
 //! Surface form lives at
 //! [`crates/chrysalis/ys/grow-divide-unbounded.ys`](../../ys/grow-divide-unbounded.ys).
 //! This module is the parser-free hand-built equivalent until task #12
-//! (the parser) lands. NOTE: the `.ys` file is the *target* surface and
-//! now uses units + a `.divide()` method call; this module still encodes
-//! the original literal-split form (`mass / 2` in the reactum), which is
-//! what the runtime executes today. They reconverge when method dispatch
-//! + units land and the e2e test loads the `.ys`.
+//! (the parser) lands.
 //!
-//! Surface form (from `docs/chrysalis-design.md`):
+//! ## Why internal division
+//!
+//! A `Cell` is a real encapsulated subengine (`from_config`). Its `mass`
+//! lives inside `config.state`, so an *external* BRS reaction at the parent
+//! cannot see it to match `Cell[mass > threshold]`. That external form was
+//! idealistic (it's the homoiconic Step-2 target; see the `.ys`). The
+//! PROVEN pattern — a faithful port of upstream
+//! `process_bigraph/processes/growth_division.py`, verified in
+//! `crates/prism-bigraph/tests/growth_division.rs` — is **internal**: a
+//! `Divide` step *inside* each cell reads the cell's own mass and writes
+//! daughters UP to the parent via the bridge.
+//!
+//! ## Wiring (mirrors growth_division.rs verbatim)
+//!
+//! - inner `Grow`:   `~{mass: ["mass"]} ->{mass: ["mass"]}`   (sibling slot)
+//! - inner `Divide`: `~{trigger: ["mass"]} ->{environment: ["environment"]}`
+//! - the cell has **no** inner `environment` slot, so the bridge port
+//!   `environment → ["environment"]` is a *passthrough*: the raw
+//!   `{_remove, _add}` delta crosses to the parent intact (true division —
+//!   the parent cell is removed, two daughters added).
+//! - cell top-level output: `->{environment: @}` → `[]`. An empty wire
+//!   resolves to the process's CONTAINER (the engine is container-relative),
+//!   i.e. the `cells` map the cell lives in. This is exactly
+//!   growth_division.rs's `wire(&[])`. (`^` → `[".."]` would pop one level
+//!   too high — see docs/chrysalis-design.md.)
+//!
+//! Surface form (target):
 //!
 //! ```text
-//! process Grow[rate: Float = 0.2]
-//!   ~{mass: Float, interval: Float = 0.1}
+//! process Grow[rate: Float = 0.02]
+//!   ~{mass: Float, interval: Float = 1.0}
 //!   ->{mass: Float}
-//! (
-//!   delta = mass * rate * interval |
-//!   {mass: delta}
-//! )
+//! ( delta = mass * rate * interval | {mass: delta} )
 //!
-//! composite Cell[id: String, mass: Float = 1.0, growth_rate: Float = 0.02]
+//! step Divide[id: String, threshold: Float = 2.0]
+//!   ~{trigger: Float}
+//!   ->{environment: Map[Cell]}
+//! ( { environment:
+//!       if trigger > threshold
+//!         then replace id with { '{id}_0': Cell[id: '{id}_0', mass: trigger / 2],
+//!                                '{id}_1': Cell[id: '{id}_1', mass: trigger / 2] }
+//!         else {} } )
+//!
+//! composite Cell[id: String, mass: Float = 1.0,
+//!                growth_rate: Float = 0.02, threshold: Float = 2.0]
 //!   ~{}
-//!   ->{mass}
+//!   ->{environment}
 //! (
 //!   mass: mass |
-//!   Grow[rate: growth_rate] ~{mass: mass} ->{mass: mass}
+//!   Grow[rate: growth_rate] ~{mass: mass} ->{mass: mass} |
+//!   Divide[id: id, threshold: threshold] ~{trigger: mass} ->{environment: environment}
 //! )
 //!
-//! reaction MassThresholdDivide[threshold: Float = 2.0] (
-//!   ?cid : Cell[mass: ?m] where ?m > threshold
-//!   =>
-//!   { '{?cid}_0' : Cell[mass: ?m / 2],
-//!     '{?cid}_1' : Cell[mass: ?m / 2] }
-//! )
+//! composite Environment[cells: Map[Cell]] ~{} ->{cells} ( cells: cells )
 //!
-//! composite Environment[cells: Map[Cell], threshold: Float = 2.0]
-//!   ~{}
-//!   ->{cells}
-//! (
-//!   cells: cells |
-//!   BRS[rules: [MassThresholdDivide[threshold: threshold]]]
-//!     ~{state: cells} ->{state: cells}
-//! )
-//!
-//! main = Environment[cells: {'0': Cell[id: '0', mass: 1.2]}]
+//! main = Environment[cells: {'0': Cell[id: '0', mass: 1.2] ->{environment: @}}]
 //! ```
-//!
-//! This module builds the same AST directly via the AST constructor
-//! helpers in [`crate::ast`].
 
 use indexmap::IndexMap;
 
 use crate::ast::{
-    Block, CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, ReactionDef, SchemaExpr,
-    StringLit, StringSeg,
+    Block, CompositeDef, Def, Expr, Interface, Param, PlacePath, PortDecl, Program, SchemaExpr,
+    StepDef, StringLit, StringSeg,
 };
 
 /// Build the complete grow/divide chrysalis program.
 pub fn program() -> Program {
     let mut p = Program::new();
     p.push(Def::Process(grow_def()));
+    p.push(Def::Step(divide_def()));
     p.push(Def::Composite(cell_def()));
-    p.push(Def::Reaction(mass_threshold_divide_def()));
     p.push(Def::Composite(environment_def()));
     p.push(Def::Binding {
         name: "main".into(),
@@ -71,20 +84,46 @@ pub fn program() -> Program {
     p
 }
 
+// ── helpers ─────────────────────────────────────────────────────────
+
+/// `@` — the empty wire `[]`, which resolves to the process's container.
+fn here() -> Expr {
+    Expr::Path(PlacePath::here())
+}
+
+/// `'{id}{suffix}'` — a string template over the in-scope `id` variable.
+fn id_template(suffix: &str) -> StringLit {
+    StringLit::template(vec![
+        StringSeg::Expr(Expr::var("id")),
+        StringSeg::Lit(suffix.into()),
+    ])
+}
+
+/// A daughter cell: `Cell[id: '{id}{suffix}', mass: trigger / 2,
+/// threshold: threshold] ->{environment: @}`.
+fn daughter(suffix: &str) -> Expr {
+    Expr::term("Cell")
+        .arg_named("id", Expr::Str(id_template(suffix)))
+        .arg_named("mass", Expr::div(Expr::var("trigger"), Expr::float(2.0)))
+        .arg_named("threshold", Expr::var("threshold"))
+        .output("environment", here())
+        .build()
+}
+
 // ── process Grow ────────────────────────────────────────────────────
 
 fn grow_def() -> crate::ast::ProcessDef {
     let params = vec![Param::with_default(
         "rate",
         SchemaExpr::Float,
-        Expr::float(0.2),
+        Expr::float(0.02),
     )];
 
     let interface = Interface::new()
         .with_input("mass", PortDecl::required(SchemaExpr::Float))
         .with_input(
             "interval",
-            PortDecl::with_default(SchemaExpr::Float, Expr::float(0.1)),
+            PortDecl::with_default(SchemaExpr::Float, Expr::float(1.0)),
         )
         .with_output("mass", PortDecl::required(SchemaExpr::Float));
 
@@ -99,14 +138,58 @@ fn grow_def() -> crate::ast::ProcessDef {
                 Expr::var("interval"),
             ),
         )],
-        Expr::Record(IndexMap::from_iter([(
-            "mass".into(),
-            Expr::var("delta"),
-        )])),
+        Expr::Record(IndexMap::from_iter([("mass".into(), Expr::var("delta"))])),
     ));
 
     crate::ast::ProcessDef {
         name: "Grow".into(),
+        params,
+        interface,
+        body,
+    }
+}
+
+// ── step Divide ─────────────────────────────────────────────────────
+
+fn divide_def() -> StepDef {
+    let params = vec![
+        Param::required("id", SchemaExpr::String),
+        Param::with_default("threshold", SchemaExpr::Float, Expr::float(2.0)),
+    ];
+
+    let interface = Interface::new()
+        .with_input("trigger", PortDecl::required(SchemaExpr::Float))
+        .with_output(
+            "environment",
+            PortDecl::required(SchemaExpr::map_of(SchemaExpr::custom("Cell"))),
+        );
+
+    // Body:
+    //   { environment:
+    //       if trigger > threshold
+    //         then replace id with { '{id}_0': Cell[...], '{id}_1': Cell[...] }
+    //         else {} }
+    let daughters = Expr::Map(vec![
+        (id_template("_0"), daughter("_0")),
+        (id_template("_1"), daughter("_1")),
+    ]);
+    let replace = Expr::ReplaceWith {
+        id: Box::new(Expr::var("id")),
+        with: Box::new(daughters),
+    };
+    let environment_delta = Expr::If {
+        cond: Box::new(Expr::gt(Expr::var("trigger"), Expr::var("threshold"))),
+        then_: Box::new(replace),
+        // Empty map = a zero delta on `environment` (no division this tick).
+        else_: Some(Box::new(Expr::Map(vec![]))),
+    };
+    let body = Expr::Record(IndexMap::from_iter([(
+        "environment".into(),
+        environment_delta,
+    )]));
+
+    StepDef {
+        name: "Divide".into(),
         params,
         interface,
         body,
@@ -120,13 +203,20 @@ fn cell_def() -> CompositeDef {
         Param::required("id", SchemaExpr::String),
         Param::with_default("mass", SchemaExpr::Float, Expr::float(1.0)),
         Param::with_default("growth_rate", SchemaExpr::Float, Expr::float(0.02)),
+        Param::with_default("threshold", SchemaExpr::Float, Expr::float(2.0)),
     ];
 
-    let interface = Interface::new().with_output("mass", PortDecl::required(SchemaExpr::Float));
+    let interface = Interface::new().with_output(
+        "environment",
+        PortDecl::required(SchemaExpr::map_of(SchemaExpr::custom("Cell"))),
+    );
 
-    // Body:
+    // Body (NO inner `environment` slot — that makes the bridge port a
+    // passthrough; see module docs):
     //   mass: mass |
-    //   Grow[rate: growth_rate] ~{mass: mass} ->{mass: mass}
+    //   grow: Grow[rate: growth_rate] ~{mass: mass} ->{mass: mass} |
+    //   divide: Divide[id: id, threshold: threshold]
+    //             ~{trigger: mass} ->{environment: environment}
     let body = Expr::parallel(vec![
         Expr::entry("mass", Expr::var("mass")),
         Expr::entry(
@@ -135,6 +225,15 @@ fn cell_def() -> CompositeDef {
                 .arg_named("rate", Expr::var("growth_rate"))
                 .input("mass", Expr::var("mass"))
                 .output("mass", Expr::var("mass"))
+                .build(),
+        ),
+        Expr::entry(
+            "divide",
+            Expr::term("Divide")
+                .arg_named("id", Expr::var("id"))
+                .arg_named("threshold", Expr::var("threshold"))
+                .input("trigger", Expr::var("mass"))
+                .output("environment", Expr::var("environment"))
                 .build(),
         ),
     ]);
@@ -148,89 +247,22 @@ fn cell_def() -> CompositeDef {
     }
 }
 
-// ── reaction MassThresholdDivide ────────────────────────────────────
-
-fn mass_threshold_divide_def() -> ReactionDef {
-    let params = vec![Param::with_default(
-        "threshold",
-        SchemaExpr::Float,
-        Expr::float(2.0),
-    )];
-
-    // Redex: `?cid : Cell[mass: ?m]`
-    let redex = Expr::site_typed(
-        "?cid",
-        Expr::term("Cell")
-            .arg_named("mass", Expr::site("?m"))
-            .build(),
-    );
-
-    // Guard: `?m > threshold`
-    let guard = Some(Expr::gt(Expr::var("?m"), Expr::var("threshold")));
-
-    // Reactum: { '{?cid}_0' : Cell[mass: ?m / 2],
-    //           '{?cid}_1' : Cell[mass: ?m / 2] }
-    let half = || Expr::div(Expr::var("?m"), Expr::float(2.0));
-    let daughter = || {
-        Expr::term("Cell")
-            .arg_named("id", Expr::var("?cid"))
-            .arg_named("mass", half())
-            .build()
-    };
-    let key_with_suffix = |suffix: &str| StringLit {
-        segments: vec![
-            StringSeg::Expr(Expr::var("?cid")),
-            StringSeg::Lit(suffix.into()),
-        ],
-    };
-    let reactum = Expr::Map(vec![
-        (key_with_suffix("_0"), daughter()),
-        (key_with_suffix("_1"), daughter()),
-    ]);
-
-    ReactionDef {
-        name: "MassThresholdDivide".into(),
-        params,
-        redex,
-        reactum,
-        guard,
-        rate: None,
-    }
-}
-
 // ── composite Environment ───────────────────────────────────────────
 
 fn environment_def() -> CompositeDef {
-    let params = vec![
-        Param::required("cells", SchemaExpr::map_of(SchemaExpr::custom("Cell"))),
-        Param::with_default("threshold", SchemaExpr::Float, Expr::float(2.0)),
-    ];
+    let params = vec![Param::required(
+        "cells",
+        SchemaExpr::map_of(SchemaExpr::custom("Cell")),
+    )];
 
     let interface = Interface::new().with_output(
         "cells",
         PortDecl::required(SchemaExpr::map_of(SchemaExpr::custom("Cell"))),
     );
 
-    // Body:
-    //   cells: cells |
-    //   BRS[rules: [MassThresholdDivide[threshold: threshold]]]
-    //     ~{state: cells} ->{state: cells}
-    let body = Expr::parallel(vec![
-        Expr::entry("cells", Expr::var("cells")),
-        Expr::entry(
-            "brs",
-            Expr::term("BRS")
-                .arg_named(
-                    "rules",
-                    Expr::List(vec![Expr::term("MassThresholdDivide")
-                        .arg_named("threshold", Expr::var("threshold"))
-                        .build()]),
-                )
-                .input("state", Expr::var("cells"))
-                .output("state", Expr::var("cells"))
-                .build(),
-        ),
-    ]);
+    // Body: just hold the cells. Each cell divides itself internally;
+    // there is no parent-level BRS in the internal-division model.
+    let body = Expr::parallel(vec![Expr::entry("cells", Expr::var("cells"))]);
 
     CompositeDef {
         name: "Environment".into(),
@@ -244,7 +276,7 @@ fn environment_def() -> CompositeDef {
 // ── main ────────────────────────────────────────────────────────────
 
 fn main_expr() -> Expr {
-    // Environment[cells: {'0': Cell[id: '0', mass: 1.2]}]
+    // Environment[cells: {'0': Cell[id: '0', mass: 1.2] ->{environment: @}}]
     Expr::term("Environment")
         .arg_named(
             "cells",
@@ -253,6 +285,7 @@ fn main_expr() -> Expr {
                 Expr::term("Cell")
                     .arg_named("id", Expr::string("0"))
                     .arg_named("mass", Expr::float(1.2))
+                    .output("environment", here())
                     .build(),
             )]),
         )
@@ -267,8 +300,8 @@ mod tests {
     fn program_builds() {
         let prog = program();
         assert!(prog.lookup("Grow").is_some());
+        assert!(prog.lookup("Divide").is_some());
         assert!(prog.lookup("Cell").is_some());
-        assert!(prog.lookup("MassThresholdDivide").is_some());
         assert!(prog.lookup("Environment").is_some());
         assert!(prog.lookup("main").is_some());
     }

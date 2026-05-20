@@ -1,20 +1,11 @@
-//! End-to-end test: grow/divide via chrysalis pipeline.
+//! End-to-end test: grow/divide via the chrysalis pipeline (INTERNAL division).
 //!
-//! STATUS (2026-05-20): `#[ignore]`d — a known, honest gap. This drives
-//! division with an EXTERNAL BRS reaction that reads each cell's `mass`.
-//! That cannot work now that a `composite Cell` is a real encapsulated
-//! subengine (`from_config`): the cell's mass lives inside its subengine
-//! and its bridged output collides at `cells.mass`, so the BRS never sees
-//! per-cell mass and no division happens. (It was previously a FALSE PASS
-//! — the spurious `cells.mass` key was miscounted as a second "cell".)
-//!
-//! Two valid fixes (a design choice, pending):
-//!  (a) make `Cell` a STORE — `mass` = readable data + an inner `Grow`
-//!      process (like spatio-flux particles) — so the external BRS can
-//!      read and divide it; or
-//!  (b) INTERNAL division — a `Divide` step inside the subengine cell that
-//!      writes daughters up to the parent. Proven for the subengine model
-//!      in crates/prism-bigraph/tests/growth_division.rs (15 cells).
+//! A `Cell` is a real encapsulated subengine. It grows internally (inner
+//! `Grow`) and divides itself via an inner `Divide` step that writes
+//! daughters UP to the parent `cells` map through the bridge — the proven
+//! upstream pattern (`crates/prism-bigraph/tests/growth_division.rs`).
+//! Division is observed ONLY by the cell COUNT in `cells`, never by reading
+//! a cell's encapsulated inner mass.
 
 use std::sync::Arc;
 
@@ -28,10 +19,13 @@ fn count_cells_in_environment(state: &Value) -> usize {
         .as_map()
         .and_then(|m| m.get("cells"))
         .and_then(|v| v.as_map())
-        // Count only actual cell entries (maps) — NOT scalar pollution such
-        // as a bridged `mass` output colliding into the cells map (which is
-        // what made the old assertion a false pass).
-        .map(|m| m.values().filter(|v| v.as_map().is_some()).count())
+        // Count only actual cell entries (subengine spec maps). Sentinel
+        // keys (`_add`/`_remove`) and any scalar pollution are excluded.
+        .map(|m| {
+            m.iter()
+                .filter(|(k, v)| !k.starts_with('_') && v.as_map().is_some())
+                .count()
+        })
         .unwrap_or(0)
 }
 
@@ -75,20 +69,11 @@ fn debug_state_shape(state: &Value, indent: usize) -> String {
 }
 
 #[test]
-#[ignore = "Honest known gap (was a FALSE PASS) — see module docs. An external \
-            BRS reaction cannot divide encapsulated subengine cells; the fix is \
-            a STORE Cell or internal division (crates/prism-bigraph/tests/\
-            growth_division.rs proves the subengine case)."]
 fn grow_divide_pipeline_runs() {
     // Tier-1 chrysalis acceptance for grow/divide:
-    //   - Cell at mass 1.2 grows past threshold 2.0
-    //   - BRS fires the runtime-constructed MassThresholdDivide
-    //     reaction (NOT a hardcoded step)
-    //   - At least one division happens — at least 2 cells remain
-    //
-    // Specific final masses depend on exact tick alignment between
-    // Grow's mass update and the BRS's match check; we just assert
-    // the structural property (division happened).
+    //   - Cell at mass 1.2 grows past threshold 2.0 (inner Grow)
+    //   - the inner Divide step fires and writes daughters up to `cells`
+    //   - at least one division happens → at least 2 cells remain
     let program = grow_divide::program();
     let result = chrysalis::compile::compile(&program).expect("compile");
 
@@ -101,11 +86,15 @@ fn grow_divide_pipeline_runs() {
     engine.discover_all_processes();
 
     // Grow rate 0.02 → mass *= 1.02/tick. Crosses threshold 2.0 at
-    // ~tick 26. Run 40 ticks for some buffer.
-    engine.run(40.0);
+    // ~tick 26. Run 50 ticks so a first division certainly lands.
+    engine.run(50.0);
 
     let final_state = engine.state();
     let n = count_cells_in_environment(final_state);
 
-    assert!(n >= 2, "expected at least one division; got {n} cells");
+    assert!(
+        n >= 2,
+        "expected at least one division; got {n} cells.\nstate:\n{}",
+        debug_state_shape(final_state, 0)
+    );
 }

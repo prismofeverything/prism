@@ -584,6 +584,19 @@ parameterized rules, `where` guards, `.divide()` dispatch, units.
 Surface:
 [`crates/chrysalis/ys/grow-divide-unbounded.ys`](../crates/chrysalis/ys/grow-divide-unbounded.ys).
 
+**Status (2026-05-20) — staged in two forms.** The homoiconic form shown
+below (division as a first-class reaction *value* that calls the cell's own
+`.divide()`) is the tier-1 *goal*. It is **not yet runnable**: it needs
+`type_divide` and a matchable read-only projection of the cell's
+encapsulated `mass` at the parent surface (an external reaction can't see
+into a subengine cell). What runs **today**, proven end-to-end in
+[`crates/chrysalis/tests/grow_divide.rs`](../crates/chrysalis/tests/grow_divide.rs),
+is the equivalent via **internal division**: a `Divide` *step inside* each
+cell reads its own mass and writes daughters up to the parent `cells` map
+through the bridge — the faithful port of upstream `growth_division.py`.
+Both forms live in the `.ys`. The progression (internal now, homoiconic
+next) is recorded in the `project_grow_divide_internal_first` memory.
+
 ```
 unit pg : [mass] = 1e-12 kg
 Mass = Quantity[unit: pg, extensive]

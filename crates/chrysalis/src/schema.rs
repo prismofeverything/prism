@@ -187,7 +187,9 @@ mod tests {
         else {
             panic!("Cell should be a CompositeLink");
         };
-        assert!(outputs.contains_key(&k("mass")));
+        // Internal-division Cell exposes `environment` (where it deposits
+        // daughters), not `mass` — its mass is encapsulated.
+        assert!(outputs.contains_key(&k("environment")));
         // Inner state: `mass` is a Float data slot; `grow` is a nested
         // ProcessLink — no `Any` in sight.
         match inner_schema.as_ref() {
