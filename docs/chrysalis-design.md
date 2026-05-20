@@ -411,10 +411,14 @@ over the SI base units and dimensionally checks expression bodies,
 resolving in-scope context coercions (exercised by the `nuclear-shuttle`
 fixture tests: `Transport`'s `flux` works out to `[substance]`; `Sense`'s
 `tf > k_on` is a mismatch alone but type-checks under the nucleus's
-`concentration` context). **Remaining:** thread the resolved
-conversions through `eval` so a checked body runs on bare `f64`, with
-`ByState` factors (e.g. volume) read from the place graph at the
-conversion site.
+`concentration` context). `UnitEnv::lower_body` then **erases** a
+checked body to a unit-free `Expr` with conversions baked in as ordinary
+arithmetic (`tf > k_on` → `tf > k_on * volume`), which runs on bare
+`f64` through `eval` with unit-correct results — the un-erased body gives
+the wrong answer (`lowered_sense_runs_unit_correct_through_eval`).
+**Remaining:** auto-supply a context factor (e.g. the enclosing volume)
+from the place graph during full engine runs; today it is bound
+explicitly at the conversion site.
 
 ## Syntactic kernel
 

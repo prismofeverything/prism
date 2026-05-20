@@ -15,9 +15,11 @@
 
 use std::collections::HashMap;
 
-use prism_schema::units::{resolve_conversion, Bridge, Context, ContextRule, Dimension, Unit};
+use indexmap::IndexMap;
 
-use crate::ast::{self, BinOp, Def, Expr, Program, SchemaExpr, UnaryOp, UnitExpr};
+use prism_schema::units::{Bridge, Context, ContextRule, Dimension, Unit};
+
+use crate::ast::{self, BinOp, Block, Def, Expr, Program, SchemaExpr, UnaryOp, UnitExpr};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UnitError {
@@ -215,85 +217,216 @@ impl UnitEnv {
         vars: &HashMap<String, Unit>,
         ctxs: &[&Context],
     ) -> Result<Unit, UnitError> {
+        self.lower_expr(e, vars, ctxs).map(|(_, u)| u)
+    }
+
+    /// Erase units: rewrite a checked body into a unit-free expression
+    /// with conversions baked in as ordinary arithmetic — a scale
+    /// constant for a same-dimension unit mismatch, or `*`/`/` by a
+    /// context factor (e.g. a compartment volume) for a cross-dimension
+    /// coercion. The result runs on bare `f64` in [`crate::eval`]; units
+    /// never reach the engine.
+    pub fn lower_body(
+        &self,
+        e: &Expr,
+        vars: &HashMap<String, Unit>,
+        ctxs: &[&Context],
+    ) -> Result<Expr, UnitError> {
+        self.lower_expr(e, vars, ctxs).map(|(e, _)| e)
+    }
+
+    /// Shared engine for [`infer`](Self::infer) and
+    /// [`lower_body`](Self::lower_body): returns the erased expression
+    /// together with its inferred unit.
+    fn lower_expr(
+        &self,
+        e: &Expr,
+        vars: &HashMap<String, Unit>,
+        ctxs: &[&Context],
+    ) -> Result<(Expr, Unit), UnitError> {
         match e {
-            Expr::Float(_) | Expr::Int(_) | Expr::Bool(_) | Expr::Str(_) => Ok(dimensionless()),
-            Expr::Var(n) => vars
-                .get(n)
-                .cloned()
-                .ok_or_else(|| UnitError::UnknownVar(n.clone())),
+            Expr::Float(_) | Expr::Int(_) | Expr::Bool(_) | Expr::Str(_) => {
+                Ok((e.clone(), dimensionless()))
+            }
+            Expr::Var(n) => {
+                let u = vars
+                    .get(n)
+                    .cloned()
+                    .ok_or_else(|| UnitError::UnknownVar(n.clone()))?;
+                Ok((e.clone(), u))
+            }
             Expr::UnaryOp {
                 op: UnaryOp::Neg,
                 operand,
-            } => self.infer(operand, vars, ctxs),
+            } => {
+                let (le, u) = self.lower_expr(operand, vars, ctxs)?;
+                Ok((Expr::neg(le), u))
+            }
             Expr::UnaryOp {
-                op: UnaryOp::Not, ..
-            } => Ok(dimensionless()),
+                op: UnaryOp::Not,
+                operand,
+            } => {
+                let (le, _) = self.lower_expr(operand, vars, ctxs)?;
+                Ok((
+                    Expr::UnaryOp {
+                        op: UnaryOp::Not,
+                        operand: Box::new(le),
+                    },
+                    dimensionless(),
+                ))
+            }
             Expr::BinOp { op, lhs, rhs } => {
-                let a = self.infer(lhs, vars, ctxs)?;
-                let b = self.infer(rhs, vars, ctxs)?;
+                let (la, ua) = self.lower_expr(lhs, vars, ctxs)?;
+                let (lb, ub) = self.lower_expr(rhs, vars, ctxs)?;
                 match op {
-                    BinOp::Mul => Ok(Unit::multiplicative(
-                        a.dimension.mul(&b.dimension),
-                        a.scale * b.scale,
+                    BinOp::Mul => Ok((
+                        Expr::mul(la, lb),
+                        Unit::multiplicative(ua.dimension.mul(&ub.dimension), ua.scale * ub.scale),
                     )),
-                    BinOp::Div => Ok(Unit::multiplicative(
-                        a.dimension.div(&b.dimension),
-                        a.scale / b.scale,
+                    BinOp::Div => Ok((
+                        Expr::div(la, lb),
+                        Unit::multiplicative(ua.dimension.div(&ub.dimension), ua.scale / ub.scale),
                     )),
-                    BinOp::Add | BinOp::Sub => self.require_same(op, a, b, ctxs),
-                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                        self.require_same(op, a, b, ctxs)?;
-                        Ok(dimensionless())
+                    BinOp::Add | BinOp::Sub => {
+                        let lb = self.coerce(lb, &ub, &ua, op, ctxs)?;
+                        Ok((binop(*op, la, lb), ua))
                     }
-                    BinOp::And | BinOp::Or | BinOp::Concat => Ok(dimensionless()),
+                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+                        let lb = self.coerce(lb, &ub, &ua, op, ctxs)?;
+                        Ok((binop(*op, la, lb), dimensionless()))
+                    }
+                    BinOp::And | BinOp::Or | BinOp::Concat => {
+                        Ok((binop(*op, la, lb), dimensionless()))
+                    }
                 }
             }
             Expr::Block(block) => {
                 let mut scoped = vars.clone();
+                let mut bindings = Vec::with_capacity(block.bindings.len());
                 for (name, value) in &block.bindings {
-                    let u = self.infer(value, &scoped, ctxs)?;
+                    let (lv, u) = self.lower_expr(value, &scoped, ctxs)?;
                     scoped.insert(name.clone(), u);
+                    bindings.push((name.clone(), lv));
                 }
-                self.infer(&block.value, &scoped, ctxs)
+                let (lvalue, u) = self.lower_expr(&block.value, &scoped, ctxs)?;
+                Ok((Expr::Block(Block::from_parts(bindings, lvalue)), u))
             }
             Expr::Record(fields) => {
-                for (_, value) in fields {
-                    self.infer(value, vars, ctxs)?;
+                let mut out = IndexMap::with_capacity(fields.len());
+                for (name, value) in fields {
+                    let (lv, _) = self.lower_expr(value, vars, ctxs)?;
+                    out.insert(name.clone(), lv);
                 }
-                Ok(dimensionless())
+                Ok((Expr::Record(out), dimensionless()))
             }
-            Expr::KeyedEntry { value, .. } => self.infer(value, vars, ctxs),
+            Expr::KeyedEntry { key, value } => {
+                let (lv, u) = self.lower_expr(value, vars, ctxs)?;
+                Ok((
+                    Expr::KeyedEntry {
+                        key: key.clone(),
+                        value: Box::new(lv),
+                    },
+                    u,
+                ))
+            }
             _ => Err(UnitError::Unsupported(
                 "expression form not handled by the unit checker".into(),
             )),
         }
     }
 
-    /// `+`/`-`/comparison: operands must share a dimension, or a context
-    /// must bridge them. Returns the left operand's unit.
-    fn require_same(
+    /// Convert the already-lowered `rhs` from unit `from` into `to`'s
+    /// unit, baking the conversion in as arithmetic. Errors if the
+    /// dimensions are unbridgeable (even via `ctxs`).
+    fn coerce(
         &self,
+        rhs: Expr,
+        from: &Unit,
+        to: &Unit,
         op: &BinOp,
-        a: Unit,
-        b: Unit,
         ctxs: &[&Context],
-    ) -> Result<Unit, UnitError> {
-        if resolve_conversion(&b, &a, ctxs).is_some() {
-            Ok(a)
+    ) -> Result<Expr, UnitError> {
+        let rw = plan_coercion(from, to, ctxs).ok_or_else(|| UnitError::DimensionMismatch {
+            op: format!("{op:?}"),
+            left: to.dimension.clone(),
+            right: from.dimension.clone(),
+        })?;
+        Ok(apply_rewrite(rhs, rw))
+    }
+}
+
+fn binop(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
+    Expr::BinOp {
+        op,
+        lhs: Box::new(lhs),
+        rhs: Box::new(rhs),
+    }
+}
+
+/// How to rewrite a value expression so it reads in a target unit.
+enum Rewrite {
+    Id,
+    Scale(f64),
+    MulParam(String),
+    DivParam(String),
+}
+
+fn apply_rewrite(e: Expr, rw: Rewrite) -> Expr {
+    match rw {
+        Rewrite::Id => e,
+        Rewrite::Scale(k) => Expr::mul(e, Expr::float(k)),
+        Rewrite::MulParam(p) => Expr::mul(e, Expr::var(p)),
+        Rewrite::DivParam(p) => Expr::div(e, Expr::var(p)),
+    }
+}
+
+/// Plan the conversion of a `from`-unit value into `to`'s unit, using
+/// in-scope contexts for cross-dimension bridges. `None` is unbridgeable.
+fn plan_coercion(from: &Unit, to: &Unit, ctxs: &[&Context]) -> Option<Rewrite> {
+    if from.dimension == to.dimension {
+        let factor = from.scale / to.scale;
+        return Some(if (factor - 1.0).abs() < 1e-12 {
+            Rewrite::Id
         } else {
-            Err(UnitError::DimensionMismatch {
-                op: format!("{op:?}"),
-                left: a.dimension,
-                right: b.dimension,
-            })
+            Rewrite::Scale(factor)
+        });
+    }
+    for ctx in ctxs {
+        for rule in &ctx.rules {
+            if rule.from == from.dimension && rule.to == to.dimension {
+                return Some(bridge_forward(&rule.bridge));
+            }
+            if rule.bidirectional && rule.to == from.dimension && rule.from == to.dimension {
+                return Some(bridge_reverse(&rule.bridge));
+            }
         }
+    }
+    None
+}
+
+fn bridge_forward(b: &Bridge) -> Rewrite {
+    match b {
+        Bridge::ScaleConst(k) => Rewrite::Scale(*k),
+        Bridge::DivByParam(p) => Rewrite::DivParam(p.clone()),
+        Bridge::MulByParam(p) => Rewrite::MulParam(p.clone()),
+    }
+}
+
+fn bridge_reverse(b: &Bridge) -> Rewrite {
+    match b {
+        Bridge::ScaleConst(k) => Rewrite::Scale(1.0 / k),
+        Bridge::DivByParam(p) => Rewrite::MulParam(p.clone()),
+        Bridge::MulByParam(p) => Rewrite::DivParam(p.clone()),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::eval::Evaluator;
     use crate::fixtures::nuclear_shuttle::program;
+    use prism_schema::{MethodRegistry, Value};
+    use std::sync::Arc;
 
     fn proc<'a>(p: &'a Program, name: &str) -> &'a ast::ProcessDef {
         match p.lookup(name) {
@@ -374,5 +507,35 @@ mod tests {
             env.infer(&e, &vars, &[]),
             Err(UnitError::DimensionMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn lowered_sense_runs_unit_correct_through_eval() {
+        let prog = program();
+        let env = UnitEnv::from_program(&prog).unwrap();
+        let s = proc(&prog, "Sense");
+        let vars = env.vars_for(&s.params, &s.interface).unwrap();
+        let conc = env.contexts.get("concentration").unwrap();
+
+        // Erase: `tf > k_on` becomes `tf > k_on * volume` — k_on coerced
+        // from a concentration into a count via the nucleus volume.
+        let lowered = env.lower_body(&s.body, &vars, &[conc]).unwrap();
+
+        let evalr = Evaluator::new(Arc::new(Program::new()), Arc::new(MethodRegistry::new()));
+        let active = |body: &Expr, tf: f64| -> bool {
+            let mut e: IndexMap<String, Value> = IndexMap::new();
+            e.insert("tf".into(), Value::float(tf));
+            e.insert("k_on".into(), Value::float(0.5));
+            e.insert("volume".into(), Value::float(100.0));
+            evalr.eval_value(body, &e).unwrap().get_field("active") == Some(&Value::Bool(true))
+        };
+
+        // 100 fL nucleus, threshold 0.5/fL ⇒ the gene fires at 50 molecules.
+        assert!(active(&lowered, 60.0)); // 60/100 = 0.6 > 0.5
+        assert!(!active(&lowered, 40.0)); // 40/100 = 0.4 < 0.5
+
+        // The un-erased body compares a raw count to a concentration and
+        // is wrong: 40 molecules already "exceeds" 0.5.
+        assert!(active(&s.body, 40.0));
     }
 }

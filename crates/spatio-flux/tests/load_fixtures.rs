@@ -165,3 +165,72 @@ fn fixture_comets_nt_particles_dfba() {
 fn fixture_spatioflux_reference_demo() {
     run_fixture("spatioflux_reference_demo", 10.0);
 }
+
+// ────────────────────────────────────────────────────
+// Cross-boundary correctness: a composite's inner process must
+// actually change the OUTER fields (not just "run"). This is the
+// exchange / inner-particle path the units context-factor routing
+// would ride.
+// ────────────────────────────────────────────────────
+
+fn sum_leaves(v: &prism_schema::Value) -> f64 {
+    match v {
+        prism_schema::Value::Map(m) => m.values().map(sum_leaves).sum(),
+        prism_schema::Value::List(l) => l.iter().map(sum_leaves).sum(),
+        prism_schema::Value::Struct { values, .. } => values.iter().map(sum_leaves).sum(),
+        other => other.as_f64().unwrap_or(0.0),
+    }
+}
+
+#[test]
+fn spatial_dfba_changes_outer_fields() {
+    let path = format!("{FIXTURES}/spatial_many_dfba.json");
+    let json = std::fs::read_to_string(&path).unwrap();
+    let vdoc = VivariumDocument::from_json(&json).unwrap();
+    let registry = Arc::new(build_registry());
+    let (mut engine, _topo) =
+        instantiate_vivarium(&vdoc, Arc::clone(&registry)).expect("should instantiate");
+
+    let fields_key = [prism_schema::Key::from("fields")];
+    let before = engine.state().get_path(&fields_key).map(sum_leaves).unwrap_or(0.0);
+    engine.run(10.0);
+    let after = engine.state().get_path(&fields_key).map(sum_leaves).unwrap_or(0.0);
+
+    // The `spatial_dFBA` composite reads/writes the outer fields across
+    // the sub-engine boundary. If cross-boundary exchange works the
+    // field total moves; if it's silently broken (the flagged bug) it
+    // stays put.
+    assert!(
+        (before - after).abs() > 1e-9,
+        "spatial_dFBA composite did not change outer fields (before={before}, after={after}) \
+         — cross-boundary exchange is silently inert"
+    );
+}
+
+#[test]
+fn reference_demo_depletes_glucose() {
+    // The exact scenario the 49-day-old note flagged: the `spatial_kinetics`
+    // composite holds dFBA processes nested INSIDE particles
+    // (`particles.p_xxx.ecoli_1 dFBA`) whose wires are particle-relative.
+    // The note said glucose stuck at 5.0 (no depletion). Diffusion
+    // conserves the field total, so any DECREASE in total glucose is
+    // genuine consumption routed across the particle/composite boundary.
+    let path = format!("{FIXTURES}/spatioflux_reference_demo.json");
+    let json = std::fs::read_to_string(&path).unwrap();
+    let vdoc = VivariumDocument::from_json(&json).unwrap();
+    let registry = Arc::new(build_registry());
+    let (mut engine, _topo) =
+        instantiate_vivarium(&vdoc, Arc::clone(&registry)).expect("should instantiate");
+
+    let glucose = [prism_schema::Key::from("fields"), prism_schema::Key::from("glucose")];
+    let before = engine.state().get_path(&glucose).map(sum_leaves).unwrap_or(0.0);
+    engine.run(20.0);
+    let after = engine.state().get_path(&glucose).map(sum_leaves).unwrap_or(0.0);
+
+    println!("reference_demo glucose total: {before} -> {after}");
+    assert!(
+        after < before - 1e-9,
+        "glucose should deplete via inner-particle dFBA across the composite boundary, \
+         but total went {before} -> {after}"
+    );
+}
