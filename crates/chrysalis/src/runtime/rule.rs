@@ -11,6 +11,7 @@
 //! the chrysalis interpreter how to convert a [`prism_schema::Match`]
 //! into an environment the reactum/guard/rate can read.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -20,6 +21,15 @@ use prism_schema::{Bindings, Key, Pattern, ReactionRule, StateMap, Value};
 
 use crate::ast::{Expr, Name};
 use crate::eval::Evaluator;
+
+/// Monotonic source of fresh state keys for ions a multiset reaction
+/// produces (the soup is keyed, but anonymous-parallel reactants/products
+/// have no inherent key).
+static FRESH_NODE: AtomicU64 = AtomicU64::new(0);
+
+fn fresh_id() -> String {
+    format!("g{}", FRESH_NODE.fetch_add(1, Ordering::Relaxed))
+}
 
 /// `Value::Foreign` type tag for a chrysalis [`Rule`] carrier. Lets a
 /// reaction flow through state as a first-class value (constructed by a
@@ -192,10 +202,14 @@ pub fn to_prism_rule(rule: &Rule, evaluator: Arc<Evaluator>) -> ReactionRule {
         let bindings = rule.bindings.clone();
         let closure = Arc::clone(&rule.closure);
         let reactum_expr = reactum_expr.clone();
+        // An anonymous-parallel (List) redex is a multiset reaction: it
+        // consumes the matched ions and produces fresh ones, vs a keyed
+        // (Map) redex that removes its OuterKey binding.
+        let is_list = matches!(rule.redex, Pattern::List(_));
         let rf: ReactumFn = Arc::new(move |b: &Bindings| {
             let env = bind_environment(b, &bindings, &closure);
             let reactum_val = ev.eval_value(&reactum_expr, &env).unwrap_or(Value::None);
-            reaction_delta(b, &bindings, reactum_val)
+            reaction_delta(is_list, b, &bindings, reactum_val)
         });
         pr = pr.with_reactum_fn(rf);
     }
@@ -222,7 +236,39 @@ pub fn to_prism_rule(rule: &Rule, evaluator: Arc<Evaluator>) -> ReactionRule {
 /// — or pass an explicit `{_add, _remove}` map the reactum produced straight
 /// through. This is the chrysalis firing convention (which key the match
 /// consumes); prism's `fire_rule_at` then emits this delta at the match path.
-fn reaction_delta(bindings: &Bindings, rule_bindings: &RuleBindings, reactum_val: Value) -> Value {
+fn reaction_delta(
+    is_list: bool,
+    bindings: &Bindings,
+    rule_bindings: &RuleBindings,
+    reactum_val: Value,
+) -> Value {
+    if is_list {
+        // Multiset reaction (`?f::F | ?b::B => …`): consume EVERY matched
+        // child (all of key_map), and add the reactum's ion(s) under fresh
+        // keys. The reactum value is a List for parallel products (`F | Phi`)
+        // or a single ion (`F`).
+        let removed: Vec<Value> = bindings
+            .key_map
+            .values()
+            .map(|k| Value::String(k.to_string()))
+            .collect();
+        let items = match reactum_val {
+            Value::List(xs) => xs,
+            Value::None => vec![],
+            other => vec![other],
+        };
+        let mut add: StateMap = StateMap::new();
+        for item in items {
+            add.insert(Key::from(fresh_id().as_str()), item);
+        }
+        let mut delta: StateMap = StateMap::new();
+        if !removed.is_empty() {
+            delta.insert(Key::from("_remove"), Value::List(removed));
+        }
+        delta.insert(Key::from("_add"), Value::Map(add));
+        return Value::Map(delta);
+    }
+
     let matched_keys: Vec<Value> = rule_bindings
         .values()
         .filter_map(|src| match src {
