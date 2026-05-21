@@ -15,9 +15,16 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use prism_schema::{Bindings, Key, Pattern};
+use prism_schema::reaction::{GuardFn, RateFn, ReactumFn};
+use prism_schema::{Bindings, Key, Pattern, ReactionRule, StateMap, Value};
 
 use crate::ast::{Expr, Name};
+use crate::eval::Evaluator;
+
+/// `Value::Foreign` type tag for a chrysalis [`Rule`] carrier. Lets a
+/// reaction flow through state as a first-class value (constructed by a
+/// `reaction` definer call, deposited into a `BRS[rules: […]]`).
+pub const FOREIGN_RULE: &str = "ChrysalisRule";
 
 /// How to look up a chrysalis variable's value from a [`Bindings`]
 /// produced by a successful match.
@@ -94,4 +101,128 @@ pub fn bind_environment(
         env.insert(chrysalis_name.clone(), value);
     }
     env
+}
+
+/// Decode the `rules` list from a BRS config `Value` into chrysalis
+/// [`Rule`]s. Each rode in as a `Value::Foreign(FOREIGN_RULE, Rule)`,
+/// produced by a `reaction` definer call.
+pub fn extract_rules(config: &Value) -> Vec<Rule> {
+    let mut rules = Vec::new();
+    let Some(list) = config
+        .as_map()
+        .and_then(|m| m.get("rules"))
+        .and_then(|v| v.as_list())
+    else {
+        return rules;
+    };
+    for item in list {
+        if let Value::Foreign(f) = item {
+            if f.type_name == FOREIGN_RULE {
+                if let Some(rule) = f.downcast_ref::<Rule>() {
+                    rules.push(rule.clone());
+                }
+            }
+        }
+    }
+    rules
+}
+
+/// Adapt a chrysalis [`Rule`] (the reaction-as-value data carrier) into a
+/// `prism_schema::ReactionRule` that prism's `BigraphicalReactiveSystem`
+/// fires. chrysalis owns only the *data* — the redex pattern, the
+/// reactum/guard/rate expressions, and how a match's bindings map to
+/// chrysalis variables; **prism owns all matching, firing, and diffing**.
+/// The expressions become closures over the evaluator, run against each
+/// match's bindings at fire time.
+pub fn to_prism_rule(rule: &Rule, evaluator: Arc<Evaluator>) -> ReactionRule {
+    // The structural redex is matched by prism. The reactum is COMPUTED:
+    // evaluate the chrysalis reactum expression against the match bindings to
+    // a delta value (e.g. `?cell.divide(?cid)` → daughters). A
+    // structural-pattern reactum (MAPK-style in-place link rewrites) is a
+    // future branch; today every chrysalis reaction has a computed reactum.
+    let mut pr = ReactionRule::new(rule.redex.clone(), Pattern::Site).with_label(rule.label.clone());
+
+    if let Some(guard_expr) = rule.guard.clone() {
+        let ev = Arc::clone(&evaluator);
+        let bindings = rule.bindings.clone();
+        let closure = Arc::clone(&rule.closure);
+        let g: GuardFn = Arc::new(move |b: &Bindings| {
+            let env = bind_environment(b, &bindings, &closure);
+            matches!(ev.eval_value(&guard_expr, &env), Ok(Value::Bool(true)))
+        });
+        pr = pr.with_guard(g);
+    }
+
+    {
+        let ev = Arc::clone(&evaluator);
+        let bindings = rule.bindings.clone();
+        let closure = Arc::clone(&rule.closure);
+        let reactum_expr = rule.reactum.clone();
+        let rf: ReactumFn = Arc::new(move |b: &Bindings| {
+            let env = bind_environment(b, &bindings, &closure);
+            let reactum_val = ev.eval_value(&reactum_expr, &env).unwrap_or(Value::None);
+            reaction_delta(b, &bindings, reactum_val)
+        });
+        pr = pr.with_reactum_fn(rf);
+    }
+
+    if let Some(rate_expr) = rule.rate.clone() {
+        let ev = Arc::clone(&evaluator);
+        let bindings = rule.bindings.clone();
+        let closure = Arc::clone(&rule.closure);
+        let rt: RateFn = Arc::new(move |b: &Bindings| {
+            let env = bind_environment(b, &bindings, &closure);
+            ev.eval_value(&rate_expr, &env)
+                .ok()
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1.0)
+        });
+        pr = pr.with_rate_fn(rt);
+    }
+
+    pr
+}
+
+/// Build the localized delta for a computed reactum: `_remove` the state
+/// key(s) the redex matched at its OUTER binding(s), `_add` the reactum value
+/// — or pass an explicit `{_add, _remove}` map the reactum produced straight
+/// through. This is the chrysalis firing convention (which key the match
+/// consumes); prism's `fire_rule_at` then emits this delta at the match path.
+fn reaction_delta(bindings: &Bindings, rule_bindings: &RuleBindings, reactum_val: Value) -> Value {
+    let matched_keys: Vec<Value> = rule_bindings
+        .values()
+        .filter_map(|src| match src {
+            BindingSource::OuterKey(redex_key) => bindings
+                .key_map
+                .get(redex_key)
+                .map(|k| Value::String(k.to_string())),
+            _ => None,
+        })
+        .collect();
+
+    let mut delta: StateMap = StateMap::new();
+    if !matched_keys.is_empty() {
+        delta.insert(Key::from("_remove"), Value::List(matched_keys));
+    }
+    match reactum_val {
+        // Explicit delta from the reactum — pass its sentinels through.
+        Value::Map(mut m) if m.contains_key("_add") || m.contains_key("_remove") => {
+            if let Some(rem) = m.shift_remove("_remove") {
+                delta.insert(Key::from("_remove"), rem);
+            }
+            if let Some(add) = m.shift_remove("_add") {
+                delta.insert(Key::from("_add"), add);
+            }
+            for (k, v) in m {
+                delta.insert(k, v);
+            }
+        }
+        Value::Map(m) => {
+            delta.insert(Key::from("_add"), Value::Map(m));
+        }
+        other => {
+            delta.insert(Key::from("_add"), other);
+        }
+    }
+    Value::Map(delta)
 }

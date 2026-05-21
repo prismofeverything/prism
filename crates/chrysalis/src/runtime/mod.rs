@@ -7,23 +7,21 @@
 //! Process.
 //!
 //! Layout:
-//! - [`rule`] — `chrysalis::Rule`, the chrysalis-typed reaction. Carries
-//!   a static [`prism_schema::Pattern`] redex plus chrysalis [`Expr`]s
-//!   for reactum, guard, and rate.
-//! - [`brs`] — `ChrysalisBrs`, a [`prism_bigraph::Process`] that fires
-//!   chrysalis [`Rule`]s. Uses prism's `find_matches` for matching, then
-//!   interprets the rule's reactum/guard/rate against match bindings.
+//! - [`rule`] — `chrysalis::Rule`, the reaction-as-value data carrier
+//!   (a [`prism_schema::Pattern`] redex plus chrysalis [`Expr`]s for
+//!   reactum, guard, and rate) plus [`rule::to_prism_rule`], the adapter
+//!   to a `prism_schema::ReactionRule`. There is **no** chrysalis BRS:
+//!   reactions run on prism's [`prism_bigraph::BigraphicalReactiveSystem`]
+//!   (the compiler registers a `Brs` factory; see `crate::compile`).
 //! - [`expr_process`] — `ExprProcess`, a `Process` whose `update` body
 //!   is a chrysalis `Expr`.
 //! - [`expr_step`] — `ExprStep`, a `Step` whose `update` body is a
 //!   chrysalis `Expr`.
 
-pub mod brs;
 pub mod expr_process;
 pub mod expr_step;
 pub mod rule;
 
-pub use brs::{BrsConfig, BrsMode, ChrysalisBrs, FOREIGN_RULE};
 pub use expr_process::ExprProcess;
 pub use expr_step::ExprStep;
-pub use rule::{BindingSource, Rule, RuleBindings};
+pub use rule::{BindingSource, Rule, RuleBindings, FOREIGN_RULE};

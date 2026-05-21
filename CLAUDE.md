@@ -65,3 +65,21 @@ application domain.
   step is *toward* the full design, never a load-bearing workaround. If
   there's nothing that consumes a new capability yet, build the consumer
   so we know it works. See memory `feedback_no_half_measures`.
+- **chrysalis is a THIN layer; never reimplement prism inside it.**
+  Before writing any matching, firing, scheduling, structural-diff, or
+  bigraph-rewrite logic in `crates/chrysalis/`, grep prism first — it
+  almost certainly exists already: `prism_schema::reaction`
+  (`Pattern`, `find_matches`, `fire_rule_at`, `instantiate`, `apply_fire`),
+  `prism_bigraph::BigraphicalReactiveSystem` (det / stochastic /
+  Gillespie BRS `Process`), `Engine`, `Composite::from_config`,
+  `discover_processes`, `MethodRegistry`, `divide_by_schema`,
+  `prism_schema::units`. **Call these — do not clone them.** If prism's
+  mechanism is broken or missing a capability you need, **fix or extend
+  prism in place** (add a prism-side test) and then call it — existing
+  prism code is changeable, not sacred. Routing around prism with a
+  chrysalis copy is what produced `ChrysalisBrs` (a weaker duplicate of
+  `BigraphicalReactiveSystem`) and trapped the project in a rebuild
+  loop. chrysalis's legitimate surface area is: `parse` → `ast` →
+  `eval` (Expr→Value / Expr→Pattern) → `compile` (build prism artifacts).
+  Anything that looks like a runtime *algorithm* belongs in prism. See
+  memory `feedback_chrysalis_thin_layer`.

@@ -14,8 +14,9 @@ pub use assembly::{
 };
 pub use method::{value_type_name, MethodError, MethodFn, MethodRegistry, MethodResult};
 pub use reaction::{
-    Activity, Bindings, ControlStatus, FireUpdate, Match, Pattern, ReactionRule,
-    apply_fire, find_matches, fire_rule, fire_rule_at, instantiate, is_active,
+    Activity, Bindings, ControlStatus, FireUpdate, GuardFn, Match, Pattern, RateFn,
+    ReactionRule, ReactumFn, apply_fire, find_matches, fire_rule, fire_rule_at,
+    instantiate, is_active,
 };
 pub use reconcile::reconcile;
 pub use registry::{divide_by_schema, DivideContext, TypeRegistry};

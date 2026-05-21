@@ -10,7 +10,7 @@ use prism_schema::Value;
 
 use crate::ast::{Expr, Name, StepDef};
 use crate::eval::Evaluator;
-use crate::runtime::expr_process::lower_schema;
+use crate::schema::lower_schema;
 
 pub struct ExprStep {
     pub label: String,

@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use prism_bigraph::{PortSchema, Process, Update};
-use prism_schema::{Schema, Value};
+use prism_schema::Value;
 
 use crate::ast::{Expr, Name, ProcessDef};
 use crate::eval::Evaluator;
@@ -112,43 +112,6 @@ where
     I: Iterator<Item = (&'a Name, &'a crate::ast::PortDecl)>,
 {
     ports
-        .map(|(name, decl)| (name.clone(), lower_schema(&decl.schema)))
+        .map(|(name, decl)| (name.clone(), crate::schema::lower_schema(&decl.schema)))
         .collect()
-}
-
-pub(crate) fn lower_schema(s: &crate::ast::SchemaExpr) -> Schema {
-    match s {
-        crate::ast::SchemaExpr::Any => Schema::Any,
-        crate::ast::SchemaExpr::Bool => Schema::Bool { default: None },
-        crate::ast::SchemaExpr::Int => Schema::Integer { default: None },
-        crate::ast::SchemaExpr::Float => Schema::Float { default: None },
-        crate::ast::SchemaExpr::String => Schema::String { default: None },
-        crate::ast::SchemaExpr::Map(inner) => Schema::Map {
-            value: Box::new(lower_schema(inner)),
-        },
-        crate::ast::SchemaExpr::List(inner) => Schema::List {
-            element: Box::new(lower_schema(inner)),
-        },
-        // Tier-1 placeholder for nominal / self types; the engine
-        // tolerates Any. Tier-2 will resolve these against the type
-        // registry.
-        crate::ast::SchemaExpr::Custom { .. } => Schema::Any,
-        crate::ast::SchemaExpr::SelfType => Schema::Any,
-        // Unit *scale* is erased: a Quantity's runtime value is a bare Float
-        // magnitude (the dimensional check is the chrysalis check phase).
-        // EXTENSIVITY survives, though — it's a divide-time property, so an
-        // extensive quantity lowers to `Delta` (additive; halves on divide)
-        // and an intensive one to `Float` (shares). See `divide_by_schema`.
-        crate::ast::SchemaExpr::Quantity { extensive, .. } => {
-            if *extensive {
-                Schema::Delta { default: None }
-            } else {
-                Schema::Float { default: None }
-            }
-        }
-        crate::ast::SchemaExpr::Array { shape, element } => Schema::Array {
-            shape: shape.clone(),
-            element: Box::new(lower_schema(element)),
-        },
-    }
 }

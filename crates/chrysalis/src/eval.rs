@@ -26,8 +26,7 @@ use crate::ast::{
     BinOp, Block, Def, Expr, Name, PathRoot, PlacePath, PortBindings, Program, ReactionDef,
     StringLit, StringSeg, TermArg, UnaryOp,
 };
-use crate::runtime::brs::{BrsConfig, BrsMode, FOREIGN_RULE};
-use crate::runtime::rule::{BindingSource, Rule, RuleBindings};
+use crate::runtime::rule::{BindingSource, Rule, RuleBindings, FOREIGN_RULE};
 
 #[derive(Debug, Error)]
 pub enum EvalError {
@@ -645,10 +644,7 @@ impl Evaluator {
         let outputs = lower_port_bindings(&ports.outputs, self, env)?;
 
         let mut spec: IndexMap<Key, Value> = IndexMap::new();
-        spec.insert(
-            "address".into(),
-            Value::String("local:ChrysalisBrs".into()),
-        );
+        spec.insert("address".into(), Value::String("local:Brs".into()));
         spec.insert("config".into(), Value::Map(config));
         spec.insert("inputs".into(), Value::Map(inputs));
         spec.insert("outputs".into(), Value::Map(outputs));
@@ -1103,59 +1099,3 @@ fn lower_place_path(path: &PlacePath) -> Vec<String> {
     out
 }
 
-/// Compile a chrysalis [`BrsConfig`] from a config Value. Used by the
-/// `ChrysalisBrs` factory.
-pub fn brs_config_from_value(config: &Value) -> Result<BrsConfig, EvalError> {
-    let map = config.as_map().ok_or_else(|| EvalError::InvalidForm {
-        context: "BRS config".into(),
-        message: "expected Map".into(),
-    })?;
-    let mut rules: Vec<Rule> = Vec::new();
-    if let Some(rules_val) = map.get("rules") {
-        if let Some(list) = rules_val.as_list() {
-            for item in list {
-                if let Value::Foreign(f) = item {
-                    if f.type_name == FOREIGN_RULE {
-                        if let Some(rule) = f.downcast_ref::<Rule>() {
-                            rules.push(rule.clone());
-                            continue;
-                        }
-                    }
-                }
-                return Err(EvalError::InvalidForm {
-                    context: "BRS config".into(),
-                    message: "rules list must contain ChrysalisRule values".into(),
-                });
-            }
-        }
-    }
-    let mode = map
-        .get("mode")
-        .and_then(|v| v.as_str())
-        .map(|s| match s {
-            "stochastic" => BrsMode::Stochastic,
-            _ => BrsMode::Deterministic,
-        })
-        .unwrap_or(BrsMode::Deterministic);
-    let seed = map
-        .get("seed")
-        .and_then(|v| v.as_i64())
-        .map(|i| i as u64)
-        .unwrap_or(0);
-    let interval = map
-        .get("interval")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(1.0);
-    let max_per_tick = map
-        .get("max_per_tick")
-        .and_then(|v| v.as_i64())
-        .map(|i| i as usize)
-        .unwrap_or(1);
-    Ok(BrsConfig {
-        rules,
-        mode,
-        seed,
-        interval,
-        max_per_tick,
-    })
-}

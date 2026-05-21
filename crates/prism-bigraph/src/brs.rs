@@ -159,7 +159,13 @@ impl BigraphicalReactiveSystem {
         let status = self.control_status.as_ref();
         for (i, rule) in self.rules.iter().enumerate() {
             for m in find_matches(subtree, &rule.redex, status) {
-                let rate = rule.rate.unwrap_or(1.0);
+                // A rule's guard (if any) gates which matches are candidates.
+                if !rule.passes_guard(&m.bindings) {
+                    continue;
+                }
+                // Propensity may depend on the match (rate_fn) or be the
+                // constant rate; defaults to 1.0.
+                let rate = rule.propensity(&m.bindings);
                 out.push((i, m, rate));
             }
         }
@@ -197,8 +203,10 @@ impl BigraphicalReactiveSystem {
                 let status = self.control_status.as_ref();
                 for rule in &self.rules {
                     let matches = find_matches(subtree, &rule.redex, status);
-                    if let Some(m) = matches.first() {
-                        let upd = fire_rule_at(rule, m)?;
+                    // First match whose guard passes (a guard can reject the
+                    // structurally-first match).
+                    if let Some(m) = matches.into_iter().find(|m| rule.passes_guard(&m.bindings)) {
+                        let upd = fire_rule_at(rule, &m)?;
                         let new_subtree = apply_fire(subtree, &upd);
                         return Some((
                             new_subtree,
@@ -600,5 +608,68 @@ mod tests {
         let brs = BigraphicalReactiveSystem::new(vec![phos_rule()]);
         let update = brs.update(&wrap_input(no_erk), 1.0);
         assert!(matches!(update, Update::Noop));
+    }
+
+    #[test]
+    fn brs_runs_guarded_computed_reactum() {
+        // The chrysalis-shaped rule: a guard + a computed reactum (no
+        // structural reactum pattern). Proves prism's BRS runs the closure
+        // form end-to-end, so chrysalis needs no BRS of its own.
+        use prism_schema::reaction::{Bindings, GuardFn, ReactionRule, ReactumFn};
+        use std::sync::Arc;
+
+        let redex = Pattern::map([(
+            "cell",
+            Pattern::sort("Cell", [("mass", Pattern::site())]),
+        )]);
+        let guard: GuardFn = Arc::new(|b: &Bindings| {
+            b.sites
+                .get("mass")
+                .and_then(|v| v.as_f64())
+                .map(|m| m > 2.0)
+                .unwrap_or(false)
+        });
+        let reactum_fn: ReactumFn = Arc::new(|b: &Bindings| {
+            let key = b
+                .key_map
+                .get("cell")
+                .map(|k| k.to_string())
+                .unwrap_or_default();
+            let cell = || Value::tree([("_type", val_str("Cell")), ("mass", Value::float(1.0))]);
+            let mut add = StateMap::new();
+            add.insert(Key::from(format!("{key}_0").as_str()), cell());
+            add.insert(Key::from(format!("{key}_1").as_str()), cell());
+            Value::tree([
+                ("_remove", Value::List(vec![val_str(&key)])),
+                ("_add", Value::Map(add)),
+            ])
+        });
+        let rule = ReactionRule::new(redex, Pattern::Site)
+            .with_label("divide")
+            .with_guard(guard)
+            .with_reactum_fn(reactum_fn);
+        let brs = BigraphicalReactiveSystem::new(vec![rule]);
+
+        // mass 3 > 2 → fires; mother removed, two daughters added.
+        let big = Value::tree([(
+            "0",
+            Value::tree([("_type", val_str("Cell")), ("mass", Value::float(3.0))]),
+        )]);
+        let update = brs.update(&wrap_input(big.clone()), 1.0);
+        let value = match update {
+            Update::Value(v) => v,
+            Update::Noop => panic!("expected a firing"),
+        };
+        let after = apply_delta(&big, value.get_field("state").unwrap());
+        let am = after.as_map().unwrap();
+        assert!(!am.contains_key("0"), "mother removed");
+        assert!(am.contains_key("0_0") && am.contains_key("0_1"), "two daughters");
+
+        // mass 1 < 2 → guard blocks → Noop.
+        let small = Value::tree([(
+            "0",
+            Value::tree([("_type", val_str("Cell")), ("mass", Value::float(1.0))]),
+        )]);
+        assert!(matches!(brs.update(&wrap_input(small), 1.0), Update::Noop));
     }
 }

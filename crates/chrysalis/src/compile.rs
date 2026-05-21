@@ -28,7 +28,7 @@ use std::sync::{Arc, OnceLock};
 use indexmap::IndexMap;
 
 use prism_bigraph::composite::Composite;
-use prism_bigraph::{ProcessNode, ProcessRegistry, Topology};
+use prism_bigraph::{BigraphicalReactiveSystem, ProcessNode, ProcessRegistry, Topology};
 use prism_schema::units::Context;
 use prism_schema::{
     divide_by_schema, DivideContext, Key, MethodRegistry, Schema, StateMap, TypeRegistry, Value,
@@ -39,10 +39,10 @@ use crate::ast::{
     StepDef, TermArg,
 };
 use crate::units::UnitEnv;
-use crate::eval::{brs_config_from_value, EvalError, Evaluator};
-use crate::runtime::brs::ChrysalisBrs;
+use crate::eval::{EvalError, Evaluator};
 use crate::runtime::expr_process::ExprProcess;
 use crate::runtime::expr_step::ExprStep;
+use crate::runtime::rule::{extract_rules, to_prism_rule};
 
 /// Output of compiling a chrysalis [`Program`].
 pub struct CompileResult {
@@ -127,8 +127,9 @@ pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
         }
     }
 
-    // The chrysalis BRS is a built-in.
-    register_chrysalis_brs_factory(&mut registry, Arc::clone(&evaluator));
+    // The BRS is prism's `BigraphicalReactiveSystem`, registered under
+    // `Brs`; chrysalis only adapts its reaction values into it.
+    register_brs_factory(&mut registry, Arc::clone(&evaluator));
 
     // Generic composite: a composite compiles to a plain spec
     // `{address: "local:Composite", config: {state, bridge}}` and is
@@ -272,16 +273,21 @@ fn register_step_factory(
     });
 }
 
-fn register_chrysalis_brs_factory(
-    registry: &mut ProcessRegistry,
-    evaluator: Arc<Evaluator>,
-) {
-    registry.register("ChrysalisBrs", move |config| {
-        let brs_config = brs_config_from_value(&config)
-            .expect("ChrysalisBrs config decode failed");
-        ProcessNode::Process(Box::new(ChrysalisBrs::new(
-            brs_config,
-            Arc::clone(&evaluator),
+/// Register the BRS factory. A chrysalis `BRS[rules: […]]` compiles to a
+/// spec `{address: "local:Brs", config: {rules, mode, …}}`; this factory
+/// decodes the chrysalis [`Rule`](crate::runtime::rule::Rule) carriers,
+/// adapts each to a `prism_schema::ReactionRule` (via `to_prism_rule`,
+/// which closes the reactum/guard/rate expressions over the evaluator),
+/// and runs them on prism's `BigraphicalReactiveSystem`. There is no
+/// chrysalis-side BRS — prism owns matching, firing, and diffing.
+fn register_brs_factory(registry: &mut ProcessRegistry, evaluator: Arc<Evaluator>) {
+    registry.register("Brs", move |config| {
+        let rules = extract_rules(&config)
+            .iter()
+            .map(|r| to_prism_rule(r, Arc::clone(&evaluator)))
+            .collect();
+        ProcessNode::Process(Box::new(BigraphicalReactiveSystem::from_config(
+            rules, &config,
         )))
     });
 }

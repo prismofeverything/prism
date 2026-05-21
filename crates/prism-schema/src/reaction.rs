@@ -36,6 +36,7 @@
 //! sentinel for keys the redex consumed plus an `_add` for the
 //! reactum's new keys at the match path. No whole-tree overwrite.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use indexmap::IndexMap;
@@ -214,8 +215,30 @@ pub struct Match {
 
 // ── Reaction rule ───────────────────────────────────────────────────
 
+/// A guard predicate over a match's [`Bindings`]: the rule only fires
+/// where this returns `true`. Lets a caller (e.g. chrysalis) attach a
+/// `where` clause without prism knowing the surface language.
+pub type GuardFn = Arc<dyn Fn(&Bindings) -> bool + Send + Sync>;
+
+/// A computed (parametric) reactum: instead of the structural `reactum`
+/// pattern, the replacement is a *function of the match*. It returns a
+/// delta `Value` — either an explicit `{_remove: [...], _add: {...}}`
+/// map (localized at the match path) or a bare map treated as `_add`.
+/// This is the general Milner-parametric form where the instantiation is
+/// a function; chrysalis uses it for computed reactums like `?c.divide()`.
+pub type ReactumFn = Arc<dyn Fn(&Bindings) -> Value + Send + Sync>;
+
+/// A rate expression over a match's [`Bindings`] (propensity that can
+/// depend on the matched contents), overriding the constant `rate`.
+pub type RateFn = Arc<dyn Fn(&Bindings) -> f64 + Send + Sync>;
+
 /// A parametric reaction rule (Milner Def. 8.5).
-#[derive(Clone, Debug)]
+///
+/// The base form is a structural `redex → reactum` pattern rewrite.
+/// Three optional closures generalize it without prism depending on any
+/// surface language: a [`GuardFn`] (firing condition), a [`ReactumFn`]
+/// (computed reactum), and a [`RateFn`] (computed propensity).
+#[derive(Clone)]
 pub struct ReactionRule {
     pub redex: Pattern,
     pub reactum: Pattern,
@@ -228,6 +251,28 @@ pub struct ReactionRule {
     pub rate: Option<f64>,
     /// Human-readable label for traces and logs.
     pub label: String,
+    /// Optional firing guard: a predicate over the match bindings.
+    pub guard: Option<GuardFn>,
+    /// Optional computed reactum: replaces structural `instantiate` with
+    /// a function of the match (see [`ReactumFn`]).
+    pub reactum_fn: Option<ReactumFn>,
+    /// Optional computed propensity over the match bindings.
+    pub rate_fn: Option<RateFn>,
+}
+
+impl std::fmt::Debug for ReactionRule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReactionRule")
+            .field("label", &self.label)
+            .field("redex", &self.redex)
+            .field("reactum", &self.reactum)
+            .field("instantiation", &self.instantiation)
+            .field("rate", &self.rate)
+            .field("guard", &self.guard.as_ref().map(|_| "<fn>"))
+            .field("reactum_fn", &self.reactum_fn.as_ref().map(|_| "<fn>"))
+            .field("rate_fn", &self.rate_fn.as_ref().map(|_| "<fn>"))
+            .finish()
+    }
 }
 
 impl ReactionRule {
@@ -238,12 +283,53 @@ impl ReactionRule {
             instantiation: IndexMap::new(),
             rate: None,
             label: String::new(),
+            guard: None,
+            reactum_fn: None,
+            rate_fn: None,
         }
     }
 
     pub fn with_rate(mut self, rate: f64) -> Self {
         self.rate = Some(rate);
         self
+    }
+
+    /// Attach a firing guard (a predicate over the match bindings).
+    pub fn with_guard(mut self, guard: GuardFn) -> Self {
+        self.guard = Some(guard);
+        self
+    }
+
+    /// Attach a computed reactum (a function of the match producing a
+    /// delta value), replacing the structural `reactum` pattern.
+    pub fn with_reactum_fn(mut self, reactum_fn: ReactumFn) -> Self {
+        self.reactum_fn = Some(reactum_fn);
+        self
+    }
+
+    /// Attach a computed propensity (a function of the match bindings).
+    pub fn with_rate_fn(mut self, rate_fn: RateFn) -> Self {
+        self.rate_fn = Some(rate_fn);
+        self
+    }
+
+    /// Does this rule's guard admit `bindings`? `true` when there is no
+    /// guard.
+    pub fn passes_guard(&self, bindings: &Bindings) -> bool {
+        match &self.guard {
+            Some(g) => g(bindings),
+            None => true,
+        }
+    }
+
+    /// The propensity for a given match: `rate_fn` if present, else the
+    /// constant `rate`, else `1.0`.
+    pub fn propensity(&self, bindings: &Bindings) -> f64 {
+        if let Some(rf) = &self.rate_fn {
+            rf(bindings)
+        } else {
+            self.rate.unwrap_or(1.0)
+        }
     }
 
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
@@ -843,6 +929,16 @@ pub struct FireUpdate {
 /// `None` if instantiation produced nothing (shouldn't happen for
 /// well-formed rules).
 pub fn fire_rule_at(rule: &ReactionRule, m: &Match) -> Option<FireUpdate> {
+    // Computed (parametric) reactum: the replacement is a function of the
+    // match, returning a delta value directly. The caller owns which keys
+    // to remove (it knows the surface-level binding roles), so prism reads
+    // the explicit `_remove`/`_add` sentinels rather than guessing from
+    // key_map. See [`ReactumFn`].
+    if let Some(reactum_fn) = &rule.reactum_fn {
+        let produced = reactum_fn(&m.bindings);
+        return Some(computed_fire_update(rule, m, produced));
+    }
+
     let instantiation = rule.resolved_instantiation();
     let replacement = instantiate(&rule.reactum, &m.bindings, &instantiation);
 
@@ -871,6 +967,49 @@ pub fn fire_rule_at(rule: &ReactionRule, m: &Match) -> Option<FireUpdate> {
         added,
         label: rule.label.clone(),
     })
+}
+
+/// Build a [`FireUpdate`] from a computed reactum's produced delta.
+///
+/// The produced value is interpreted as a localized delta at the match
+/// path: an explicit `{_remove: [keys], _add: {entries}}` map supplies
+/// the removed keys and added entries directly; any other map is treated
+/// as a bare `_add` (pure insertion, no removal); any non-map becomes the
+/// single added value. Removal is never inferred from `key_map` here —
+/// the caller states it explicitly via `_remove`.
+fn computed_fire_update(rule: &ReactionRule, m: &Match, produced: Value) -> FireUpdate {
+    let mut removed_keys: Vec<Key> = Vec::new();
+    let added: Value = match produced {
+        Value::Map(mut mp) if mp.contains_key("_remove") || mp.contains_key("_add") => {
+            if let Some(Value::List(rm)) = mp.shift_remove("_remove") {
+                removed_keys = rm
+                    .iter()
+                    .filter_map(|v| v.as_str().map(Key::from))
+                    .collect();
+            }
+            let add = mp.shift_remove("_add").unwrap_or_else(Value::map);
+            // Any leftover (non-sentinel) fields merge in as plain additions.
+            match add {
+                Value::Map(mut add_map) => {
+                    for (k, v) in mp {
+                        add_map.insert(k, v);
+                    }
+                    Value::Map(add_map)
+                }
+                // `_add` was a non-map value; emit it directly (leftover
+                // sibling fields, if any, are dropped — an explicit `_add`
+                // scalar is the caller's whole intent).
+                other => other,
+            }
+        }
+        other => other,
+    };
+    FireUpdate {
+        path: m.path.clone(),
+        removed_keys,
+        added,
+        label: rule.label.clone(),
+    }
 }
 
 /// Find the first match (deterministic mode) and fire.
@@ -1194,5 +1333,82 @@ mod tests {
         // Without status, the same redex matches inside the Box.
         let matches = find_matches(&state, &redex, None);
         assert!(!matches.is_empty());
+    }
+
+    #[test]
+    fn computed_reactum_with_guard_fires_explicit_delta() {
+        // A divide-style rule expressed with the closure hooks (the shape
+        // chrysalis produces): bind the Cell entry's key + its mass; guard
+        // on mass > 2; computed reactum removes the matched key and adds two
+        // daughters keyed `<key>_0` / `<key>_1`. No structural reactum.
+        let redex = Pattern::map([(
+            "cell",
+            Pattern::sort("Cell", [("mass", Pattern::site())]),
+        )]);
+
+        let guard: GuardFn = Arc::new(|b: &Bindings| {
+            b.sites
+                .get("mass")
+                .and_then(|v| v.as_f64())
+                .map(|m| m > 2.0)
+                .unwrap_or(false)
+        });
+
+        let reactum_fn: ReactumFn = Arc::new(|b: &Bindings| {
+            let key = b
+                .key_map
+                .get("cell")
+                .map(|k| k.to_string())
+                .unwrap_or_default();
+            let mass = b.sites.get("mass").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let daughter = |suffix: &str| {
+                Value::tree([
+                    ("_type", val_str("Cell")),
+                    ("mass", Value::float(mass / 2.0)),
+                    ("id", val_str(&format!("{key}{suffix}"))),
+                ])
+            };
+            let mut add = StateMap::new();
+            add.insert(Key::from(format!("{key}_0").as_str()), daughter("_0"));
+            add.insert(Key::from(format!("{key}_1").as_str()), daughter("_1"));
+            Value::tree([
+                ("_remove", Value::List(vec![val_str(&key)])),
+                ("_add", Value::Map(add)),
+            ])
+        });
+
+        let rule = ReactionRule::new(redex, Pattern::Site)
+            .with_label("divide")
+            .with_guard(guard)
+            .with_reactum_fn(reactum_fn);
+
+        // Above threshold → fires, splitting the cell into two daughters.
+        let big = Value::tree([(
+            "0",
+            Value::tree([("_type", val_str("Cell")), ("mass", Value::float(3.0))]),
+        )]);
+        let matches = find_matches(&big, &rule.redex, None);
+        assert_eq!(matches.len(), 1);
+        assert!(rule.passes_guard(&matches[0].bindings));
+        let upd = fire_rule_at(&rule, &matches[0]).expect("fire");
+        assert_eq!(upd.removed_keys, vec![Key::from("0")]);
+        let after = apply_fire(&big, &upd);
+        let am = after.as_map().unwrap();
+        assert!(!am.contains_key("0"), "mother removed");
+        assert!(am.contains_key("0_0") && am.contains_key("0_1"), "two daughters");
+        assert_eq!(
+            am.get("0_0").and_then(|v| v.get_field("mass")).and_then(|v| v.as_f64()),
+            Some(1.5),
+            "daughter mass halved by the computed reactum"
+        );
+
+        // Below threshold → the guard blocks it.
+        let small = Value::tree([(
+            "0",
+            Value::tree([("_type", val_str("Cell")), ("mass", Value::float(1.0))]),
+        )]);
+        let matches = find_matches(&small, &rule.redex, None);
+        assert_eq!(matches.len(), 1);
+        assert!(!rule.passes_guard(&matches[0].bindings), "guard blocks mass 1.0");
     }
 }
