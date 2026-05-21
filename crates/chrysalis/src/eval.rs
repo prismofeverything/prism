@@ -502,9 +502,17 @@ impl Evaluator {
             (Key::from("inputs"), Value::Map(bridge_in)),
             (Key::from("outputs"), Value::Map(bridge_out)),
         ]));
+        // Carry the DECLARED inner schema so the nested subengine is *informed*
+        // by it (apply-critical `Array`/`Delta`/`Link` types inference can't
+        // recover) instead of re-inferring — which would degrade an additive
+        // `Array` field to a `List` and break the output bridge. The subengine
+        // resolves it over its inferred floor (`resolve(infer(state), declared)`),
+        // exactly as the top-level engine does.
+        let inner_schema = crate::schema::composite_inner_schema(def, &self.program);
         let config = Value::Map(IndexMap::from([
             (Key::from("state"), inner_state),
             (Key::from("bridge"), bridge),
+            (Key::from("schema"), prism_schema::schema_to_value(&inner_schema)),
         ]));
         let composite_name: Name = "Composite".into();
         let mut spec =

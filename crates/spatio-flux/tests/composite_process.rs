@@ -141,24 +141,31 @@ fn address_at(state: &Value, path: &[&str]) -> Option<String> {
     node.get_field("address").and_then(|v| v.as_str()).map(str::to_string)
 }
 
-/// The composite-process use case, structurally: a `Dish` composite defined
-/// once, **imported** into `Culture`, **nested** twice, and the whole thing
-/// **instantiated and run** by the engine.
-///
-/// NOTE: observing each nested Dish's diffused *field* through its bridge does
-/// NOT yet work — additive `Array` fields aren't reconstructed through a nested
-/// composite's bridge (scalars are; see `nested_composite`). That's the nested
-/// analogue of GOTCHA #14, tracked as a task; it blocks the live field-heatmap
-/// report section. The structure below is sound regardless.
+/// A Culture slot's glucose field: `state.<slot>.glucose` — the nested Dish's
+/// diffused field, surfaced through its bridge to the parent slot.
+fn slot_glucose(state: &Value, slot: &str) -> Vec<f64> {
+    state
+        .get_field(slot)
+        .and_then(|f| f.get_field("glucose"))
+        .and_then(|v| v.as_list())
+        .map(|l| l.iter().filter_map(|x| x.as_f64()).collect())
+        .unwrap_or_default()
+}
+
+/// The composite-process use case end-to-end: a `Dish` composite defined once,
+/// **imported** into `Culture`, **nested** twice, **run**, and each nested
+/// Dish's diffused field **observed through its bridge** — additive `Array`
+/// fields now reconstruct across the nested bridge (the declared inner schema
+/// travels in the spec; the engine promotes the output-port `Array` schema onto
+/// the parent slot, so per-cell diffusion deltas apply element-wise).
 #[test]
-fn culture_imports_and_nests_dish() {
+fn culture_imports_nests_and_runs_dish() {
     let program = culture_program();
     let result =
         compile_with_registry(&program, diffusion_natives()).expect("compile Culture (imports Dish)");
 
     // Import + nest: each well is a nested COMPOSITE spec carrying the imported
-    // Dish's `Diffusion` sub-process — i.e. Dish's defs are in scope in Culture
-    // (the import) and instantiated as subprocesses (the nesting).
+    // Dish's `Diffusion` sub-process.
     for well in ["well_a", "well_b"] {
         assert_eq!(
             address_at(&result.initial_state, &[well]).as_deref(),
@@ -172,8 +179,6 @@ fn culture_imports_and_nests_dish() {
         );
     }
 
-    // The composite-of-composites builds and runs without error (the engine
-    // discovers and steps the nested subengines).
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
@@ -181,5 +186,23 @@ fn culture_imports_and_nests_dish() {
     )
     .expect("engine init");
     engine.discover_all_processes();
-    engine.run(10.0);
+    engine.run(30.0);
+
+    let state = engine.state();
+    let before_a = vec![0.0, 0.0, 0.0, 5.0, 5.0, 5.0, 10.0, 10.0, 10.0];
+    let before_b = vec![0.0, 5.0, 10.0, 0.0, 5.0, 10.0, 0.0, 5.0, 10.0];
+    let after_a = slot_glucose(state, "fields_a");
+    let after_b = slot_glucose(state, "fields_b");
+
+    // Each nested Dish ran its diffusion, surfaced via its bridge to Culture's
+    // fields_a / fields_b: the field changed (diffused) AND conserved its total
+    // glucose (no-flux boundary) — i.e. the additive field reconstructs across
+    // the nested bridge, not collapses to ~0.
+    let sum = |v: &[f64]| v.iter().sum::<f64>();
+    assert_eq!(after_a.len(), 9, "well_a bridged its 3×3 field to fields_a");
+    assert_eq!(after_b.len(), 9, "well_b bridged its 3×3 field to fields_b");
+    assert!(before_a != after_a, "well_a diffused");
+    assert!(before_b != after_b, "well_b diffused");
+    assert!((sum(&after_a) - 45.0).abs() < 1e-6, "well_a conserves glucose (got {})", sum(&after_a));
+    assert!((sum(&after_b) - 45.0).abs() < 1e-6, "well_b conserves glucose (got {})", sum(&after_b));
 }

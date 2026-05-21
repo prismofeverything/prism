@@ -28,7 +28,7 @@ use std::sync::Mutex;
 
 use indexmap::IndexMap;
 
-use prism_schema::{Key, Path, Schema, Value};
+use prism_schema::{Key, Path, Value};
 
 use crate::engine::Engine;
 use crate::ports::PortSchema;
@@ -122,26 +122,23 @@ impl Composite {
         let input_bridge = parse_bridge(bridge_val.get("inputs")?)?;
         let output_bridge = parse_bridge(bridge_val.get("outputs")?)?;
 
-        // Build schemas from bridge structure (default to Any)
-        let input_schemas: PortSchema = input_bridge.mappings.keys()
-            .map(|k| (k.clone(), Schema::Any))
-            .collect();
-        let output_schemas: PortSchema = output_bridge.mappings.keys()
-            .map(|k| (k.clone(), Schema::Any))
-            .collect();
-
         let interval = map.get("interval")
             .and_then(|v| v.as_f64())
             .unwrap_or(1.0);
 
         // Carry a REAL inner schema (law #10: the Composite runs on the
-        // algebra, not `Schema::Any`). Infer it from the inner state so the
-        // inner apply and the output-bridge `diff` dispatch on the actual leaf
-        // types — additive `Float`/`Integer`, structural `Map`/`Tree` — rather
-        // than the opaque bottom sort. (A composite compiled with a declared
-        // inner schema could thread that here instead; inference is the
-        // schema-complete floor.)
-        let inner_schema = prism_schema::algebra::infer(&inner_state);
+        // algebra, not `Schema::Any`). PREFER the DECLARED schema the spec
+        // carries (`config.schema`) — it has the apply-critical types inference
+        // can't recover (additive `Array`/`Delta`, `Link`s). Resolve it over the
+        // inferred floor so it stays schema-complete, exactly like the top-level
+        // engine's `resolve(infer(state), declared)`. Bare `infer` only when no
+        // schema was carried (which would degrade an additive field to `List`
+        // and break the output bridge).
+        let inferred = prism_schema::algebra::infer(&inner_state);
+        let inner_schema = match map.get("schema").and_then(prism_schema::value_to_schema) {
+            Some(declared) => prism_schema::algebra::resolve(&inferred, &declared),
+            None => inferred,
+        };
         let inner_topology = crate::topology::Topology {
             processes: IndexMap::new(),
             initial_state: inner_state,
@@ -152,6 +149,18 @@ impl Composite {
 
         // Discover all process specs in the inner state
         engine.discover_all_processes();
+
+        // Port schemas are the inner schema AT THE BRIDGED PATHS (not `Any`):
+        // each port carries its real type, so the engine PROMOTES an output
+        // port's schema onto the parent slot it writes — additive `Array`
+        // fields then apply element-wise across the bridge (nested GOTCHA #14)
+        // instead of replacing.
+        let input_schemas: PortSchema = input_bridge.mappings.iter()
+            .map(|(port, path)| (port.clone(), engine.schema().schema_at_path(path).clone()))
+            .collect();
+        let output_schemas: PortSchema = output_bridge.mappings.iter()
+            .map(|(port, path)| (port.clone(), engine.schema().schema_at_path(path).clone()))
+            .collect();
 
         Some(Self::new(engine, input_bridge, output_bridge,
                        input_schemas, output_schemas, interval))
