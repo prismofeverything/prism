@@ -1,0 +1,29 @@
+# A directed-graph type, defined entirely in chrysalis.
+#
+# The first `.ys` file parsed end-to-end by the real parser (not a hand-built
+# AST fixture). Proves: `type … with { method(args) = body }`, record/list
+# schemas, comprehensions, `in`, field access, and structural `_add`/`_remove`
+# deltas — the whole graph-type target from one file.
+
+type Graph = { nodes: list[string], edges: list[{ from: string, to: string }] }
+with {
+  # write methods: PURE delta-constructors over the complete _add/_remove basis
+  add_node(id: string) = { nodes: { _add: [id] } }
+
+  add_edge(from: string, to: string) = { edges: { _add: [{ from: from, to: to }] } }
+
+  remove_node(id: string) = {
+    nodes: { _remove: [id] },
+    edges: { _remove: [e for e in self.edges if e.from == id or e.to == id] }
+  }
+
+  remove_edge(from: string, to: string) = { edges: { _remove: [{ from: from, to: to }] } }
+
+  union_with(other: Graph) = {
+    nodes: { _add: [n for n in other.nodes if not (n in self.nodes)] },
+    edges: { _add: [e for e in other.edges if not (e in self.edges)] }
+  }
+
+  # read method: a query (note the list comprehension)
+  neighbors(id: string) = [edge.to for edge in self.edges if edge.from == id]
+}

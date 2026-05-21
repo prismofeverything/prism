@@ -29,6 +29,7 @@ pub mod check;
 pub mod compile;
 pub mod eval;
 pub mod fixtures;
+pub mod parse;
 pub mod runtime;
 pub mod schema;
 pub mod units;
