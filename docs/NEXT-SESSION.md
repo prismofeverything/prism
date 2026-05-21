@@ -1,70 +1,62 @@
 # Next session — launch prompt
 
-Paste the block below as the first message of a fresh session to start the
-**fresh-core schema-algebra rebuild**. It's self-contained: it points at the
-durable spec (`docs/schema-algebra.md`), the `CLAUDE.md` conventions, and
-the memories that auto-load, then states the goal, the invariant, and the
-ordered plan.
+## ✅ The fresh-core schema-algebra rebuild is COMPLETE (2026-05-21)
 
-Context for *why* this rebuild exists: across one long session we found that
-prism's recurring pain was always an *operation outside the algebra* —
-`ChrysalisBrs` (cloned the BRS), `infer_and_merge` + `overlay_apply_types`
-(fake `resolve`), the schemaless `Composite`, a ported-but-dead `reconcile`.
-The fix is a faithful, closed, **algebraic** core (an algebraic theory in
-the Plotkin–Power sense) with the laws as executable axioms, then `Composite`
-defined in terms of it. `docs/schema-algebra.md` is the spec.
+The rebuild described below (tasks #20→#18→#19→#21 + cutover) is **done**.
+Closure is achieved and enforced. Full workspace green (375 passed, 2 ignored =
+doctests). Do **not** re-do it. State of the core:
 
-Optionally prepend `/effort max`.
+- **`prism_schema::algebra`** is the single public door for all schema/state
+  transformation: `apply`/`apply_with`, `reconcile`, `merge`, `diff`,
+  `resolve`, `promote`, `generalize`, plus `default`/`check`/`infer`/`realize`/
+  `serialize`/`deserialize`. The raw mutators (`apply_update`,
+  `apply_update_with`, `apply_add_remove`) are `pub(crate)` — external crates
+  must use `algebra::*`, so a shortcut won't compile.
+- **Laws** (`prism-schema/tests/algebra_laws.rs`, `proptest`): 13 executable
+  axioms over generated `(schema, value)` pairs — apply-identity / preserves-
+  sort, reconcile-coherence, diff↔apply inverse, resolve idempotent /
+  commutative / associative / `Any`-identity, promote ≤ resolve, generalize
+  idempotent / `Any`-identity, codec round-trip, check-default.
+- **Closure guard** (`prism-bigraph/tests/closure_guard.rs`): ratchet over
+  engine/composite/chrysalis; `KNOWN_REMAINING = &[]` (empty = closed). Keep it
+  empty.
+- **Stand-ins deleted**: `Schema::infer_and_merge`, the `Schema::resolve` stub,
+  chrysalis `overlay_apply_types`, composite `compute_delta`/`merge_value_maps`,
+  dead engine helpers. `from_state` = `resolve(infer(state), declared)`;
+  `apply_projections_to` = `promote(slot, port)` + `algebra::apply` (fixed the
+  #14 diffusion gotcha — un-ignored + passing); Composite output bridge =
+  `algebra::diff` on its real inner schema (law #10).
+
+See memory `schema-algebra-rebuild-done` and `composite-typing-and-resolve`.
+
+## What's next (follow-up milestones, not yet done)
+
+1. **First-class `Custom` types** — make a `Custom` indistinguishable from a
+   built-in sort: a type = (representation `Schema`, op-handler overrides,
+   value-methods). Thread a `Core`/registry through the algebra ops so each
+   resolves a `Custom` to its repr+handlers (with-no-override = delegate to the
+   representation; first-class by delegation). Add a chrysalis `type Name =
+   <repr> with { op = <expr>, method(args) = <expr> }` surface — the
+   algebraic-effects *handler* model. The closure rebuild is the prerequisite
+   (one algebra fn per op to make `Custom`-aware, not scattered sites).
+2. **`.ys` workflow files as task-graph composites** — an `.ys` file is itself a
+   composite; a *workflow* style (init → simulate → analyze DAG, edges inferred
+   from data dependencies = the step-trigger graph) compiles to a Composite of
+   `Step` instances. A path toward replacing SED-ML. See task list +
+   `docs/chrysalis-design.md`.
+
+---
+
+## Historical: the rebuild launch prompt (for reference)
+
+The block below was the original launch prompt. Kept for provenance.
 
 ```
-We're doing the fresh-core rebuild of prism's schema algebra. Start by reading
-docs/schema-algebra.md (the spec/axioms) end to end, plus the two conventions in
-CLAUDE.md (thin-layer; algebra-closure) and memories feedback_schema_algebra +
-feedback_chrysalis_thin_layer. Skim docs/upstream-alignment.md. The upstream we
-port faithfully is cloned at /home/pattern/code/bigraph-schema/bigraph_schema/methods/
-and /home/pattern/code/process-bigraph/process_bigraph/composite.py.
-
+We're doing the fresh-core rebuild of prism's schema algebra. [...]
 GOAL: faithfully port the schema algebra and rebuild Composite *in terms of it*,
 deleting every ad-hoc stand-in, so the core has real algebraic closure.
-
-THE INVARIANT (non-negotiable): the schema layer is a closed algebra — an
-algebraic theory (operations + laws). ALL schema/state transformation goes
-through the algebra ops (default/check/infer/realize/apply/reconcile/merge/diff/
-resolve/promote/generalize/coerce/divide/serialize/...). No hand-rolled
-merge/diff/apply, no Schema::Any shortcut, no inline _add/_remove munging. A
-behaviour the algebra can't express becomes a NEW named op with a signature +
-laws (property tests) + the consumer that needs it — never a shortcut. Composite/
-engine logic is *defined in terms of* the algebra (law #10).
-
-APPROACH: axioms-first, op by op. For each op: write its laws as property tests,
-implement faithfully against methods/<op>.py, make the laws pass, express the next
-layer on it, delete the stand-in it replaces. Keep the periphery (bigraph matcher/
-BRS, units, Value, divide, chrysalis, spatio-flux) — don't rewrite it. Keep the
-whole workspace green at every step (336 tests are the behavioural net). cargo is
-at ~/.cargo/bin (export PATH="$HOME/.cargo/bin:$PATH").
-
-ORDER (docs/schema-algebra.md "Launch plan", tasks #20→#18→#19→#21):
-0. #20 Phase-0 scaffolding FIRST — this is the closure guarantee: an `algebra`
-   module that owns all schema/state transformation (make the raw mutators
-   module-private so a shortcut won't compile); a laws/property-test harness
-   (prism-schema/tests/algebra_laws.rs with (schema,value) generators); and a
-   closure-guard test that fails if Schema::Any.apply_update / hand-rolled
-   _add/_remove / bespoke merges reappear. Confirm green.
-1. #18 schema lattice: generalize → resolve → promote (resolve.rs is a started,
-   not-yet-wired WIP — pathless core + tests). Delete Schema::resolve stub,
-   Schema::infer_and_merge, chrysalis overlay_apply_types.
-2. #19 value/update ops: apply (faithful), reconcile, merge, diff. WIRE reconcile
-   into the engine accumulation (delete the Schema::Any.apply_update spots ~
-   engine.rs 876/895/1053) and use promote in apply (delete the
-   apply_projections_to port-schema override). This fixes #14 — un-ignore
-   spatio-flux/tests/chrysalis_port.rs::diffusion_composed_from_chrysalis as the proof.
-3. #21 rebuild Composite::update = project → run inner → reconcile → apply → view,
-   carrying its real inner schema (no Schema::Any).
-4. Cut over + delete remaining stand-ins + encapsulate; closure-guard green.
-
-DONE = every schema/state transform goes through the algebra; laws green;
-closure-guard green; Composite defined via the algebra; all stand-ins deleted;
-full workspace green; diffusion test un-ignored and passing.
-
-Use max effort. Build it on bedrock, not around it.
+ORDER: #20 scaffolding → #18 lattice → #19 value/update ops → #21 Composite →
+cutover. DONE = every transform via the algebra; laws green; closure-guard
+green; Composite via the algebra; stand-ins deleted; workspace green; diffusion
+un-ignored. (Full text in git history.)
 ```

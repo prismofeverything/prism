@@ -22,9 +22,54 @@ use prism_schema::{Key, Schema};
 
 use crate::ast::{CompositeDef, Def, Expr, PortDecl, Program, SchemaExpr};
 
+/// Lower a [`SchemaExpr`] **with the program in scope**, so a `custom(Name)`
+/// that names a *definer* (composite / process / step) expands to that
+/// definer's schema instead of an opaque [`Schema::Custom`].
+///
+/// This is the fix for the composite-as-`Custom` category error: a composite
+/// is **not** a registered data type (it lives in the `ProcessRegistry`, not
+/// the `TypeRegistry`), so leaving `custom("Cell")` as `Schema::Custom` makes
+/// `apply` try a `TypeRegistry` dispatch that finds nothing and falls back to
+/// a **blind replace** — destroying cell state (mass stops growing, division
+/// never arms). A composite has its own type:
+///   - as a *map element* (a data instance sitting in a parent, e.g.
+///     `cells: map[Cell]`) → its **instance schema**
+///     ([`composite_instance_schema`]): the exported, matchable scalar fields
+///     (extensive → `Delta`, intensive → `Float`), which is exactly what
+///     patterns match and `.divide()` dispatches against;
+///   - a process / step → its [`Schema::ProcessLink`] / [`Schema::StepLink`].
+/// Genuine data types (no matching definer) stay [`Schema::Custom`].
+pub fn lower_schema_in_program(s: &SchemaExpr, program: &Program) -> Schema {
+    match s {
+        SchemaExpr::Map(inner) => Schema::Map {
+            value: Box::new(lower_schema_in_program(inner, program)),
+        },
+        SchemaExpr::List(inner) => Schema::List {
+            element: Box::new(lower_schema_in_program(inner, program)),
+        },
+        SchemaExpr::Array { shape, element } => Schema::Array {
+            shape: shape.clone(),
+            element: Box::new(lower_schema_in_program(element, program)),
+        },
+        SchemaExpr::Custom { name, .. } => match program.lookup(name) {
+            Some(Def::Composite(c)) => composite_instance_schema(c),
+            Some(d @ (Def::Process(_) | Def::Step(_))) => def_schema(d, program),
+            // Genuine data type (or unknown) → the opaque-but-dispatchable form.
+            _ => lower_schema(s),
+        },
+        // Non-container, non-custom: identical to the program-free lowering.
+        _ => lower_schema(s),
+    }
+}
+
 /// Lower a surface [`SchemaExpr`] to a prism [`Schema`], schema-complete:
 /// custom types become [`Schema::Custom`] (so the `TypeRegistry`
 /// dispatches their methods) rather than `Any`.
+///
+/// Program-unaware: a `custom(Name)` always becomes [`Schema::Custom`]. When a
+/// program is in scope (schema derivation for `topology.state_schema`), prefer
+/// [`lower_schema_in_program`] so composite/process/step references expand to
+/// their real schema instead of an opaque data-type reference.
 pub fn lower_schema(s: &SchemaExpr) -> Schema {
     match s {
         SchemaExpr::Any => Schema::Any,
@@ -126,12 +171,17 @@ pub fn def_schema(def: &Def, program: &Program) -> Schema {
 /// schema.
 pub fn composite_inner_schema(def: &CompositeDef, program: &Program) -> Schema {
     // Slot types we can resolve by name: config params + declared ports.
+    // Program-aware so a `custom(CompositeName)` param (e.g.
+    // `cells: map[Cell]`) expands to the composite's instance schema rather
+    // than an opaque `Custom` — see [`lower_schema_in_program`].
     let mut known: IndexMap<String, Schema> = IndexMap::new();
     for p in &def.params {
-        known.insert(p.name.clone(), lower_schema(&p.schema));
+        known.insert(p.name.clone(), lower_schema_in_program(&p.schema, program));
     }
     for (n, d) in def.interface.inputs.iter().chain(def.interface.outputs.iter()) {
-        known.entry(n.clone()).or_insert_with(|| lower_schema(&d.schema));
+        known
+            .entry(n.clone())
+            .or_insert_with(|| lower_schema_in_program(&d.schema, program));
     }
 
     let mut branches: IndexMap<Key, Schema> = IndexMap::new();
@@ -266,12 +316,21 @@ mod tests {
         let Schema::Tree { branches } = inner_schema.as_ref() else {
             panic!("inner should be a Tree");
         };
-        // `cells: cells` → Map[Cell] → Map of Custom("Cell").
+        // `cells: map[Cell]` → Map of the Cell composite's INSTANCE schema
+        // (its exported scalar fields), NOT an opaque `Custom("Cell")`. A
+        // composite is not a registered data type, so threading `Custom` makes
+        // `apply` blind-replace the cell; expanding to the instance schema
+        // keeps cell updates structural (exported `mass` is a `Delta` that
+        // grows additively and halves on divide). The internal-division Cell
+        // here exposes only the non-scalar `environment`, so its instance
+        // schema is a (currently empty) `Tree` — the point is it's a `Tree`,
+        // not `Custom`.
         match branches.get(&k("cells")) {
             Some(Schema::Map { value }) => {
                 assert!(
-                    matches!(value.as_ref(), Schema::Custom { name, .. } if name == "Cell"),
-                    "cells element should be Custom(Cell), got {value:?}"
+                    matches!(value.as_ref(), Schema::Tree { .. }),
+                    "cells element should be the composite instance schema (a Tree), \
+                     not an opaque Custom; got {value:?}"
                 );
             }
             other => panic!("cells should be a Map, got {other:?}"),

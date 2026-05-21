@@ -259,6 +259,12 @@ goes through the algebra; laws green; closure-guard green; `Composite`
 defined via the algebra (no `Schema::Any`); all stand-ins deleted; full
 workspace green; diffusion (#14) un-ignored and passing.
 
+> **✅ ACHIEVED 2026-05-21.** All of the above hold. `prism_schema::algebra`
+> is the single public door (raw mutators are `pub(crate)`); 13 property laws
+> in `prism-schema/tests/algebra_laws.rs`; the closure-guard
+> (`prism-bigraph/tests/closure_guard.rs`) ratchet baseline is empty. See
+> `docs/NEXT-SESSION.md` for the current state and follow-up milestones.
+
 ## North star: Composite as a program
 
 The ultimate demonstration that these principles hold end to end — **not

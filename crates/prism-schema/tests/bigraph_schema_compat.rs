@@ -314,7 +314,7 @@ fn test_apply_float_additive() {
     let schema = Schema::float();
     let current = Value::float(10.0);
     let update = Value::float(5.0);
-    let result = schema.apply_update(&current, &update);
+    let result = prism_schema::algebra::apply(&schema, &current, &update);
     assert_eq!(result, Value::float(15.0));
 }
 
@@ -324,7 +324,7 @@ fn test_apply_integer_additive() {
     let schema = Schema::integer();
     let current = Value::Int(10);
     let update = Value::Int(3);
-    let result = schema.apply_update(&current, &update);
+    let result = prism_schema::algebra::apply(&schema, &current, &update);
     assert_eq!(result, Value::Int(13));
 }
 
@@ -334,7 +334,7 @@ fn test_apply_overwrite() {
     let schema = Schema::Overwrite { inner: Box::new(Schema::float()) };
     let current = Value::float(10.0);
     let update = Value::float(99.9);
-    let result = schema.apply_update(&current, &update);
+    let result = prism_schema::algebra::apply(&schema, &current, &update);
     assert_eq!(result, Value::float(99.9));
 }
 
@@ -350,7 +350,7 @@ fn test_apply_map_merge() {
         ("a".into(), Value::float(0.5)),
         ("c".into(), Value::float(3.0)),
     ]));
-    let result = schema.apply_update(&current, &update);
+    let result = prism_schema::algebra::apply(&schema, &current, &update);
     let map = result.as_map().unwrap();
     // a: 1.0 + 0.5 = 1.5 (additive)
     assert_eq!(map.get("a").unwrap().as_f64().unwrap(), 1.5);
@@ -373,7 +373,7 @@ fn test_apply_map_add() {
             ("c".into(), Value::float(3.0)),
         ]))),
     ]));
-    let result = schema.apply_update(&current, &update);
+    let result = prism_schema::algebra::apply(&schema, &current, &update);
     let map = result.as_map().unwrap();
     assert_eq!(map.len(), 3);
     assert_eq!(map.get("b").unwrap().as_f64().unwrap(), 2.0);
@@ -393,7 +393,7 @@ fn test_apply_map_remove() {
             Value::String("b".into()),
         ])),
     ]));
-    let result = schema.apply_update(&current, &update);
+    let result = prism_schema::algebra::apply(&schema, &current, &update);
     let map = result.as_map().unwrap();
     assert_eq!(map.len(), 2);
     assert!(!map.contains_key("b"));
@@ -416,7 +416,7 @@ fn test_apply_tree() {
         ("mass", Value::float(0.5)),
         ("name", Value::String("updated".into())),
     ]);
-    let result = schema.apply_update(&current, &update);
+    let result = prism_schema::algebra::apply(&schema, &current, &update);
     let map = result.as_map().unwrap();
     // mass: 1.0 + 0.5 = 1.5 (float is additive)
     assert_eq!(map.get("mass").unwrap().as_f64().unwrap(), 1.5);
@@ -432,7 +432,7 @@ fn test_apply_tuple() {
     };
     let current = Value::List(vec![Value::float(1.0), Value::float(2.0)]);
     let update = Value::List(vec![Value::float(0.5), Value::float(0.3)]);
-    let result = schema.apply_update(&current, &update);
+    let result = prism_schema::algebra::apply(&schema, &current, &update);
     let list = result.as_list().unwrap();
     assert_eq!(list[0].as_f64().unwrap(), 1.5);
     assert_eq!(list[1].as_f64().unwrap(), 2.3);
@@ -444,7 +444,7 @@ fn test_apply_list_replace() {
     let schema = Schema::List { element: Box::new(Schema::float()) };
     let current = Value::List(vec![Value::float(1.0), Value::float(2.0)]);
     let update = Value::List(vec![Value::float(10.0)]);
-    let result = schema.apply_update(&current, &update);
+    let result = prism_schema::algebra::apply(&schema, &current, &update);
     // Lists replace entirely (different from Tuple which is element-wise)
     let list = result.as_list().unwrap();
     assert_eq!(list.len(), 1);
@@ -483,7 +483,7 @@ fn test_merge_trees() {
 
     // Merging tree_b into tree_a: tree_a values take precedence for
     // existing keys, tree_b contributes new keys
-    let result = schema.apply_update(&tree_b, &tree_a);
+    let result = prism_schema::algebra::apply(&schema, &tree_b, &tree_a);
     let map = result.as_map().unwrap();
     let a = map.get("a").unwrap().as_map().unwrap();
     // 'x' in tree_a is a subtree, in tree_b it's a float.
@@ -654,7 +654,7 @@ fn test_resolve_conflict() {
     // (this is the current behavior, not an error)
     // Python raises an exception for true conflicts, but our resolve
     // just picks the more recent one. This test verifies the behavior exists.
-    let resolved = schema_a.resolve(&schema_b);
+    let resolved = prism_schema::algebra::resolve(&schema_a, &schema_b);
     match &resolved {
         Schema::Tree { branches } => {
             // schema_b's version wins
@@ -803,7 +803,10 @@ fn test_infer_and_merge() {
         ("a", Value::float(5.5)),
         ("b", Value::String("new_key".into())),
     ]);
-    let merged = Schema::infer_and_merge(&existing, &state);
+    // `resolve(infer(state), declared)` replaces the old `infer_and_merge`:
+    // the declared schema refines the inferred structure, inference fills the
+    // branches the declaration omits (`b`).
+    let merged = prism_schema::algebra::resolve(&Schema::infer(&state), &existing);
     match &merged {
         Schema::Tree { branches } => {
             assert!(matches!(branches["a"], Schema::Float { .. }));
@@ -858,7 +861,7 @@ fn test_check_bool() {
 fn test_apply_bool_replace() {
     let s = Schema::bool();
     // Bools replace (no additive semantics)
-    assert_eq!(s.apply_update(&Value::Bool(false), &Value::Bool(true)), Value::Bool(true));
+    assert_eq!(prism_schema::algebra::apply(&s, &Value::Bool(false), &Value::Bool(true)), Value::Bool(true));
 }
 
 #[test]
@@ -926,7 +929,7 @@ fn test_check_string() {
 fn test_apply_string_replace() {
     let s = Schema::string();
     assert_eq!(
-        s.apply_update(&Value::String("old".into()), &Value::String("new".into())),
+        prism_schema::algebra::apply(&s, &Value::String("old".into()), &Value::String("new".into())),
         Value::String("new".into())
     );
 }
@@ -958,7 +961,7 @@ fn test_check_enum() {
 fn test_apply_enum_replace() {
     let s = Schema::Enum { values: vec!["x".into(), "y".into()], default: None };
     assert_eq!(
-        s.apply_update(&Value::String("x".into()), &Value::String("y".into())),
+        prism_schema::algebra::apply(&s, &Value::String("x".into()), &Value::String("y".into())),
         Value::String("y".into())
     );
 }
@@ -1004,7 +1007,7 @@ fn test_check_delta() {
 #[test]
 fn test_apply_delta_additive() {
     let s = Schema::Delta { default: None };
-    assert_eq!(s.apply_update(&Value::float(10.0), &Value::float(3.0)), Value::float(13.0));
+    assert_eq!(prism_schema::algebra::apply(&s, &Value::float(10.0), &Value::float(3.0)), Value::float(13.0));
 }
 
 #[test]
@@ -1211,7 +1214,7 @@ fn test_apply_array_elementwise() {
     let s = Schema::array(vec![2], Schema::float());
     let current = Value::List(vec![Value::float(1.0), Value::float(2.0)]);
     let update = Value::List(vec![Value::float(0.5), Value::float(0.3)]);
-    let result = s.apply_update(&current, &update);
+    let result = prism_schema::algebra::apply(&s, &current, &update);
     let list = result.as_list().unwrap();
     assert_eq!(list[0].as_f64().unwrap(), 1.5);
     assert_eq!(list[1].as_f64().unwrap(), 2.3);
@@ -1251,9 +1254,9 @@ fn test_check_maybe() {
 fn test_apply_maybe() {
     let s = Schema::maybe(Schema::float());
     // Apply to None → set value
-    assert_eq!(s.apply_update(&Value::None, &Value::float(5.0)), Value::float(5.0));
+    assert_eq!(prism_schema::algebra::apply(&s, &Value::None, &Value::float(5.0)), Value::float(5.0));
     // Apply to existing → additive (inner float semantics)
-    assert_eq!(s.apply_update(&Value::float(3.0), &Value::float(2.0)), Value::float(5.0));
+    assert_eq!(prism_schema::algebra::apply(&s, &Value::float(3.0), &Value::float(2.0)), Value::float(5.0));
 }
 
 #[test]
@@ -1322,7 +1325,7 @@ fn test_apply_recursive_tree_nested() {
         ("a", Value::tree([("b", Value::float(0.5))])),
         ("d", Value::float(3.0)),
     ]);
-    let result = s.apply_update(&current, &update);
+    let result = prism_schema::algebra::apply(&s, &current, &update);
     let map = result.as_map().unwrap();
     // a.b: 1.0 + 0.5 = 1.5
     assert_eq!(
@@ -1369,7 +1372,7 @@ fn test_apply_link_replace() {
     let old = Value::tree([("address", Value::String("local:A".into()))]);
     let new = Value::tree([("address", Value::String("local:B".into()))]);
     // Links replace entirely
-    let result = s.apply_update(&old, &new);
+    let result = prism_schema::algebra::apply(&s, &old, &new);
     assert_eq!(result.as_map().unwrap().get("address").unwrap().as_str().unwrap(), "local:B");
 }
 

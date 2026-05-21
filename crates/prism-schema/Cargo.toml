@@ -12,3 +12,6 @@ thiserror = { workspace = true }
 indexmap = { workspace = true }
 ordered-float = { workspace = true }
 compact_str = { workspace = true }
+
+[dev-dependencies]
+proptest = "1"

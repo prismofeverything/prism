@@ -197,14 +197,11 @@ fn field_vals(state: &prism_schema::Value, name: &str) -> Vec<f64> {
         .unwrap_or_default()
 }
 
-// GOTCHA #14 (refined): #5 IS done — the field's `Array` schema is now
-// correctly threaded (verified: topology.state_schema has fields: Array). But
-// the field still replace-applies, for a SEPARATE engine reason:
-// `apply_projections_to` prefers the projection's `port_schema` — the NATIVE
-// process's loose `outputs()` (Map/Any → list replace) — over the slot's
-// `Array`. Fix: honor the additive slot schema (or have native processes
-// declare precise output schemas). Un-ignore when #14 lands.
-#[ignore = "gotcha #14: native output-port schema overrides the slot's additive Array"]
+// GOTCHA #14 (FIXED): the field's additive `Array` slot schema is now honored.
+// `apply_projections_to` PROMOTES the writer's output-port schema onto the
+// slot's library schema (`algebra::promote`, law #5) instead of letting a
+// native process's loose `Map`/`Any` output replace the field — so per-cell
+// diffusion deltas apply element-wise (mass-conserving) rather than wholesale.
 #[test]
 fn diffusion_composed_from_chrysalis() {
     use indexmap::IndexMap;

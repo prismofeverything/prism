@@ -787,58 +787,6 @@ impl Schema {
         }
     }
 
-    /// Infer schema from state and merge with an existing schema.
-    /// State values with `_type` annotations override the existing schema.
-    /// State values without annotations use their inferred types.
-    /// The existing schema provides defaults for keys not in state.
-    pub fn infer_and_merge(schema: &Schema, state: &Value) -> Schema {
-        // The DECLARED schema is authoritative; inference only fills gaps it
-        // leaves (`Any`). It must never *weaken* a declared type — re-inferring
-        // from the value can only recover structure (`List`/`Float`/`Tree`),
-        // losing semantics (`Array` element-wise apply, `Delta`, units,
-        // `Custom`). A node carrying `_type` is no exception: its metadata
-        // tags the control, it does not override a caller's field types.
-        match (schema, state) {
-            // Declared tree: authoritative branches; infer the rest. Applies
-            // to `_type` Maps too (a composite/ion's declared field types win).
-            (Self::Tree { branches }, Value::Map(map)) => {
-                let mut merged = branches.clone();
-                for (k, v) in map {
-                    if k.starts_with('_') { continue; }
-                    let existing = branches.get(k).unwrap_or(&Schema::Any);
-                    merged.insert(k.clone(), Schema::infer_and_merge(existing, v));
-                }
-                Schema::Tree { branches: merged }
-            }
-            // No declared schema → infer wholesale from the value (its
-            // `_type`, structure). This is the only place inference leads.
-            (Self::Any, _) => Schema::infer(state),
-            // Any other declared schema (`Array`, `Delta`, `Custom`, `Map`,
-            // `Float`, links, …) is kept as-is — never re-inferred weaker.
-            _ => schema.clone(),
-        }
-    }
-
-    /// Merge two schemas, preferring the more specific one.
-    pub fn resolve(&self, other: &Schema) -> Schema {
-        match (self, other) {
-            (Self::Any, other) => other.clone(),
-            (this, Self::Any) => this.clone(),
-            (Self::Tree { branches: a }, Self::Tree { branches: b }) => {
-                let mut merged = a.clone();
-                for (k, v) in b {
-                    merged
-                        .entry(k.clone())
-                        .and_modify(|existing| *existing = existing.resolve(v))
-                        .or_insert_with(|| v.clone());
-                }
-                Self::Tree { branches: merged }
-            }
-            // Default: prefer `other` (the more recent definition)
-            (_, other) => other.clone(),
-        }
-    }
-
     /// Apply an update to a current value using type-dispatched semantics.
     ///
     /// Default behavior by type:
@@ -849,7 +797,10 @@ impl Schema {
     /// - `Map` → **recursive merge** (each key applies independently).
     /// - `Tree` → **recursive merge** with per-branch schemas.
     /// - `Any` → **inferred**: additive for numbers, merge for maps, replace otherwise.
-    pub fn apply_update(&self, current: &Value, update: &Value) -> Value {
+    /// The apply op's core (dispatch on sort). **Module-private**: external
+    /// crates call [`crate::algebra::apply`] — the single public door — so the
+    /// apply surface stays inside the algebra.
+    pub(crate) fn apply_update(&self, current: &Value, update: &Value) -> Value {
         match self {
             // Const: immutable — apply is a no-op, current value preserved.
             // Mirrors upstream `bigraph_schema.methods.apply` on Const.
@@ -949,25 +900,29 @@ impl Schema {
                 }
             }
 
-            // Array: element-wise additive apply through all dimensions.
-            // For array[ny|nx, float], recursively applies through nested lists
-            // until reaching the leaf element type.
+            // Array: element-wise additive apply over the numeric leaves —
+            // **representation-agnostic**. The shape is grid metadata; the
+            // value may be stored nested (`[[…],[…]]`) OR flat row-major
+            // (`[…]`, the spatio-flux convention). At each position: if both
+            // sides are sub-lists, recurse as a sub-array; otherwise the leaf
+            // is numeric and the element schema (additive `Float`/`Delta`)
+            // applies. This makes a flat field with an `array[ny,nx]` schema
+            // sum element-wise (mass-conserving) instead of replacing.
             Self::Array { shape, element } => {
                 match (current, update) {
                     (Value::List(cur), Value::List(upd)) if cur.len() == upd.len() => {
-                        // If there are remaining shape dimensions, recurse as sub-arrays
-                        let sub_schema = if shape.len() > 1 {
-                            Schema::Array {
-                                shape: shape[1..].to_vec(),
-                                element: element.clone(),
-                            }
-                        } else {
-                            // Last dimension: use element type directly
-                            *element.clone()
+                        let sub_array = Schema::Array {
+                            shape: if shape.len() > 1 { shape[1..].to_vec() } else { shape.clone() },
+                            element: element.clone(),
                         };
                         Value::List(
                             cur.iter().zip(upd.iter())
-                                .map(|(c, u)| sub_schema.apply_update(c, u))
+                                .map(|(c, u)| match (c, u) {
+                                    // Nested → recurse one dimension deeper.
+                                    (Value::List(_), Value::List(_)) => sub_array.apply_update(c, u),
+                                    // Flat numeric leaf → additive element apply.
+                                    _ => element.apply_update(c, u),
+                                })
                                 .collect()
                         )
                     }
@@ -1087,7 +1042,9 @@ impl Schema {
     ///
     /// This is the **registry-aware** entry point the engine uses;
     /// `apply_update` remains the standalone (no-registry) version.
-    pub fn apply_update_with(
+    /// Registry-aware apply (Custom dispatch + `_divide` sentinel).
+    /// **Module-private**: external crates call [`crate::algebra::apply_with`].
+    pub(crate) fn apply_update_with(
         &self,
         registry: Option<&crate::registry::TypeRegistry>,
         current: &Value,
@@ -1177,7 +1134,7 @@ impl Schema {
             (Self::Array { .. }, _) => value.clone(),
 
             // RecursiveTree: serialize leaves, recurse maps
-            (Self::RecursiveTree { leaf }, Value::Map(map)) => {
+            (Self::RecursiveTree { .. }, Value::Map(map)) => {
                 Value::Map(map.iter()
                     .map(|(k, v)| (k.clone(), self.encode(v)))
                     .collect())
@@ -1585,7 +1542,11 @@ fn merge_replace(base: &Value, over: &Value) -> Value {
     }
 }
 
-pub fn apply_add_remove(result: &mut crate::value::StateMap, update: &crate::value::StateMap) {
+/// Apply the `_remove`/`_add` structural sentinels of a map update in place.
+/// **Module-private to the algebra**: only `apply` calls this; consumers go
+/// through `algebra::apply` (so inline `_add`/`_remove` munging can't reappear
+/// at a call site — the closure invariant).
+pub(crate) fn apply_add_remove(result: &mut crate::value::StateMap, update: &crate::value::StateMap) {
     // _remove: delete listed keys
     if let Some(Value::List(keys)) = update.get("_remove") {
         for key in keys {

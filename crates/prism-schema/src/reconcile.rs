@@ -111,14 +111,14 @@ pub fn reconcile(schema: &Schema, updates: &[Value]) -> Option<Value> {
         // Tuple: element-wise reconcile per position.
         Schema::Tuple { elements } => reconcile_tuple(elements, updates),
 
-        // Array: simplified — sum element-wise when shapes match, else
-        // last-wins. (Upstream's full sparse-dict / sparse-list /
-        // ndarray merging is deferred.)
-        Schema::Array { .. } => last_non_none(updates),
+        // Array: element-wise sum of the deltas (representation-agnostic over
+        // flat / nested lists) — coherent with the additive `Array` apply, so
+        // `apply(v, reconcile([d…])) == foldl(apply, v, [d…])` (law #2).
+        Schema::Array { .. } => reconcile_array(updates),
 
         // RecursiveTree: infer mode from update shapes. All non-dict →
         // leaf reconcile; any dict → tree-node reconcile.
-        Schema::RecursiveTree { leaf } => reconcile_recursive_tree(leaf, updates),
+        Schema::RecursiveTree { leaf } => reconcile_recursive_tree(schema, leaf, updates),
 
         // Link, Custom, Any, typed link variants, Bridge:
         // opaque — last non-None wins.
@@ -141,15 +141,27 @@ fn last_non_none(updates: &[Value]) -> Option<Value> {
     None
 }
 
-fn reconcile_map(value_schema: &Schema, updates: &[Value]) -> Option<Value> {
+/// Collate a batch of map-shaped updates into **one coherent** update: union
+/// every `_add`, union every `_remove` (or `all`), last-wins `_divide`, and
+/// per-key reconcile of the remaining value updates (each via `schema_at`).
+///
+/// This is the shared core of every map-like reconciler. Concurrent structural
+/// updates from different writers in one tick MUST merge into a single
+/// `{_add, _remove, _divide, …per-key}` — collating, not clobbering — so a
+/// later writer's `_add` doesn't drop an earlier writer's `_remove`, etc.
+fn reconcile_keyed<'s>(
+    updates: &[Value],
+    schema_at: impl Fn(&Key) -> &'s Schema,
+) -> Option<Value> {
     let mut adds: StateMap = IndexMap::new();
     let mut removes: Vec<Key> = Vec::new();
     let mut remove_all = false;
+    let mut divide: Option<Value> = None;
     let mut grouped: IndexMap<Key, Vec<Value>> = IndexMap::new();
 
     for update in updates {
         let Value::Map(map) = update else {
-            // Non-map update at a Map slot is unusual — skip it.
+            // Non-map update at a map-like slot is unusual — skip it.
             continue;
         };
         for (k, v) in map {
@@ -179,6 +191,13 @@ fn reconcile_map(value_schema: &Schema, updates: &[Value]) -> Option<Value> {
                     Value::String(s) if s == "all" => remove_all = true,
                     _ => {}
                 },
+                // `_divide` is a singleton structural directive — last non-None
+                // wins (a second within one tick is redundant/contradictory).
+                "_divide" => {
+                    if !matches!(v, Value::None) {
+                        divide = Some(v.clone());
+                    }
+                }
                 _ => {
                     grouped.entry(k.clone()).or_default().push(v.clone());
                 }
@@ -186,13 +205,13 @@ fn reconcile_map(value_schema: &Schema, updates: &[Value]) -> Option<Value> {
         }
     }
 
-    // Recurse per key.
+    // Recurse per key (nested structural sentinels collate at their level too).
     let mut value_updates: StateMap = IndexMap::new();
     for (key, sub_updates) in grouped {
         let reconciled = if sub_updates.len() == 1 {
             Some(sub_updates[0].clone())
         } else {
-            reconcile(value_schema, &sub_updates)
+            reconcile(schema_at(&key), &sub_updates)
         };
         if let Some(v) = reconciled {
             value_updates.insert(key, v);
@@ -211,6 +230,9 @@ fn reconcile_map(value_schema: &Schema, updates: &[Value]) -> Option<Value> {
             Value::List(removes.into_iter().map(|k| Value::String(k.to_string())).collect()),
         );
     }
+    if let Some(d) = divide {
+        result.insert("_divide".into(), d);
+    }
     for (k, v) in value_updates {
         result.insert(k, v);
     }
@@ -221,6 +243,11 @@ fn reconcile_map(value_schema: &Schema, updates: &[Value]) -> Option<Value> {
     }
 }
 
+/// Map: every key uses the uniform value schema.
+fn reconcile_map(value_schema: &Schema, updates: &[Value]) -> Option<Value> {
+    reconcile_keyed(updates, |_| value_schema)
+}
+
 fn reconcile_tree(branches: &IndexMap<Key, Schema>, updates: &[Value]) -> Option<Value> {
     // Filter non-None.
     let non_none: Vec<&Value> = updates.iter().filter(|u| !matches!(u, Value::None)).collect();
@@ -228,49 +255,21 @@ fn reconcile_tree(branches: &IndexMap<Key, Schema>, updates: &[Value]) -> Option
         return None;
     }
     let any_map = non_none.iter().any(|u| matches!(u, Value::Map(_)));
-    let any_non_map = non_none.iter().any(|u| !matches!(u, Value::Map(_)));
-
     if !any_map {
         // All non-map — leaf-mode; let the last non-None win (no per-branch
         // schema applies to a leaf at this position).
         return last_non_none(updates);
     }
-
-    if any_non_map {
-        // Mixed: last non-map overrides.
+    if non_none.iter().any(|u| !matches!(u, Value::Map(_))) {
+        // Mixed: a whole-node overwrite wins (matches the apply outcome).
         for u in updates.iter().rev() {
             if !matches!(u, Value::None | Value::Map(_)) {
                 return Some(u.clone());
             }
         }
     }
-
-    // Tree-node mode: per-branch reconcile.
-    let mut grouped: IndexMap<Key, Vec<Value>> = IndexMap::new();
-    for u in updates {
-        if let Value::Map(map) = u {
-            for (k, v) in map {
-                grouped.entry(k.clone()).or_default().push(v.clone());
-            }
-        }
-    }
-    let mut result: StateMap = IndexMap::new();
-    for (key, sub_updates) in grouped {
-        let branch_schema = branches.get(&key).unwrap_or(&Schema::Any);
-        let reconciled = if sub_updates.len() == 1 {
-            Some(sub_updates[0].clone())
-        } else {
-            reconcile(branch_schema, &sub_updates)
-        };
-        if let Some(v) = reconciled {
-            result.insert(key, v);
-        }
-    }
-    if result.is_empty() {
-        None
-    } else {
-        Some(Value::Map(result))
-    }
+    // Tree-node mode: collate structural sentinels + per-branch reconcile.
+    reconcile_keyed(updates, |k| branches.get(k).unwrap_or(&Schema::Any))
 }
 
 fn reconcile_list(updates: &[Value]) -> Option<Value> {
@@ -382,53 +381,57 @@ fn reconcile_tuple(elements: &[Schema], updates: &[Value]) -> Option<Value> {
     }
 }
 
-fn reconcile_recursive_tree(leaf: &Schema, updates: &[Value]) -> Option<Value> {
+/// Element-wise sum of array deltas (flat or nested), the additive batching.
+fn reconcile_array(updates: &[Value]) -> Option<Value> {
+    let mut acc: Option<Value> = None;
+    for u in updates {
+        if matches!(u, Value::None) {
+            continue;
+        }
+        acc = Some(match acc {
+            None => u.clone(),
+            Some(a) => array_add(&a, u),
+        });
+    }
+    acc
+}
+
+/// Add two array deltas element-wise, recursing through nested lists and
+/// summing numeric leaves (`Int + Int → Int`, otherwise `Float`).
+fn array_add(a: &Value, b: &Value) -> Value {
+    match (a, b) {
+        (Value::List(la), Value::List(lb)) if la.len() == lb.len() => {
+            Value::List(la.iter().zip(lb.iter()).map(|(x, y)| array_add(x, y)).collect())
+        }
+        (Value::Int(x), Value::Int(y)) => Value::Int(x + y),
+        _ => match (a.as_f64(), b.as_f64()) {
+            (Some(x), Some(y)) => Value::float(x + y),
+            _ => b.clone(),
+        },
+    }
+}
+
+fn reconcile_recursive_tree(schema: &Schema, leaf: &Schema, updates: &[Value]) -> Option<Value> {
     let non_none: Vec<&Value> = updates.iter().filter(|u| !matches!(u, Value::None)).collect();
     if non_none.is_empty() {
         return None;
     }
     let any_map = non_none.iter().any(|u| matches!(u, Value::Map(_)));
-    let any_non_map = non_none.iter().any(|u| !matches!(u, Value::Map(_)));
-
     if !any_map {
+        // All leaves → reconcile at the leaf sort.
         return reconcile(leaf, updates);
     }
-    if any_non_map {
-        // Mixed — non-map wins.
+    if non_none.iter().any(|u| !matches!(u, Value::Map(_))) {
+        // Mixed — a whole-node overwrite (non-map) wins.
         for u in updates.iter().rev() {
             if !matches!(u, Value::None | Value::Map(_)) {
                 return Some(u.clone());
             }
         }
     }
-
-    // Tree-node mode: collect per-key and recurse using the same recursive
-    // tree schema (children may be leaves or nested trees).
-    let mut grouped: IndexMap<Key, Vec<Value>> = IndexMap::new();
-    for u in updates {
-        if let Value::Map(map) = u {
-            for (k, v) in map {
-                grouped.entry(k.clone()).or_default().push(v.clone());
-            }
-        }
-    }
-    let recursive_schema = Schema::RecursiveTree { leaf: Box::new(leaf.clone()) };
-    let mut result: StateMap = IndexMap::new();
-    for (key, sub_updates) in grouped {
-        let reconciled = if sub_updates.len() == 1 {
-            Some(sub_updates[0].clone())
-        } else {
-            reconcile(&recursive_schema, &sub_updates)
-        };
-        if let Some(v) = reconciled {
-            result.insert(key, v);
-        }
-    }
-    if result.is_empty() {
-        None
-    } else {
-        Some(Value::Map(result))
-    }
+    // Tree-node mode: collate structural sentinels; children reconcile with
+    // the same recursive schema (they may be leaves or nested trees).
+    reconcile_keyed(updates, |_| schema)
 }
 
 #[cfg(test)]
@@ -539,5 +542,45 @@ mod tests {
     fn empty_updates_returns_none() {
         let s = Schema::float();
         assert!(reconcile(&s, &[]).is_none());
+    }
+
+    #[test]
+    fn tree_collates_structural_sentinels_and_branches() {
+        // A Tree slot receiving, in one tick, an `_add` from one writer, a
+        // `_remove` from another, and a per-branch value delta — all must
+        // collate into ONE coherent update, not clobber each other.
+        let s = Schema::Tree {
+            branches: IndexMap::from([("x".into(), Schema::float())]),
+        };
+        let add = Value::Map(IndexMap::from_iter([(
+            "_add".into(),
+            Value::Map(IndexMap::from_iter([("k".into(), Value::float(1.0))])),
+        )]));
+        let remove = Value::Map(IndexMap::from_iter([(
+            "_remove".into(),
+            Value::List(vec![Value::String("old".into())]),
+        )]));
+        let bump = Value::Map(IndexMap::from_iter([("x".into(), Value::float(0.5))]));
+        let bump2 = Value::Map(IndexMap::from_iter([("x".into(), Value::float(0.5))]));
+        let r = reconcile(&s, &[add, remove, bump, bump2]).unwrap();
+        let Value::Map(map) = &r else { panic!("expected Map, got {r:?}") };
+        assert!(map.contains_key("_add"), "_add survived");
+        assert!(map.contains_key("_remove"), "_remove survived");
+        assert_eq!(map.get("x").and_then(|v| v.as_f64()), Some(1.0), "branch delta summed");
+    }
+
+    #[test]
+    fn map_carries_divide_sentinel() {
+        // `_divide` is a structural directive that MUST survive reconcile —
+        // otherwise division silently no-ops when batched with other updates.
+        let s = Schema::map(Schema::float());
+        let divide = Value::Map(IndexMap::from_iter([(
+            "_divide".into(),
+            Value::Map(IndexMap::from_iter([("mother".into(), Value::String("0".into()))])),
+        )]));
+        let bump = Value::Map(IndexMap::from_iter([("0".into(), Value::float(2.0))]));
+        let r = reconcile(&s, &[bump, divide]).unwrap();
+        let Value::Map(map) = &r else { panic!() };
+        assert!(map.contains_key("_divide"), "_divide directive survives batching");
     }
 }

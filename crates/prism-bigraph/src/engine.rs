@@ -11,6 +11,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use ordered_float::OrderedFloat;
 
+use prism_schema::algebra;
 use prism_schema::{Key, Path, Schema, Value};
 
 use crate::factory::ProcessRegistry;
@@ -88,35 +89,6 @@ use crate::ports::Interface;
 use crate::process::{Process, ProcessNode};
 use crate::topology::{ProcessSpec, Topology};
 
-/// Compute the difference between two Values.
-/// For numbers: new - old. For maps: recursive diff. For lists/others: return new (replace).
-fn value_diff(new: &Value, old: &Value) -> Value {
-    match (new, old) {
-        (Value::Float(a), Value::Float(b)) => Value::float(a.0 - b.0),
-        (Value::Int(a), Value::Int(b)) => Value::Int(a - b),
-        (Value::Float(a), Value::Int(b)) => Value::float(a.0 - *b as f64),
-        (Value::Int(a), Value::Float(b)) => Value::float(*a as f64 - b.0),
-        (Value::Map(new_map), Value::Map(old_map)) => {
-            let mut diff = prism_schema::StateMap::new();
-            for (k, nv) in new_map {
-                match old_map.get(k) {
-                    Some(ov) => {
-                        let d = value_diff(nv, ov);
-                        diff.insert(k.clone(), d);
-                    }
-                    None => {
-                        // New key — include as-is
-                        diff.insert(k.clone(), nv.clone());
-                    }
-                }
-            }
-            // Keys in old but not in new: omit (no change)
-            Value::Map(diff)
-        }
-        // Lists, strings, etc: return new value (replace semantics)
-        _ => new.clone(),
-    }
-}
 
 /// Scheduling state for a temporal process.
 #[derive(Debug)]
@@ -164,10 +136,6 @@ pub struct Engine {
 
     /// Specs retained for introspection.
     specs: HashMap<String, ProcessSpec>,
-
-    /// Previous projected outputs per process/step, for computing diffs.
-    /// Key: process name. Value: list of (path, value) from last projection.
-    previous_outputs: HashMap<String, Vec<(Path, Value)>>,
 
     /// Process registry for dynamic process discovery.
     registry: Option<Arc<ProcessRegistry>>,
@@ -277,7 +245,6 @@ impl Engine {
             fronts,
             step_triggers,
             specs,
-            previous_outputs: HashMap::new(),
             registry: None,
             type_registry: None,
             method_registry: None,
@@ -394,8 +361,13 @@ impl Engine {
         registry: Arc<ProcessRegistry>,
         protocols: Arc<crate::protocol::ProtocolRegistry>,
     ) -> Result<Self, String> {
-        // Infer and merge schema from state annotations
-        let merged_schema = Schema::infer_and_merge(&schema, &state);
+        // Resolve the schema inferred from state (structure + `_type`
+        // annotations) with the declared `schema`. The declared schema is the
+        // refining side: it wins ties and contributes the apply-critical types
+        // (`Array`/`Delta`/`Custom`/links) that inference can't recover, while
+        // inference fills the branches the declaration leaves as `Any`. (This
+        // replaces the old `Schema::infer_and_merge` — a hand-rolled resolve.)
+        let merged_schema = algebra::resolve(&Schema::infer(&state), &schema);
 
         let mut topology = Topology::new();
         topology.state_schema = merged_schema.clone();
@@ -445,12 +417,13 @@ impl Engine {
         schema_update: Schema,
         state_update: Value,
     ) {
-        // 1. Merge schemas
-        self.schema = self.schema.resolve(&schema_update);
+        // 1. Merge schemas — the new declaration refines the existing one
+        // (join / set-union of branches, more-specific subtype wins).
+        self.schema = algebra::resolve(&self.schema, &schema_update);
 
         // 2. Apply state update using merged schema
         if !state_update.is_none() {
-            let new_state = self.schema.apply_update(&self.state, &state_update);
+            let new_state = algebra::apply(&self.schema, &self.state, &state_update);
             self.state = new_state;
         }
 
@@ -843,117 +816,6 @@ impl Engine {
         }
     }
 
-    /// Run and return accumulated deltas at each modified path.
-    /// Used by Composite to bypass snapshot+diff: the raw deltas are
-    /// mapped through the bridge directly.
-    pub fn run_collecting(&mut self, duration: f64) -> IndexMap<Path, Value> {
-        let end_time = self.time + duration;
-        let mut iter_count = 0u64;
-        let mut accumulated: IndexMap<Path, Value> = IndexMap::new();
-
-        while self.time < end_time {
-            let next_time = self.next_fire_time(end_time);
-
-            match next_time {
-                Some(fire_time) => {
-                    self.time = fire_time;
-
-                    let firing: Vec<String> = self.fronts
-                        .iter()
-                        .filter(|(_, front)| (front.next_time - fire_time).abs() < 1e-10)
-                        .map(|(name, _)| name.clone())
-                        .collect();
-
-                    let mut all_changed = Vec::new();
-                    for name in &firing {
-                        let deltas = self.run_process_raw(name);
-                        for (path, value) in &deltas {
-                            // Accumulate: merge delta into existing accumulated value
-                            let existing = accumulated.get(path).cloned();
-                            match existing {
-                                Some(prev) => {
-                                    // For floats, add; for maps, merge; for lists, replace
-                                    let merged = Schema::Any.apply_update(&prev, value);
-                                    accumulated.insert(path.clone(), merged);
-                                }
-                                None => {
-                                    accumulated.insert(path.clone(), value.clone());
-                                }
-                            }
-                            all_changed.push(path.clone());
-                        }
-                    }
-
-                    if self.registry.is_some() {
-                        self.discover_processes(&all_changed);
-                    }
-                    let step_deltas = self.trigger_steps_raw(&all_changed);
-                    for (path, value) in &step_deltas {
-                        let existing = accumulated.get(path).cloned();
-                        match existing {
-                            Some(prev) => {
-                                accumulated.insert(path.clone(), Schema::Any.apply_update(&prev, value));
-                            }
-                            None => {
-                                accumulated.insert(path.clone(), value.clone());
-                            }
-                        }
-                    }
-
-                    iter_count += 1;
-                    if iter_count > 100_000 {
-                        eprintln!("[engine] SAFETY: breaking after {iter_count} iterations at t={}", self.time);
-                        self.time = end_time;
-                        break;
-                    }
-                }
-                None => {
-                    self.time = end_time;
-                }
-            }
-        }
-
-        accumulated
-    }
-
-    /// Like run_process but also returns the raw projections (path → delta).
-    fn run_process_raw(&mut self, name: &str) -> Vec<(Path, Value)> {
-        let interval = match self.fronts.get(name) {
-            Some(front) => front.interval,
-            None => return Vec::new(),
-        };
-
-        let input_state = match self.interfaces.get(name) {
-            Some(iface) => iface.view(&self.state),
-            None => return Vec::new(),
-        };
-
-        let update = match self.nodes.get(name) {
-            Some(ProcessNode::Process(p)) => p.update(&input_state, interval),
-            _ => return Vec::new(),
-        };
-
-        self.fronts.get_mut(name).unwrap().next_time += interval;
-
-        if let Some(update_value) = update.into_value() {
-            let projections = match self.interfaces.get(name) {
-                Some(iface) => iface.project(&update_value),
-                None => return Vec::new(),
-            };
-            self.apply_projections(&projections);
-            projections.into_iter()
-                .map(|(path, value, _schema)| (path, value))
-                .collect()
-        } else {
-            Vec::new()
-        }
-    }
-
-    fn trigger_steps_raw(&mut self, changed_paths: &[Path]) -> Vec<(Path, Value)> {
-        let (_changes, deltas) = self.trigger_steps_impl(changed_paths);
-        deltas
-    }
-
     /// Run a single tick: advance to the next event and process it.
     /// Returns the time advanced to, or None if no events pending.
     pub fn tick(&mut self) -> Option<f64> {
@@ -1050,7 +912,23 @@ impl Engine {
                     }
                 }
                 if let Some(existing) = self.passthrough_deltas.get(&root_key) {
-                    delta = Schema::Any.apply_update(existing, &delta);
+                    // Combine the two passthrough deltas through `reconcile`
+                    // (the update monoid): union structural `_add`/`_remove`,
+                    // fold value deltas. Passthrough roots are absent from the
+                    // inner schema (that is what makes them passthrough), so
+                    // fall back to a dynamic `Map` schema — enough for
+                    // reconcile to union the structural sentinels.
+                    let root_schema =
+                        self.schema.schema_at_path(std::slice::from_ref(&root_key));
+                    let map_any;
+                    let s = if matches!(root_schema, Schema::Any) {
+                        map_any = Schema::map(Schema::Any);
+                        &map_any
+                    } else {
+                        root_schema
+                    };
+                    delta = algebra::reconcile(s, &[existing.clone(), delta.clone()])
+                        .unwrap_or(delta);
                 }
                 self.passthrough_deltas.insert(root_key, delta);
             } else {
@@ -1216,51 +1094,6 @@ impl Engine {
         for steps in self.step_triggers.values_mut() {
             steps.remove(name);
         }
-    }
-
-    /// Compute the diff between current projections and previous projections.
-    /// Returns only the incremental change to apply.
-    ///
-    /// For each (path, value) in the new projections, compute value - previous_value.
-    /// This is how process-bigraph's Composite handles accumulated count values:
-    /// the full output is stored, but only the increment gets applied to state.
-    fn compute_diff(
-        &mut self,
-        name: &str,
-        new_projections: &[(Path, Value)],
-    ) -> Vec<(Path, Value)> {
-        let previous = self.previous_outputs.get(name);
-
-        let diff: Vec<(Path, Value)> = new_projections
-            .iter()
-            .map(|(path, new_val)| {
-                // Find the previous value for this path
-                let prev_val = previous
-                    .and_then(|prev| {
-                        prev.iter()
-                            .find(|(p, _)| p == path)
-                            .map(|(_, v)| v)
-                    });
-
-                match prev_val {
-                    Some(prev) => {
-                        // Compute diff: new - previous
-                        let diff_val = value_diff(new_val, prev);
-                        (path.clone(), diff_val)
-                    }
-                    None => {
-                        // No previous — use the full value (first run)
-                        (path.clone(), new_val.clone())
-                    }
-                }
-            })
-            .collect();
-
-        // Store current projections as previous for next time
-        self.previous_outputs
-            .insert(name.to_string(), new_projections.to_vec());
-
-        diff
     }
 
     /// Get the names of all nodes.
@@ -1517,15 +1350,13 @@ fn apply_projections_to(
         {
             continue;
         }
-        let has_add_remove = value.as_map()
-            .map(|m| m.contains_key("_add") || m.contains_key("_remove"))
-            .unwrap_or(false);
-        if has_add_remove {
-            structural = true;
-            // Fast path: apply _add/_remove in-place without cloning the target map.
-            if let Some(upd_map) = value.as_map() {
-                // Track removed keys so later projections don't re-create them
-                if let Some(Value::List(keys)) = upd_map.get("_remove") {
+
+        // Structural change? Track removed keys so later projections in this
+        // batch don't re-create them.
+        if let Some(m) = value.as_map() {
+            if m.contains_key("_add") || m.contains_key("_remove") {
+                structural = true;
+                if let Some(Value::List(keys)) = m.get("_remove") {
                     for key in keys {
                         if let Some(k) = key.as_str() {
                             let mut removed_path = path.clone();
@@ -1534,36 +1365,24 @@ fn apply_projections_to(
                         }
                     }
                 }
-                if let Some(Value::Map(target)) = state.get_path_mut(path) {
-                    prism_schema::apply_add_remove(target, upd_map);
-                    // Apply any non-structural keys (regular deltas alongside _add/_remove)
-                    let resolve_schema = match port_schema {
-                        Some(s) if !matches!(s, Schema::Any) => s,
-                        _ => &schema.schema_at_path(path),
-                    };
-                    let val_schema = match resolve_schema {
-                        Schema::Map { value: vs } => vs.as_ref(),
-                        _ => &Schema::Any,
-                    };
-                    for (k, v) in upd_map {
-                        if k == "_add" || k == "_remove" { continue; }
-                        let existing = target.get(k).cloned().unwrap_or(Value::None);
-                        target.insert(
-                            k.clone(),
-                            val_schema.apply_update_with(type_registry, &existing, v),
-                        );
-                    }
-                    changed.push(path.clone());
-                    continue;
-                }
             }
         }
-        let current = state.get_path(path).cloned().unwrap_or(Value::None);
-        let resolved_schema = match port_schema {
-            Some(s) if !matches!(s, Schema::Any) => s.clone(),
-            _ => schema.schema_at_path(path).clone(),
+
+        // The schema to apply at this slot is the state/library schema at the
+        // path, with the writer's output-port schema PROMOTED onto it (local
+        // resolve, law #5). promote keeps the slot's additive type (e.g.
+        // `Array`/`Delta`) where the port is loose — the #14 diffusion fix:
+        // a native process's loose `Map`/`Any` output no longer replaces an
+        // additive field — and lets a more-specific port type (e.g.
+        // `overwrite[float]`) win where it is declared. apply then handles
+        // `_add`/`_remove`/`_divide` internally; no inline munging here.
+        let library = schema.schema_at_path(path);
+        let resolved = match port_schema {
+            Some(s) => algebra::promote(library, s),
+            None => library.clone(),
         };
-        let new_value = resolved_schema.apply_update_with(type_registry, &current, value);
+        let current = state.get_path(path).cloned().unwrap_or(Value::None);
+        let new_value = algebra::apply_with(type_registry, &resolved, &current, value);
         state.set_path(path, new_value);
         changed.push(path.clone());
     }

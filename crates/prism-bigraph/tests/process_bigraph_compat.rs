@@ -112,7 +112,7 @@ fn test_process_apply() {
     };
     let state = Value::tree([("level", Value::float(5.5))]);
     let update = proc.update(&state, 1.0).into_value().unwrap();
-    let result = schema.apply_update(&state, &update);
+    let result = prism_schema::algebra::apply(&schema, &state, &update);
     let level = result.as_map().unwrap().get("level").unwrap().as_f64().unwrap();
     assert!((level - 6.6).abs() < 1e-10); // 5.5 + 1.1 = 6.6
 }

@@ -1,8 +1,12 @@
+pub mod algebra;
 pub mod assembly;
+pub mod diff;
+pub mod merge;
 pub mod method;
 pub mod reaction;
 pub mod reconcile;
 pub mod registry;
+pub mod resolve;
 pub mod schema;
 pub mod type_parser;
 pub mod units;
@@ -20,7 +24,7 @@ pub use reaction::{
 };
 pub use reconcile::reconcile;
 pub use registry::{divide_by_schema, DivideContext, TypeRegistry};
-pub use schema::{Schema, apply_add_remove};
+pub use schema::Schema;
 pub use type_parser::{parse_type_expression, parse_tree_expression};
 pub use units::{
     resolve_conversion, Bridge, Context, ContextRule, Conversion, Dimension, Ratio, StateOp, Unit,

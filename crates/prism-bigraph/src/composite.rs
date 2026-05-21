@@ -134,11 +134,18 @@ impl Composite {
             .and_then(|v| v.as_f64())
             .unwrap_or(1.0);
 
-        // Build inner engine from state (processes discovered from embedded specs)
+        // Carry a REAL inner schema (law #10: the Composite runs on the
+        // algebra, not `Schema::Any`). Infer it from the inner state so the
+        // inner apply and the output-bridge `diff` dispatch on the actual leaf
+        // types — additive `Float`/`Integer`, structural `Map`/`Tree` — rather
+        // than the opaque bottom sort. (A composite compiled with a declared
+        // inner schema could thread that here instead; inference is the
+        // schema-complete floor.)
+        let inner_schema = prism_schema::algebra::infer(&inner_state);
         let inner_topology = crate::topology::Topology {
             processes: IndexMap::new(),
             initial_state: inner_state,
-            state_schema: Schema::Any,
+            state_schema: inner_schema,
         };
         let mut engine = Engine::new(inner_topology, HashMap::new());
         engine.set_registry(registry);
@@ -227,13 +234,18 @@ impl Process for Composite {
                     output.insert(port_key, pt_delta.clone());
                 }
             } else {
-                // Regular: diff pre/post
+                // Regular: the output update is `diff` of pre/post under the
+                // inner slot's schema (the algebra's view/bridge-out) — a
+                // numeric `Delta`, a per-key Map delta with `_add`/`_remove`,
+                // etc. This replaces the hand-rolled `compute_delta`.
                 let new_val = engine.state().get_path(internal_path)
                     .cloned().unwrap_or(Value::None);
                 let old_val = pre_run.get(port).unwrap_or(&Value::None);
-                let delta = compute_delta(old_val, &new_val);
-                if !is_zero_delta(&delta) {
-                    output.insert(port_key, delta);
+                let slot_schema = engine.schema().schema_at_path(internal_path);
+                if let Some(delta) = prism_schema::algebra::diff(slot_schema, old_val, &new_val) {
+                    if !is_zero_delta(&delta) {
+                        output.insert(port_key, delta);
+                    }
                 }
             }
         }
@@ -254,101 +266,6 @@ impl Process for Composite {
 
 // Safety: Composite is Send+Sync because inner Engine is behind a Mutex.
 // The Mutex ensures only one thread accesses the engine at a time.
-
-/// Compute the delta between old and new values recursively.
-/// For Floats: new - old (additive delta).
-/// For Maps: recurse into each key, producing a map of deltas.
-/// For Lists: element-wise delta if same length, else replace.
-fn compute_delta(old: &Value, new: &Value) -> Value {
-    match (old, new) {
-        (Value::Float(o), Value::Float(n)) => Value::float(n.0 - o.0),
-        (Value::Int(o), Value::Int(n)) => Value::Int(n - o),
-        (Value::Map(old_map), Value::Map(new_map)) => {
-            // Fast path: if key sets are identical, skip structural detection.
-            let keys_changed = old_map.len() != new_map.len()
-                || old_map.keys().any(|k| !new_map.contains_key(k));
-
-            if keys_changed {
-                let old_keys: std::collections::HashSet<&Key> = old_map.keys().collect();
-                let new_keys: std::collections::HashSet<&Key> = new_map.keys().collect();
-                let removed: Vec<&Key> = old_keys.difference(&new_keys).copied().collect();
-                let added: Vec<&Key> = new_keys.difference(&old_keys).copied().collect();
-                let mut delta: IndexMap<Key, Value> = IndexMap::new();
-
-                if !removed.is_empty() {
-                    delta.insert(Key::from("_remove"), Value::List(
-                        removed.iter().map(|k| Value::String(k.to_string())).collect()
-                    ));
-                }
-                if !added.is_empty() {
-                    let adds: IndexMap<Key, Value> = added.iter()
-                        .map(|k| ((*k).clone(), new_map.get(*k).unwrap().clone()))
-                        .collect();
-                    delta.insert(Key::from("_add"), Value::Map(adds));
-                }
-
-                for (k, new_v) in new_map {
-                    if added.contains(&k) || removed.contains(&k) { continue; }
-                    let old_v = old_map.get(k).unwrap_or(&Value::None);
-                    let d = compute_delta(old_v, new_v);
-                    if !is_zero_delta(&d) {
-                        delta.insert(k.clone(), d);
-                    }
-                }
-
-                return Value::Map(delta);
-            }
-
-            // No structural changes — normal per-key delta
-            let mut delta: IndexMap<Key, Value> = IndexMap::new();
-            for (k, new_v) in new_map {
-                let old_v = old_map.get(k).unwrap_or(&Value::None);
-                let d = compute_delta(old_v, new_v);
-                if !is_zero_delta(&d) {
-                    delta.insert(k.clone(), d);
-                }
-            }
-            Value::Map(delta)
-        }
-        // Struct delta: compare field-by-field using indices
-        (Value::Struct { layout: old_layout, values: old_vals },
-         Value::Struct { layout: new_layout, values: new_vals })
-            if old_layout == new_layout =>
-        {
-            let mut delta: IndexMap<Key, Value> = IndexMap::new();
-            for (i, key) in old_layout.fields.iter().enumerate() {
-                let old_v = &old_vals[i];
-                let new_v = &new_vals[i];
-                let d = compute_delta(old_v, new_v);
-                if !is_zero_delta(&d) {
-                    delta.insert(key.clone(), d);
-                }
-            }
-            Value::Map(delta)
-        }
-        (Value::List(old_list), Value::List(new_list)) if old_list.len() == new_list.len() => {
-            let deltas: Vec<Value> = old_list.iter().zip(new_list.iter())
-                .map(|(o, n)| compute_delta(o, n))
-                .collect();
-            Value::List(deltas)
-        }
-        _ => new.clone(), // Fallback: full replacement
-    }
-}
-
-/// Merge two Value::Map contents, recursing into nested maps.
-fn merge_value_maps(mut base: IndexMap<Key, Value>, overlay: Value) -> IndexMap<Key, Value> {
-    if let Value::Map(overlay_map) = overlay {
-        for (k, v) in overlay_map {
-            if let Some(Value::Map(existing)) = base.get(&k).cloned() {
-                base.insert(k, Value::Map(merge_value_maps(existing, v)));
-            } else {
-                base.insert(k, v);
-            }
-        }
-    }
-    base
-}
 
 /// Check if a delta is effectively zero (no change).
 fn is_zero_delta(val: &Value) -> bool {

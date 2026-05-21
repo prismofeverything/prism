@@ -13,9 +13,11 @@ application domain.
   inconsistent) state / schema / node representations and the plan to
   unify them into one schema-always-present, algebraic core. Read before
   any engine/core work; schema and state are inseparable.
-- **`docs/NEXT-SESSION.md`** — the launch prompt for the in-progress
-  fresh-core **schema-algebra rebuild** (the current top priority). Start
-  here if picking that up.
+- **`docs/NEXT-SESSION.md`** — status of the fresh-core **schema-algebra
+  rebuild**, now **complete** (2026-05-21): closure achieved,
+  `prism_schema::algebra` is the single door, 13 laws + closure-guard green.
+  Read it for the current core state and the follow-up milestones
+  (first-class `Custom` types; `.ys` workflow composites).
 - **`docs/schema-algebra.md`** — the schema layer stated as an **algebra**:
   the sorts, the closed set of operations (`default`/`check`/`apply`/
   `reconcile`/`resolve`/`promote`/`merge`/`diff`/`generalize`/`coerce`/

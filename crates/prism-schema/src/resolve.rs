@@ -115,9 +115,17 @@ pub fn resolve(current: &Schema, update: &Schema) -> Schema {
         (Tree { branches: a }, Tree { branches: b }) => Tree { branches: union_resolve(a, b) },
         // Map{value} ≈ upstream Map: uniform element.
         (Map { value: a }, Map { value: b }) => Map { value: Box::new(resolve(a, b)) },
-        // Map ⊓ Tree: the per-key Tree is more specific; push the Map's
-        // uniform element type onto each branch so declared element types
-        // (e.g. Array) survive.
+        // Map ⊓ Tree: the per-key `Tree` is the **more specific** type —
+        // `Tree{k:V}` refines `Map[V]` (a fixed struct IS a dict, not vice
+        // versa), so the meet ("most-specific schema satisfying both") keeps
+        // the Tree. Push the Map's uniform element type onto each branch so a
+        // declared element semantics (e.g. additive `Array`, `Delta`) survives
+        // there. The argument order — `resolve(branch, map_value)` /
+        // `resolve(map_value, branch)` — keeps the **second** (update) side
+        // authoritative, which is how `from_state`'s `resolve(infer(state),
+        // declared)` keeps the *declared* type winning over the inferred
+        // snapshot (so a declared per-agent `Link`/`Array` isn't dropped for
+        // the structural `{address,…}` / `List` that inference saw).
         (Map { value }, Tree { branches }) => Tree {
             branches: branches.iter().map(|(k, v)| (k.clone(), resolve(value, v))).collect(),
         },
@@ -207,6 +215,175 @@ pub fn resolve(current: &Schema, update: &Schema) -> Schema {
             }
         }
     }
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// promote — the *local* resolve (sparse projection of `library` over `sparse`)
+// ───────────────────────────────────────────────────────────────────────
+//
+// `resolve(library, sparse)` walks every branch of `library` (the full known
+// schema — typically the whole Composite/state schema), even branches `sparse`
+// never touched. For the per-tick apply path that is wasted work: the update
+// only lands on a few paths, and we need only the typed nodes along them.
+//
+// `promote` walks only `sparse`'s structure. At each node:
+//   - both typed leaves (non-Tree) → `resolve(library, sparse)` (so e.g.
+//     `resolve(Float, overwrite[float]) = overwrite[float]` composes the
+//     port's wrapper over the slot's type — the diffusion / overwrite-port fix)
+//   - both `Tree` → recurse over **sparse's** branches only, substituting
+//     `library`'s typed branch where it exists; keep `sparse`'s where library
+//     is missing
+//   - library missing (`Any`) → keep `sparse`
+//   - sparse missing (`Any`) → keep `library`
+//
+// Faithful port of `bigraph_schema/methods/resolve.py::promote`. Law #5:
+// `promote(lib, sparse)` agrees with `resolve(lib, sparse)` on every path
+// `sparse` touches, and leaves the rest of `lib` untouched.
+pub fn promote(library: &Schema, sparse: &Schema) -> Schema {
+    use Schema::*;
+
+    // No library type here → keep sparse; nothing in sparse → keep library.
+    if is_any(library) {
+        return sparse.clone();
+    }
+    if is_any(sparse) {
+        return library.clone();
+    }
+
+    match (library, sparse) {
+        // Both per-key trees: walk only sparse's branches.
+        (Tree { branches: lib }, Tree { branches: sp }) => {
+            let mut result: IndexMap<Key, Schema> = IndexMap::new();
+            for (k, sv) in sp {
+                let promoted = match lib.get(k) {
+                    Some(lv) => promote(lv, sv),
+                    None => sv.clone(),
+                };
+                result.insert(k.clone(), promoted);
+            }
+            Tree { branches: result }
+        }
+        // Anything else (typed Node leaves, Map/Array/List/wrappers, …):
+        // fall through to the global join. resolve already restricts itself
+        // to the two schemas it's given, so on a leaf pair promote ≡ resolve.
+        _ => resolve(library, sparse),
+    }
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// generalize — the schema **meet** (greatest sort both refine)
+// ───────────────────────────────────────────────────────────────────────
+//
+// Dual to `resolve` (the join). Where the two differ: `generalize` forgets
+// update-*modifiers* (`Maybe`/`Overwrite`/`Const`/`Quote`) — the meet of a
+// wrapped and an unwrapped type is the underlying data type — and a numeric
+// pair generalizes to the wider `Float`. Tree/Map/List/etc. union like
+// `resolve`. Faithful port of `bigraph_schema/methods/generalize.py` for the
+// sorts prism has.
+//
+// Laws (meet-semilattice): idempotent `generalize(s,s) ≡ s`, commutative up
+// to default, associative; `generalize(Any, s) ≡ s` (`Any` is the identity).
+pub fn generalize(current: &Schema, update: &Schema) -> Schema {
+    use Schema::*;
+
+    if is_any(current) {
+        return update.clone();
+    }
+    if is_any(update) {
+        return current.clone();
+    }
+    // Forget update-modifiers — the meet drops the wrapper, generalizing to
+    // the underlying data type.
+    if let Some(inner) = strip_modifier(current) {
+        return generalize(inner, update);
+    }
+    if let Some(inner) = strip_modifier(update) {
+        return generalize(current, inner);
+    }
+
+    match (current, update) {
+        // Numeric meet → Float (the wider type), keeping a present default.
+        (Integer { default: ci }, Float { default: uf })
+        | (Float { default: uf }, Integer { default: ci }) => Float {
+            default: uf.or_else(|| ci.map(|i| i as f64)),
+        },
+        (Float { default: c }, Float { default: u }) => Float { default: u.or(*c) },
+        (Integer { default: c }, Integer { default: u }) => Integer { default: u.or(*c) },
+        (Delta { default: c }, Delta { default: u }) => Delta { default: u.or(*c) },
+        (Delta { default: c }, Float { default: u }) | (Float { default: u }, Delta { default: c }) => {
+            Delta { default: u.or(*c) }
+        }
+        (Bool { default: c }, Bool { default: u }) => Bool { default: u.or(*c) },
+        (String { default: c }, String { default: u }) => {
+            String { default: u.clone().or_else(|| c.clone()) }
+        }
+        (Enum { values: cv, default: cd }, Enum { values: uv, default: ud }) => {
+            let mut values = cv.clone();
+            for v in uv {
+                if !values.contains(v) {
+                    values.push(v.clone());
+                }
+            }
+            Enum { values, default: ud.clone().or_else(|| cd.clone()) }
+        }
+
+        // Containers: union / recurse like resolve.
+        (List { element: a }, List { element: b }) => List { element: Box::new(generalize(a, b)) },
+        (Array { shape: cs, element: ce }, Array { shape: us, element: ue }) => Array {
+            shape: max_shape(cs, us),
+            element: Box::new(generalize(ce, ue)),
+        },
+        (Map { value: a }, Map { value: b }) => Map { value: Box::new(generalize(a, b)) },
+        (Tree { branches: a }, Tree { branches: b }) => Tree { branches: union_generalize(a, b) },
+        (Tuple { elements: a }, Tuple { elements: b }) => Tuple { elements: zip_generalize(a, b) },
+        (RecursiveTree { leaf: a }, RecursiveTree { leaf: b }) => {
+            RecursiveTree { leaf: Box::new(generalize(a, b)) }
+        }
+
+        (a, b) if a == b => a.clone(),
+        // Incompatible: the update side wins (matches resolve's total fallback).
+        (_, b) => b.clone(),
+    }
+}
+
+/// The inner schema of an update-modifier wrapper, if any. `generalize`
+/// forgets these; `resolve` keeps them.
+fn strip_modifier(s: &Schema) -> Option<&Schema> {
+    match s {
+        Schema::Maybe { inner }
+        | Schema::Overwrite { inner }
+        | Schema::Const { inner }
+        | Schema::Quote { inner } => Some(inner),
+        _ => None,
+    }
+}
+
+/// Union two branch maps (current order first), generalizing shared keys.
+fn union_generalize(a: &IndexMap<Key, Schema>, b: &IndexMap<Key, Schema>) -> IndexMap<Key, Schema> {
+    let mut out = a.clone();
+    for (k, bv) in b {
+        match out.get(k) {
+            Some(av) => {
+                let r = generalize(av, bv);
+                out.insert(k.clone(), r);
+            }
+            None => {
+                out.insert(k.clone(), bv.clone());
+            }
+        }
+    }
+    out
+}
+
+/// Generalize two sequences element-wise, keeping the longer tail.
+fn zip_generalize(a: &[Schema], b: &[Schema]) -> Vec<Schema> {
+    let mut out: Vec<Schema> = a.iter().zip(b).map(|(x, y)| generalize(x, y)).collect();
+    if a.len() > b.len() {
+        out.extend_from_slice(&a[b.len()..]);
+    } else if b.len() > a.len() {
+        out.extend_from_slice(&b[a.len()..]);
+    }
+    out
 }
 
 /// Element-wise max of two array shapes; the longer tail is kept.
@@ -303,7 +480,11 @@ mod tests {
     #[test]
     fn map_pushes_element_onto_tree_branches() {
         // The diffusion case: inferred Tree{glucose: List, acetate: List}
-        // resolved with declared Map(Array) → Tree{glucose: Array, ...}.
+        // resolved with declared Map(Array) → Tree{glucose: Array, acetate:
+        // Array}. The per-key Tree is the more-specific type (it wins the
+        // meet), and the Map's additive `Array` element is pushed onto each
+        // branch so per-cell updates stay additive (mass-conserving), not
+        // replacing the inferred `List`.
         let tree = Schema::Tree {
             branches: IndexMap::from([
                 (Key::from("glucose"), Schema::List { element: Box::new(Schema::Any) }),
@@ -352,5 +533,69 @@ mod tests {
             resolve(&Schema::float(), &Schema::Delta { default: None }),
             Schema::Delta { .. }
         ));
+    }
+
+    // ── promote ──────────────────────────────────────────────────────
+
+    #[test]
+    fn promote_leaf_pair_is_resolve() {
+        // The diffusion fix: a loose port (Map[Any]) promoted onto an
+        // additive slot (Map[Array]) keeps the Array — apply stays additive.
+        let library = Schema::map(Schema::Array { shape: vec![3, 3], element: Box::new(Schema::float()) });
+        let sparse = Schema::map(Schema::Any);
+        let Schema::Map { value } = promote(&library, &sparse) else { panic!("expected Map") };
+        assert!(matches!(*value, Schema::Array { .. }), "Array survived the loose port");
+    }
+
+    #[test]
+    fn promote_overwrite_port_wins_over_additive_slot() {
+        // A port declaring overwrite[float] over an additive Float slot:
+        // promote composes the wrapper so apply uses replace semantics.
+        let library = Schema::float();
+        let sparse = Schema::overwrite(Schema::float());
+        assert!(matches!(promote(&library, &sparse), Schema::Overwrite { .. }));
+    }
+
+    #[test]
+    fn promote_walks_only_sparse_branches() {
+        // library has {a, b}; sparse touches only {a}. The result mirrors
+        // sparse (only `a`), with library's typed `a` substituted.
+        let library = Schema::tree([
+            ("a", Schema::Array { shape: vec![2], element: Box::new(Schema::float()) }),
+            ("b", Schema::float()),
+        ]);
+        let sparse = Schema::tree([("a", Schema::Any)]);
+        let Schema::Tree { branches } = promote(&library, &sparse) else { panic!() };
+        assert_eq!(branches.len(), 1, "only sparse's touched branch is present");
+        assert!(matches!(branches.get("a"), Some(Schema::Array { .. })), "library's Array substituted");
+    }
+
+    #[test]
+    fn promote_keeps_sparse_where_library_missing() {
+        let library = Schema::tree([("a", Schema::float())]);
+        let sparse = Schema::tree([("z", Schema::overwrite(Schema::float()))]);
+        let Schema::Tree { branches } = promote(&library, &sparse) else { panic!() };
+        assert!(matches!(branches.get("z"), Some(Schema::Overwrite { .. })));
+    }
+
+    // ── generalize (meet) ────────────────────────────────────────────
+
+    #[test]
+    fn generalize_forgets_modifiers() {
+        // The meet of overwrite[float] and float is the underlying float.
+        assert_eq!(generalize(&Schema::overwrite(Schema::float()), &Schema::float()), Schema::float());
+        assert_eq!(generalize(&Schema::float(), &Schema::overwrite(Schema::float())), Schema::float());
+    }
+
+    #[test]
+    fn generalize_numeric_widens_to_float() {
+        assert!(matches!(generalize(&Schema::integer(), &Schema::float()), Schema::Float { .. }));
+        assert!(matches!(generalize(&Schema::float(), &Schema::integer()), Schema::Float { .. }));
+    }
+
+    #[test]
+    fn generalize_any_is_identity() {
+        assert_eq!(generalize(&Schema::Any, &Schema::float()), Schema::float());
+        assert_eq!(generalize(&Schema::float(), &Schema::Any), Schema::float());
     }
 }

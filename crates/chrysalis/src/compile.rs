@@ -30,6 +30,7 @@ use indexmap::IndexMap;
 use prism_bigraph::composite::Composite;
 use prism_bigraph::{BigraphicalReactiveSystem, ProcessNode, ProcessRegistry, Topology};
 use prism_schema::units::Context;
+use prism_schema::algebra;
 use prism_schema::{
     divide_by_schema, DivideContext, Key, MethodRegistry, Schema, StateMap, TypeRegistry, Value,
 };
@@ -202,8 +203,15 @@ pub fn compile_with_registry(
     let state_schema = match &main_expr {
         Expr::Term { control, .. } => match program.lookup(control) {
             Some(Def::Composite(def)) => {
+                // Resolve the inferred structure with the AST-declared schema:
+                // the declaration (the refining side) contributes the apply-
+                // critical types inference can't recover — `Array` (additive)
+                // over an inferred `List` (replace), `Delta` over `Float` — and
+                // pushes a uniform `Map`/`List` element type onto inferred
+                // per-key `Tree` branches. (Replaces the hand-rolled
+                // `overlay_apply_types` with the algebra's `resolve`.)
                 let derived = crate::schema::composite_inner_schema(def, &program);
-                overlay_apply_types(&inferred, &derived)
+                algebra::resolve(&inferred, &derived)
             }
             _ => inferred,
         },
@@ -243,63 +251,6 @@ fn collect_top_level_bindings(
         }
     }
     Ok(env)
-}
-
-/// Overlay the AST-declared schema's APPLY-CRITICAL types onto the inferred
-/// schema. Inference (from the value) gets the structure right but applies a
-/// field as a `List` (replace) when it should be an `Array` (element-wise
-/// additive) and an extensive scalar as `Float` rather than `Delta`. We
-/// upgrade exactly those, recursing structurally, and keep everything else
-/// from inference — so nested processes stay discoverable and we never
-/// re-introduce an opaque `Custom` that would hide a subengine.
-fn overlay_apply_types(inferred: &Schema, derived: &Schema) -> Schema {
-    match derived {
-        // Apply-critical: the AST pinned an additive array / delta.
-        Schema::Array { .. } | Schema::Delta { .. } => derived.clone(),
-        // Recurse branch-wise; inferred branches not mentioned stay as-is.
-        Schema::Tree { branches: dbr } => match inferred {
-            Schema::Tree { branches: ibr } => {
-                let mut merged = ibr.clone();
-                for (k, dv) in dbr {
-                    let iv = ibr.get(k).cloned().unwrap_or(Schema::Any);
-                    merged.insert(k.clone(), overlay_apply_types(&iv, dv));
-                }
-                Schema::Tree { branches: merged }
-            }
-            _ => inferred.clone(),
-        },
-        // A declared uniform collection element. Inference may have produced a
-        // per-key `Tree` (Map values) or a `List`/`Map`; push the element type
-        // through either shape.
-        Schema::Map { value: dval } => match inferred {
-            Schema::Map { value: ival } => Schema::Map {
-                value: Box::new(overlay_apply_types(ival, dval)),
-            },
-            Schema::Tree { branches: ibr } => Schema::Tree {
-                branches: ibr
-                    .iter()
-                    .map(|(k, iv)| (k.clone(), overlay_apply_types(iv, dval)))
-                    .collect(),
-            },
-            _ => inferred.clone(),
-        },
-        Schema::List { element: del } => match inferred {
-            Schema::List { element: iel } => Schema::List {
-                element: Box::new(overlay_apply_types(iel, del)),
-            },
-            Schema::Tree { branches: ibr } => Schema::Tree {
-                branches: ibr
-                    .iter()
-                    .map(|(k, iv)| (k.clone(), overlay_apply_types(iv, del)))
-                    .collect(),
-            },
-            _ => inferred.clone(),
-        },
-        // Anything else the AST declares (`Any`, `Custom`, `Float`, `Int`,
-        // links, …): keep the inferred structure — discovery walks it, and
-        // value-driven method dispatch doesn't need `Custom` in the schema.
-        _ => inferred.clone(),
-    }
 }
 
 // ===============================================================
