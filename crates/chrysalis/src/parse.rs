@@ -411,6 +411,11 @@ impl Parser {
     fn parse_def(&mut self) -> Result<Def, ParseError> {
         match self.peek() {
             Tok::Type => self.parse_type_def(),
+            Tok::Process => self.parse_process_def(false),
+            Tok::Step => self.parse_process_def(true),
+            Tok::Composite => self.parse_composite_def(),
+            Tok::Extern => self.parse_extern_def(),
+            Tok::Reaction => self.parse_reaction_def(),
             // `name = expr` binding (e.g. `main = …`).
             Tok::Ident(_) => {
                 let name = self.ident()?;
@@ -672,7 +677,19 @@ impl Parser {
             }
             Tok::Ident(name) => {
                 self.bump();
-                Ok(Expr::var(name))
+                // A term call (instantiate a control): an identifier followed by
+                // `[args]` / `~{}` / `->{}`, OR a CAPITALIZED identifier (the
+                // convention: capitalized = controls, lowercase = vars/definers).
+                let is_control = name.chars().next().is_some_and(|c| c.is_ascii_uppercase());
+                if self.check(&Tok::LBrack)
+                    || self.check(&Tok::Tilde)
+                    || self.check(&Tok::Arrow)
+                    || is_control
+                {
+                    self.parse_term_call(name)
+                } else {
+                    Ok(Expr::var(name))
+                }
             }
             Tok::LParen => {
                 self.bump();
@@ -774,4 +791,265 @@ impl Parser {
 
 fn binop(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
     Expr::BinOp { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// M2: process / step / composite / extern / reaction declarations
+//     + the bigraph surface (`~{}->{}` interfaces, `|` bodies, term calls)
+// ─────────────────────────────────────────────────────────────────────
+
+use crate::ast::{ExternDef, Interface, PortDecl, ProcessDef, ReactionDef, StepDef};
+
+impl Parser {
+    fn peek2(&self) -> &Tok {
+        self.toks.get(self.pos + 1).map(|s| &s.tok).unwrap_or(&Tok::Eof)
+    }
+
+    /// `[ param ("," param)* ]` (config params). Empty if no `[`.
+    fn parse_bracket_params(&mut self) -> Result<Vec<Param>, ParseError> {
+        if !self.accept(&Tok::LBrack) {
+            return Ok(vec![]);
+        }
+        let mut params = Vec::new();
+        while !self.check(&Tok::RBrack) {
+            let name = self.ident()?;
+            self.expect(&Tok::Colon)?;
+            let schema = self.parse_schema()?;
+            let param = if self.accept(&Tok::Eq) {
+                Param::with_default(name, schema, self.parse_expr()?)
+            } else {
+                Param::required(name, schema)
+            };
+            params.push(param);
+            if !self.accept(&Tok::Comma) {
+                break;
+            }
+        }
+        self.expect(&Tok::RBrack)?;
+        Ok(params)
+    }
+
+    /// `( "~" "{" port* "}" )? ( "->" "{" port* "}" )?` — a DECLARED interface,
+    /// where each port is `name (":" schema)? ("=" default)?`.
+    fn parse_interface(&mut self) -> Result<Interface, ParseError> {
+        let mut iface = Interface::new();
+        if self.accept(&Tok::Tilde) {
+            for (name, decl) in self.parse_iface_ports()? {
+                iface = iface.with_input(name, decl);
+            }
+        }
+        if self.accept(&Tok::Arrow) {
+            for (name, decl) in self.parse_iface_ports()? {
+                iface = iface.with_output(name, decl);
+            }
+        }
+        Ok(iface)
+    }
+
+    fn parse_iface_ports(&mut self) -> Result<Vec<(String, PortDecl)>, ParseError> {
+        self.expect(&Tok::LBrace)?;
+        let mut ports = Vec::new();
+        while !self.check(&Tok::RBrace) {
+            let name = self.ident()?;
+            // `name` alone (no schema) → an untyped port (Any).
+            let schema = if self.accept(&Tok::Colon) {
+                self.parse_schema()?
+            } else {
+                SchemaExpr::Any
+            };
+            let decl = if self.accept(&Tok::Eq) {
+                PortDecl::with_default(schema, self.parse_expr()?)
+            } else {
+                PortDecl::required(schema)
+            };
+            ports.push((name, decl));
+            if !self.accept(&Tok::Comma) {
+                break;
+            }
+        }
+        self.expect(&Tok::RBrace)?;
+        Ok(ports)
+    }
+
+    /// A term call: `Control ( "[" args "]" )? ( "~{" inputs "}" )? ( "->{" outputs "}" )?`.
+    /// Call-site ports wire a port name to a target EXPR (`mass: mass`); a bare
+    /// `name` wires to `var(name)`.
+    fn parse_term_call(&mut self, control: String) -> Result<Expr, ParseError> {
+        let mut tb = Expr::term(control);
+        if self.accept(&Tok::LBrack) {
+            while !self.check(&Tok::RBrack) {
+                if matches!(self.peek(), Tok::Ident(_)) && *self.peek2() == Tok::Colon {
+                    let name = self.ident()?;
+                    self.expect(&Tok::Colon)?;
+                    tb = tb.arg_named(name, self.parse_expr()?);
+                } else {
+                    tb = tb.arg(self.parse_expr()?);
+                }
+                if !self.accept(&Tok::Comma) {
+                    break;
+                }
+            }
+            self.expect(&Tok::RBrack)?;
+        }
+        if self.accept(&Tok::Tilde) {
+            for (port, target) in self.parse_callsite_ports()? {
+                tb = tb.input(port, target);
+            }
+        }
+        if self.accept(&Tok::Arrow) {
+            for (port, target) in self.parse_callsite_ports()? {
+                tb = tb.output(port, target);
+            }
+        }
+        Ok(tb.build())
+    }
+
+    fn parse_callsite_ports(&mut self) -> Result<Vec<(String, Expr)>, ParseError> {
+        self.expect(&Tok::LBrace)?;
+        let mut ports = Vec::new();
+        while !self.check(&Tok::RBrace) {
+            let name = self.ident()?;
+            let target = if self.accept(&Tok::Colon) {
+                self.parse_expr()?
+            } else {
+                Expr::var(name.clone()) // `~{mass}` shorthand → wired to `mass`
+            };
+            ports.push((name, target));
+            if !self.accept(&Tok::Comma) {
+                break;
+            }
+        }
+        self.expect(&Tok::RBrace)?;
+        Ok(ports)
+    }
+
+    fn parse_process_def(&mut self, is_step: bool) -> Result<Def, ParseError> {
+        self.bump(); // `process` | `step`
+        let name = self.ident()?;
+        let params = self.parse_bracket_params()?;
+        let interface = self.parse_interface()?;
+        let body = self.parse_body()?;
+        Ok(if is_step {
+            Def::Step(StepDef { name, params, interface, body })
+        } else {
+            Def::Process(ProcessDef { name, params, interface, body })
+        })
+    }
+
+    fn parse_composite_def(&mut self) -> Result<Def, ParseError> {
+        self.expect(&Tok::Composite)?;
+        let name = self.ident()?;
+        let params = self.parse_bracket_params()?;
+        let interface = self.parse_interface()?;
+        let body = self.parse_body()?;
+        Ok(Def::Composite(crate::ast::CompositeDef {
+            name,
+            params,
+            interface,
+            using: vec![],
+            body,
+        }))
+    }
+
+    fn parse_extern_def(&mut self) -> Result<Def, ParseError> {
+        self.expect(&Tok::Extern)?;
+        // optional `process` / `step` keyword
+        let _ = self.accept(&Tok::Process) || self.accept(&Tok::Step);
+        let name = self.ident()?;
+        let params = self.parse_bracket_params()?;
+        let interface = self.parse_interface()?;
+        Ok(Def::Extern(ExternDef { name, params, interface }))
+    }
+
+    fn parse_reaction_def(&mut self) -> Result<Def, ParseError> {
+        self.expect(&Tok::Reaction)?;
+        let name = self.ident()?;
+        let params = self.parse_bracket_params()?;
+        self.expect(&Tok::LParen)?;
+        let redex = self.parse_expr()?;
+        self.expect(&Tok::FatArrow)?;
+        let reactum = self.parse_expr()?;
+        self.expect(&Tok::RParen)?;
+        Ok(Def::Reaction(ReactionDef {
+            name,
+            params,
+            redex,
+            reactum,
+            guard: None,
+            rate: None,
+        }))
+    }
+
+    /// A body `( item ("|" item)* )`. An item is a keyed entry (`name: expr`),
+    /// a binding (`name = expr`), or a bare value expr. All entries → a
+    /// `Parallel` (a composite body); bindings + a final value → a `Block` (a
+    /// process body); a lone value → that value.
+    fn parse_body(&mut self) -> Result<Expr, ParseError> {
+        self.expect(&Tok::LParen)?;
+        enum Item {
+            Entry(String, Expr),
+            Bind(String, Expr),
+            Value(Expr),
+        }
+        let mut items = Vec::new();
+        if !self.check(&Tok::RParen) {
+            loop {
+                let item = if matches!(self.peek(), Tok::Ident(_)) && *self.peek2() == Tok::Colon {
+                    let name = self.ident()?;
+                    self.expect(&Tok::Colon)?;
+                    Item::Entry(name, self.parse_expr()?)
+                } else if matches!(self.peek(), Tok::Ident(_)) && *self.peek2() == Tok::Eq {
+                    let name = self.ident()?;
+                    self.expect(&Tok::Eq)?;
+                    Item::Bind(name, self.parse_expr()?)
+                } else {
+                    Item::Value(self.parse_expr()?)
+                };
+                items.push(item);
+                if !self.accept(&Tok::Bar) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Tok::RParen)?;
+
+        let has_bind = items.iter().any(|i| matches!(i, Item::Bind(..)));
+        let has_entry = items.iter().any(|i| matches!(i, Item::Entry(..)));
+        if has_bind {
+            // Block: bindings then a final value.
+            let mut bindings = Vec::new();
+            let mut value = Expr::Unit;
+            for item in items {
+                match item {
+                    Item::Bind(n, e) => bindings.push((n, e)),
+                    Item::Value(e) | Item::Entry(_, e) => value = e,
+                }
+            }
+            Ok(Expr::Block(crate::ast::Block::from_parts(bindings, value)))
+        } else if has_entry {
+            // Parallel of entries (+ any bare values kept as-is).
+            let elems = items
+                .into_iter()
+                .map(|i| match i {
+                    Item::Entry(n, e) => Expr::entry(n, e),
+                    Item::Value(e) => e,
+                    Item::Bind(_, e) => e,
+                })
+                .collect();
+            Ok(Expr::parallel(elems))
+        } else if items.len() == 1 {
+            Ok(match items.pop().unwrap() {
+                Item::Value(e) | Item::Entry(_, e) | Item::Bind(_, e) => e,
+            })
+        } else {
+            Ok(Expr::parallel(
+                items
+                    .into_iter()
+                    .map(|i| match i {
+                        Item::Value(e) | Item::Entry(_, e) | Item::Bind(_, e) => e,
+                    })
+                    .collect(),
+            ))
+        }
+    }
 }

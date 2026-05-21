@@ -1,0 +1,15 @@
+# A process + composite parsed from a real `.ys` file. Exercises the M2
+# grammar: `process` / `composite` declarations, `~{}->{}` port interfaces,
+# a term call (`Bump ~{v: v} ->{v: v}`), `|` parallel-of-entries, `[params]`
+# with defaults, and a nullary composite instantiation (`main = Leaf`).
+
+process Bump ~{v: float} ->{v: float} (
+  { v: 1.0 }              # emit +1 on v each tick (v is additive)
+)
+
+composite Leaf[v: float = 0.0] ->{v} (
+  v: v |                  # the data slot
+  bump: Bump ~{v: v} ->{v: v}
+)
+
+main = Leaf
