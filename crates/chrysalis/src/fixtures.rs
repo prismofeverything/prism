@@ -4,4 +4,5 @@
 
 pub mod grow_divide;
 pub mod grow_divide_homoiconic;
+pub mod mapk;
 pub mod nuclear_shuttle;

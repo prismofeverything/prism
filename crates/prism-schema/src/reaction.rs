@@ -422,17 +422,24 @@ fn walk_state(
     let is_map = matches!(node, Value::Map(_) | Value::Struct { .. });
     if is_map {
         let mut bindings = Bindings::default();
-        if let Pattern::Map(redex_map) = redex {
-            if match_against_map(node, redex_map, &mut bindings) {
-                let active = control_status
-                    .map(|cs| is_active(root, path, cs))
-                    .unwrap_or(true);
-                if active {
-                    results.push(Match {
-                        path: path.clone(),
-                        bindings,
-                    });
-                }
+        // A `Map` redex matches the node's fields by name/structure; a `List`
+        // redex (anonymous parallel `a | b`) matches a SUB-MULTISET of the
+        // node's children — "an F and a B somewhere in this soup", rest
+        // tolerated. Both report at this node's path.
+        let matched = match redex {
+            Pattern::Map(redex_map) => match_against_map(node, redex_map, &mut bindings),
+            Pattern::List(items) => match_list_in_container(node, items, &mut bindings),
+            _ => false,
+        };
+        if matched {
+            let active = control_status
+                .map(|cs| is_active(root, path, cs))
+                .unwrap_or(true);
+            if active {
+                results.push(Match {
+                    path: path.clone(),
+                    bindings,
+                });
             }
         }
         // Descend into children.
@@ -760,6 +767,65 @@ fn absorb_surplus(
             }
         }
     }
+}
+
+// ── List (anonymous-parallel) sub-multiset matching ─────────────────
+
+/// Match a `List` redex (anonymous parallel `a | b | …`) against a
+/// container node as a SUB-MULTISET: assign each item pattern to a
+/// *distinct* non-`_` child, leaving the rest untouched (a redex names
+/// the reactants it consumes, not the whole soup). Records each matched
+/// child's key in `key_map` (so firing can consume exactly those) plus any
+/// site / edge / as-pattern captures. Unlike a `Map` redex, items have no
+/// keys, so two items capturing the same field don't collide — use
+/// as-patterns (`?f::F`) to bind whole ions under distinct names.
+fn match_list_in_container(node: &Value, items: &[Pattern], bindings: &mut Bindings) -> bool {
+    let children: Vec<(Key, &Value)> = match node.iter_fields() {
+        Some(it) => it
+            .filter(|(k, _)| !k.starts_with('_'))
+            .map(|(k, v)| (k.clone(), v))
+            .collect(),
+        None => return false,
+    };
+    if items.len() > children.len() {
+        return false;
+    }
+    let mut used = vec![false; children.len()];
+    assign_list_items(0, items, &children, &mut used, bindings)
+}
+
+fn assign_list_items(
+    i: usize,
+    items: &[Pattern],
+    children: &[(Key, &Value)],
+    used: &mut [bool],
+    bindings: &mut Bindings,
+) -> bool {
+    if i == items.len() {
+        return true;
+    }
+    let saved = bindings.clone();
+    for j in 0..children.len() {
+        if used[j] {
+            continue;
+        }
+        let (ckey, cval) = &children[j];
+        // The child key doubles as the redex key, so a bare `Site` item
+        // captures under the (distinct) child key rather than colliding.
+        if try_pair(ckey, &items[i], ckey, cval, false, bindings) {
+            bindings
+                .key_map
+                .entry(ckey.clone())
+                .or_insert_with(|| ckey.clone());
+            used[j] = true;
+            if assign_list_items(i + 1, items, children, used, bindings) {
+                return true;
+            }
+            used[j] = false;
+        }
+        *bindings = saved.clone();
+    }
+    false
 }
 
 // ── Instantiation ───────────────────────────────────────────────────
@@ -1410,5 +1476,74 @@ mod tests {
         let matches = find_matches(&small, &rule.redex, None);
         assert_eq!(matches.len(), 1);
         assert!(!rule.passes_guard(&matches[0].bindings), "guard blocks mass 1.0");
+    }
+
+    #[test]
+    fn list_redex_matches_submultiset() {
+        // `F | B` (anonymous parallel) matches a soup containing an F and a B,
+        // consuming exactly those two — the bystander G is left alone.
+        let redex = Pattern::list([
+            Pattern::sort("F", Vec::<(&str, Pattern)>::new()),
+            Pattern::sort("B", Vec::<(&str, Pattern)>::new()),
+        ]);
+        let state = Value::tree([
+            ("x", Value::tree([("_type", val_str("F"))])),
+            ("y", Value::tree([("_type", val_str("B"))])),
+            ("z", Value::tree([("_type", val_str("G"))])),
+        ]);
+        let matches = find_matches(&state, &redex, None);
+        assert!(!matches.is_empty(), "F|B should match the soup");
+        let consumed: std::collections::HashSet<Key> =
+            matches[0].bindings.key_map.values().cloned().collect();
+        assert!(
+            consumed.contains(&Key::from("x")) && consumed.contains(&Key::from("y")),
+            "the F and the B are consumed; got {consumed:?}"
+        );
+        assert!(
+            !consumed.contains(&Key::from("z")),
+            "the bystander G is not consumed"
+        );
+
+        // No B present → no match.
+        let no_b = Value::tree([("x", Value::tree([("_type", val_str("F"))]))]);
+        assert!(find_matches(&no_b, &redex, None).is_empty());
+    }
+
+    #[test]
+    fn list_redex_as_patterns_capture_distinct_ions() {
+        // `?f::F | ?b::B` binds the two whole ions under DISTINCT names — so a
+        // guard can compare `?f.blueprint` vs `?b.blueprint` without the
+        // same-field-name collision a bare `blueprint` site would suffer.
+        let redex = Pattern::list([
+            Pattern::Bind {
+                name: Key::from("?f"),
+                inner: Box::new(Pattern::sort("F", Vec::<(&str, Pattern)>::new())),
+            },
+            Pattern::Bind {
+                name: Key::from("?b"),
+                inner: Box::new(Pattern::sort("B", Vec::<(&str, Pattern)>::new())),
+            },
+        ]);
+        let state = Value::tree([
+            (
+                "x",
+                Value::tree([("_type", val_str("F")), ("blueprint", Value::Int(7))]),
+            ),
+            (
+                "y",
+                Value::tree([("_type", val_str("B")), ("blueprint", Value::Int(7))]),
+            ),
+        ]);
+        let m = &find_matches(&state, &redex, None)[0];
+        assert_eq!(
+            m.bindings.sites.get("?f").and_then(|v| v.get_field("blueprint")),
+            Some(&Value::Int(7)),
+            "?f captured the whole F ion (with its blueprint)"
+        );
+        assert_eq!(
+            m.bindings.sites.get("?b").and_then(|v| v.get_field("blueprint")),
+            Some(&Value::Int(7)),
+            "?b captured the whole B ion, distinctly from ?f"
+        );
     }
 }
