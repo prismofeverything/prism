@@ -208,6 +208,31 @@ fn schema_eq_mod(a: &Schema, b: &Schema) -> bool {
     normalize(a) == normalize(b)
 }
 
+/// Does `promote` agree with `resolve` on exactly the paths `sparse` touches?
+/// `promote` deliberately *restricts* to sparse's branches (it does not union
+/// in library-only branches the way `resolve` does), so the agreement must be
+/// checked **recursively, branch-by-branch over `sparse`** — comparing whole
+/// subtrees is wrong (e.g. lib=`{a:{c}}`, sparse=`{a:{a}}`: `promote[a]={a}`
+/// but `resolve[a]={c,a}` — they agree on sparse's path `a.a`, which is all the
+/// law claims).
+fn agrees_on_sparse_paths(p: &Schema, r: &Schema, sparse: &Schema) -> bool {
+    match sparse {
+        Schema::Tree { branches: sp } => match (p, r) {
+            (Schema::Tree { branches: pb }, Schema::Tree { branches: rb }) => {
+                sp.iter().all(|(k, sv)| match (pb.get(k), rb.get(k)) {
+                    (Some(pv), Some(rv)) => agrees_on_sparse_paths(pv, rv, sv),
+                    // A branch promote/resolve didn't carry isn't a path the
+                    // claim covers.
+                    _ => true,
+                })
+            }
+            _ => schema_eq_mod(p, r),
+        },
+        // Leaf path: promote ≡ resolve there.
+        _ => schema_eq_mod(p, r),
+    }
+}
+
 // ── compatible-schema generators (for the semilattice laws) ─────────────
 //
 // `resolve` is a semilattice only on *compatible* sorts; on incompatible
@@ -402,26 +427,16 @@ proptest! {
     // tree, promote restricted to sparse's branches agrees with resolve there.
     #[test]
     fn law_promote_agrees_with_resolve_on_sparse_paths(lib in arb_schema(), sparse in arb_schema()) {
+        // `promote` restricts the join to the paths `sparse` touches, so it
+        // must agree with `resolve` on exactly those paths — checked
+        // recursively (comparing whole subtrees would wrongly flag the
+        // library-only branches `resolve` unions in but `promote` omits).
         let p = algebra::promote(&lib, &sparse);
-        match (&sparse, &p) {
-            // Tree sparse: every branch promote produced must equal resolve's
-            // on that branch (the paths sparse touches).
-            (Schema::Tree { branches: sp }, Schema::Tree { branches: pr }) => {
-                let r = algebra::resolve(&lib, &sparse);
-                if let Schema::Tree { branches: rb } = &r {
-                    for k in sp.keys() {
-                        if let (Some(pv), Some(rv)) = (pr.get(k), rb.get(k)) {
-                            prop_assert!(schema_eq_mod(pv, rv), "promote disagrees with resolve at {k}\n p={pv:?}\n r={rv:?}");
-                        }
-                    }
-                }
-            }
-            // Leaf pair: promote is exactly resolve.
-            _ => {
-                let r = algebra::resolve(&lib, &sparse);
-                prop_assert!(schema_eq_mod(&p, &r), "promote != resolve on leaf pair\n lib={lib:?}\n sparse={sparse:?}\n p={p:?}\n r={r:?}");
-            }
-        }
+        let r = algebra::resolve(&lib, &sparse);
+        prop_assert!(
+            agrees_on_sparse_paths(&p, &r, &sparse),
+            "promote disagrees with resolve on a sparse path\n lib={lib:?}\n sparse={sparse:?}\n p={p:?}\n r={r:?}"
+        );
     }
 
     // Generalize (meet) — idempotent and `Any`-identity.

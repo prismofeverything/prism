@@ -17,6 +17,7 @@
 pub mod rules;
 pub mod state;
 pub mod types;
+pub mod workflow;
 
 pub use rules::mapk_rules;
 pub use state::initial_mapk_state;
