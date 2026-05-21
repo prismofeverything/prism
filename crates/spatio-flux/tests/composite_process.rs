@@ -9,11 +9,14 @@
 //! else is real: chrysalis composites, the native `DiffusionAdvection`
 //! process, the engine running the nested composite, and (next) a step DAG.
 
+use std::any::Any;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use prism_bigraph::{Engine, ProcessNode, ProcessRegistry};
-use prism_schema::Value;
+use prism_bigraph::{Engine, ProcessNode, ProcessRegistry, Step, Update};
+use prism_schema::{Key, Schema, Value};
 
 use chrysalis::ast::{
     CompositeDef, Def, Expr, ExternDef, Interface, Param, PortDecl, Program, SchemaExpr, StringLit,
@@ -205,4 +208,205 @@ fn culture_imports_nests_and_runs_dish() {
     assert!(before_b != after_b, "well_b diffused");
     assert!((sum(&after_a) - 45.0).abs() < 1e-6, "well_a conserves glucose (got {})", sum(&after_a));
     assert!((sum(&after_b) - 45.0).abs() < 1e-6, "well_b conserves glucose (got {})", sum(&after_b));
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// #12: the spatio-flux report SECTION as a workflow
+//
+// A workflow composite whose `RunCulture` step SIMULATES the Culture
+// composite (which imports + nests Dish) and snapshots each well's field
+// over time, and a `RenderSection` step emits field heatmaps as an HTML
+// section — the spatio-flux analogue of the MAPK report workflow, but the
+// simulated thing is an imported+nested composite-process.
+// ─────────────────────────────────────────────────────────────────────
+
+/// Encode one snapshot of the Culture: `{ t, well_a:[9], well_b:[9] }`.
+fn encode_culture_snapshot(t: f64, state: &Value) -> Value {
+    let glucose = |slot: &str| Value::List(slot_glucose(state, slot).into_iter().map(Value::float).collect());
+    Value::tree([
+        ("t", Value::float(t)),
+        ("well_a", glucose("fields_a")),
+        ("well_b", glucose("fields_b")),
+    ])
+}
+
+/// Simulate the Culture composite (imports + nests Dish) and emit `snapshots`
+/// of each well's field over time. Runs the whole sub-simulation internally —
+/// the workflow sees it as one step (the root of the section's DAG).
+#[derive(Debug)]
+struct RunCultureStep {
+    steps: usize,
+}
+
+impl Step for RunCultureStep {
+    fn inputs(&self) -> IndexMap<String, Schema> {
+        IndexMap::new()
+    }
+    fn outputs(&self) -> IndexMap<String, Schema> {
+        IndexMap::from([("snapshots".into(), Schema::overwrite(Schema::Any))])
+    }
+    fn update(&self, _state: &Value) -> Update {
+        let result = compile_with_registry(&culture_program(), diffusion_natives())
+            .expect("compile Culture");
+        let mut engine = Engine::from_state(
+            result.topology.state_schema.clone(),
+            result.initial_state.clone(),
+            Arc::clone(&result.registry),
+        )
+        .expect("Culture engine");
+        engine.discover_all_processes();
+        let mut snapshots = vec![encode_culture_snapshot(0.0, engine.state())];
+        for i in 0..self.steps {
+            engine.run(1.0);
+            snapshots.push(encode_culture_snapshot((i + 1) as f64, engine.state()));
+        }
+        Update::value(Value::tree([("snapshots", Value::List(snapshots))]))
+    }
+    fn as_any(&self) -> &dyn Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+}
+
+/// Render the field snapshots into an HTML section of 3×3 heatmaps (rows =
+/// wells, cols = a few timepoints); output the section file name on `section`.
+#[derive(Debug)]
+struct RenderSectionStep {
+    out_dir: PathBuf,
+    name: String,
+}
+
+impl Step for RenderSectionStep {
+    fn inputs(&self) -> IndexMap<String, Schema> {
+        IndexMap::from([("snapshots".into(), Schema::Any)])
+    }
+    fn outputs(&self) -> IndexMap<String, Schema> {
+        IndexMap::from([("section".into(), Schema::overwrite(Schema::Any))])
+    }
+    fn update(&self, state: &Value) -> Update {
+        let snaps = match state.get_field("snapshots").and_then(|v| v.as_list()) {
+            Some(s) if !s.is_empty() => s.to_vec(),
+            _ => return Update::Noop,
+        };
+        // Pick ~4 evenly-spaced timepoints.
+        let n = snaps.len();
+        let picks: Vec<usize> = (0..4).map(|k| (k * (n - 1)) / 3).collect();
+        let glucose = |snap: &Value, well: &str| -> Vec<f64> {
+            snap.get_field(well).and_then(|v| v.as_list())
+                .map(|l| l.iter().filter_map(|x| x.as_f64()).collect())
+                .unwrap_or_default()
+        };
+        let mut rows = String::new();
+        for well in ["well_a", "well_b"] {
+            rows.push_str(&format!("<tr><th>{well}</th>"));
+            for &i in &picks {
+                let t = snaps[i].get_field("t").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                rows.push_str(&format!(
+                    "<td><div class=\"t\">t={t:.0}</div>{}</td>",
+                    heatmap_svg(&glucose(&snaps[i], well))
+                ));
+            }
+            rows.push_str("</tr>");
+        }
+        let html = format!(
+            "<!doctype html><html><head><meta charset=\"utf-8\">\
+             <title>{name} — spatio-flux section</title>\
+             <style>body{{font-family:sans-serif;margin:2rem}} td{{padding:.5rem;text-align:center}} \
+             th{{text-align:right;padding-right:1rem}} .t{{font-size:.8rem;color:#666}}</style></head><body>\
+             <h1>{name} — diffusion field section</h1>\
+             <p><em>Produced by a workflow: RunCulture (imports+nests Dish) → RenderSection.</em></p>\
+             <table>{rows}</table></body></html>",
+            name = self.name
+        );
+        let fname = format!("{}_section.html", self.name);
+        let _ = fs::write(self.out_dir.join(&fname), html);
+        Update::value(Value::tree([("section", Value::String(fname))]))
+    }
+    fn as_any(&self) -> &dyn Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+}
+
+/// A 3×3 glucose field as an inline SVG heatmap (white → green by value).
+fn heatmap_svg(glucose: &[f64]) -> String {
+    let vmax = glucose.iter().cloned().fold(1.0_f64, f64::max);
+    let cell = 24;
+    let mut svg = format!(
+        "<svg width=\"{w}\" height=\"{w}\" xmlns=\"http://www.w3.org/2000/svg\">",
+        w = cell * 3
+    );
+    for (i, &v) in glucose.iter().take(9).enumerate() {
+        let (r, c) = (i / 3, i % 3);
+        let t = (v / vmax).clamp(0.0, 1.0);
+        let g = 255 - (t * 175.0) as u32; // white → green
+        svg.push_str(&format!(
+            "<rect x=\"{x}\" y=\"{y}\" width=\"{cell}\" height=\"{cell}\" fill=\"rgb({rb},255,{rb})\" stroke=\"#ccc\"/>",
+            x = c * cell, y = r * cell, rb = g
+        ));
+    }
+    svg.push_str("</svg>");
+    svg
+}
+
+/// A process/step spec node `{address, config, inputs, outputs}`.
+fn step_spec(address: &str, inputs: &[(&str, &str)], outputs: &[(&str, &str)]) -> Value {
+    let wire = |pairs: &[(&str, &str)]| {
+        Value::Map(
+            pairs.iter()
+                .map(|(p, path)| (Key::from(*p), Value::List(vec![Value::String(path.to_string())])))
+                .collect::<IndexMap<Key, Value>>(),
+        )
+    };
+    Value::tree([
+        ("address", Value::String(format!("local:{address}"))),
+        ("config", Value::Map(IndexMap::new())),
+        ("inputs", wire(inputs)),
+        ("outputs", wire(outputs)),
+    ])
+}
+
+fn section_step_link(inputs: &[&str], outputs: &[&str]) -> Schema {
+    let ports = |ns: &[&str]| ns.iter().map(|p| (Key::from(*p), Schema::Any)).collect();
+    Schema::step_link(ports(inputs), ports(outputs))
+}
+
+#[test]
+fn spatio_flux_section_produced_by_a_workflow() {
+    let dir = std::env::temp_dir().join(format!("prism_sflux_section_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let name = "culture";
+
+    // Native step factories for the section workflow.
+    let mut registry = ProcessRegistry::new();
+    registry.register("RunCulture", |_cfg| ProcessNode::Step(Box::new(RunCultureStep { steps: 20 })));
+    let (od, nm) = (dir.clone(), name.to_string());
+    registry.register("RenderSection", move |_cfg| {
+        ProcessNode::Step(Box::new(RenderSectionStep { out_dir: od.clone(), name: nm.clone() }))
+    });
+    let registry = Arc::new(registry);
+
+    // The workflow composite: RunCulture → RenderSection (DAG via shared paths).
+    let schema = Schema::Tree {
+        branches: IndexMap::from([
+            ("RunCulture".into(), section_step_link(&[], &["snapshots"])),
+            ("RenderSection".into(), section_step_link(&["snapshots"], &["section"])),
+            ("snapshots".into(), Schema::List { element: Box::new(Schema::Any) }),
+            ("section".into(), Schema::Any),
+        ]),
+    };
+    let state = Value::tree([
+        ("RunCulture", step_spec("RunCulture", &[], &[("snapshots", "snapshots")])),
+        ("RenderSection", step_spec("RenderSection", &[("snapshots", "snapshots")], &[("section", "section")])),
+        ("snapshots", Value::List(vec![])),
+        ("section", Value::None),
+    ]);
+
+    // Building the engine fires the step DAG in dependency order → the section.
+    let _engine = Engine::from_state(schema, state, registry).expect("section workflow engine");
+
+    let section = dir.join(format!("{name}_section.html"));
+    assert!(section.exists(), "section HTML produced at {section:?}");
+    let html = fs::read_to_string(&section).unwrap();
+    assert!(html.contains("diffusion field section"), "section has the heading");
+    assert!(html.contains("well_a") && html.contains("well_b"), "both wells rendered");
+    assert!(html.matches("<svg").count() >= 8, "heatmaps for 2 wells × ~4 timepoints");
+    let _ = fs::remove_dir_all(&dir);
 }
