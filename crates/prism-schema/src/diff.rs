@@ -12,11 +12,26 @@
 
 use indexmap::IndexMap;
 
+use crate::registry::TypeRegistry;
 use crate::schema::Schema;
 use crate::value::{Key, StateMap, Value};
 
 /// The update taking `a` to `b` under sort `schema`, or `None` if `a == b`.
 pub fn diff(schema: &Schema, a: &Value, b: &Value) -> Option<Value> {
+    diff_with(None, schema, a, b)
+}
+
+/// [`diff`] consulting a [`TypeRegistry`] so a `Schema::Custom` slot diffs by
+/// its REPRESENTATION (a structural delta) instead of opaquely replacing — and
+/// nested Custom slots delegate too. The registry-aware entry the engine /
+/// composite bridge uses, so `apply_with(reg, a, diff_with(reg, a, b)) == b`
+/// holds for Custom-typed slots (law #7).
+pub fn diff_with(
+    registry: Option<&TypeRegistry>,
+    schema: &Schema,
+    a: &Value,
+    b: &Value,
+) -> Option<Value> {
     match schema {
         // Immutable / stateless sorts never produce an update.
         Schema::Const { .. }
@@ -40,7 +55,7 @@ pub fn diff(schema: &Schema, a: &Value, b: &Value) -> Option<Value> {
             // `None`, which we must emit as `Some(None)` (a present "set to
             // absent"), not as "no change".
             (_, Value::None) => Some(Value::None),
-            _ => diff(inner, a, b),
+            _ => diff_with(registry, inner, a, b),
         },
 
         // Numeric: the delta is `b - a` (additive apply lands on `b`).
@@ -69,7 +84,7 @@ pub fn diff(schema: &Schema, a: &Value, b: &Value) -> Option<Value> {
                 None
             } else {
                 match (a, b) {
-                    (Value::List(_), Value::List(_)) => Some(array_diff(element, a, b)),
+                    (Value::List(_), Value::List(_)) => Some(array_diff(registry, element, a, b)),
                     _ => Some(b.clone()),
                 }
             }
@@ -87,7 +102,7 @@ pub fn diff(schema: &Schema, a: &Value, b: &Value) -> Option<Value> {
             let mut any = false;
             for (i, es) in elements.iter().enumerate() {
                 let (ai, bi) = (la.get(i).unwrap_or(&Value::None), lb.get(i).unwrap_or(&Value::None));
-                match diff(es, ai, bi) {
+                match diff_with(registry, es, ai, bi) {
                     Some(d) => {
                         any = true;
                         out.push(d);
@@ -100,25 +115,38 @@ pub fn diff(schema: &Schema, a: &Value, b: &Value) -> Option<Value> {
 
         // Map: per-key diff over shared keys, `_add` for new keys, `_remove`
         // for dropped keys.
-        Schema::Map { value } => diff_keyed(a, b, |_, av, bv| diff(value, av, bv)),
+        Schema::Map { value } => diff_keyed(a, b, |_, av, bv| diff_with(registry, value, av, bv)),
 
         // Tree: per-branch diff using each branch's schema (unknown keys via Any).
-        Schema::Tree { branches } => {
-            diff_keyed(a, b, |k, av, bv| diff(branches.get(k).unwrap_or(&Schema::Any), av, bv))
-        }
+        Schema::Tree { branches } => diff_keyed(a, b, |k, av, bv| {
+            diff_with(registry, branches.get(k).unwrap_or(&Schema::Any), av, bv)
+        }),
 
         // RecursiveTree: leaf when both sides are leaves, else recurse per key.
         Schema::RecursiveTree { leaf } => {
             let is_leaf = |v: &Value| !v.is_map_like();
             if is_leaf(a) && is_leaf(b) {
-                return diff(leaf, a, b);
+                return diff_with(registry, leaf, a, b);
             }
-            diff_keyed(a, b, |_, av, bv| diff(schema, av, bv))
+            diff_keyed(a, b, |_, av, bv| diff_with(registry, schema, av, bv))
         }
+
+        // Custom: diff by the type's REPRESENTATION (a structural delta), so a
+        // bridged Custom slot sends the delta — not a wholesale replace. No
+        // registry/representation → replace if changed.
+        Schema::Custom { name, .. } => match registry.and_then(|r| r.schema(name)) {
+            Some(repr) => diff_with(registry, repr, a, b),
+            None => {
+                if a == b {
+                    None
+                } else {
+                    Some(b.clone())
+                }
+            }
+        },
 
         // Opaque / typed-node sorts: replace if changed.
         Schema::Any
-        | Schema::Custom { .. }
         | Schema::Link { .. }
         | Schema::StepLink { .. }
         | Schema::ProcessLink { .. }
@@ -133,12 +161,12 @@ pub fn diff(schema: &Schema, a: &Value, b: &Value) -> Option<Value> {
 /// unchanged cell yields the **additive identity** (0), not its value — apply
 /// is element-wise additive, so 0 leaves the cell unchanged (returning `b`
 /// would double it).
-fn array_diff(element: &Schema, a: &Value, b: &Value) -> Value {
+fn array_diff(registry: Option<&TypeRegistry>, element: &Schema, a: &Value, b: &Value) -> Value {
     match (a, b) {
         (Value::List(la), Value::List(lb)) if la.len() == lb.len() => Value::List(
-            la.iter().zip(lb.iter()).map(|(x, y)| array_diff(element, x, y)).collect(),
+            la.iter().zip(lb.iter()).map(|(x, y)| array_diff(registry, element, x, y)).collect(),
         ),
-        _ => diff(element, a, b).unwrap_or_else(|| match element {
+        _ => diff_with(registry, element, a, b).unwrap_or_else(|| match element {
             Schema::Integer { .. } => Value::Int(0),
             _ => Value::float(0.0),
         }),
@@ -250,5 +278,31 @@ mod tests {
         round_trips(&s, &Value::float(5.0), &Value::None);
         round_trips(&s, &Value::None, &Value::float(5.0));
         round_trips(&s, &Value::None, &Value::None);
+    }
+
+    #[test]
+    fn custom_diffs_by_representation() {
+        // A bridged `Custom` slot must diff by its REPRESENTATION (a structural
+        // delta) — otherwise the bridge sends the whole value (a replace), which
+        // for additive representations double-counts or clobbers.
+        use crate::registry::TypeRegistry;
+        let mut reg = TypeRegistry::new();
+        reg.register("Counter", Schema::map(Schema::float()), None);
+        let counter = Schema::Custom { name: "Counter".into(), parameters: Default::default() };
+        let a = Value::Map(IndexMap::from_iter([("x".into(), Value::float(1.0))]));
+        let b = Value::Map(IndexMap::from_iter([("x".into(), Value::float(4.0))]));
+
+        // No registry → opaque replace (sends the whole `b`).
+        let opaque = diff(&counter, &a, &b).unwrap();
+        assert_eq!(opaque.get_field("x").and_then(|v| v.as_f64()), Some(4.0), "no registry → replace");
+
+        // With registry → a structural delta (+3).
+        let d = diff_with(Some(&reg), &counter, &a, &b).unwrap();
+        assert_eq!(d.get_field("x").and_then(|v| v.as_f64()), Some(3.0), "registry → delta (+3)");
+
+        // The inverse law holds through the registry:
+        // apply_with(reg, a, diff_with(reg, a, b)) == b.
+        let back = crate::algebra::apply_with(Some(&reg), &counter, &a, &d);
+        assert_eq!(back, b, "apply_with(a, diff_with(a, b)) == b for a Custom slot");
     }
 }

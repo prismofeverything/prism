@@ -8,16 +8,6 @@ use chrysalis::fixtures;
 use chrysalis::parse::parse_program;
 use chrysalis::unparse::unparse;
 
-fn fixtures_all() -> Vec<(&'static str, chrysalis::ast::Program)> {
-    vec![
-        ("grow_divide", fixtures::grow_divide::program()),
-        ("graph", fixtures::graph::program()),
-        ("nuclear_shuttle", fixtures::nuclear_shuttle::program()),
-        ("mr", fixtures::mr::program()),
-        ("mapk", fixtures::mapk::program()),
-    ]
-}
-
 /// Generate `ys/<name>.ys` for the fixtures that have no hand-written surface
 /// file — M/R and MAPK — straight from their AST (the "inverse compile").
 #[test]

@@ -93,7 +93,7 @@ composite Cytoplasm[volume: Volume = 1000.0, tf: Count = 0.0, synth: Synth = 50.
 (
   volume: volume |
   tf: tf |
-  synthesize: Synthesize[rate: synth] ->{tf: tf}
+  Synthesize[rate: synth] ->{tf: tf}    # bare term → auto-keyed `synthesize`
 )
 
 
@@ -105,7 +105,7 @@ composite Nucleus[volume: Volume = 100.0, tf: Count = 0.0, k_on: Conc = 0.5]
   volume: volume |
   tf: tf |
   active: false |
-  sense: Sense[k_on: k_on] ~{tf: tf} ->{active: active}
+  Sense[k_on: k_on] ~{tf: tf} ->{active: active}    # bare → auto-keyed `sense`
 )
 
 
@@ -124,7 +124,7 @@ composite Cell[id: String, cyt_vol: Volume = 1000.0, nuc_vol: Volume = 100.0]
   nuc_vol: nuc_vol |
   cytoplasm: Cytoplasm[volume: cyt_vol] ->{tf: cyt_tf} |
   nucleus:   Nucleus[volume: nuc_vol]   ->{tf: nuc_tf} |
-  transport: Transport[perm: 5.0]
+  Transport[perm: 5.0]    # bare term → auto-keyed `transport`
     ~{cyt_tf: cyt_tf, cyt_vol: cyt_vol, nuc_tf: nuc_tf, nuc_vol: nuc_vol}
     ->{cyt_tf: cyt_tf, nuc_tf: nuc_tf}
 )

@@ -927,8 +927,12 @@ impl Engine {
                     } else {
                         root_schema
                     };
-                    delta = algebra::reconcile(s, &[existing.clone(), delta.clone()])
-                        .unwrap_or(delta);
+                    delta = algebra::reconcile_with(
+                        self.type_registry.as_deref(),
+                        s,
+                        &[existing.clone(), delta.clone()],
+                    )
+                    .unwrap_or(delta);
                 }
                 self.passthrough_deltas.insert(root_key, delta);
             } else {

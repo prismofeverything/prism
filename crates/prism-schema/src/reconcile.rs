@@ -26,6 +26,7 @@
 
 use indexmap::IndexMap;
 
+use crate::registry::TypeRegistry;
 use crate::schema::Schema;
 use crate::value::{Key, StateMap, Value};
 
@@ -35,6 +36,20 @@ use crate::value::{Key, StateMap, Value};
 /// Returns `None` when the batch's net effect is a no-op (e.g. zero
 /// numeric delta, all-empty structural sentinels).
 pub fn reconcile(schema: &Schema, updates: &[Value]) -> Option<Value> {
+    reconcile_with(None, schema, updates)
+}
+
+/// [`reconcile`] consulting a [`TypeRegistry`] so a `Schema::Custom` slot
+/// reconciles by its REPRESENTATION (delegating structurally) instead of
+/// opaquely last-wins — and nested Custom slots inside `Map`/`Tree`/… delegate
+/// too. The registry-aware entry the engine uses; mirrors `apply_with`, giving
+/// full Custom→representation delegation (the update monoid is the same whether
+/// you `apply` deltas one-by-one or `reconcile` then `apply`).
+pub fn reconcile_with(
+    registry: Option<&TypeRegistry>,
+    schema: &Schema,
+    updates: &[Value],
+) -> Option<Value> {
     match schema {
         // Schemas that carry no state — updates are ignored.
         Schema::Site { .. }
@@ -92,24 +107,24 @@ pub fn reconcile(schema: &Schema, updates: &[Value]) -> Option<Value> {
                 .filter(|u| !matches!(u, Value::None))
                 .cloned()
                 .collect();
-            reconcile(inner, &filtered)
+            reconcile_with(registry, inner, &filtered)
         }
 
         // Map: group updates by key, recurse per key. Carve out
         // structural sentinels (`_add`/`_remove`) — they're handled
         // holistically at this level.
-        Schema::Map { value } => reconcile_map(value, updates),
+        Schema::Map { value } => reconcile_map(registry, value, updates),
 
         // Tree: per-branch reconcile using each branch's schema. Mixed
         // batches (some dict-shaped, some scalar) resolve to
         // last-non-dict-wins, matching the apply path.
-        Schema::Tree { branches } => reconcile_tree(branches, updates),
+        Schema::Tree { branches } => reconcile_tree(registry, branches, updates),
 
         // List: structural _add/_remove batching.
         Schema::List { .. } => reconcile_list(updates),
 
         // Tuple: element-wise reconcile per position.
-        Schema::Tuple { elements } => reconcile_tuple(elements, updates),
+        Schema::Tuple { elements } => reconcile_tuple(registry, elements, updates),
 
         // Array: element-wise sum of the deltas (representation-agnostic over
         // flat / nested lists) — coherent with the additive `Array` apply, so
@@ -118,16 +133,22 @@ pub fn reconcile(schema: &Schema, updates: &[Value]) -> Option<Value> {
 
         // RecursiveTree: infer mode from update shapes. All non-dict →
         // leaf reconcile; any dict → tree-node reconcile.
-        Schema::RecursiveTree { leaf } => reconcile_recursive_tree(schema, leaf, updates),
+        Schema::RecursiveTree { leaf } => reconcile_recursive_tree(registry, schema, leaf, updates),
 
-        // Link, Custom, Any, typed link variants, Bridge:
-        // opaque — last non-None wins.
+        // Custom: delegate to the type's REPRESENTATION (so e.g. a graph's
+        // `_add`/`_remove` deltas collate structurally instead of last-wins).
+        // Without a registry/representation, fall back to last-wins.
+        Schema::Custom { name, .. } => match registry.and_then(|r| r.schema(name)) {
+            Some(repr) => reconcile_with(registry, repr, updates),
+            None => last_non_none(updates),
+        },
+
+        // Link, Any, typed link variants, Bridge: opaque — last non-None wins.
         Schema::Link { .. }
         | Schema::StepLink { .. }
         | Schema::ProcessLink { .. }
         | Schema::CompositeLink { .. }
         | Schema::Bridge { .. }
-        | Schema::Custom { .. }
         | Schema::Any => last_non_none(updates),
     }
 }
@@ -150,6 +171,7 @@ fn last_non_none(updates: &[Value]) -> Option<Value> {
 /// `{_add, _remove, _divide, …per-key}` — collating, not clobbering — so a
 /// later writer's `_add` doesn't drop an earlier writer's `_remove`, etc.
 fn reconcile_keyed<'s>(
+    registry: Option<&TypeRegistry>,
     updates: &[Value],
     schema_at: impl Fn(&Key) -> &'s Schema,
 ) -> Option<Value> {
@@ -211,7 +233,7 @@ fn reconcile_keyed<'s>(
         let reconciled = if sub_updates.len() == 1 {
             Some(sub_updates[0].clone())
         } else {
-            reconcile(schema_at(&key), &sub_updates)
+            reconcile_with(registry, schema_at(&key), &sub_updates)
         };
         if let Some(v) = reconciled {
             value_updates.insert(key, v);
@@ -244,11 +266,19 @@ fn reconcile_keyed<'s>(
 }
 
 /// Map: every key uses the uniform value schema.
-fn reconcile_map(value_schema: &Schema, updates: &[Value]) -> Option<Value> {
-    reconcile_keyed(updates, |_| value_schema)
+fn reconcile_map(
+    registry: Option<&TypeRegistry>,
+    value_schema: &Schema,
+    updates: &[Value],
+) -> Option<Value> {
+    reconcile_keyed(registry, updates, |_| value_schema)
 }
 
-fn reconcile_tree(branches: &IndexMap<Key, Schema>, updates: &[Value]) -> Option<Value> {
+fn reconcile_tree(
+    registry: Option<&TypeRegistry>,
+    branches: &IndexMap<Key, Schema>,
+    updates: &[Value],
+) -> Option<Value> {
     // Filter non-None.
     let non_none: Vec<&Value> = updates.iter().filter(|u| !matches!(u, Value::None)).collect();
     if non_none.is_empty() {
@@ -269,7 +299,7 @@ fn reconcile_tree(branches: &IndexMap<Key, Schema>, updates: &[Value]) -> Option
         }
     }
     // Tree-node mode: collate structural sentinels + per-branch reconcile.
-    reconcile_keyed(updates, |k| branches.get(k).unwrap_or(&Schema::Any))
+    reconcile_keyed(registry, updates, |k| branches.get(k).unwrap_or(&Schema::Any))
 }
 
 fn reconcile_list(updates: &[Value]) -> Option<Value> {
@@ -342,7 +372,11 @@ fn reconcile_list(updates: &[Value]) -> Option<Value> {
     None
 }
 
-fn reconcile_tuple(elements: &[Schema], updates: &[Value]) -> Option<Value> {
+fn reconcile_tuple(
+    registry: Option<&TypeRegistry>,
+    elements: &[Schema],
+    updates: &[Value],
+) -> Option<Value> {
     let non_none: Vec<&Value> = updates.iter().filter(|u| !matches!(u, Value::None)).collect();
     if non_none.is_empty() {
         return None;
@@ -369,7 +403,7 @@ fn reconcile_tuple(elements: &[Schema], updates: &[Value]) -> Option<Value> {
         result[i] = if contributions.len() == 1 {
             contributions[0].clone()
         } else {
-            reconcile(&elements[i], &contributions).unwrap_or(Value::None)
+            reconcile_with(registry, &elements[i], &contributions).unwrap_or(Value::None)
         };
         has_any = true;
     }
@@ -411,7 +445,12 @@ fn array_add(a: &Value, b: &Value) -> Value {
     }
 }
 
-fn reconcile_recursive_tree(schema: &Schema, leaf: &Schema, updates: &[Value]) -> Option<Value> {
+fn reconcile_recursive_tree(
+    registry: Option<&TypeRegistry>,
+    schema: &Schema,
+    leaf: &Schema,
+    updates: &[Value],
+) -> Option<Value> {
     let non_none: Vec<&Value> = updates.iter().filter(|u| !matches!(u, Value::None)).collect();
     if non_none.is_empty() {
         return None;
@@ -419,7 +458,7 @@ fn reconcile_recursive_tree(schema: &Schema, leaf: &Schema, updates: &[Value]) -
     let any_map = non_none.iter().any(|u| matches!(u, Value::Map(_)));
     if !any_map {
         // All leaves → reconcile at the leaf sort.
-        return reconcile(leaf, updates);
+        return reconcile_with(registry, leaf, updates);
     }
     if non_none.iter().any(|u| !matches!(u, Value::Map(_))) {
         // Mixed — a whole-node overwrite (non-map) wins.
@@ -431,7 +470,7 @@ fn reconcile_recursive_tree(schema: &Schema, leaf: &Schema, updates: &[Value]) -
     }
     // Tree-node mode: collate structural sentinels; children reconcile with
     // the same recursive schema (they may be leaves or nested trees).
-    reconcile_keyed(updates, |_| schema)
+    reconcile_keyed(registry, updates, |_| schema)
 }
 
 #[cfg(test)]
@@ -570,6 +609,48 @@ mod tests {
     }
 
     #[test]
+    fn custom_delegates_to_representation() {
+        // A `Custom` slot must reconcile by its REPRESENTATION — otherwise two
+        // writers in one tick collapse to last-wins (a lost update).
+        use crate::registry::TypeRegistry;
+        let mut reg = TypeRegistry::new();
+        reg.register("Counter", Schema::map(Schema::float()), None);
+        let counter = Schema::Custom { name: "Counter".into(), parameters: Default::default() };
+        let u1 = Value::Map(IndexMap::from_iter([("a".into(), Value::float(1.0))]));
+        let u2 = Value::Map(IndexMap::from_iter([("a".into(), Value::float(2.0))]));
+
+        // No registry → opaque last-wins (the old behavior; u1 is lost).
+        let opaque = reconcile(&counter, &[u1.clone(), u2.clone()]).unwrap();
+        assert_eq!(opaque.get_field("a").and_then(|v| v.as_f64()), Some(2.0), "no registry → last-wins");
+
+        // With registry → delegates to Map(Float), summing both writers.
+        let merged = reconcile_with(Some(&reg), &counter, &[u1, u2]).unwrap();
+        assert_eq!(merged.get_field("a").and_then(|v| v.as_f64()), Some(3.0), "registry → summed");
+    }
+
+    #[test]
+    fn custom_delegation_recurses_through_map() {
+        // A Custom NESTED inside a Map also delegates (the registry threads all
+        // the way down the recursion).
+        use crate::registry::TypeRegistry;
+        let mut reg = TypeRegistry::new();
+        reg.register("Counter", Schema::map(Schema::float()), None);
+        let outer = Schema::map(Schema::Custom { name: "Counter".into(), parameters: Default::default() });
+        // Two updates to the same outer key `c`, each a Counter delta.
+        let u1 = Value::Map(IndexMap::from_iter([(
+            "c".into(),
+            Value::Map(IndexMap::from_iter([("x".into(), Value::float(1.0))])),
+        )]));
+        let u2 = Value::Map(IndexMap::from_iter([(
+            "c".into(),
+            Value::Map(IndexMap::from_iter([("x".into(), Value::float(4.0))])),
+        )]));
+        let r = reconcile_with(Some(&reg), &outer, &[u1, u2]).unwrap();
+        let cx = r.get_field("c").and_then(|c| c.get_field("x")).and_then(|v| v.as_f64());
+        assert_eq!(cx, Some(5.0), "nested Counter summed via delegation");
+    }
+
+    #[test]
     fn map_carries_divide_sentinel() {
         // `_divide` is a structural directive that MUST survive reconcile —
         // otherwise division silently no-ops when batched with other updates.
@@ -582,5 +663,49 @@ mod tests {
         let r = reconcile(&s, &[bump, divide]).unwrap();
         let Value::Map(map) = &r else { panic!() };
         assert!(map.contains_key("_divide"), "_divide directive survives batching");
+    }
+
+    #[test]
+    fn list_batches_structural_add_remove() {
+        let s = Schema::List { element: Box::new(Schema::float()) };
+        let add = Value::Map(IndexMap::from_iter([(
+            "_add".into(),
+            Value::List(vec![Value::float(1.0)]),
+        )]));
+        let remove = Value::Map(IndexMap::from_iter([(
+            "_remove".into(),
+            Value::List(vec![Value::String("0".into())]),
+        )]));
+        let r = reconcile(&s, &[add, remove]).unwrap();
+        let Value::Map(map) = &r else { panic!("expected structural Map, got {r:?}") };
+        assert!(map.contains_key("_add") && map.contains_key("_remove"), "both survive");
+    }
+
+    #[test]
+    fn list_concatenates_plain() {
+        let s = Schema::List { element: Box::new(Schema::float()) };
+        let r = reconcile(&s, &[Value::List(vec![Value::float(1.0)]), Value::List(vec![Value::float(2.0)])])
+            .unwrap();
+        assert_eq!(r.as_list().map(<[_]>::len), Some(2), "plain lists concatenate");
+    }
+
+    #[test]
+    fn array_sums_elementwise() {
+        let s = Schema::Array { shape: vec![3], element: Box::new(Schema::float()) };
+        let u1 = Value::List(vec![Value::float(1.0), Value::float(0.0), Value::float(2.0)]);
+        let u2 = Value::List(vec![Value::float(0.5), Value::float(1.0), Value::float(0.0)]);
+        let r = reconcile(&s, &[u1, u2]).unwrap();
+        let Value::List(l) = &r else { panic!() };
+        assert_eq!(l[0].as_f64(), Some(1.5));
+        assert_eq!(l[1].as_f64(), Some(1.0));
+        assert_eq!(l[2].as_f64(), Some(2.0));
+    }
+
+    #[test]
+    fn maybe_filters_none_then_delegates_to_inner() {
+        let s = Schema::maybe(Schema::float());
+        // None is dropped; the inner Float sums the rest.
+        let r = reconcile(&s, &[Value::None, Value::float(1.0), Value::float(2.0)]).unwrap();
+        assert_eq!(r.as_f64(), Some(3.0));
     }
 }

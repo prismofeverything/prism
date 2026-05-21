@@ -786,11 +786,17 @@ impl Parser {
         self.parse_postfix()
     }
 
-    // `primary ( "." IDENT ( "(" args ")" )? )*` — field access + method calls
+    // `primary ( "." (IDENT | "*") ( "(" args ")" )? )*` — field access (incl.
+    // `*` wildcard path segments, e.g. `agents.*.mass`) + method calls.
     fn parse_postfix(&mut self) -> Result<Expr, ParseError> {
         let mut base = self.parse_primary()?;
         while self.accept(&Tok::Dot) {
-            let name = self.ident()?;
+            // `*` is a wildcard path segment (a fan-out wire); else an identifier.
+            let name = if self.accept(&Tok::Star) {
+                "*".to_string()
+            } else {
+                self.ident()?
+            };
             if self.accept(&Tok::LParen) {
                 let mut args = Vec::new();
                 while !self.check(&Tok::RParen) {
@@ -1055,6 +1061,63 @@ fn binop(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
     Expr::BinOp { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
 }
 
+/// A bare subprocess term in a COMPOSITE body (`Diffusion ~{…}`, no slot key)
+/// is auto-keyed by its control name (`diffusion: Diffusion ~{…}`) so it's
+/// registered + runs — otherwise an unkeyed term parses but is silently never
+/// instantiated. Applied only to composite bodies (NOT reaction redex/reactum
+/// or term bodies, where bare terms are anonymous products/patterns).
+fn auto_key_subprocesses(body: Expr) -> Expr {
+    let key_term = |control: &str, used: &mut std::collections::HashSet<String>| -> String {
+        let base = lower_first(control);
+        let mut key = base.clone();
+        let mut n = 2;
+        while used.contains(&key) {
+            key = format!("{base}_{n}");
+            n += 1;
+        }
+        used.insert(key.clone());
+        key
+    };
+    match body {
+        Expr::Parallel(items) => {
+            let mut used: std::collections::HashSet<String> = items
+                .iter()
+                .filter_map(|e| match e {
+                    Expr::KeyedEntry { key, .. } => key.as_plain(),
+                    _ => None,
+                })
+                .collect();
+            let keyed = items
+                .into_iter()
+                .map(|e| match &e {
+                    Expr::Term { control, .. } => {
+                        let key = key_term(control, &mut used);
+                        Expr::entry(key, e)
+                    }
+                    _ => e,
+                })
+                .collect();
+            Expr::parallel(keyed)
+        }
+        // A lone bare subprocess body.
+        Expr::Term { ref control, .. } => {
+            let mut used = std::collections::HashSet::new();
+            let key = key_term(control, &mut used);
+            Expr::parallel(vec![Expr::entry(key, body)])
+        }
+        other => other,
+    }
+}
+
+/// Lowercase the first character (`Synthesize` → `synthesize`, `RunBrs` → `runBrs`).
+fn lower_first(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(first) => first.to_ascii_lowercase().to_string() + c.as_str(),
+        None => String::new(),
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // M2: process / step / composite / extern / reaction declarations
 //     + the bigraph surface (`~{}->{}` interfaces, `|` bodies, term calls)
@@ -1221,7 +1284,8 @@ impl Parser {
             using.push(crate::ast::ContextUse { name: ctx, args });
         }
         let interface = self.parse_interface()?;
-        let body = self.parse_body()?;
+        // Auto-key any bare subprocess terms in the body (so they're registered).
+        let body = auto_key_subprocesses(self.parse_body()?);
         Ok(Def::Composite(crate::ast::CompositeDef {
             name,
             params,

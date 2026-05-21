@@ -251,7 +251,12 @@ impl Process for Composite {
                     .cloned().unwrap_or(Value::None);
                 let old_val = pre_run.get(port).unwrap_or(&Value::None);
                 let slot_schema = engine.schema().schema_at_path(internal_path);
-                if let Some(delta) = prism_schema::algebra::diff(slot_schema, old_val, &new_val) {
+                if let Some(delta) = prism_schema::algebra::diff_with(
+                    engine.type_registry().map(|r| &**r),
+                    slot_schema,
+                    old_val,
+                    &new_val,
+                ) {
                     if !is_zero_delta(&delta) {
                         output.insert(port_key, delta);
                     }

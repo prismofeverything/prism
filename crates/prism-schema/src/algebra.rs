@@ -46,13 +46,15 @@ pub use crate::resolve::{generalize, promote, resolve};
 
 // ── Update combination ─────────────────────────────────────────────────
 //
-// `reconcile` combines a batch of updates aimed at one path into one update.
-pub use crate::reconcile::reconcile;
+// `reconcile` combines a batch of updates aimed at one path into one update;
+// `reconcile_with` is the registry-aware form (Custom→representation).
+pub use crate::reconcile::{reconcile, reconcile_with};
 
 // ── Value combination ──────────────────────────────────────────────────
 //
-// `merge` folds two values; `diff` is apply's inverse (the update a→b).
-pub use crate::diff::diff;
+// `merge` folds two values; `diff` is apply's inverse (the update a→b);
+// `diff_with` is the registry-aware form (Custom→representation).
+pub use crate::diff::{diff, diff_with};
 pub use crate::merge::merge;
 
 // ── Value/update ops ───────────────────────────────────────────────────
