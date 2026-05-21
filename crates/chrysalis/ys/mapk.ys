@@ -1,0 +1,39 @@
+# GENERATED from `fixtures::mapk::program()` by the unparser
+# (chrysalis::unparse). Round-trip-verified: parse(this) re-unparses
+# identically. Edit the fixture, not this file.
+
+reaction phosphorylate (
+  (compartment: Compartment (enzyme: MEK ~{out: !} | substrate: ERK[name: ?n] ~{out: !} | bystanders: ?rest)) => (compartment: Compartment (enzyme: MEK ~{out: ~bond} | substrate: pERK[name: ?n] ~{out: ~bond} | bystanders: ?rest))
+)
+
+reaction dissociate (
+  (compartment: Compartment (enzyme: MEK ~{out: ~bond} | substrate: pERK[name: ?n] ~{out: ~bond} | bystanders: ?rest)) => (compartment: Compartment (enzyme: MEK | substrate: pERK[name: ?n] | bystanders: ?rest))
+)
+
+reaction dephosphorylate (
+  (outer: Compartment (kind: Cytoplasm | inner: Compartment (kind: Nucleus | substrate: pERK[name: ?n] ~{out: !} | inner_rest: ?inner_rest) | outer_rest: ?outer_rest)) => (outer: Compartment (kind: Cytoplasm | inner: Compartment (kind: Nucleus | substrate: ERK[name: ?n] | inner_rest: ?inner_rest) | outer_rest: ?outer_rest))
+)
+
+reaction translocate_erk_in (
+  (outer: Compartment (kind: Cytoplasm | substrate: ERK[name: ?n] | inner: Compartment (inner_rest: ?inner_rest) | outer_rest: ?outer_rest)) => (outer: Compartment (kind: Cytoplasm | inner: Compartment (inner_rest: ?inner_rest | substrate: ERK[name: ?n]) | outer_rest: ?outer_rest))
+)
+
+reaction translocate_erk_out (
+  (outer: Compartment (kind: Cytoplasm | inner: Compartment (substrate: ERK[name: ?n] | inner_rest: ?inner_rest) | outer_rest: ?outer_rest)) => (outer: Compartment (kind: Cytoplasm | inner: Compartment (inner_rest: ?inner_rest) | substrate: ERK[name: ?n] | outer_rest: ?outer_rest))
+)
+
+reaction translocate_perk_in (
+  (outer: Compartment (kind: Cytoplasm | substrate: pERK[name: ?n] ~{out: !} | inner: Compartment (kind: Nucleus | inner_rest: ?inner_rest) | outer_rest: ?outer_rest)) => (outer: Compartment (kind: Cytoplasm | inner: Compartment (kind: Nucleus | inner_rest: ?inner_rest | substrate: pERK[name: ?n]) | outer_rest: ?outer_rest))
+)
+
+reaction translocate_perk_out (
+  (outer: Compartment (kind: Cytoplasm | inner: Compartment (kind: Nucleus | substrate: pERK[name: ?n] ~{out: !} | inner_rest: ?inner_rest) | outer_rest: ?outer_rest)) => (outer: Compartment (kind: Cytoplasm | inner: Compartment (kind: Nucleus | inner_rest: ?inner_rest) | substrate: pERK[name: ?n] | outer_rest: ?outer_rest))
+)
+
+composite Mapk[cell: map[any]] ->{cell: map[any]} (
+  cell: cell |
+  brs: BRS[rules: [phosphorylate, dissociate, dephosphorylate, translocate_erk_in, translocate_erk_out, translocate_perk_in, translocate_perk_out], mode: 'gillespie', seed: 7, max_per_tick: 10000] ~{state: cell} ->{state: cell}
+)
+
+Mapk[cell: Cell (cytoplasm: Compartment (kind: Cytoplasm | mek: MEK | erk0: pERK[name: 'erk0'] | erk1: ERK[name: 'erk1'] | erk2: ERK[name: 'erk2'] | nucleus: Compartment (kind: Nucleus) | er_lumen: Compartment (kind: ERLumen | erk3: ERK[name: 'erk3'])))]
+

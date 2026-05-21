@@ -35,6 +35,7 @@ pub enum Tok {
     Context,
     Using,
     Import,
+    Where,
     If,
     Then,
     Else,
@@ -70,8 +71,9 @@ pub enum Tok {
     At,       // @
     Bang,     // !
     Question, // ?
-    Caret,    // ^ (unit/dimension power)
-    BiArrow,  // <-> (bidirectional context rule)
+    Caret,      // ^ (unit/dimension power)
+    BiArrow,    // <-> (bidirectional context rule)
+    ColonColon, // :: (typed site / as-pattern)
     Dot,
     Comma,
     Colon,
@@ -110,6 +112,7 @@ fn keyword(word: &str) -> Option<Tok> {
         "context" => Tok::Context,
         "using" => Tok::Using,
         "import" => Tok::Import,
+        "where" => Tok::Where,
         // NOTE: `from` is a CONTEXTUAL keyword (only meaningful after `import`),
         // not reserved — it's a common field name (a graph edge's `from`). The
         // import parser matches the bare identifier `from` instead.
@@ -240,6 +243,7 @@ pub fn lex(src: &str) -> Result<Vec<Spanned>, ParseError> {
                     "||" => (Tok::BarBar, 2),
                     "->" => (Tok::Arrow, 2),
                     "=>" => (Tok::FatArrow, 2),
+                    "::" => (Tok::ColonColon, 2),
                     _ => {
                         let t = match c {
                             '=' => Tok::Eq,
@@ -710,7 +714,8 @@ impl Parser {
         Ok(lhs)
     }
     fn parse_not(&mut self) -> Result<Expr, ParseError> {
-        if self.check(&Tok::Not) || self.check(&Tok::Bang) {
+        // Only `not` is boolean negation; `!` is the free-link literal (Unbound).
+        if self.check(&Tok::Not) {
             self.bump();
             let operand = self.parse_not()?;
             return Ok(Expr::UnaryOp { op: UnaryOp::Not, operand: Box::new(operand) });
@@ -887,6 +892,30 @@ impl Parser {
                 let with = self.parse_expr()?;
                 Ok(Expr::ReplaceWith { id: Box::new(id), with: Box::new(with) })
             }
+            // `?name` (site) / `?name :: Sort` (typed site) / `?name.field…`
+            // (a path rooted at the `?`-local). The name keeps its `?`.
+            Tok::Question => {
+                self.bump();
+                let name = format!("?{}", self.ident()?);
+                if self.accept(&Tok::ColonColon) {
+                    Ok(Expr::site_typed(name, self.parse_postfix()?))
+                } else if self.check(&Tok::Dot) {
+                    // `?f.blueprint` — postfix extends this into a place path.
+                    Ok(Expr::Path(PlacePath::local(name)))
+                } else {
+                    Ok(Expr::site(name))
+                }
+            }
+            // `!` — the free-link (Unbound) literal.
+            Tok::Bang => {
+                self.bump();
+                Ok(Expr::Unbound)
+            }
+            // `~name` — a link variable (in a port-target position).
+            Tok::Tilde => {
+                self.bump();
+                Ok(Expr::LinkVar(self.ident()?))
+            }
             Tok::True => {
                 self.bump();
                 Ok(Expr::Bool(true))
@@ -911,12 +940,10 @@ impl Parser {
                     Ok(Expr::var(name))
                 }
             }
-            Tok::LParen => {
-                self.bump();
-                let e = self.parse_expr()?;
-                self.expect(&Tok::RParen)?;
-                Ok(e)
-            }
+            // `( … )` — grouping, OR a parenthesized parallel `(a | b)` /
+            // entries `(k: v | …)` (a reaction redex/reactum, a term body).
+            // The body grammar handles all three.
+            Tok::LParen => self.parse_body(),
             Tok::If => {
                 self.bump();
                 let cond = self.parse_expr()?;
@@ -1136,7 +1163,16 @@ impl Parser {
                 tb = tb.output(port, target);
             }
         }
-        Ok(tb.build())
+        let mut term = tb.build();
+        // Optional term body: the `K[args](body)` kernel form — e.g.
+        // `Compartment (enzyme: MEK | …)`.
+        if self.check(&Tok::LParen) {
+            let body = self.parse_body()?;
+            if let Expr::Term { body: slot, .. } = &mut term {
+                *slot = Some(Box::new(body));
+            }
+        }
+        Ok(term)
     }
 
     fn parse_callsite_ports(&mut self) -> Result<Vec<(String, Expr)>, ParseError> {
@@ -1211,17 +1247,16 @@ impl Parser {
         let params = self.parse_bracket_params()?;
         self.expect(&Tok::LParen)?;
         let redex = self.parse_expr()?;
+        // optional `where <guard>` between redex and `=>`
+        let guard = if self.accept(&Tok::Where) {
+            Some(self.parse_expr()?)
+        } else {
+            None
+        };
         self.expect(&Tok::FatArrow)?;
         let reactum = self.parse_expr()?;
         self.expect(&Tok::RParen)?;
-        Ok(Def::Reaction(ReactionDef {
-            name,
-            params,
-            redex,
-            reactum,
-            guard: None,
-            rate: None,
-        }))
+        Ok(Def::Reaction(ReactionDef { name, params, redex, reactum, guard, rate: None }))
     }
 
     /// A body `( item ("|" item)* )`. An item is a keyed entry (`name: expr`),

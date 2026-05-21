@@ -78,7 +78,7 @@ composite Cell[
 # Identical to the unbounded model: mass (extensive) splits between the
 # daughters; the Monod params (intensive) copy unchanged.
 reaction Divide[threshold: Mass = 2.0] (
-  ?c : Cell[mass: ?m] where ?m > threshold
+  ?c :: Cell[mass: ?m] where ?m > threshold
   =>
   ?c.divide()
 )

@@ -1,0 +1,18 @@
+# GENERATED from `fixtures::mr::program()` by the unparser
+# (chrysalis::unparse). Round-trip-verified: parse(this) re-unparses
+# identically. Edit the fixture, not this file.
+
+reaction MakeB (
+  (?f :: F | ?a :: A) => (F[blueprint: ?f.blueprint] | B[blueprint: ?f.blueprint, source: ?a])
+)
+
+reaction MakePhi (
+  (?f :: F | ?b :: B) where (?f.blueprint == ?b.blueprint) => (F[blueprint: ?f.blueprint] | Phi[blueprint: ?f.blueprint])
+)
+
+reaction MakeF (
+  (?p :: Phi | ?b :: B) where (?p.blueprint == ?b.blueprint) => F[blueprint: ?p.blueprint]
+)
+
+{}
+
