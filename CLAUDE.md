@@ -13,6 +13,16 @@ application domain.
   inconsistent) state / schema / node representations and the plan to
   unify them into one schema-always-present, algebraic core. Read before
   any engine/core work; schema and state are inseparable.
+- **`docs/NEXT-SESSION.md`** — the launch prompt for the in-progress
+  fresh-core **schema-algebra rebuild** (the current top priority). Start
+  here if picking that up.
+- **`docs/schema-algebra.md`** — the schema layer stated as an **algebra**:
+  the sorts, the closed set of operations (`default`/`check`/`apply`/
+  `reconcile`/`resolve`/`promote`/`merge`/`diff`/`generalize`/`coerce`/
+  `divide`/`serialize`/…), their laws, and the **closure invariant**
+  (nothing manipulates schema/state outside these ops). Read before any
+  schema/engine/composite work. The faithful ports live in
+  `bigraph_schema/methods/` (cloned at `../bigraph-schema`).
 - **`docs/chrysalis-design.md`** — design for **chrysalis**, the
   surface PL compiling to this runtime. Homoiconicity goal, the
   bigraph atoms to canonize, the implied-assembly decision (trees
@@ -83,3 +93,18 @@ application domain.
   `eval` (Expr→Value / Expr→Pattern) → `compile` (build prism artifacts).
   Anything that looks like a runtime *algorithm* belongs in prism. See
   memory `feedback_chrysalis_thin_layer`.
+- **The schema layer is a closed ALGEBRA — stay inside it.** All
+  schema/state manipulation goes through the operations in
+  `docs/schema-algebra.md` (`default`/`check`/`apply`/`reconcile`/
+  `resolve`/`promote`/`merge`/`diff`/`generalize`/`coerce`/`divide`/
+  `serialize`/…), each a faithful port of `bigraph_schema/methods/`.
+  **Never** hand-roll a merge/diff/apply, stamp `Schema::Any` to dodge a
+  type, or inline `_add`/`_remove` munging at a call site — those are
+  "extra operations outside the algebra," and they are exactly how prism
+  accreted `infer_and_merge`, `overlay_apply_types`, the schemaless
+  `Composite`, and a dead `reconcile`. If a behaviour isn't expressible
+  in the algebra, **add a named operation with a signature + laws +
+  property tests** (executable axioms in `prism-schema`), together with
+  the consumer that needs it — do not squish around it. Composite/engine
+  logic is *defined in terms of* the algebra (law #10 in the doc). See
+  memory `feedback_schema_algebra`.
