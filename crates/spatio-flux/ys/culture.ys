@@ -1,0 +1,24 @@
+# A larger composite that IMPORTS `Dish` from another file and NESTS it twice.
+# `chrysalis::parse::parse_file` resolves the import (loads dish.ys, relative to
+# this file, and merges its defs). Each well's bridged field is observed at the
+# parent slot (fields_a / fields_b). This is the composite-process use case —
+# define once, import, nest, simulate — as two real `.ys` files.
+
+import Dish from "dish.ys"
+
+composite Culture[
+  grad_a: map[array[[3, 3], float]] =
+    { glucose: [0.0, 0.0, 0.0, 5.0, 5.0, 5.0, 10.0, 10.0, 10.0],
+      acetate: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+  grad_b: map[array[[3, 3], float]] =
+    { glucose: [0.0, 5.0, 10.0, 0.0, 5.0, 10.0, 0.0, 5.0, 10.0],
+      acetate: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] }
+]
+(
+  fields_a: grad_a |
+  fields_b: grad_b |
+  well_a: Dish[fields: grad_a] ->{fields: fields_a} |
+  well_b: Dish[fields: grad_b] ->{fields: fields_b}
+)
+
+main = Culture

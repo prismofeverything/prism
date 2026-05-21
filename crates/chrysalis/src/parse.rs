@@ -344,7 +344,8 @@ mod lex_tests {
 use indexmap::IndexMap;
 
 use crate::ast::{
-    BinOp, Def, Expr, MethodDef, Param, PlacePath, Program, SchemaExpr, StringLit, TypeDef, UnaryOp,
+    BinOp, Def, Expr, MethodDef, Param, PlacePath, Program, SchemaExpr, StringLit, StringSeg,
+    TypeDef, UnaryOp,
 };
 
 struct Parser {
@@ -396,13 +397,60 @@ impl Parser {
     }
 }
 
-/// Parse a full `.ys` program.
+/// Parse a full `.ys` program (string form; `import` directives are left as
+/// `Def::Import` — use [`parse_file`] to resolve them).
 pub fn parse_program(src: &str) -> Result<Program, ParseError> {
     let toks = lex(src)?;
     let mut p = Parser { toks, pos: 0 };
     let mut program = Program::new();
     while !p.check(&Tok::Eof) {
         program.push(p.parse_def()?);
+    }
+    Ok(program)
+}
+
+/// Parse a `.ys` file, **resolving `import Name from "rel"`** by loading the
+/// referenced files (relative to each file's directory) and merging their
+/// definitions. Imported `main` bindings and already-defined names are skipped;
+/// import cycles are guarded. After resolution the `Program` has no
+/// `Def::Import`. This is the file-driven form of the program-merge "import"
+/// mechanism.
+pub fn parse_file(path: impl AsRef<std::path::Path>) -> Result<Program, ParseError> {
+    let mut visited = std::collections::HashSet::new();
+    load_file(path.as_ref(), &mut visited)
+}
+
+fn load_file(
+    path: &std::path::Path,
+    visited: &mut std::collections::HashSet<std::path::PathBuf>,
+) -> Result<Program, ParseError> {
+    visited.insert(path.to_path_buf());
+    let src = std::fs::read_to_string(path).map_err(|e| ParseError {
+        message: format!("cannot read {}: {e}", path.display()),
+        line: 0,
+    })?;
+    let raw = parse_program(&src)?;
+    let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let mut program = Program::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for def in raw.defs {
+        if let Def::Import { path: rel, .. } = &def {
+            let imported_path = dir.join(rel);
+            if visited.contains(&imported_path) {
+                continue; // already loaded / cycle
+            }
+            let imported = load_file(&imported_path, visited)?;
+            for d in imported.defs {
+                let name = crate::ast::def_name(&d).to_string();
+                if name == "main" || !seen.insert(name) {
+                    continue; // skip the imported `main` and duplicate names
+                }
+                program.push(d);
+            }
+        } else {
+            seen.insert(crate::ast::def_name(&def).to_string());
+            program.push(def);
+        }
     }
     Ok(program)
 }
@@ -416,6 +464,21 @@ impl Parser {
             Tok::Composite => self.parse_composite_def(),
             Tok::Extern => self.parse_extern_def(),
             Tok::Reaction => self.parse_reaction_def(),
+            Tok::Import => {
+                self.bump();
+                let name = self.ident()?;
+                let from = self.ident()?; // `from` is a contextual keyword
+                if from != "from" {
+                    return Err(self.err(&format!("expected `from` in import, found `{from}`")));
+                }
+                let path = match self.bump() {
+                    Tok::Str(s) => s,
+                    other => {
+                        return Err(self.err(&format!("expected a quoted path, found {other:?}")))
+                    }
+                };
+                Ok(Def::Import { name, path })
+            }
             // `name = expr` binding (e.g. `main = …`).
             Tok::Ident(_) => {
                 let name = self.ident()?;
@@ -516,6 +579,31 @@ impl Parser {
                         let inner = self.parse_schema()?;
                         self.expect(&Tok::RBrack)?;
                         Ok(SchemaExpr::map_of(inner))
+                    }
+                    // `array[[d1, d2, …], element]` — a fixed-shape numeric
+                    // array (the additive field type; element may be dimensioned).
+                    "array" => {
+                        self.expect(&Tok::LBrack)?;
+                        self.expect(&Tok::LBrack)?;
+                        let mut shape = Vec::new();
+                        while !self.check(&Tok::RBrack) {
+                            match self.bump() {
+                                Tok::Int(n) if n >= 0 => shape.push(n as usize),
+                                other => {
+                                    return Err(self.err(&format!(
+                                        "array shape expects non-negative ints, found {other:?}"
+                                    )))
+                                }
+                            }
+                            if !self.accept(&Tok::Comma) {
+                                break;
+                            }
+                        }
+                        self.expect(&Tok::RBrack)?; // close shape
+                        self.expect(&Tok::Comma)?;
+                        let element = self.parse_schema()?;
+                        self.expect(&Tok::RBrack)?; // close array
+                        Ok(SchemaExpr::array(shape, element))
                     }
                     // Otherwise a (possibly parameterized) custom type.
                     _ => {
@@ -653,6 +741,53 @@ impl Parser {
         Ok(base)
     }
 
+    /// Parse a (possibly interpolated) string: `'plain'` → one `Lit`;
+    /// `'{expr}_suffix'` → `Expr`/`Lit` segments, each `{…}` parsed as a
+    /// sub-expression (brace depth tracked for nested `{}`).
+    fn parse_string_lit(&self, raw: &str) -> Result<StringLit, ParseError> {
+        let chars: Vec<char> = raw.chars().collect();
+        let mut segments = Vec::new();
+        let mut lit = String::new();
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i] == '{' {
+                if !lit.is_empty() {
+                    segments.push(StringSeg::Lit(std::mem::take(&mut lit)));
+                }
+                let start = i + 1;
+                let mut depth = 1;
+                i += 1;
+                while i < chars.len() && depth > 0 {
+                    match chars[i] {
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    i += 1;
+                }
+                if depth != 0 {
+                    return Err(self.err("unterminated `{` in string interpolation"));
+                }
+                let inner: String = chars[start..i].iter().collect();
+                i += 1; // skip closing `}`
+                let mut sub = Parser { toks: lex(&inner)?, pos: 0 };
+                segments.push(StringSeg::Expr(sub.parse_expr()?));
+            } else {
+                lit.push(chars[i]);
+                i += 1;
+            }
+        }
+        if !lit.is_empty() || segments.is_empty() {
+            segments.push(StringSeg::Lit(lit));
+        }
+        Ok(StringLit::template(segments))
+    }
+
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
         match self.peek().clone() {
             Tok::Int(n) => {
@@ -665,7 +800,21 @@ impl Parser {
             }
             Tok::Str(s) => {
                 self.bump();
-                Ok(Expr::Str(StringLit::plain(s)))
+                Ok(Expr::Str(self.parse_string_lit(&s)?))
+            }
+            // `@` — the enclosing composite's own location (a place-graph
+            // self-reference; used in output targets like `->{env: @}`).
+            Tok::At => {
+                self.bump();
+                Ok(Expr::Path(PlacePath::here()))
+            }
+            // `replace <id> with <value>` — a structural rewrite directive.
+            Tok::Replace => {
+                self.bump();
+                let id = self.parse_expr()?;
+                self.expect(&Tok::With)?;
+                let with = self.parse_expr()?;
+                Ok(Expr::ReplaceWith { id: Box::new(id), with: Box::new(with) })
             }
             Tok::True => {
                 self.bump();
@@ -716,40 +865,55 @@ impl Parser {
         }
     }
 
-    // `{ key: expr, … }` — Record (ident keys) or Map (string keys).
+    // `{ key: expr, … }` — Record (all bare-ident keys) or Map (any string
+    // key, which may be interpolated, e.g. `'{id}_0'`). Both evaluate to a
+    // `Value::Map`; the Map form exists so keys can be computed.
     fn parse_braces(&mut self) -> Result<Expr, ParseError> {
         self.expect(&Tok::LBrace)?;
-        let mut record: IndexMap<String, Expr> = IndexMap::new();
-        let mut map_entries: Vec<(StringLit, Expr)> = Vec::new();
-        let mut is_map = false;
+        enum K {
+            Id(String),
+            S(String),
+        }
+        let mut entries: Vec<(K, Expr)> = Vec::new();
+        let mut any_str = false;
         while !self.check(&Tok::RBrace) {
             let key = match self.bump() {
-                Tok::Ident(k) => k,
+                Tok::Ident(k) => K::Id(k),
                 Tok::Str(s) => {
-                    is_map = true;
-                    s
+                    any_str = true;
+                    K::S(s)
                 }
                 other => return Err(self.err(&format!("expected a field key, found {other:?}"))),
             };
             self.expect(&Tok::Colon)?;
             let value = self.parse_expr()?;
-            if is_map {
-                map_entries.push((StringLit::plain(key), value));
-            } else {
-                record.insert(key, value);
-            }
+            entries.push((key, value));
             if !self.accept(&Tok::Comma) {
                 break;
             }
         }
         self.expect(&Tok::RBrace)?;
-        if is_map {
-            // a string-keyed brace: fold any ident-keyed entries collected
-            // before the first string key in too (kept simple: maps use string
-            // keys throughout).
-            Ok(Expr::Map(map_entries))
+        if any_str {
+            // Map: keys are StringLits (string keys interpolated).
+            let mut map = Vec::new();
+            for (k, v) in entries {
+                let key = match k {
+                    K::Id(s) => StringLit::plain(s),
+                    K::S(s) => self.parse_string_lit(&s)?,
+                };
+                map.push((key, v));
+            }
+            Ok(Expr::Map(map))
         } else {
-            Ok(Expr::Record(record))
+            // Record: bare-ident keys.
+            let rec: IndexMap<String, Expr> = entries
+                .into_iter()
+                .map(|(k, v)| match k {
+                    K::Id(s) => (s, v),
+                    K::S(_) => unreachable!(),
+                })
+                .collect();
+            Ok(Expr::Record(rec))
         }
     }
 

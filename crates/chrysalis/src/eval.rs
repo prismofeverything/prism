@@ -441,6 +441,7 @@ impl Evaluator {
             | Some(Def::Unit(_))
             | Some(Def::Context(_))
             | Some(Def::Type(_))
+            | Some(Def::Import { .. })
             | Some(Def::Binding { .. }) => Err(EvalError::InvalidForm {
                 context: "value-term".into(),
                 message: format!("control `{}` is not callable in value context", control),

@@ -1,0 +1,46 @@
+# Grow / divide — tier-1 benchmark #1, runnable form, as a real `.ys` file.
+# Mirrors crates/chrysalis/src/fixtures/grow_divide.rs: a cell grows
+# multiplicatively (Grow); when its mass crosses `threshold` the inner Divide
+# step REPLACES it with two daughters (each half its mass), written up to the
+# parent `cells` map through the cell's passthrough bridge.
+#
+# Exercises the full M3 surface: Block process bodies, `if/then/else`,
+# `replace … with`, string interpolation (`'{id}_0'`), `@` (self), term calls
+# with `[args]` + `~{}->{}` wiring, and map literals with computed keys.
+
+process Grow[rate: float = 0.02]
+  ~{mass: float, interval: float = 1.0}
+  ->{mass: float}
+(
+  delta = mass * rate * interval |
+  { mass: delta }
+)
+
+step Divide[id: string, threshold: float = 2.0]
+  ~{trigger: float}
+  ->{environment: map[Cell]}
+(
+  { environment:
+      if trigger > threshold
+        then replace id with {
+               '{id}_0': Cell[id: '{id}_0', mass: trigger / 2, threshold: threshold] ->{environment: @},
+               '{id}_1': Cell[id: '{id}_1', mass: trigger / 2, threshold: threshold] ->{environment: @}
+             }
+        else {} }
+)
+
+composite Cell[id: string, mass: float = 1.0, growth_rate: float = 0.02, threshold: float = 2.0]
+  ->{environment: map[Cell]}
+(
+  mass: mass |
+  grow: Grow[rate: growth_rate] ~{mass: mass} ->{mass: mass} |
+  divide: Divide[id: id, threshold: threshold] ~{trigger: mass} ->{environment: environment}
+)
+
+composite Environment[cells: map[Cell]]
+  ->{cells: map[Cell]}
+(
+  cells: cells
+)
+
+main = Environment[cells: { '0': Cell[id: '0', mass: 1.2] }]

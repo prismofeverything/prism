@@ -158,6 +158,9 @@ pub fn compile_with_registry(
             | Def::Pattern(_)
             | Def::Unit(_)
             | Def::Context(_)
+            // `Import` is resolved away by `parse::parse_file`; a leftover one
+            // registers no factory.
+            | Def::Import { .. }
             | Def::Binding { .. } => {}
         }
     }

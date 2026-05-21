@@ -409,6 +409,10 @@ pub enum Def {
     /// (an update directive `{_call: {method, args}}` on a slot of this type,
     /// which `apply` interprets — generalizing `_add`/`_remove`/`_divide`).
     Type(TypeDef),
+    /// `import Name from "path.ys"` — pull another file's definitions into
+    /// scope. Resolved by [`crate::parse::parse_file`] (load the file, merge
+    /// its defs); after resolution no `Import` remains in a `Program`.
+    Import { name: Name, path: String },
     /// Top-level `name = expr` binding.
     Binding { name: Name, value: Expr },
 }
@@ -518,7 +522,7 @@ impl Program {
     }
 }
 
-fn def_name(def: &Def) -> &str {
+pub fn def_name(def: &Def) -> &str {
     match def {
         Def::Process(d) => &d.name,
         Def::Step(d) => &d.name,
@@ -529,6 +533,7 @@ fn def_name(def: &Def) -> &str {
         Def::Unit(d) => &d.name,
         Def::Context(d) => &d.name,
         Def::Type(d) => &d.name,
+        Def::Import { name, .. } => name,
         Def::Binding { name, .. } => name,
     }
 }
