@@ -50,24 +50,44 @@ pub enum BindingSource {
 /// environment.
 pub type RuleBindings = IndexMap<Name, BindingSource>;
 
-/// A chrysalis-typed reaction rule.
+/// How a reaction produces its reactum — the one thing prism's
+/// structural `ReactionRule` can't express on its own, so chrysalis
+/// classifies it here and `to_prism_rule` maps each case onto prism.
+#[derive(Clone, Debug)]
+pub enum Reactum {
+    /// A structural Pattern→Pattern rewrite (MAPK-style: in-place link
+    /// bonds via `~name`, `!` absent ports, rest-carry). Fired natively
+    /// by prism's `instantiate`/`fire_rule_at`. `instantiation` maps
+    /// reactum site keys to redex site keys; empty means prism's
+    /// identity-by-name default (the common case).
+    Structural {
+        reactum: Pattern,
+        instantiation: IndexMap<Key, Key>,
+    },
+    /// A reactum *computed* from the match (e.g. `?cell.divide(?cid)`):
+    /// the expression is evaluated at fire time to a delta value. Mapped
+    /// onto prism's `reactum_fn` closure hook.
+    Computed(Expr),
+}
+
+/// A chrysalis-typed reaction rule — the reaction-as-value **data
+/// carrier**. It holds the redex pattern, the reactum (structural or
+/// computed), and the guard/rate expressions; [`to_prism_rule`] adapts it
+/// to a `prism_schema::ReactionRule` that prism's BRS fires. chrysalis
+/// owns the data and the binding convention; prism owns matching + firing.
 #[derive(Clone, Debug)]
 pub struct Rule {
     pub label: String,
     pub redex: Pattern,
-    pub reactum: Expr,
+    pub reactum: Reactum,
     pub guard: Option<Expr>,
     pub rate: Option<Expr>,
-    /// `prism_schema::ReactionRule::instantiation` analogue. Maps
-    /// reactum site keys back to redex site keys for the "rest"
-    /// capture semantics.
-    pub instantiation: IndexMap<Key, Key>,
     /// Variables captured by the redex, with instructions for how to
     /// extract their values from a Match's Bindings.
     pub bindings: RuleBindings,
     /// Lexical environment captured at definition site — typically
     /// the parameters of the enclosing `reaction` definer.
-    pub closure: Arc<IndexMap<Name, prism_schema::Value>>,
+    pub closure: Arc<IndexMap<Name, Value>>,
 }
 
 /// Convert a successful [`Bindings`] into a chrysalis environment
@@ -135,12 +155,26 @@ pub fn extract_rules(config: &Value) -> Vec<Rule> {
 /// The expressions become closures over the evaluator, run against each
 /// match's bindings at fire time.
 pub fn to_prism_rule(rule: &Rule, evaluator: Arc<Evaluator>) -> ReactionRule {
-    // The structural redex is matched by prism. The reactum is COMPUTED:
-    // evaluate the chrysalis reactum expression against the match bindings to
-    // a delta value (e.g. `?cell.divide(?cid)` → daughters). A
-    // structural-pattern reactum (MAPK-style in-place link rewrites) is a
-    // future branch; today every chrysalis reaction has a computed reactum.
-    let mut pr = ReactionRule::new(rule.redex.clone(), Pattern::Site).with_label(rule.label.clone());
+    // The structural redex is always matched by prism. The reactum is
+    // either a STRUCTURAL pattern (fired by prism's native `instantiate` —
+    // MAPK-style link/rest rewrites) or COMPUTED (an expression evaluated
+    // against the match bindings to a delta value — e.g. `?cell.divide(?cid)`).
+    let mut pr = match &rule.reactum {
+        Reactum::Structural {
+            reactum,
+            instantiation,
+        } => {
+            let mut pr =
+                ReactionRule::new(rule.redex.clone(), reactum.clone()).with_label(rule.label.clone());
+            // Empty → prism resolves identity-by-name (carries shared sites
+            // like `bystanders`/`name` through unchanged).
+            pr.instantiation = instantiation.clone();
+            pr
+        }
+        Reactum::Computed(_) => {
+            ReactionRule::new(rule.redex.clone(), Pattern::Site).with_label(rule.label.clone())
+        }
+    };
 
     if let Some(guard_expr) = rule.guard.clone() {
         let ev = Arc::clone(&evaluator);
@@ -153,11 +187,11 @@ pub fn to_prism_rule(rule: &Rule, evaluator: Arc<Evaluator>) -> ReactionRule {
         pr = pr.with_guard(g);
     }
 
-    {
+    if let Reactum::Computed(reactum_expr) = &rule.reactum {
         let ev = Arc::clone(&evaluator);
         let bindings = rule.bindings.clone();
         let closure = Arc::clone(&rule.closure);
-        let reactum_expr = rule.reactum.clone();
+        let reactum_expr = reactum_expr.clone();
         let rf: ReactumFn = Arc::new(move |b: &Bindings| {
             let env = bind_environment(b, &bindings, &closure);
             let reactum_val = ev.eval_value(&reactum_expr, &env).unwrap_or(Value::None);

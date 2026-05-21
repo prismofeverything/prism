@@ -26,7 +26,7 @@ use crate::ast::{
     BinOp, Block, Def, Expr, Name, PathRoot, PlacePath, PortBindings, Program, ReactionDef,
     StringLit, StringSeg, TermArg, UnaryOp,
 };
-use crate::runtime::rule::{BindingSource, Rule, RuleBindings, FOREIGN_RULE};
+use crate::runtime::rule::{BindingSource, Reactum, Rule, RuleBindings, FOREIGN_RULE};
 
 #[derive(Debug, Error)]
 pub enum EvalError {
@@ -599,13 +599,28 @@ impl Evaluator {
         let mut bindings = RuleBindings::new();
         let redex = self.eval_pattern_top(&def.redex, &rule_env, &mut bindings)?;
 
+        // Classify the reactum. One that lowers to a prism Pattern is a
+        // STRUCTURAL rewrite (MAPK-style link/rest rewrites, fired by
+        // prism's native `instantiate`); one that doesn't (a method call or
+        // computed expression like `?cell.divide(?cid)`) is COMPUTED,
+        // evaluated against the match bindings at fire time.
+        let reactum = {
+            let mut reactum_bindings = RuleBindings::new();
+            match self.eval_pattern(&def.reactum, &rule_env, &mut reactum_bindings) {
+                Ok(pat) => Reactum::Structural {
+                    reactum: pat,
+                    instantiation: IndexMap::new(),
+                },
+                Err(_) => Reactum::Computed(def.reactum.clone()),
+            }
+        };
+
         let rule = Rule {
             label: def.name.clone(),
             redex,
-            reactum: def.reactum.clone(),
+            reactum,
             guard: def.guard.clone(),
             rate: def.rate.clone(),
-            instantiation: IndexMap::new(),
             bindings,
             closure: Arc::new(resolved),
         };
@@ -902,15 +917,18 @@ impl Evaluator {
             }
         }
 
-        if !ports.outputs.is_empty() {
-            // Build the link-graph `outputs` map: port_name → Pattern.
-            // Targets must be link expressions (LinkVar / Unbound).
-            let mut outputs_map: IndexMap<Key, Pattern> = IndexMap::new();
-            for (port, target) in &ports.outputs {
-                let pat = self.eval_pattern(target, env, bindings)?;
-                outputs_map.insert(Key::from(port.as_str()), pat);
-            }
-            entries.insert("outputs".into(), Pattern::Map(outputs_map));
+        // Link-port bindings. In a pattern, `~{}` (inputs) and `->{}`
+        // (outputs) are BOTH matchable — the in/out split is a *sort* on the
+        // port, not a matching boundary (a Milner link is one undirected
+        // edge; the matcher binds a `~name` link var by value-equality
+        // wherever it appears). A side whose ports are all `!` collapses to
+        // `Absent` (a free node — matches one with no such link field at
+        // all); otherwise it's a Map of port → link pattern.
+        if let Some(pat) = self.link_side(&ports.inputs, env, bindings)? {
+            entries.insert("inputs".into(), pat);
+        }
+        if let Some(pat) = self.link_side(&ports.outputs, env, bindings)? {
+            entries.insert("outputs".into(), pat);
         }
 
         if let Some(body_expr) = body {
@@ -926,6 +944,32 @@ impl Evaluator {
         }
 
         Ok(Pattern::sort(control.clone(), entries))
+    }
+
+    /// Lower one side of an ion's link ports (`~{}` inputs or `->{}`
+    /// outputs) to a matchable pattern. Empty → no constraint on that side.
+    /// All ports `!` (unbound) → `Absent` (a free node: matches one with no
+    /// such link field). Otherwise a `Map` of port → link pattern (`~name`
+    /// → `LinkVar`, `!` → `Absent`), which requires the link field to exist.
+    fn link_side(
+        &self,
+        ports: &IndexMap<Name, Expr>,
+        env: &IndexMap<Name, Value>,
+        bindings: &mut RuleBindings,
+    ) -> Result<Option<Pattern>, EvalError> {
+        if ports.is_empty() {
+            return Ok(None);
+        }
+        let mut map: IndexMap<Key, Pattern> = IndexMap::new();
+        for (port, target) in ports {
+            let pat = self.eval_pattern(target, env, bindings)?;
+            map.insert(Key::from(port.as_str()), pat);
+        }
+        if map.values().all(|p| matches!(p, Pattern::Absent)) {
+            Ok(Some(Pattern::Absent))
+        } else {
+            Ok(Some(Pattern::Map(map)))
+        }
     }
 }
 
