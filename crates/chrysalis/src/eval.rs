@@ -1121,6 +1121,17 @@ fn apply_binop(op: BinOp, lhs: &Value, rhs: &Value) -> Result<Value, EvalError> 
                 got: format!("({}, {})", value_type_name(lhs), value_type_name(rhs)),
             }),
         },
+        // `x in xs` — membership: list contains the value (by equality), or
+        // map contains the key. Enables set-difference in type methods
+        // (e.g. a graph's `union_with`: add nodes `not (n in self.nodes)`).
+        In => match rhs {
+            Value::List(items) => Ok(Value::Bool(items.contains(lhs))),
+            Value::Map(m) => Ok(Value::Bool(lhs.as_str().is_some_and(|k| m.contains_key(k)))),
+            _ => Err(EvalError::TypeMismatch {
+                expected: "`in` expects a list or map on the right".into(),
+                got: value_type_name(rhs).to_string(),
+            }),
+        },
     }
 }
 

@@ -67,6 +67,75 @@ fn graph_type_defined_in_chrysalis_is_first_class() {
     assert_eq!(nbrs_b, Value::List(vec![]), "b has no out-edges");
 }
 
+/// Helper: apply a method's delta to a `Custom(Graph)` slot.
+fn act(
+    result: &chrysalis::compile::CompileResult,
+    graph: &Value,
+    method: &str,
+    args: &[Value],
+) -> Value {
+    let delta = result.methods.dispatch(graph, method, args).unwrap();
+    algebra::apply_with(Some(&result.type_registry), &graph_schema(), graph, &delta)
+}
+
+#[test]
+fn arbitrary_operations_land_in_the_complete_delta_basis() {
+    // `remove_node` / `remove_edge` / `union_with` are arbitrary operations
+    // whose EFFECT is `_add`/`_remove` deltas — the per-sort basis is complete,
+    // so no new update primitive is needed. (The user's question: "what about
+    // remove / union?" — answered here.)
+    let result = compile(&g::program()).unwrap();
+
+    // Build a→b, a→c, b→c over {a,b,c}.
+    let mut graph = g::empty_graph();
+    for n in ["a", "b", "c"] {
+        graph = act(&result, &graph, "add_node", &[s(n)]);
+    }
+    for (f, t) in [("a", "b"), ("a", "c"), ("b", "c")] {
+        graph = act(&result, &graph, "add_edge", &[s(f), s(t)]);
+    }
+
+    // remove_edge(a,b): a `_remove` delta on the edge set (by value).
+    graph = act(&result, &graph, "remove_edge", &[s("a"), s("b")]);
+    let nbrs_a = result.methods.dispatch(&graph, "neighbors", &[s("a")]).unwrap();
+    assert_eq!(nbrs_a, Value::List(vec![s("c")]), "a→b removed, a→c remains");
+
+    // remove_node(c): removes c AND its incident edges (a→c, b→c) — a delta
+    // computed by the method (a comprehension over self.edges).
+    graph = act(&result, &graph, "remove_node", &[s("c")]);
+    assert_eq!(
+        graph.get_field("nodes").and_then(|v| v.as_list()),
+        Some(&[s("a"), s("b")][..]),
+        "c removed"
+    );
+    assert_eq!(
+        graph.get_field("edges").and_then(|v| v.as_list()).map(<[_]>::len),
+        Some(0),
+        "incident edges a→c, b→c removed with c"
+    );
+
+    // union_with(other): an arbitrary binary op whose effect is `_add` deltas
+    // (set-difference, via `in`). Adds only what's missing.
+    let mut other = g::empty_graph();
+    for n in ["b", "d"] {
+        other = act(&result, &other, "add_node", &[s(n)]);
+    }
+    other = act(&result, &other, "add_edge", &[s("b"), s("d")]);
+
+    graph = act(&result, &graph, "union_with", &[other]);
+    let mut nodes: Vec<String> = graph
+        .get_field("nodes")
+        .and_then(|v| v.as_list())
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .collect();
+    nodes.sort();
+    assert_eq!(nodes, vec!["a", "b", "d"], "union adds d (b already present, not duplicated)");
+    let nbrs_b = result.methods.dispatch(&graph, "neighbors", &[s("b")]).unwrap();
+    assert_eq!(nbrs_b, Value::List(vec![s("d")]), "union brought edge b→d");
+}
+
 #[test]
 fn add_node_deltas_compose_like_add() {
     // The whole point of returning deltas: concurrent `add_node`s **collate**

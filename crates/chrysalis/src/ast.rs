@@ -773,6 +773,7 @@ pub enum BinOp {
     And,
     Or,
     Concat, // `++`
+    In,     // `x in xs` — membership (list contains value / map contains key)
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

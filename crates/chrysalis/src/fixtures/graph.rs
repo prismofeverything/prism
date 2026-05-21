@@ -25,7 +25,7 @@ use indexmap::IndexMap;
 use prism_schema::Value;
 
 use crate::ast::{
-    BinOp, Def, Expr, MethodDef, Param, PlacePath, Program, SchemaExpr, StringLit, TypeDef,
+    BinOp, Def, Expr, MethodDef, Param, PlacePath, Program, SchemaExpr, StringLit, TypeDef, UnaryOp,
 };
 
 /// `base.field` (field access on a bound variable, e.g. `self.nodes`).
@@ -37,18 +37,30 @@ fn binop(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
     Expr::BinOp { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
 }
 
+fn not_(e: Expr) -> Expr {
+    Expr::UnaryOp { op: UnaryOp::Not, operand: Box::new(e) }
+}
+
 fn record(fields: Vec<(&str, Expr)>) -> Expr {
     Expr::Record(fields.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
 }
 
-/// A structural-add delta `{ field: {_add: [items…]} }` — the *data describing*
-/// adding `items` to a collection field, in the representation's update
-/// vocabulary. A write-method returns this (pure); `apply` installs it.
-fn add_to(field: &str, items: Vec<Expr>) -> Expr {
-    record(vec![(
-        field,
-        Expr::Map(vec![(StringLit::plain("_add"), Expr::List(items))]),
-    )])
+/// A structural collection delta `{ field: {op: items} }` — the *data
+/// describing* a change to a collection field, in the representation's complete
+/// delta basis (`_add` / `_remove`). A write-method returns this (pure);
+/// `apply` installs it via the representation.
+fn coll(field: &str, op: &str, items: Expr) -> Expr {
+    record(vec![(field, Expr::Map(vec![(StringLit::plain(op), items)]))])
+}
+
+/// `[ body for var in src if filter ]`.
+fn comp(var: &str, src: Expr, filter: Expr, body: Expr) -> Expr {
+    Expr::Comprehension {
+        var: var.to_string(),
+        source: Box::new(src),
+        filter: Some(Box::new(filter)),
+        body: Box::new(body),
+    }
 }
 
 /// The program declaring the `Graph` type (no `main` — a file is a composite;
@@ -63,35 +75,108 @@ pub fn program() -> Program {
         ("edges".to_string(), SchemaExpr::list_of(edge_schema)),
     ]));
 
+    let edge = |from: &str, to: &str| {
+        record(vec![("from", Expr::var(from)), ("to", Expr::var(to))])
+    };
+
     let methods = vec![
-        // add_node(id) = { nodes: {_add: [id]} }  — a delta, not a new graph.
+        // ── write methods: pure delta-constructors over the complete basis ──
+        // add_node(id) = { nodes: {_add: [id]} }
         MethodDef {
             name: "add_node".into(),
             params: vec![Param::required("id", SchemaExpr::String)],
-            body: add_to("nodes", vec![Expr::var("id")]),
+            body: coll("nodes", "_add", Expr::List(vec![Expr::var("id")])),
         },
-        // add_edge(from, to) = { edges: {_add: [{from, to}]} }  — a delta.
+        // add_edge(from, to) = { edges: {_add: [{from, to}]} }
         MethodDef {
             name: "add_edge".into(),
             params: vec![
                 Param::required("from", SchemaExpr::String),
                 Param::required("to", SchemaExpr::String),
             ],
-            body: add_to(
-                "edges",
-                vec![record(vec![("from", Expr::var("from")), ("to", Expr::var("to"))])],
-            ),
+            body: coll("edges", "_add", Expr::List(vec![edge("from", "to")])),
         },
+        // remove_node(id) = { nodes: {_remove: [id]},
+        //                     edges: {_remove: [e for e in self.edges
+        //                                       if e.from == id or e.to == id]} }
+        // A `remove` is just as expressible as `add` — both land in the basis.
+        MethodDef {
+            name: "remove_node".into(),
+            params: vec![Param::required("id", SchemaExpr::String)],
+            body: record(vec![
+                ("nodes", Expr::Map(vec![(StringLit::plain("_remove"), Expr::List(vec![Expr::var("id")]))])),
+                (
+                    "edges",
+                    Expr::Map(vec![(
+                        StringLit::plain("_remove"),
+                        comp(
+                            "e",
+                            path("self", "edges"),
+                            binop(
+                                BinOp::Or,
+                                binop(BinOp::Eq, path("e", "from"), Expr::var("id")),
+                                binop(BinOp::Eq, path("e", "to"), Expr::var("id")),
+                            ),
+                            Expr::var("e"),
+                        ),
+                    )]),
+                ),
+            ]),
+        },
+        // remove_edge(from, to) = { edges: {_remove: [{from, to}]} }
+        MethodDef {
+            name: "remove_edge".into(),
+            params: vec![
+                Param::required("from", SchemaExpr::String),
+                Param::required("to", SchemaExpr::String),
+            ],
+            body: coll("edges", "_remove", Expr::List(vec![edge("from", "to")])),
+        },
+        // union_with(other) = { nodes: {_add: [n for n in other.nodes if not (n in self.nodes)]},
+        //                       edges: {_add: [e for e in other.edges if not (e in self.edges)]} }
+        // An arbitrary (binary) operation whose EFFECT is `_add` deltas — no
+        // new update primitive needed; the basis is complete.
+        MethodDef {
+            name: "union_with".into(),
+            params: vec![Param::required("other", SchemaExpr::custom("Graph"))],
+            body: record(vec![
+                (
+                    "nodes",
+                    Expr::Map(vec![(
+                        StringLit::plain("_add"),
+                        comp(
+                            "n",
+                            path("other", "nodes"),
+                            not_(binop(BinOp::In, Expr::var("n"), path("self", "nodes"))),
+                            Expr::var("n"),
+                        ),
+                    )]),
+                ),
+                (
+                    "edges",
+                    Expr::Map(vec![(
+                        StringLit::plain("_add"),
+                        comp(
+                            "e",
+                            path("other", "edges"),
+                            not_(binop(BinOp::In, Expr::var("e"), path("self", "edges"))),
+                            Expr::var("e"),
+                        ),
+                    )]),
+                ),
+            ]),
+        },
+        // ── read method: a query (returns a value, not a delta) ──
         // neighbors(id) = [edge.to for edge in self.edges if edge.from == id]
         MethodDef {
             name: "neighbors".into(),
             params: vec![Param::required("id", SchemaExpr::String)],
-            body: Expr::Comprehension {
-                var: "edge".into(),
-                source: Box::new(path("self", "edges")),
-                filter: Some(Box::new(binop(BinOp::Eq, path("edge", "from"), Expr::var("id")))),
-                body: Box::new(path("edge", "to")),
-            },
+            body: comp(
+                "edge",
+                path("self", "edges"),
+                binop(BinOp::Eq, path("edge", "from"), Expr::var("id")),
+                path("edge", "to"),
+            ),
         },
     ];
 

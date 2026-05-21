@@ -300,7 +300,7 @@ impl UnitEnv {
                         let lb = self.coerce(lb, &ub, &ua, op, ctxs)?;
                         Ok((binop(*op, la, lb), dimensionless()))
                     }
-                    BinOp::And | BinOp::Or | BinOp::Concat => {
+                    BinOp::And | BinOp::Or | BinOp::Concat | BinOp::In => {
                         Ok((binop(*op, la, lb), dimensionless()))
                     }
                 }

@@ -898,20 +898,13 @@ impl Schema {
                 Value::Map(upd) if upd.contains_key("_add") || upd.contains_key("_remove") => {
                     let mut result: Vec<Value> =
                         current.as_list().map(<[Value]>::to_vec).unwrap_or_default();
+                    // `_remove` removes **by value** (a list treated as a set:
+                    // drop every element equal to one listed), or `"all"`. This
+                    // is what lets a Custom type's `remove_node(x)` /
+                    // `remove_edge(a,b)` be a composable `_remove` delta.
                     match upd.get("_remove") {
                         Some(Value::String(s)) if s == "all" => result.clear(),
-                        Some(Value::List(idxs)) => {
-                            let drop: std::collections::HashSet<usize> = idxs
-                                .iter()
-                                .filter_map(|v| v.as_i64().map(|i| i as usize))
-                                .collect();
-                            result = result
-                                .into_iter()
-                                .enumerate()
-                                .filter(|(i, _)| !drop.contains(i))
-                                .map(|(_, v)| v)
-                                .collect();
-                        }
+                        Some(Value::List(vals)) => result.retain(|v| !vals.contains(v)),
                         _ => {}
                     }
                     if let Some(Value::List(adds)) = upd.get("_add") {
