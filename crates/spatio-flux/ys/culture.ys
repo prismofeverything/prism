@@ -21,4 +21,5 @@ composite Culture[
   well_b: Dish[fields: grad_b] ->{fields: fields_b}
 )
 
-main = Culture
+# The root value (implicit `main`) — no `main =` needed.
+Culture

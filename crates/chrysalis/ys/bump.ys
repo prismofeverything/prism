@@ -12,4 +12,5 @@ composite Leaf[v: float = 0.0] ->{v} (
   bump: Bump ~{v: v} ->{v: v}
 )
 
-main = Leaf
+# The file's root value — no `main =` needed; the trailing expression IS main.
+Leaf

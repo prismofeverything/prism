@@ -43,4 +43,5 @@ composite Environment[cells: map[Cell]]
   cells: cells
 )
 
-main = Environment[cells: { '0': Cell[id: '0', mass: 1.2] }]
+# The root value (implicit `main`): one environment holding one cell.
+Environment[cells: { '0': Cell[id: '0', mass: 1.2] }]

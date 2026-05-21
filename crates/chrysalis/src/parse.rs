@@ -69,6 +69,7 @@ pub enum Tok {
     At,       // @
     Bang,     // !
     Question, // ?
+    Caret,    // ^ (unit/dimension power)
     Dot,
     Comma,
     Colon,
@@ -246,6 +247,7 @@ pub fn lex(src: &str) -> Result<Vec<Spanned>, ParseError> {
                             '@' => Tok::At,
                             '!' => Tok::Bang,
                             '?' => Tok::Question,
+                            '^' => Tok::Caret,
                             '.' => Tok::Dot,
                             ',' => Tok::Comma,
                             ':' => Tok::Colon,
@@ -464,6 +466,10 @@ impl Parser {
             Tok::Composite => self.parse_composite_def(),
             Tok::Extern => self.parse_extern_def(),
             Tok::Reaction => self.parse_reaction_def(),
+            Tok::Unit => self.parse_unit_def(),
+            Tok::Context => Err(self.err(
+                "`context` declarations are not parsed yet (see task: units/context)",
+            )),
             Tok::Import => {
                 self.bump();
                 let name = self.ident()?;
@@ -479,14 +485,18 @@ impl Parser {
                 };
                 Ok(Def::Import { name, path })
             }
-            // `name = expr` binding (e.g. `main = …`).
-            Tok::Ident(_) => {
-                let name = self.ident()?;
-                self.expect(&Tok::Eq)?;
-                let value = self.parse_expr()?;
-                Ok(Def::Binding { name, value })
+            // `name = expr` binding (e.g. `growth = 0.02`), OR a trailing bare
+            // expression — the file's root VALUE, which becomes the implicit
+            // `main` (so `Environment[…]` on the last line needs no `main =`).
+            _ => {
+                if matches!(self.peek(), Tok::Ident(_)) && *self.peek2() == Tok::Eq {
+                    let name = self.ident()?;
+                    self.expect(&Tok::Eq)?;
+                    Ok(Def::Binding { name, value: self.parse_expr()? })
+                } else {
+                    Ok(Def::Binding { name: "main".into(), value: self.parse_expr()? })
+                }
             }
-            other => Err(self.err(&format!("expected a declaration, found {other:?}"))),
         }
     }
 
@@ -604,6 +614,28 @@ impl Parser {
                         let element = self.parse_schema()?;
                         self.expect(&Tok::RBrack)?; // close array
                         Ok(SchemaExpr::array(shape, element))
+                    }
+                    // `Quantity[unit: <unit-expr>, extensive?, affine?]` — a
+                    // dimensioned scalar (the unit lives in the schema, erased
+                    // after the dimensional check).
+                    "Quantity" => {
+                        self.expect(&Tok::LBrack)?;
+                        // `unit:` label — `unit` is a keyword token here.
+                        self.expect(&Tok::Unit)?;
+                        self.expect(&Tok::Colon)?;
+                        let unit = self.parse_unit_expr()?;
+                        let (mut extensive, mut affine) = (false, false);
+                        while self.accept(&Tok::Comma) {
+                            match self.ident()?.as_str() {
+                                "extensive" => extensive = true,
+                                "affine" => affine = true,
+                                other => {
+                                    return Err(self.err(&format!("unknown Quantity flag `{other}`")))
+                                }
+                            }
+                        }
+                        self.expect(&Tok::RBrack)?;
+                        Ok(SchemaExpr::quantity(unit, extensive, affine))
                     }
                     // Otherwise a (possibly parameterized) custom type.
                     _ => {
@@ -1214,6 +1246,100 @@ impl Parser {
                     })
                     .collect(),
             ))
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// M3: units — `unit name : [dim] = def`, unit expressions, dimensions
+//     (Quantity schemas are parsed in `parse_schema`). `context`/`using`
+//     are deferred.
+// ─────────────────────────────────────────────────────────────────────
+
+use crate::ast::{Dimension, Ratio, UnitDef, UnitExpr};
+
+impl Parser {
+    /// `unit name : [dim] = <definition>`. The definition may lead with a
+    /// magnitude (`1e-12 kg`) or be a plain unit expr (`um^3`, `mol / 6.02e23`,
+    /// `1/s`).
+    fn parse_unit_def(&mut self) -> Result<Def, ParseError> {
+        self.expect(&Tok::Unit)?;
+        let name = self.ident()?;
+        self.expect(&Tok::Colon)?;
+        let dimension = self.parse_dimension()?;
+        self.expect(&Tok::Eq)?;
+        let definition = if matches!(self.peek(), Tok::Int(_) | Tok::Float(_))
+            && matches!(self.peek2(), Tok::Ident(_) | Tok::LParen)
+        {
+            // leading magnitude × unit (`1e-12 kg`)
+            let mag = match self.bump() {
+                Tok::Int(n) => n as f64,
+                Tok::Float(f) => f,
+                _ => unreachable!(),
+            };
+            UnitExpr::scalar(mag).mul(self.parse_unit_expr()?)
+        } else {
+            self.parse_unit_expr()?
+        };
+        Ok(Def::Unit(UnitDef { name, dimension, definition, affine_offset: None }))
+    }
+
+    /// `[ base ] ( "^" int )?` — a single-base dimension (`[mass]`, `[length]^3`).
+    fn parse_dimension(&mut self) -> Result<Dimension, ParseError> {
+        self.expect(&Tok::LBrack)?;
+        let base = self.ident()?;
+        self.expect(&Tok::RBrack)?;
+        let power: i32 = if self.accept(&Tok::Caret) {
+            match self.bump() {
+                Tok::Int(n) => n as i32,
+                other => {
+                    return Err(self.err(&format!("dimension power expects an int, found {other:?}")))
+                }
+            }
+        } else {
+            1
+        };
+        Ok(Dimension::of(&[(base.as_str(), power)]))
+    }
+
+    /// Unit expression: `*` / `/` (left-assoc) over factors; a factor is a
+    /// named unit, a scalar, or `( … )`, optionally `^ int`.
+    fn parse_unit_expr(&mut self) -> Result<UnitExpr, ParseError> {
+        let mut lhs = self.parse_unit_factor()?;
+        loop {
+            if self.accept(&Tok::Star) {
+                lhs = lhs.mul(self.parse_unit_factor()?);
+            } else if self.accept(&Tok::Slash) {
+                lhs = lhs.div(self.parse_unit_factor()?);
+            } else {
+                break;
+            }
+        }
+        Ok(lhs)
+    }
+
+    fn parse_unit_factor(&mut self) -> Result<UnitExpr, ParseError> {
+        let base = match self.bump() {
+            Tok::Ident(n) => UnitExpr::named(n),
+            Tok::Int(n) => UnitExpr::scalar(n as f64),
+            Tok::Float(f) => UnitExpr::scalar(f),
+            Tok::LParen => {
+                let e = self.parse_unit_expr()?;
+                self.expect(&Tok::RParen)?;
+                e
+            }
+            other => return Err(self.err(&format!("expected a unit, found {other:?}"))),
+        };
+        if self.accept(&Tok::Caret) {
+            let exp = match self.bump() {
+                Tok::Int(n) => n as i32,
+                other => {
+                    return Err(self.err(&format!("unit power expects an int, found {other:?}")))
+                }
+            };
+            Ok(base.pow(Ratio::new(exp, 1)))
+        } else {
+            Ok(base)
         }
     }
 }

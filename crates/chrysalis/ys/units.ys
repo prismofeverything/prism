@@ -1,0 +1,23 @@
+# Units — dimensioned types, checked then erased to plain floats. `pg` is
+# declared (kg/s are built-in base units). Exercises `unit` declarations, unit
+# expressions (`1e-12 kg`, `1/s`), and `Quantity[unit: …, extensive]` schemas.
+
+unit pg : [mass] = 1e-12 kg
+
+process Grow[rate: Quantity[unit: 1/s] = 0.5]
+  ~{mass: Quantity[unit: pg, extensive], interval: Quantity[unit: s] = 1.0}
+  ->{mass: Quantity[unit: pg, extensive]}
+(
+  delta = mass * rate * interval |   # [mass]·[1/time]·[time] = [mass]  ✓
+  { mass: delta }
+)
+
+composite Cell[mass: Quantity[unit: pg, extensive] = 1.0]
+  ->{mass: Quantity[unit: pg, extensive]}
+(
+  mass: mass |
+  grow: Grow ~{mass: mass} ->{mass: mass}
+)
+
+# Root value (implicit main).
+Cell[mass: 1.0]
