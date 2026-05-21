@@ -93,7 +93,7 @@ composite Cytoplasm[volume: Volume = 1000.0, tf: Count = 0.0, synth: Synth = 50.
 (
   volume: volume |
   tf: tf |
-  Synthesize[rate: synth] ->{tf: tf}
+  synthesize: Synthesize[rate: synth] ->{tf: tf}
 )
 
 
@@ -105,20 +105,28 @@ composite Nucleus[volume: Volume = 100.0, tf: Count = 0.0, k_on: Conc = 0.5]
   volume: volume |
   tf: tf |
   active: false |
-  Sense[k_on: k_on] ~{tf: tf} ->{active: active}
+  sense: Sense[k_on: k_on] ~{tf: tf} ->{active: active}
 )
 
 
 composite Cell[id: String, cyt_vol: Volume = 1000.0, nuc_vol: Volume = 100.0]
   ~{}
-  ->{cytoplasm, nucleus}
+  ->{cyt_tf, nuc_tf}
 (
-  cytoplasm: Cytoplasm[volume: cyt_vol] |
-  nucleus:   Nucleus[volume: nuc_vol] |
-  Transport[perm: 5.0]
-    ~{cyt_tf: cytoplasm.tf, cyt_vol: cytoplasm.volume,
-      nuc_tf: nucleus.tf,   nuc_vol: nucleus.volume}
-    ->{cyt_tf: cytoplasm.tf, nuc_tf: nucleus.tf}
+  # A compartment's internal state is PRIVATE — it is only ever observed
+  # through its bridge. Each compartment EXPOSES its TF count via its output
+  # port onto these Cell slots. Transport straddles both compartments, so it
+  # reads and writes only the EXPOSED slots; it never reaches into a
+  # compartment's internals (which would violate composite encapsulation).
+  cyt_tf: 0.0 |
+  nuc_tf: 0.0 |
+  cyt_vol: cyt_vol |
+  nuc_vol: nuc_vol |
+  cytoplasm: Cytoplasm[volume: cyt_vol] ->{tf: cyt_tf} |
+  nucleus:   Nucleus[volume: nuc_vol]   ->{tf: nuc_tf} |
+  transport: Transport[perm: 5.0]
+    ~{cyt_tf: cyt_tf, cyt_vol: cyt_vol, nuc_tf: nuc_tf, nuc_vol: nuc_vol}
+    ->{cyt_tf: cyt_tf, nuc_tf: nuc_tf}
 )
 
 
