@@ -33,6 +33,7 @@ pub enum Tok {
     Extern,
     Unit,
     Context,
+    Using,
     Import,
     If,
     Then,
@@ -70,6 +71,7 @@ pub enum Tok {
     Bang,     // !
     Question, // ?
     Caret,    // ^ (unit/dimension power)
+    BiArrow,  // <-> (bidirectional context rule)
     Dot,
     Comma,
     Colon,
@@ -106,6 +108,7 @@ fn keyword(word: &str) -> Option<Tok> {
         "extern" => Tok::Extern,
         "unit" => Tok::Unit,
         "context" => Tok::Context,
+        "using" => Tok::Using,
         "import" => Tok::Import,
         // NOTE: `from` is a CONTEXTUAL keyword (only meaningful after `import`),
         // not reserved — it's a common field name (a graph edge's `from`). The
@@ -222,8 +225,12 @@ pub fn lex(src: &str) -> Result<Vec<Spanned>, ParseError> {
             }
             // multi- and single-char operators
             _ => {
+                let three: String = chars[i..(i + 3).min(n)].iter().collect();
                 let two: String = chars[i..(i + 2).min(n)].iter().collect();
-                let (tok, len) = match two.as_str() {
+                let (tok, len) = if three == "<->" {
+                    (Tok::BiArrow, 3)
+                } else {
+                    match two.as_str() {
                     "==" => (Tok::EqEq, 2),
                     "!=" => (Tok::Ne, 2),
                     "<=" => (Tok::Le, 2),
@@ -265,6 +272,7 @@ pub fn lex(src: &str) -> Result<Vec<Spanned>, ParseError> {
                             }
                         };
                         (t, 1)
+                    }
                     }
                 };
                 i += len;
@@ -353,6 +361,10 @@ use crate::ast::{
 struct Parser {
     toks: Vec<Spanned>,
     pos: usize,
+    /// Type aliases (`Mass = Quantity[…]`) collected as they're declared, so a
+    /// later schema reference (`mass: Mass`) inlines to the aliased schema —
+    /// e.g. so the units lowering sees the `Quantity` (not an opaque `Custom`).
+    aliases: std::collections::HashMap<String, SchemaExpr>,
 }
 
 impl Parser {
@@ -403,9 +415,22 @@ impl Parser {
 /// `Def::Import` — use [`parse_file`] to resolve them).
 pub fn parse_program(src: &str) -> Result<Program, ParseError> {
     let toks = lex(src)?;
-    let mut p = Parser { toks, pos: 0 };
+    let mut p = Parser { toks, pos: 0, aliases: Default::default() };
     let mut program = Program::new();
     while !p.check(&Tok::Eof) {
+        // A capitalized `Name = <schema>` is a TYPE ALIAS (e.g.
+        // `Mass = Quantity[unit: pg, extensive]`): recorded + inlined at use
+        // sites, not emitted as a Def. (Lowercase `name = expr` is a value
+        // binding; `type Name = …` is a first-class type — both via parse_def.)
+        let is_alias = matches!(p.peek(), Tok::Ident(n) if n.chars().next().is_some_and(|c| c.is_ascii_uppercase()))
+            && *p.peek2() == Tok::Eq;
+        if is_alias {
+            let name = p.ident()?;
+            p.expect(&Tok::Eq)?;
+            let schema = p.parse_schema()?;
+            p.aliases.insert(name, schema);
+            continue;
+        }
         program.push(p.parse_def()?);
     }
     Ok(program)
@@ -467,9 +492,7 @@ impl Parser {
             Tok::Extern => self.parse_extern_def(),
             Tok::Reaction => self.parse_reaction_def(),
             Tok::Unit => self.parse_unit_def(),
-            Tok::Context => Err(self.err(
-                "`context` declarations are not parsed yet (see task: units/context)",
-            )),
+            Tok::Context => self.parse_context_def(),
             Tok::Import => {
                 self.bump();
                 let name = self.ident()?;
@@ -573,11 +596,12 @@ impl Parser {
             Tok::Ident(name) => {
                 self.bump();
                 match name.as_str() {
-                    "any" => Ok(SchemaExpr::Any),
-                    "bool" => Ok(SchemaExpr::Bool),
-                    "int" => Ok(SchemaExpr::Int),
-                    "float" => Ok(SchemaExpr::Float),
-                    "string" => Ok(SchemaExpr::String),
+                    // Primitives accept either case (`bool` or `Bool`).
+                    "any" | "Any" => Ok(SchemaExpr::Any),
+                    "bool" | "Bool" => Ok(SchemaExpr::Bool),
+                    "int" | "Int" => Ok(SchemaExpr::Int),
+                    "float" | "Float" => Ok(SchemaExpr::Float),
+                    "string" | "String" => Ok(SchemaExpr::String),
                     "list" => {
                         self.expect(&Tok::LBrack)?;
                         let inner = self.parse_schema()?;
@@ -636,6 +660,11 @@ impl Parser {
                         }
                         self.expect(&Tok::RBrack)?;
                         Ok(SchemaExpr::quantity(unit, extensive, affine))
+                    }
+                    // A type alias inlines to its schema (so units lowering
+                    // sees the `Quantity`, not an opaque `Custom`).
+                    _ if self.aliases.contains_key(&name) => {
+                        Ok(self.aliases[&name].clone())
                     }
                     // Otherwise a (possibly parameterized) custom type.
                     _ => {
@@ -728,7 +757,7 @@ impl Parser {
         Ok(lhs)
     }
     fn parse_mul(&mut self) -> Result<Expr, ParseError> {
-        let mut lhs = self.parse_postfix()?;
+        let mut lhs = self.parse_unary()?;
         loop {
             let op = match self.peek() {
                 Tok::Star => BinOp::Mul,
@@ -736,10 +765,20 @@ impl Parser {
                 _ => break,
             };
             self.bump();
-            let rhs = self.parse_postfix()?;
+            let rhs = self.parse_unary()?;
             lhs = binop(op, lhs, rhs);
         }
         Ok(lhs)
+    }
+
+    // Unary minus (`-flux`), binding tighter than `*`/`/`. (Binary `a - b` is
+    // handled in `parse_add`; a leading `-` here is negation.)
+    fn parse_unary(&mut self) -> Result<Expr, ParseError> {
+        if self.check(&Tok::Minus) {
+            self.bump();
+            return Ok(Expr::neg(self.parse_unary()?));
+        }
+        self.parse_postfix()
     }
 
     // `primary ( "." IDENT ( "(" args ")" )? )*` — field access + method calls
@@ -807,7 +846,7 @@ impl Parser {
                 }
                 let inner: String = chars[start..i].iter().collect();
                 i += 1; // skip closing `}`
-                let mut sub = Parser { toks: lex(&inner)?, pos: 0 };
+                let mut sub = Parser { toks: lex(&inner)?, pos: 0, aliases: Default::default() };
                 segments.push(StringSeg::Expr(sub.parse_expr()?));
             } else {
                 lit.push(chars[i]);
@@ -1136,13 +1175,22 @@ impl Parser {
         self.expect(&Tok::Composite)?;
         let name = self.ident()?;
         let params = self.parse_bracket_params()?;
+        // `using Name(args)` clauses scope conversion contexts over the body.
+        let mut using = Vec::new();
+        while self.accept(&Tok::Using) {
+            let ctx = self.ident()?;
+            self.expect(&Tok::LParen)?;
+            let args = self.parse_using_args()?;
+            self.expect(&Tok::RParen)?;
+            using.push(crate::ast::ContextUse { name: ctx, args });
+        }
         let interface = self.parse_interface()?;
         let body = self.parse_body()?;
         Ok(Def::Composite(crate::ast::CompositeDef {
             name,
             params,
             interface,
-            using: vec![],
+            using,
             body,
         }))
     }
@@ -1284,8 +1332,31 @@ impl Parser {
         Ok(Def::Unit(UnitDef { name, dimension, definition, affine_offset: None }))
     }
 
-    /// `[ base ] ( "^" int )?` — a single-base dimension (`[mass]`, `[length]^3`).
+    /// A dimension expression: `[base]` factors combined with `*` / `/`, each
+    /// optionally `^ int` — `[mass]`, `[length]^3`, `[substance]/[length]^3`.
+    /// Accumulated as (base, power) pairs (`/` negates the power) then built via
+    /// `Dimension::of`.
     fn parse_dimension(&mut self) -> Result<Dimension, ParseError> {
+        let mut powers: Vec<(String, i32)> = Vec::new();
+        let (base, p) = self.parse_dim_term()?;
+        powers.push((base, p));
+        loop {
+            if self.accept(&Tok::Star) {
+                let (b, p) = self.parse_dim_term()?;
+                powers.push((b, p));
+            } else if self.accept(&Tok::Slash) {
+                let (b, p) = self.parse_dim_term()?;
+                powers.push((b, -p));
+            } else {
+                break;
+            }
+        }
+        let refs: Vec<(&str, i32)> = powers.iter().map(|(b, p)| (b.as_str(), *p)).collect();
+        Ok(Dimension::of(&refs))
+    }
+
+    /// One `[ base ] ( "^" int )?` dimension factor → (base, power).
+    fn parse_dim_term(&mut self) -> Result<(String, i32), ParseError> {
         self.expect(&Tok::LBrack)?;
         let base = self.ident()?;
         self.expect(&Tok::RBrack)?;
@@ -1299,7 +1370,7 @@ impl Parser {
         } else {
             1
         };
-        Ok(Dimension::of(&[(base.as_str(), power)]))
+        Ok((base, power))
     }
 
     /// Unit expression: `*` / `/` (left-assoc) over factors; a factor is a
@@ -1341,5 +1412,84 @@ impl Parser {
         } else {
             Ok(base)
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// M3: contexts — `context Name(params) ( <dim> <-> <dim> : transform | … )`
+//     and `using Name(args)` clauses on composites.
+// ─────────────────────────────────────────────────────────────────────
+
+use crate::ast::{ContextDef, ContextRule, TermArg};
+
+impl Parser {
+    /// `context Name ( params ) ( rule ("|" rule)* )` where a rule is
+    /// `<dim> ("<->" | "->") <dim> : <transform>` (the transform may reference
+    /// `value` + the context's params).
+    fn parse_context_def(&mut self) -> Result<Def, ParseError> {
+        self.expect(&Tok::Context)?;
+        let name = self.ident()?;
+        self.expect(&Tok::LParen)?;
+        let params = self.parse_paren_params()?;
+        self.expect(&Tok::RParen)?;
+        self.expect(&Tok::LParen)?;
+        let mut rules = Vec::new();
+        while !self.check(&Tok::RParen) {
+            let from = self.parse_dimension()?;
+            let bidirectional = if self.accept(&Tok::BiArrow) {
+                true
+            } else if self.accept(&Tok::Arrow) {
+                false
+            } else {
+                return Err(self.err("context rule expects `<->` or `->`"));
+            };
+            let to = self.parse_dimension()?;
+            self.expect(&Tok::Colon)?;
+            let transform = self.parse_expr()?;
+            rules.push(ContextRule { from, to, bidirectional, transform });
+            if !self.accept(&Tok::Bar) {
+                break;
+            }
+        }
+        self.expect(&Tok::RParen)?;
+        Ok(Def::Context(ContextDef { name, params, rules }))
+    }
+
+    /// `param ("," param)*` inside parens — `IDENT ":" schema ("=" default)?`.
+    fn parse_paren_params(&mut self) -> Result<Vec<Param>, ParseError> {
+        let mut params = Vec::new();
+        while !self.check(&Tok::RParen) {
+            let name = self.ident()?;
+            self.expect(&Tok::Colon)?;
+            let schema = self.parse_schema()?;
+            let param = if self.accept(&Tok::Eq) {
+                Param::with_default(name, schema, self.parse_expr()?)
+            } else {
+                Param::required(name, schema)
+            };
+            params.push(param);
+            if !self.accept(&Tok::Comma) {
+                break;
+            }
+        }
+        Ok(params)
+    }
+
+    /// `( name: expr ("," name: expr)* )` — `using` args (named or positional).
+    fn parse_using_args(&mut self) -> Result<Vec<TermArg>, ParseError> {
+        let mut args = Vec::new();
+        while !self.check(&Tok::RParen) {
+            if matches!(self.peek(), Tok::Ident(_)) && *self.peek2() == Tok::Colon {
+                let name = self.ident()?;
+                self.expect(&Tok::Colon)?;
+                args.push(TermArg::named(name, self.parse_expr()?));
+            } else {
+                args.push(TermArg::Positional(self.parse_expr()?));
+            }
+            if !self.accept(&Tok::Comma) {
+                break;
+            }
+        }
+        Ok(args)
     }
 }

@@ -122,5 +122,5 @@ composite Cell[id: String, cyt_vol: Volume = 1000.0, nuc_vol: Volume = 100.0]
 )
 
 
-main = Cell[id: '0']
-main.run(60.0)
+# Root value (implicit main); the simulation duration is a runtime concern.
+Cell[id: '0']
