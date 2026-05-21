@@ -387,6 +387,12 @@ pub enum Def {
     Composite(CompositeDef),
     Reaction(ReactionDef),
     Pattern(PatternDef),
+    /// `extern process Name ~{in} ->{out}` — a process whose interface is
+    /// declared here but whose implementation is a NATIVE Rust factory
+    /// registered under `Name` (e.g. a spatio-flux `DiffusionAdvection`).
+    /// chrysalis only wires it; the factory is supplied via
+    /// [`crate::compile::compile_with_registry`].
+    Extern(ExternDef),
     /// `unit name : [dim] = definition` — a unit declaration.
     Unit(UnitDef),
     /// `context Name(params) (...)` — cross-dimension conversion rules.
@@ -446,6 +452,17 @@ pub struct PatternDef {
     pub body: Expr,
 }
 
+/// `extern process Name[cfg] ~{in} ->{out}` — a native process reference.
+/// The interface lets chrysalis type and wire it; the body lives in Rust
+/// (a factory registered under `name`). Used to compose prism's numerical
+/// processes (FBA, diffusion, kinetics, particles) from chrysalis.
+#[derive(Clone, Debug)]
+pub struct ExternDef {
+    pub name: Name,
+    pub params: Vec<Param>,
+    pub interface: Interface,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Program {
     pub defs: Vec<Def>,
@@ -472,6 +489,7 @@ fn def_name(def: &Def) -> &str {
         Def::Composite(d) => &d.name,
         Def::Reaction(d) => &d.name,
         Def::Pattern(d) => &d.name,
+        Def::Extern(d) => &d.name,
         Def::Unit(d) => &d.name,
         Def::Context(d) => &d.name,
         Def::Binding { name, .. } => name,

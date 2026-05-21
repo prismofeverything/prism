@@ -22,3 +22,4 @@ rapier2d = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }
+chrysalis = { workspace = true }

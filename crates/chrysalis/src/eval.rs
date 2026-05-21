@@ -365,6 +365,20 @@ impl Evaluator {
                     env,
                 )
             }
+            // A native process reference: emit the same `{address, config,
+            // inputs, outputs}` spec as a user process — the engine resolves
+            // `local:Name` to the native factory merged in at compile time.
+            Some(Def::Extern(extern_def)) => {
+                let def = extern_def.clone();
+                self.build_pure_spec(
+                    control,
+                    args,
+                    ports,
+                    &def.params,
+                    &def.interface,
+                    env,
+                )
+            }
             Some(Def::Reaction(reaction_def)) => {
                 let def = reaction_def.clone();
                 self.build_reaction_value(&def, args, env)

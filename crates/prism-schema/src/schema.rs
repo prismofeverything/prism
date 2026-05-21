@@ -792,11 +792,15 @@ impl Schema {
     /// State values without annotations use their inferred types.
     /// The existing schema provides defaults for keys not in state.
     pub fn infer_and_merge(schema: &Schema, state: &Value) -> Schema {
+        // The DECLARED schema is authoritative; inference only fills gaps it
+        // leaves (`Any`). It must never *weaken* a declared type — re-inferring
+        // from the value can only recover structure (`List`/`Float`/`Tree`),
+        // losing semantics (`Array` element-wise apply, `Delta`, units,
+        // `Custom`). A node carrying `_type` is no exception: its metadata
+        // tags the control, it does not override a caller's field types.
         match (schema, state) {
-            (_, Value::Map(map)) if map.contains_key("_type") => {
-                // _type annotation overrides schema
-                Schema::infer(state)
-            }
+            // Declared tree: authoritative branches; infer the rest. Applies
+            // to `_type` Maps too (a composite/ion's declared field types win).
             (Self::Tree { branches }, Value::Map(map)) => {
                 let mut merged = branches.clone();
                 for (k, v) in map {
@@ -806,7 +810,11 @@ impl Schema {
                 }
                 Schema::Tree { branches: merged }
             }
+            // No declared schema → infer wholesale from the value (its
+            // `_type`, structure). This is the only place inference leads.
             (Self::Any, _) => Schema::infer(state),
+            // Any other declared schema (`Array`, `Delta`, `Custom`, `Map`,
+            // `Float`, links, …) is kept as-is — never re-inferred weaker.
             _ => schema.clone(),
         }
     }

@@ -53,6 +53,7 @@ fn interface_of(def: &Def) -> Option<&Interface> {
         Def::Process(p) => Some(&p.interface),
         Def::Step(s) => Some(&s.interface),
         Def::Composite(c) => Some(&c.interface),
+        Def::Extern(e) => Some(&e.interface),
         _ => None,
     }
 }

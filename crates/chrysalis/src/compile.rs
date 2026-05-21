@@ -69,6 +69,19 @@ pub enum CompileError {
 /// (typically a single process spec) that becomes the engine's
 /// initial state.
 pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
+    compile_with_registry(program, ProcessRegistry::new())
+}
+
+/// Like [`compile`], but starts from a caller-provided `registry` — e.g. one
+/// pre-populated with NATIVE process factories that the program's
+/// `extern process` declarations reference (spatio-flux's numerical
+/// processes: diffusion, FBA, kinetics, particles). chrysalis registers its
+/// own factories on top, so an `extern process Name` resolves `local:Name`
+/// to the native factory the caller supplied under `Name`.
+pub fn compile_with_registry(
+    program: &Program,
+    mut registry: ProcessRegistry,
+) -> Result<CompileResult, CompileError> {
     // Reject ill-typed connections up front — illegal connections are
     // unrepresentable. Validated on the surface program (full unit info).
     let connection_errors = crate::check::validate_connections(program);
@@ -96,7 +109,8 @@ pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
 
     let registry_handle: Arc<OnceLock<Arc<ProcessRegistry>>> = Arc::new(OnceLock::new());
 
-    let mut registry = ProcessRegistry::new();
+    // `registry` arrives with any native factories the caller supplied;
+    // chrysalis registers its own on top.
 
     // Register a factory per user-defined composite / process / step.
     for def in &program.defs {
@@ -116,6 +130,9 @@ pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
             Def::Step(step_def) => {
                 register_step_factory(&mut registry, step_def, Arc::clone(&evaluator));
             }
+            // Extern processes are backed by NATIVE factories the caller
+            // merged into `registry` — chrysalis registers nothing for them.
+            Def::Extern(_) => {}
             // Reactions and Patterns are values constructed at call sites,
             // not separate process types. Bindings (including `main`) are
             // top-level values evaluated at compile time.
@@ -174,11 +191,24 @@ pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
     // via `Composite::from_config` — see crate::eval::build_composite_outer.
     let initial_state = evaluator.eval_top_level(&main_expr, &env)?;
 
-    // No `Schema::Any` escape hatch: derive the real schema from the
-    // evaluated state. (`from_state` will `infer_and_merge` this too, but
-    // making it explicit here is the honest representation — the engine
-    // carries a concrete schema tree parallel to state, not `Any`.)
-    let state_schema = Schema::infer(&initial_state);
+    // Inference (from the value) recovers structure (`Tree`/`List`/`Float`)
+    // but loses APPLY-critical semantics: a field is a `List` (replace) when
+    // it should be an `Array` (element-wise additive); an extensive scalar a
+    // `Float` when it should be a `Delta`. So overlay the AST's declared
+    // types onto the inferred schema — but ONLY the apply-critical ones,
+    // leaving structure intact so the engine still discovers nested
+    // processes. (Threading `Custom` for dispatch is value-driven + deferred.)
+    let inferred = Schema::infer(&initial_state);
+    let state_schema = match &main_expr {
+        Expr::Term { control, .. } => match program.lookup(control) {
+            Some(Def::Composite(def)) => {
+                let derived = crate::schema::composite_inner_schema(def, &program);
+                overlay_apply_types(&inferred, &derived)
+            }
+            _ => inferred,
+        },
+        _ => inferred,
+    };
 
     let topology = Topology {
         state_schema,
@@ -213,6 +243,63 @@ fn collect_top_level_bindings(
         }
     }
     Ok(env)
+}
+
+/// Overlay the AST-declared schema's APPLY-CRITICAL types onto the inferred
+/// schema. Inference (from the value) gets the structure right but applies a
+/// field as a `List` (replace) when it should be an `Array` (element-wise
+/// additive) and an extensive scalar as `Float` rather than `Delta`. We
+/// upgrade exactly those, recursing structurally, and keep everything else
+/// from inference — so nested processes stay discoverable and we never
+/// re-introduce an opaque `Custom` that would hide a subengine.
+fn overlay_apply_types(inferred: &Schema, derived: &Schema) -> Schema {
+    match derived {
+        // Apply-critical: the AST pinned an additive array / delta.
+        Schema::Array { .. } | Schema::Delta { .. } => derived.clone(),
+        // Recurse branch-wise; inferred branches not mentioned stay as-is.
+        Schema::Tree { branches: dbr } => match inferred {
+            Schema::Tree { branches: ibr } => {
+                let mut merged = ibr.clone();
+                for (k, dv) in dbr {
+                    let iv = ibr.get(k).cloned().unwrap_or(Schema::Any);
+                    merged.insert(k.clone(), overlay_apply_types(&iv, dv));
+                }
+                Schema::Tree { branches: merged }
+            }
+            _ => inferred.clone(),
+        },
+        // A declared uniform collection element. Inference may have produced a
+        // per-key `Tree` (Map values) or a `List`/`Map`; push the element type
+        // through either shape.
+        Schema::Map { value: dval } => match inferred {
+            Schema::Map { value: ival } => Schema::Map {
+                value: Box::new(overlay_apply_types(ival, dval)),
+            },
+            Schema::Tree { branches: ibr } => Schema::Tree {
+                branches: ibr
+                    .iter()
+                    .map(|(k, iv)| (k.clone(), overlay_apply_types(iv, dval)))
+                    .collect(),
+            },
+            _ => inferred.clone(),
+        },
+        Schema::List { element: del } => match inferred {
+            Schema::List { element: iel } => Schema::List {
+                element: Box::new(overlay_apply_types(iel, del)),
+            },
+            Schema::Tree { branches: ibr } => Schema::Tree {
+                branches: ibr
+                    .iter()
+                    .map(|(k, iv)| (k.clone(), overlay_apply_types(iv, del)))
+                    .collect(),
+            },
+            _ => inferred.clone(),
+        },
+        // Anything else the AST declares (`Any`, `Custom`, `Float`, `Int`,
+        // links, …): keep the inferred structure — discovery walks it, and
+        // value-driven method dispatch doesn't need `Custom` in the schema.
+        _ => inferred.clone(),
+    }
 }
 
 // ===============================================================
