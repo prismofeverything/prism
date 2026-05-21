@@ -167,6 +167,7 @@ fn kind_family(s: &SchemaExpr) -> &'static str {
         SchemaExpr::String => "string",
         SchemaExpr::Map(_) => "map",
         SchemaExpr::List(_) => "list",
+        SchemaExpr::Record(_) => "record",
         SchemaExpr::Array { .. } => "array",
         SchemaExpr::Custom { .. } => "custom",
         SchemaExpr::Any | SchemaExpr::SelfType => "any",

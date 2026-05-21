@@ -888,8 +888,39 @@ impl Schema {
                 }
             }
 
-            // Lists: replace
-            Self::List { .. } => update.clone(),
+            // Lists: a structural `{_add, _remove}` update appends / removes
+            // (faithful to upstream `apply(List)`); `_remove` is a list of
+            // indices (or "all"); `_add` is appended. A plain-list update
+            // replaces. This is what lets a collection delta — e.g. a graph
+            // type's `add_node` returning `{nodes: {_add: [x]}}` — land and
+            // compose like `_add` on a map.
+            Self::List { .. } => match update {
+                Value::Map(upd) if upd.contains_key("_add") || upd.contains_key("_remove") => {
+                    let mut result: Vec<Value> =
+                        current.as_list().map(<[Value]>::to_vec).unwrap_or_default();
+                    match upd.get("_remove") {
+                        Some(Value::String(s)) if s == "all" => result.clear(),
+                        Some(Value::List(idxs)) => {
+                            let drop: std::collections::HashSet<usize> = idxs
+                                .iter()
+                                .filter_map(|v| v.as_i64().map(|i| i as usize))
+                                .collect();
+                            result = result
+                                .into_iter()
+                                .enumerate()
+                                .filter(|(i, _)| !drop.contains(i))
+                                .map(|(_, v)| v)
+                                .collect();
+                        }
+                        _ => {}
+                    }
+                    if let Some(Value::List(adds)) = upd.get("_add") {
+                        result.extend(adds.iter().cloned());
+                    }
+                    Value::List(result)
+                }
+                _ => update.clone(),
+            },
 
             // Maybe: delegate to inner when both non-None, otherwise replace
             Self::Maybe { inner } => {

@@ -74,6 +74,32 @@ impl Evaluator {
     // Value-context evaluation
     // ===============================================================
 
+    /// Evaluate a type method body with the receiver bound to `self` and the
+    /// method's positional `args` bound to its `params` (defaults fill missing
+    /// args). This is how chrysalis-defined type methods run — both as queries
+    /// (`v.m(args)`) and as `apply` write-directives (see `Def::Type`).
+    pub fn eval_method_body(
+        &self,
+        body: &Expr,
+        self_val: &Value,
+        params: &[crate::ast::Param],
+        args: &[Value],
+    ) -> Result<Value, EvalError> {
+        let mut env: IndexMap<Name, Value> = IndexMap::new();
+        env.insert("self".into(), self_val.clone());
+        for (i, p) in params.iter().enumerate() {
+            let v = match args.get(i) {
+                Some(v) => v.clone(),
+                None => match &p.default {
+                    Some(d) => self.eval_value(d, &env)?,
+                    None => Value::None,
+                },
+            };
+            env.insert(p.name.clone(), v);
+        }
+        self.eval_value(body, &env)
+    }
+
     pub fn eval_value(
         &self,
         expr: &Expr,
@@ -136,6 +162,34 @@ impl Evaluator {
                     .map(|a| self.eval_value(a, env))
                     .collect::<Result<_, _>>()?;
                 Ok(self.methods.dispatch(&recv, method, &arg_vals)?)
+            }
+
+            Expr::Comprehension { var, source, filter, body } => {
+                let source_val = self.eval_value(source, env)?;
+                let Value::List(items) = source_val else {
+                    return Err(EvalError::InvalidForm {
+                        context: "comprehension".into(),
+                        message: format!(
+                            "`for {var} in …` expects a list, got {}",
+                            value_type_name(&source_val)
+                        ),
+                    });
+                };
+                let mut out: Vec<Value> = Vec::new();
+                for item in items {
+                    let mut scope = env.clone();
+                    scope.insert(var.clone(), item);
+                    let keep = match filter {
+                        Some(pred) => {
+                            matches!(self.eval_value(pred, &scope)?, Value::Bool(true))
+                        }
+                        None => true,
+                    };
+                    if keep {
+                        out.push(self.eval_value(body, &scope)?);
+                    }
+                }
+                Ok(Value::List(out))
             }
 
             Expr::ReplaceWith { id, with } => {
@@ -386,6 +440,7 @@ impl Evaluator {
             Some(Def::Pattern(_))
             | Some(Def::Unit(_))
             | Some(Def::Context(_))
+            | Some(Def::Type(_))
             | Some(Def::Binding { .. }) => Err(EvalError::InvalidForm {
                 context: "value-term".into(),
                 message: format!("control `{}` is not callable in value context", control),
@@ -1051,10 +1106,18 @@ fn apply_binop(op: BinOp, lhs: &Value, rhs: &Value) -> Result<Value, EvalError> 
                 got: format!("({}, {})", value_type_name(lhs), value_type_name(rhs)),
             }),
         },
-        Concat => match (lhs.as_str(), rhs.as_str()) {
-            (Some(a), Some(b)) => Ok(Value::String(format!("{a}{b}"))),
+        Concat => match (lhs, rhs) {
+            // String concatenation.
+            (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{a}{b}"))),
+            // List concatenation — `xs ++ [x]` etc. (builds up collections in
+            // type-method bodies, e.g. a graph's `add_node`/`add_edge`).
+            (Value::List(a), Value::List(b)) => {
+                let mut out = a.clone();
+                out.extend(b.iter().cloned());
+                Ok(Value::List(out))
+            }
             _ => Err(EvalError::TypeMismatch {
-                expected: "String".into(),
+                expected: "String ++ String or List ++ List".into(),
                 got: format!("({}, {})", value_type_name(lhs), value_type_name(rhs)),
             }),
         },

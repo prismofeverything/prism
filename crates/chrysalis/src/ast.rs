@@ -85,6 +85,10 @@ pub enum SchemaExpr {
     String,
     Map(Box<SchemaExpr>),
     List(Box<SchemaExpr>),
+    /// `{ field: T, … }` — a record (named, individually-typed fields).
+    /// Lowers to [`prism_schema::Schema::Tree`]. The natural representation
+    /// for a structured `type` (e.g. a graph's `{nodes, edges}`).
+    Record(IndexMap<Name, SchemaExpr>),
     /// `Custom[Name(params...)]` — a registered type, e.g. `Cell`,
     /// `Map[Cell]` (parameterized).
     Custom {
@@ -397,8 +401,40 @@ pub enum Def {
     Unit(UnitDef),
     /// `context Name(params) (...)` — cross-dimension conversion rules.
     Context(ContextDef),
+    /// `type Name = <representation> with { method(args) = body, … }` — a
+    /// first-class user-defined type. The representation is the schema the
+    /// type is made of (the algebra delegates structural ops to it); the
+    /// methods are its operations. A method `m(self, args) → body` is used as
+    /// a **query** (`v.m(args)` evaluates it) and/or as a **write action**
+    /// (an update directive `{_call: {method, args}}` on a slot of this type,
+    /// which `apply` interprets — generalizing `_add`/`_remove`/`_divide`).
+    Type(TypeDef),
     /// Top-level `name = expr` binding.
     Binding { name: Name, value: Expr },
+}
+
+/// `type Name = <representation> with { method(args) = body }`.
+#[derive(Clone, Debug)]
+pub struct TypeDef {
+    pub name: Name,
+    /// Type parameters (reserved for parameterized types; usually empty).
+    pub params: Vec<Param>,
+    /// What the type is made of — the algebra delegates `default`/`apply`/
+    /// `divide`/`serialize`/`check` to this schema unless a method overrides.
+    pub representation: SchemaExpr,
+    /// The type's operations. Each is a function of `self` (the receiver) +
+    /// `params`, returning a value. Reachable as a query and as an `apply`
+    /// directive (see [`Def::Type`]).
+    pub methods: Vec<MethodDef>,
+}
+
+/// A single method on a [`TypeDef`]: `name(params) = body`, with `self`
+/// implicitly bound to the receiver.
+#[derive(Clone, Debug)]
+pub struct MethodDef {
+    pub name: Name,
+    pub params: Vec<Param>,
+    pub body: Expr,
 }
 
 #[derive(Clone, Debug)]
@@ -492,6 +528,7 @@ fn def_name(def: &Def) -> &str {
         Def::Extern(d) => &d.name,
         Def::Unit(d) => &d.name,
         Def::Context(d) => &d.name,
+        Def::Type(d) => &d.name,
         Def::Binding { name, .. } => name,
     }
 }
@@ -613,6 +650,18 @@ pub enum Expr {
         receiver: Box<Expr>,
         method: Name,
         args: Vec<Expr>,
+    },
+    /// `[ body for var in source if filter ]` — a list comprehension (map +
+    /// optional filter over a list). The iteration construct the surface
+    /// language was missing; it makes traversal/queries (e.g. a graph type's
+    /// `neighbors`) expressible *in chrysalis*. `var` is bound to each element
+    /// of `source` (a list); when `filter` holds (or is absent), `body` is
+    /// evaluated and collected.
+    Comprehension {
+        var: Name,
+        source: Box<Expr>,
+        filter: Option<Box<Expr>>,
+        body: Box<Expr>,
     },
 
     // ── Sugar ──

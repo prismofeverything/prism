@@ -47,6 +47,12 @@ pub fn lower_schema_in_program(s: &SchemaExpr, program: &Program) -> Schema {
         SchemaExpr::List(inner) => Schema::List {
             element: Box::new(lower_schema_in_program(inner, program)),
         },
+        SchemaExpr::Record(fields) => Schema::Tree {
+            branches: fields
+                .iter()
+                .map(|(k, v)| (Key::from(k.as_str()), lower_schema_in_program(v, program)))
+                .collect(),
+        },
         SchemaExpr::Array { shape, element } => Schema::Array {
             shape: shape.clone(),
             element: Box::new(lower_schema_in_program(element, program)),
@@ -82,6 +88,12 @@ pub fn lower_schema(s: &SchemaExpr) -> Schema {
         },
         SchemaExpr::List(inner) => Schema::List {
             element: Box::new(lower_schema(inner)),
+        },
+        SchemaExpr::Record(fields) => Schema::Tree {
+            branches: fields
+                .iter()
+                .map(|(k, v)| (Key::from(k.as_str()), lower_schema(v)))
+                .collect(),
         },
         SchemaExpr::Custom { name, params } => Schema::Custom {
             name: name.clone(),

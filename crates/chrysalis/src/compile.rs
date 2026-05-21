@@ -31,8 +31,10 @@ use prism_bigraph::composite::Composite;
 use prism_bigraph::{BigraphicalReactiveSystem, ProcessNode, ProcessRegistry, Topology};
 use prism_schema::units::Context;
 use prism_schema::algebra;
+use prism_schema::registry::TypeMethods;
 use prism_schema::{
-    divide_by_schema, DivideContext, Key, MethodRegistry, Schema, StateMap, TypeRegistry, Value,
+    divide_by_schema, DivideContext, Key, MethodError, MethodRegistry, Schema, StateMap,
+    TypeRegistry, Value,
 };
 
 use crate::ast::{
@@ -52,6 +54,11 @@ pub struct CompileResult {
     pub initial_state: Value,
     pub evaluator: Arc<Evaluator>,
     pub methods: Arc<MethodRegistry>,
+    /// Registry of user-declared `type`s (`Custom` dispatch delegates to each
+    /// type's representation). Attach to an engine via
+    /// [`prism_bigraph::Engine::set_type_registry`] to make those types
+    /// first-class in a running simulation.
+    pub type_registry: Arc<TypeRegistry>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -102,11 +109,18 @@ pub fn compile_with_registry(
     // f64 and surface any context factor (e.g. `volume`) as an input port.
     let unit_env = UnitEnv::from_program(program).ok();
     let program = lower_program(program, unit_env.as_ref());
+    let program_arc = Arc::new(program.clone());
     let mut methods = MethodRegistry::new();
     register_divide_methods(&mut methods, &program);
+    register_user_type_methods(&mut methods, &program_arc);
     let methods = Arc::new(methods);
-    let program_arc = Arc::new(program.clone());
     let evaluator = Arc::new(Evaluator::new(Arc::clone(&program_arc), Arc::clone(&methods)));
+
+    // User `type` declarations → a TypeRegistry whose entries delegate the
+    // algebra to each type's representation (first-class Custom dispatch).
+    let mut type_registry = TypeRegistry::new();
+    register_user_types(&mut type_registry, &program_arc);
+    let type_registry = Arc::new(type_registry);
 
     let registry_handle: Arc<OnceLock<Arc<ProcessRegistry>>> = Arc::new(OnceLock::new());
 
@@ -137,6 +151,9 @@ pub fn compile_with_registry(
             // Reactions and Patterns are values constructed at call sites,
             // not separate process types. Bindings (including `main`) are
             // top-level values evaluated at compile time.
+            // Types register in the TypeRegistry + MethodRegistry, not as
+            // process factories — see `register_user_types` below.
+            Def::Type(_) => {}
             Def::Reaction(_)
             | Def::Pattern(_)
             | Def::Unit(_)
@@ -174,34 +191,35 @@ pub fn compile_with_registry(
     // inner state slots (cells, sub-processes) live at engine root
     // and the outer state is directly inspectable. Otherwise treat
     // main's value as the initial state directly.
-    let main_expr = match program.lookup("main") {
-        Some(Def::Binding { value, .. }) => value.clone(),
-        _ => {
-            return Err(CompileError::Other(
-                "program must contain a top-level `main = ...` binding".into(),
-            ));
-        }
+    // A file IS a composite. A top-level `main = …` binding is its body (the
+    // root composite to inline); with no `main`, the body is empty — the
+    // file's `type`/`process`/`composite` defs are still registered and
+    // exported (importable, callable, dispatchable). No mandatory entry point.
+    let main_expr: Option<Expr> = match program.lookup("main") {
+        Some(Def::Binding { value, .. }) => Some(value.clone()),
+        _ => None,
     };
     let env: IndexMap<Name, Value> = collect_top_level_bindings(&program, &evaluator)?;
 
-    // Evaluate `main`. If it's a composite call, `eval_top_level` inlines
-    // it: the root state becomes the composite's body, so its child
+    // Evaluate the body. If `main` is a composite call, `eval_top_level`
+    // inlines it: the root state becomes the composite's body, so its child
     // processes/composites are discoverable and its contents inspectable.
     // Nested composites compile to real subengine specs
     // `{address: "local:Composite", config: {state, bridge}}` instantiated
     // via `Composite::from_config` — see crate::eval::build_composite_outer.
-    let initial_state = evaluator.eval_top_level(&main_expr, &env)?;
+    let initial_state = match &main_expr {
+        Some(expr) => evaluator.eval_top_level(expr, &env)?,
+        None => Value::map(),
+    };
 
     // Inference (from the value) recovers structure (`Tree`/`List`/`Float`)
     // but loses APPLY-critical semantics: a field is a `List` (replace) when
     // it should be an `Array` (element-wise additive); an extensive scalar a
-    // `Float` when it should be a `Delta`. So overlay the AST's declared
-    // types onto the inferred schema — but ONLY the apply-critical ones,
-    // leaving structure intact so the engine still discovers nested
-    // processes. (Threading `Custom` for dispatch is value-driven + deferred.)
+    // `Float` when it should be a `Delta`. So resolve the AST's declared
+    // composite schema onto the inferred one (the declaration refines).
     let inferred = Schema::infer(&initial_state);
     let state_schema = match &main_expr {
-        Expr::Term { control, .. } => match program.lookup(control) {
+        Some(Expr::Term { control, .. }) => match program.lookup(control) {
             Some(Def::Composite(def)) => {
                 // Resolve the inferred structure with the AST-declared schema:
                 // the declaration (the refining side) contributes the apply-
@@ -230,6 +248,7 @@ pub fn compile_with_registry(
         initial_state,
         evaluator,
         methods,
+        type_registry,
     })
 }
 
@@ -337,6 +356,95 @@ fn register_brs_factory(registry: &mut ProcessRegistry, evaluator: Arc<Evaluator
 /// `divide_by_schema`: extensive fields (`mass`) halve, everything else is
 /// shared. Each daughter's `id` is reissued. No literal `mass / 2`, no
 /// ad-hoc registry — divide is relative to the value's type, as it should be.
+/// Register every `type Name = … with { method(args) = body }` method against
+/// its type name, so a value tagged `_type: Name` can dispatch them. Each
+/// method runs as `eval_method_body` with `self` bound to the receiver. A Map
+/// result is re-tagged with the receiver's `_type` so write-methods can chain
+/// (`g.add_node("a").add_node("b")`) and stay dispatchable.
+///
+/// These methods are reachable two ways (the algebraic-effects split):
+///   * **query** — `value.method(args)` in any expression / process body;
+///   * **write action** — an `apply` directive `{_call: {method, args}}` on a
+///     slot of this type, interpreted by the type's `apply` handler
+///     ([`ChrysalisType`]), generalizing `_add`/`_remove`/`_divide`.
+fn register_user_type_methods(methods: &mut MethodRegistry, program: &Arc<Program>) {
+    for def in &program.defs {
+        let Def::Type(td) = def else { continue };
+        let type_name = td.name.clone();
+        for m in &td.methods {
+            let body = m.body.clone();
+            let params = m.params.clone();
+            let prog = Arc::clone(program);
+            let tn = type_name.clone();
+            let mn = m.name.clone();
+            methods.register(type_name.clone(), m.name.clone(), move |recv, args| {
+                // Method bodies are self-contained (self / params / builtins /
+                // comprehension — no cross-method dispatch yet), so a
+                // method-free evaluator suffices.
+                let ev = Evaluator::new(Arc::clone(&prog), Arc::new(MethodRegistry::new()));
+                // Methods are PURE: they return the *data describing the
+                // change* (a delta like `{nodes: {_add: [x]}}`) or a query
+                // value — never a mutated state. The framework applies the
+                // delta (via the representation), so nothing is tagged/mutated
+                // here.
+                ev.eval_method_body(&body, recv, &params, args).map_err(|e| MethodError::Failed {
+                    type_name: tn.clone(),
+                    method: mn.clone(),
+                    message: e.to_string(),
+                })
+            });
+        }
+    }
+}
+
+/// Register every `type Name = <repr> …` in the `TypeRegistry` with its
+/// representation schema and a [`RepresentationType`] handler, so a
+/// `Custom(Name)` slot is first-class: the algebra runs on its representation.
+fn register_user_types(types: &mut TypeRegistry, program: &Arc<Program>) {
+    for def in &program.defs {
+        let Def::Type(td) = def else { continue };
+        let repr = crate::schema::lower_schema_in_program(&td.representation, program);
+        types.register_full(td.name.clone(), repr, None, Some(Arc::new(RepresentationType)), Vec::new());
+    }
+}
+
+/// A user `type`'s algebra handler: every structural op **delegates to the
+/// type's representation schema** (the entry's `schema`). So `Custom(Name)`
+/// behaves exactly as its representation — additive numbers, structural
+/// `_add`/`_remove` collections — and a delta a method produced
+/// (`{nodes: {_add: [x]}}`) applies and composes through it. There is *no*
+/// per-method `apply` logic: write-methods are pure delta-constructors run at
+/// the producer; this just runs the resulting delta on the representation.
+/// This is what makes a user type "indistinguishable from a built-in".
+struct RepresentationType;
+
+impl TypeMethods for RepresentationType {
+    fn default(&self, _reg: &TypeRegistry, schema: &Schema) -> Value {
+        algebra::default(schema)
+    }
+    fn apply(&self, reg: &TypeRegistry, schema: &Schema, state: &Value, update: &Value) -> Value {
+        algebra::apply_with(Some(reg), schema, state, update)
+    }
+    fn divide(
+        &self,
+        reg: &TypeRegistry,
+        schema: &Schema,
+        state: &Value,
+        ctx: &DivideContext,
+    ) -> Vec<Value> {
+        divide_by_schema(schema, state, ctx, reg)
+    }
+    fn serialize(&self, _reg: &TypeRegistry, schema: &Schema, state: &Value) -> Value {
+        algebra::serialize(schema, state)
+    }
+    fn realize(&self, _reg: &TypeRegistry, schema: &Schema, encoded: &Value) -> Value {
+        algebra::realize(schema, encoded)
+    }
+    fn check(&self, _reg: &TypeRegistry, schema: &Schema, state: &Value) -> bool {
+        algebra::check(schema, state)
+    }
+}
+
 fn register_divide_methods(methods: &mut MethodRegistry, program: &Program) {
     // Instance schemas carry no `Custom` nodes, so an empty registry suffices.
     let empty = Arc::new(TypeRegistry::new());
