@@ -98,10 +98,16 @@ for parallel composition."
     ;; '#' starts a line comment, newline ends it
     (modify-syntax-entry ?#  "<" st)
     (modify-syntax-entry ?\n ">" st)
-    ;; Single-quoted strings
-    (modify-syntax-entry ?\' "\"" st)
-    ;; Double-quote also treated as string for safety
-    (modify-syntax-entry ?\" "\"" st)
+    ;; Single quotes delimit strings, but ONLY when balanced on a line —
+    ;; the string fences are applied by `ys--syntax-propertize' below.
+    ;; Default to punctuation so a lone apostrophe (common in prose
+    ;; comments, or the instant before you type a closing quote) cannot
+    ;; flip the rest of the buffer into string syntax.
+    (modify-syntax-entry ?\' "." st)
+    ;; Double quotes are not string delimiters in chrysalis (strings are
+    ;; single-quoted); keep them inert so a stray `"' in a comment is
+    ;; harmless rather than the start of a buffer-spanning string.
+    (modify-syntax-entry ?\" "." st)
     ;; Identifier extensions — chrysalis idents allow ?
     (modify-syntax-entry ?_ "_" st)
     (modify-syntax-entry ?? "_" st)
@@ -115,6 +121,22 @@ for parallel composition."
     (modify-syntax-entry ?\} "){" st)
     st)
   "Syntax table for `ys-mode'.")
+
+;; ── Syntactic string fences ─────────────────────────────────────────
+;;
+;; chrysalis strings are single-quoted (`'0'`, `'{id}_0'`).  Making `''
+;; a global string delimiter is a foot-gun: any unbalanced apostrophe —
+;; a possessive in a comment, or just the instant before you type the
+;; closing quote — flips the whole tail of the buffer into string syntax
+;; and forces a re-parse + re-fontify of that tail on every keystroke.
+;; Instead we mark only a *balanced* single-quoted run on a single line
+;; as a string, via generic string fences (syntax class `|').  An
+;; unpaired `'' matches nothing here and stays inert punctuation.
+
+(defconst ys--syntax-propertize
+  (syntax-propertize-rules
+   ("\\('\\)[^'\n]*\\('\\)" (1 "|") (2 "|")))
+  "Apply string-fence syntax to balanced single-quoted runs in `ys-mode'.")
 
 ;; ── Font-lock ───────────────────────────────────────────────────────
 
@@ -187,27 +209,26 @@ for parallel composition."
 ;; decrease on closing.  Not semantic; good enough for tier-1 source.
 
 (defun ys-indent-line ()
-  "Indent current line for `ys-mode'."
+  "Indent the current line for `ys-mode'.
+
+One `ys-indent-offset' per open bracket at the start of the line; a line
+that itself begins with a closing bracket is dedented one level so it
+aligns with its opener.  Uses `indent-line-to', which rewrites the
+leading whitespace only when it differs from the target — so the
+re-indent that `electric-indent-mode' performs on every newline does not
+dirty an already-correct line (and thus does not trigger a refontify)."
   (interactive)
-  (let ((indent
-         (save-excursion
-           (beginning-of-line)
-           (let ((paren-depth
-                  (save-excursion
-                    (or (ignore-errors
-                          (car (syntax-ppss
-                                (line-beginning-position))))
-                        0))))
-             (* (max 0 paren-depth) ys-indent-offset)))))
-    (if (looking-at "^\\s-*[])}]")
-        ;; Closing bracket on its own line — dedent.
-        (setq indent (max 0 (- indent ys-indent-offset))))
-    (save-excursion
-      (beginning-of-line)
-      (delete-horizontal-space)
-      (indent-to indent))
-    (when (looking-at "\\s-*$")
-      (end-of-line))))
+  (let* ((depth (max 0 (car (save-excursion
+                              (syntax-ppss (line-beginning-position))))))
+         (closing (save-excursion
+                    (back-to-indentation)
+                    (looking-at-p "[]})]")))
+         (target (* (max 0 (- depth (if closing 1 0))) ys-indent-offset)))
+    ;; If point sits in the leading whitespace, leave it at the new
+    ;; indentation (the usual newline / TAB feel); otherwise keep it put.
+    (if (<= (current-column) (current-indentation))
+        (indent-line-to target)
+      (save-excursion (indent-line-to target)))))
 
 ;; ── Mode definition ─────────────────────────────────────────────────
 
@@ -219,10 +240,24 @@ for parallel composition."
   :group 'ys
   :syntax-table ys-mode-syntax-table
   (setq-local font-lock-defaults '(ys-font-lock-keywords))
+  ;; Port blocks (`~{ … }`, `->{ … }`) and the trailing `|' separator are
+  ;; matched by patterns that can cross a line boundary.  Mark such
+  ;; matches so jit-lock extends the refontified region to the whole
+  ;; match on edit, instead of repainting one line and leaving a
+  ;; contextual pass to fix up the stale highlight afterwards.
+  (setq-local font-lock-multiline t)
+  (setq-local syntax-propertize-function ys--syntax-propertize)
   (setq-local comment-start "# ")
   (setq-local comment-end "")
   (setq-local comment-start-skip "#+\\s-*")
   (setq-local indent-line-function #'ys-indent-line)
+  ;; Indentation is a paren-depth heuristic, and chrysalis source
+  ;; hand-aligns multiline continuations (port blocks, daughter maps)
+  ;; that the heuristic doesn't reproduce.  Inhibit `electric-indent's
+  ;; reindent of the line being left on RET so it only indents the new
+  ;; line — otherwise every newline re-flows, and often un-aligns, the
+  ;; line above.
+  (setq-local electric-indent-inhibit t)
   (setq-local indent-tabs-mode nil))
 
 ;;;###autoload
