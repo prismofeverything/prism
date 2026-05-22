@@ -1,5 +1,70 @@
 # Next session — launch prompt
 
+## 🔧 IN PROGRESS (2026-05-22): engine execution-correctness arc
+
+The schema *algebra* is complete (see below). This session found the **engine's
+USE of it** (the run loop) had correctness gaps and fixed them in the core — no
+workarounds. Started from a RunProcess/process-contract demo (#8) and the
+integrator-comparison `.ys`; that uncovered the run-loop bugs. **Suite went 8
+failures → 1**, with the last (`culture`) fix mid-flight.
+
+**Landed (prism-bigraph/src/engine.rs, prism-schema/src/{schema.rs,reconcile.rs}):**
+1. **invoke/apply separation** — run loop is now `advance_to_next_event`:
+   invoke all due processes against ONE snapshot → advance time → apply together
+   → trigger/discover. (Was fire=invoke+apply immediately ⇒ a process could see
+   another's mid-tick mutation. The core correctness bug.)
+2. **`reconcile` wired into apply** (`apply_reconciled`) — a tick's updates are
+   reconciled into one combined update, applied once. `reconcile` had 13 laws +
+   tests but was **never called by the engine** before.
+3. **reconcile remove-wins** (reconcile.rs `reconcile_keyed`) — a `_remove`d key
+   voids a concurrent value-update.
+4. **apply `_add`/per-key ordering** (schema.rs — Map/Tree/RecursiveTree/Any
+   arms) — per-key loop now bases on `result` (post-`_add`), not `cur`, so a
+   re-added key composes with a concurrent update instead of reverting. (Was the
+   dynamic_structure bug: rewired worker reverted to old config, never
+   re-instantiated.)
+5. **process front = creation time** (`add_process`: `next_time = self.time`, no
+   `+interval` hack); mid-run-created processes land post-advance ⇒ run next step.
+6. **step firing = dependency layers** (`run_step_layers`, replaced the
+   readiness-wave): producer→consumer layers (pb `wire_step_layers`); each layer
+   invokes one snapshot + reconciled apply. settle (init) + trigger (reactive)
+   both use it.
+7. **`from_state` auto-discovers** (idempotent via `fired_init_steps`) — like
+   `Composite`, so callers that don't call `discover_all_processes` still work.
+8. **projections → fragments + reconcile** (`apply_reconciled`) — each port
+   output becomes a single-path fragment; `reconcile` combines them all
+   (overlapping parent/child writes compose schema-aware — no hand-rolled merge).
+   `apply_reconciled` also preserves each writer's port schema so additive fields
+   promote across a nested composite bridge (the culture fix).
+
+**✅ DONE — full workspace green (66 suites, 0 failed).** The last failure
+(`culture_imports_nests_and_runs_dish`) is fixed: `apply_reconciled` now takes
+projection-sets and preserves each writer's port schema, so the additive `Array`
+field promotes and reconstructs across the nested bridge (it had been overwritten
+by the zero-sum diffusion delta).
+
+**Plan (remaining — all follow-ups; the core is green + clean):**
+- #16: write the composite-execution invariant tests (executable axioms: snapshot
+  isolation, reconciliation incl. remove-wins + `_add`-compose, dependency
+  layering, settle, mid-tick-creation-fires-next, removed-store-expiry).
+- Resume the demo arc (#9 packages, #11 Plot split + view SVG, #5 KISAO) and the
+  surveys/refactors (#19 method survey, #14 Core, #15 Foreign).
+
+**Fast debug loop (build is slow — full workspace links ~16 binaries w/ heavy
+deps):** `cargo check -p <crate>` (compile, no link, ~secs) for "does it build";
+`cargo test -p <crate> --test <name>` for the touched area; full `cargo test`
+only at checkpoints. No `.cargo/config.toml` linker override (rustflags change ⇒
+whole-tree rebuild). See memory `feedback_test_timeout`.
+
+**Memories added:** `feedback_no_sleep_polling`, `feedback_test_timeout`,
+`feedback_ys_layering`. Pattern: the algebra is ported & faithful; gaps were the
+engine's *use* of it. A defined-but-unused op (`reconcile`) was a latent bug ⇒
+**#19** surveys upstream methods for more "ported but not wired" gaps.
+
+**Tasks #1–19 in the tracker; key in-flight: #8, #16, #17, #18, #19.**
+
+---
+
 ## ✅ The fresh-core schema-algebra rebuild is COMPLETE (2026-05-21)
 
 The rebuild described below (tasks #20→#18→#19→#21 + cutover) is **done**.

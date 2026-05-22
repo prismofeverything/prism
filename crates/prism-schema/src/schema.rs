@@ -861,8 +861,10 @@ impl Schema {
                         for (k, v) in upd {
                             if k == "_add" || k == "_remove" { continue; }
                             let schema = branches.get(k).unwrap_or(&Schema::Any);
-                            let existing = cur.get(k).unwrap_or(&Value::None);
-                            result.insert(k.clone(), schema.apply_update(existing, v));
+                            // post-`_add` base (see Map arm): a re-added key composes
+                            // with a concurrent update instead of reverting.
+                            let existing = result.get(k).cloned().unwrap_or(Value::None);
+                            result.insert(k.clone(), schema.apply_update(&existing, v));
                         }
                         Value::Map(result)
                     }
@@ -879,8 +881,12 @@ impl Schema {
                         if k == "_add" || k == "_remove" {
                             continue;
                         }
-                        let existing = cur.get(k).unwrap_or(&Value::None);
-                        result.insert(k.clone(), val_schema.apply_update(existing, v));
+                        // Base on `result` (post `_add`/`_remove`), not `cur`: a
+                        // key that was just re-added (`_add`) must compose with a
+                        // concurrent same-key update, not be reverted to the old
+                        // value.
+                        let existing = result.get(k).cloned().unwrap_or(Value::None);
+                        result.insert(k.clone(), val_schema.apply_update(&existing, v));
                     }
                     Value::Map(result)
                 } else {
@@ -988,15 +994,16 @@ impl Schema {
                         apply_add_remove(&mut result, upd);
                         for (k, v) in upd {
                             if k == "_add" || k == "_remove" { continue; }
-                            let existing = cur.get(k).unwrap_or(&Value::None);
-                            match (existing, v) {
+                            // post-`_add` base (see Map arm).
+                            let existing = result.get(k).cloned().unwrap_or(Value::None);
+                            match (&existing, v) {
                                 // Both maps: recurse as tree
                                 (Value::Map(_), Value::Map(_)) => {
-                                    result.insert(k.clone(), self.apply_update(existing, v));
+                                    result.insert(k.clone(), self.apply_update(&existing, v));
                                 }
                                 // Both leaves: apply leaf semantics
                                 (_, _) if existing.as_map().is_none() && v.as_map().is_none() => {
-                                    result.insert(k.clone(), leaf.apply_update(existing, v));
+                                    result.insert(k.clone(), leaf.apply_update(&existing, v));
                                 }
                                 // Type mismatch (map vs leaf): update replaces
                                 _ => {
@@ -1033,8 +1040,9 @@ impl Schema {
                             if k == "_add" || k == "_remove" {
                                 continue;
                             }
-                            let existing = cur.get(k).unwrap_or(&Value::None);
-                            result.insert(k.clone(), Schema::Any.apply_update(existing, v));
+                            // post-`_add` base (see Map arm).
+                            let existing = result.get(k).cloned().unwrap_or(Value::None);
+                            result.insert(k.clone(), Schema::Any.apply_update(&existing, v));
                         }
                         Value::Map(result)
                     }

@@ -9,7 +9,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use ordered_float::OrderedFloat;
 
 use prism_schema::algebra;
 use prism_schema::{Key, Path, Schema, Value};
@@ -798,7 +797,7 @@ impl Engine {
         // 3. apply pass — collect every stashed update now due and apply them as
         //    ONE reconciled batch, so updates targeting the same store combine
         //    (deltas sum, _add/_remove batch) instead of clobbering each other.
-        let mut updates: Vec<Value> = Vec::new();
+        let mut projection_sets: Vec<Vec<(Path, Value, Option<Schema>)>> = Vec::new();
         for name in &names {
             let ready = self
                 .fronts
@@ -812,9 +811,9 @@ impl Engine {
                 Some(iface) => iface.project(&pending),
                 None => continue,
             };
-            updates.push(projections_to_update(&projections));
+            projection_sets.push(projections);
         }
-        let (all_changed, any_structural) = self.apply_reconciled(&updates);
+        let (all_changed, any_structural) = self.apply_reconciled(&projection_sets);
 
         // 4. trigger steps + discover newly-created processes.
         let step_changes = if self.step_triggers.is_empty() {
@@ -835,22 +834,48 @@ impl Engine {
     /// the same store are *combined* by `reconcile` (deltas sum, `_add`/`_remove`
     /// batch, overwrite last-wins) rather than clobbering one another, and the
     /// whole batch lands atomically. Returns (changed paths, had structural).
-    fn apply_reconciled(&mut self, updates: &[Value]) -> (Vec<Path>, bool) {
+    fn apply_reconciled(
+        &mut self,
+        projection_sets: &[Vec<(Path, Value, Option<Schema>)>],
+    ) -> (Vec<Path>, bool) {
+        // Each projected output becomes one single-path fragment; `reconcile`
+        // combines them all (overlapping parent/child writes compose schema-aware
+        // — no hand-rolled merge). Remember each writer's port schema per slot so
+        // the promote-to-additive (e.g. an `Array`/`Delta` field) survives.
+        let mut fragments: Vec<Value> = Vec::new();
+        let mut port_schema: HashMap<Path, Schema> = HashMap::new();
+        for projs in projection_sets {
+            for (path, value, sch) in projs {
+                let mut fragment = Value::map();
+                fragment.set_path(path, value.clone());
+                fragments.push(fragment);
+                if let Some(s) = sch {
+                    port_schema.entry(path.clone()).or_insert_with(|| s.clone());
+                }
+            }
+        }
+        if fragments.is_empty() {
+            return (Vec::new(), false);
+        }
         let combined = match algebra::reconcile_with(
             self.type_registry.as_deref(),
             &self.schema,
-            updates,
+            &fragments,
         ) {
             Some(c) => c,
             None => return (Vec::new(), false),
         };
         // Apply the combined update one top-level store at a time (each subtree
-        // carries its own nested `_add`/`_remove`), reusing the structural-aware
-        // apply + change tracking.
+        // carries its own nested `_add`/`_remove`), carrying the writer's port
+        // schema so `apply` promotes the slot's additive type (law #5).
         let projections: Vec<(Path, Value, Option<Schema>)> = match combined.as_map() {
             Some(m) => m
                 .iter()
-                .map(|(k, v)| (vec![k.clone()], v.clone(), None))
+                .map(|(k, v)| {
+                    let path = vec![k.clone()];
+                    let sch = port_schema.get(&path).cloned();
+                    (path, v.clone(), sch)
+                })
                 .collect(),
             None => return (Vec::new(), false),
         };
@@ -1019,9 +1044,9 @@ impl Engine {
                 layer = std::mem::take(&mut remaining);
             }
 
-            let (updates, deltas) = self.invoke_step_wave(&layer);
+            let (projection_sets, deltas) = self.invoke_step_wave(&layer);
             all_deltas.extend(deltas);
-            let (changed, structural) = self.apply_reconciled(&updates);
+            let (changed, structural) = self.apply_reconciled(&projection_sets);
             any_structural |= structural;
             all_changed.extend(changed);
 
@@ -1065,8 +1090,11 @@ impl Engine {
     /// returning each step's state-shaped update (ready for `reconcile`) plus the
     /// raw (path, delta) projections (for bridge/passthrough deltas). The shared
     /// invoke half of the one reconciled apply path used by settle and trigger.
-    fn invoke_step_wave(&self, wave: &[String]) -> (Vec<Value>, Vec<(Path, Value)>) {
-        let mut updates: Vec<Value> = Vec::new();
+    fn invoke_step_wave(
+        &self,
+        wave: &[String],
+    ) -> (Vec<Vec<(Path, Value, Option<Schema>)>>, Vec<(Path, Value)>) {
+        let mut projection_sets: Vec<Vec<(Path, Value, Option<Schema>)>> = Vec::new();
         let mut deltas: Vec<(Path, Value)> = Vec::new();
         for name in wave {
             let input_state = match self.interfaces.get(name) {
@@ -1083,11 +1111,11 @@ impl Engine {
                     for (path, value, _schema) in &projections {
                         deltas.push((path.clone(), value.clone()));
                     }
-                    updates.push(projections_to_update(&projections));
+                    projection_sets.push(projections);
                 }
             }
         }
-        (updates, deltas)
+        (projection_sets, deltas)
     }
 
     /// Dynamically add a process to the running engine.
