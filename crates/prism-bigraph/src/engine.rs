@@ -256,76 +256,17 @@ impl Engine {
             passthrough_deltas: IndexMap::new(),
         };
 
-        // Fire steps on initialization in dependency order.
-        // Build a simple topological sort: steps whose inputs come from
-        // other steps' outputs must run after those steps.
-        let step_names: Vec<String> = engine.specs.iter()
+        // Fire one-shot steps on initialization, in dependency order (the
+        // composite triggering its steps). The identical sweep runs after
+        // `discover_all_processes`, so ys-compiled, address-based Step networks
+        // fire the same way construction-time steps do (#7).
+        let step_names: Vec<String> = engine
+            .specs
+            .iter()
             .filter(|(_, s)| s.interval.is_none())
             .map(|(name, _)| name.clone())
             .collect();
-
-        if !step_names.is_empty() {
-            // Map: output_path → step_name that produces it
-            let mut output_to_step: HashMap<Path, String> = HashMap::new();
-            for name in &step_names {
-                for path in engine.specs[name].outputs.values() {
-                    output_to_step.insert(path.clone(), name.clone());
-                }
-            }
-
-            // Build adjacency: step A → step B if B produces an input of A
-            let mut deps: HashMap<String, HashSet<String>> = HashMap::new();
-            for name in &step_names {
-                let d: HashSet<String> = engine.specs[name].inputs.values()
-                    .filter_map(|p| output_to_step.get(p).cloned())
-                    .filter(|dep| dep != name)
-                    .collect();
-                deps.insert(name.clone(), d);
-            }
-
-            // Topological sort (Kahn's algorithm)
-            let mut in_degree: HashMap<String, usize> = step_names.iter()
-                .map(|n| (n.clone(), deps.get(n).map(|d| d.len()).unwrap_or(0)))
-                .collect();
-            let mut queue: Vec<String> = in_degree.iter()
-                .filter(|(_, deg)| **deg == 0)
-                .map(|(n, _)| n.clone())
-                .collect();
-            queue.sort(); // deterministic ordering
-            let mut order: Vec<String> = Vec::new();
-            while let Some(name) = queue.pop() {
-                order.push(name.clone());
-                // For each step that depends on this one, decrement in-degree
-                for (other, other_deps) in &deps {
-                    if other_deps.contains(&name) {
-                        if let Some(deg) = in_degree.get_mut(other) {
-                            *deg -= 1;
-                            if *deg == 0 {
-                                queue.push(other.clone());
-                                queue.sort();
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Run steps in dependency order
-            for step_name in &order {
-                let interface = match engine.interfaces.get(step_name) {
-                    Some(i) => i.clone(),
-                    None => continue,
-                };
-                let input_state = interface.view(&engine.state);
-                let update = match engine.nodes.get(step_name) {
-                    Some(ProcessNode::Step(s)) => s.update(&input_state),
-                    _ => continue,
-                };
-                if let Some(update_value) = update.into_value() {
-                    let projections = interface.project(&update_value);
-                    engine.apply_projections(&projections);
-                }
-            }
-        }
+        engine.fire_steps_in_dependency_order(step_names);
 
         engine
     }
@@ -1106,6 +1047,107 @@ impl Engine {
         self.discover_processes(changed_paths);
     }
 
+    /// Fire a set of one-shot Steps in dependency order: a step that consumes
+    /// another's output runs after it. This is how a composite "triggers" its
+    /// steps — run at construction AND after discovery, so a ys-compiled
+    /// one-shot Step network (discovered, address-based) fires the same way
+    /// construction-time steps do (#7). A step whose wired inputs aren't present
+    /// yet is skipped; it fires later when a state change triggers it.
+    fn fire_steps_in_dependency_order(&mut self, step_names: Vec<String>) {
+        if step_names.is_empty() {
+            return;
+        }
+
+        // output_path → producing step.
+        let mut output_to_step: HashMap<Path, String> = HashMap::new();
+        for name in &step_names {
+            if let Some(spec) = self.specs.get(name) {
+                for path in spec.outputs.values() {
+                    output_to_step.insert(path.clone(), name.clone());
+                }
+            }
+        }
+
+        // A depends on B if B produces an input of A.
+        let mut deps: HashMap<String, HashSet<String>> = HashMap::new();
+        for name in &step_names {
+            let d: HashSet<String> = self
+                .specs
+                .get(name)
+                .map(|s| {
+                    s.inputs
+                        .values()
+                        .filter_map(|p| output_to_step.get(p).cloned())
+                        .filter(|dep| dep != name)
+                        .collect()
+                })
+                .unwrap_or_default();
+            deps.insert(name.clone(), d);
+        }
+
+        // Kahn topological sort (deterministic).
+        let mut in_degree: HashMap<String, usize> = step_names
+            .iter()
+            .map(|n| (n.clone(), deps.get(n).map(|d| d.len()).unwrap_or(0)))
+            .collect();
+        let mut queue: Vec<String> = in_degree
+            .iter()
+            .filter(|(_, deg)| **deg == 0)
+            .map(|(n, _)| n.clone())
+            .collect();
+        queue.sort();
+        let mut order: Vec<String> = Vec::new();
+        while let Some(name) = queue.pop() {
+            order.push(name.clone());
+            for (other, other_deps) in &deps {
+                if other_deps.contains(&name) {
+                    if let Some(deg) = in_degree.get_mut(other) {
+                        *deg -= 1;
+                        if *deg == 0 {
+                            queue.push(other.clone());
+                            queue.sort();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fire each ready step in order.
+        for step_name in &order {
+            if !self.step_inputs_present(step_name) {
+                continue; // upstream not produced yet — fires later via trigger
+            }
+            let interface = match self.interfaces.get(step_name) {
+                Some(i) => i.clone(),
+                None => continue,
+            };
+            let input_state = interface.view(&self.state);
+            let update = match self.nodes.get(step_name) {
+                Some(ProcessNode::Step(s)) => s.update(&input_state),
+                _ => continue,
+            };
+            if let Some(update_value) = update.into_value() {
+                let projections = interface.project(&update_value);
+                self.apply_projections(&projections);
+            }
+        }
+    }
+
+    /// Whether every wired input path of a step currently resolves to a present
+    /// (non-`None`) value — the readiness condition for the one-shot sweep.
+    fn step_inputs_present(&self, step_name: &str) -> bool {
+        match self.specs.get(step_name) {
+            Some(spec) => spec.inputs.values().all(|path| {
+                // Wildcard (`*`) paths resolve during firing via star
+                // expansion; a literal `get` can't see them, so don't gate the
+                // readiness check on them.
+                path.iter().any(|seg| seg.as_str() == "*")
+                    || self.get(path).is_some_and(|v| !matches!(v, Value::None))
+            }),
+            None => false,
+        }
+    }
+
     /// Scan the entire top-level state for process specs and instantiate them.
     /// Used for initial discovery when building a Composite engine.
     pub fn discover_all_processes(&mut self) {
@@ -1117,11 +1159,19 @@ impl Engine {
         if let Some(map) = self.state.as_map().cloned() {
             self.scan_for_processes(&map, &[], &registry, &mut to_add);
         }
+        let mut added_steps: Vec<String> = Vec::new();
         for (name, spec, node) in to_add {
             if !self.nodes.contains_key(&name) {
-                self.add_process(name, spec, node);
+                let is_step = matches!(node, ProcessNode::Step(_));
+                self.add_process(name.clone(), spec, node);
+                if is_step {
+                    added_steps.push(name);
+                }
             }
         }
+        // Fire newly-discovered one-shot steps in dependency order (#7) — the
+        // composite triggering its steps, the same sweep construction runs.
+        self.fire_steps_in_dependency_order(added_steps);
     }
 
     pub fn node_names(&self) -> Vec<&str> {

@@ -1,0 +1,46 @@
+# Process-contract tier-1 demo (docs/process-contracts.md). Two deterministic
+# mass-action ODE integrators — RUST-NATIVE processes `Rk4` / `ForwardEuler`,
+# called via `extern` — share the `DeterministicMassAction` contract. A
+# YS-NATIVE `Compare` step calls registered `TimeSeries` methods to MSE +
+# overlay their two trajectories. Wiring a different-target producer (e.g. an
+# FBA flux vector) into `Compare` would not compile — the contract has teeth.
+#
+# This is the chrysalis form of biocompose's COPASI/Tellurium comparison, with
+# the comparison typed by the shared contract instead of stopping at the
+# interface. The two process kinds (docs/chrysalis-design.md) meet at `Compare`.
+
+contract DeterministicMassAction (
+  target: MassActionODE, claims: Deterministic, advance: Continuous
+)
+
+extern Rk4[network: any, t_end: float, dt: float]
+  ~{init: map[float]}
+  ->{trajectory: TimeSeries}
+  fulfills DeterministicMassAction[method: Rk4]
+
+extern ForwardEuler[network: any, t_end: float, dt: float]
+  ~{init: map[float]}
+  ->{trajectory: TimeSeries}
+  fulfills DeterministicMassAction[method: ForwardEuler]
+
+# ys-native: its body is operations on the values at its inputs — `species_mse`
+# and `overlay` are registered native methods on the `TimeSeries` type.
+step Compare
+  ~{a: TimeSeries :: DeterministicMassAction, b: TimeSeries :: DeterministicMassAction}
+  ->{mse: map[float], figure: Figure}
+(
+  { mse: a.species_mse(b), figure: a.overlay(b) }
+)
+
+composite IntegratorComparison
+  ->{mse: map[float]}
+(
+  init: {A: 1.0, B: 0.0} |
+  r: Rk4[network: {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}, t_end: 5.0, dt: 0.2]
+       ~{init: init} ->{trajectory: rk4_traj} |
+  e: ForwardEuler[network: {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}, t_end: 5.0, dt: 0.2]
+       ~{init: init} ->{trajectory: euler_traj} |
+  compare: Compare ~{a: rk4_traj, b: euler_traj} ->{mse: mse}
+)
+
+IntegratorComparison[]

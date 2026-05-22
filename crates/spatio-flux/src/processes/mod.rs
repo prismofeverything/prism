@@ -2,6 +2,7 @@ pub mod dfba;
 pub mod diffusion_advection;
 pub mod fba;
 pub mod fields;
+pub mod mass_action;
 pub mod monod_kinetics;
 pub mod newtonian;
 pub mod particles;

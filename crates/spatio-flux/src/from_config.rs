@@ -283,6 +283,22 @@ pub fn build_registry() -> ProcessRegistry {
         ProcessNode::Step(Box::new(ParticleTotalMass))
     });
 
+    // Deterministic mass-action ODE integrators — two methods, one target
+    // (the DeterministicMassAction process contract). See
+    // docs/process-contracts.md and processes/mass_action.rs.
+    reg.register("Rk4", |config| {
+        ProcessNode::Process(Box::new(crate::processes::mass_action::integrator_from_config(
+            &config,
+            crate::processes::mass_action::Integrator::Rk4,
+        )))
+    });
+    reg.register("ForwardEuler", |config| {
+        ProcessNode::Process(Box::new(crate::processes::mass_action::integrator_from_config(
+            &config,
+            crate::processes::mass_action::Integrator::ForwardEuler,
+        )))
+    });
+
     reg
 }
 

@@ -88,7 +88,21 @@ pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
 /// to the native factory the caller supplied under `Name`.
 pub fn compile_with_registry(
     program: &Program,
+    registry: ProcessRegistry,
+) -> Result<CompileResult, CompileError> {
+    compile_with_methods(program, registry, MethodRegistry::new())
+}
+
+/// Like [`compile_with_registry`], but also takes a pre-populated
+/// [`MethodRegistry`] of NATIVE value-methods — e.g. spatio-flux's `TimeSeries`
+/// `species_mse` / `overlay` — that the program's ys-native bodies dispatch to
+/// (`a.species_mse(b)`). The divide + user-`type` methods are registered on top.
+/// This is where the two process kinds meet: native processes via `registry`,
+/// native methods via `methods`, ys-native logic via the compiled bodies.
+pub fn compile_with_methods(
+    program: &Program,
     mut registry: ProcessRegistry,
+    mut methods: MethodRegistry,
 ) -> Result<CompileResult, CompileError> {
     // Reject ill-typed connections up front — illegal connections are
     // unrepresentable. Validated on the surface program (full unit info).
@@ -110,7 +124,6 @@ pub fn compile_with_registry(
     let unit_env = UnitEnv::from_program(program).ok();
     let program = lower_program(program, unit_env.as_ref());
     let program_arc = Arc::new(program.clone());
-    let mut methods = MethodRegistry::new();
     register_divide_methods(&mut methods, &program);
     register_user_type_methods(&mut methods, &program_arc);
     let methods = Arc::new(methods);
@@ -158,6 +171,9 @@ pub fn compile_with_registry(
             | Def::Pattern(_)
             | Def::Unit(_)
             | Def::Context(_)
+            // Contracts are type-level metadata (consumed by `check` +
+            // schema lowering); they register no process factory.
+            | Def::Contract(_)
             // `Import` is resolved away by `parse::parse_file`; a leftover one
             // registers no factory.
             | Def::Import { .. }

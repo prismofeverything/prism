@@ -48,6 +48,8 @@ pub enum Tok {
     True,
     False,
     Replace,
+    Contract,
+    Fulfills,
 
     // operators / punctuation
     Eq,     // =
@@ -112,6 +114,8 @@ fn keyword(word: &str) -> Option<Tok> {
         "context" => Tok::Context,
         "using" => Tok::Using,
         "import" => Tok::Import,
+        "contract" => Tok::Contract,
+        "fulfills" => Tok::Fulfills,
         "where" => Tok::Where,
         // NOTE: `from` is a CONTEXTUAL keyword (only meaningful after `import`),
         // not reserved — it's a common field name (a graph edge's `from`). The
@@ -358,8 +362,8 @@ mod lex_tests {
 use indexmap::IndexMap;
 
 use crate::ast::{
-    BinOp, Def, Expr, MethodDef, Param, PlacePath, Program, SchemaExpr, StringLit, StringSeg,
-    TypeDef, UnaryOp,
+    BinOp, ContractDef, ContractRef, Def, Expr, MethodDef, Param, PlacePath, Program, SchemaExpr,
+    StringLit, StringSeg, TypeDef, UnaryOp,
 };
 
 struct Parser {
@@ -497,6 +501,7 @@ impl Parser {
             Tok::Reaction => self.parse_reaction_def(),
             Tok::Unit => self.parse_unit_def(),
             Tok::Context => self.parse_context_def(),
+            Tok::Contract => self.parse_contract_def(),
             Tok::Import => {
                 self.bump();
                 let name = self.ident()?;
@@ -543,6 +548,60 @@ impl Parser {
             self.expect(&Tok::RBrace)?;
         }
         Ok(Def::Type(TypeDef { name, params: vec![], representation, methods }))
+    }
+
+    // ── contract declaration ────────────────────────────────────────
+    // `contract Name (axis: value, …)` — a named process contract.
+    fn parse_contract_def(&mut self) -> Result<Def, ParseError> {
+        self.expect(&Tok::Contract)?;
+        let name = self.ident()?;
+        self.expect(&Tok::LParen)?;
+        let mut axes: IndexMap<String, String> = IndexMap::new();
+        while !self.check(&Tok::RParen) {
+            let axis = self.ident()?;
+            self.expect(&Tok::Colon)?;
+            let value = self.ident()?;
+            axes.insert(axis, value);
+            if !self.accept(&Tok::Comma) {
+                break;
+            }
+        }
+        self.expect(&Tok::RParen)?;
+        Ok(Def::Contract(ContractDef { name, axes }))
+    }
+
+    // `Name` or `Name[axis: value, …]` — a contract reference (used by `::` on
+    // a port and by `fulfills`); the optional `[…]` pins refine axes.
+    fn parse_contract_ref(&mut self) -> Result<ContractRef, ParseError> {
+        let name = self.ident()?;
+        let mut cref = ContractRef::new(name);
+        if self.accept(&Tok::LBrack) {
+            while !self.check(&Tok::RBrack) {
+                let axis = self.ident()?;
+                self.expect(&Tok::Colon)?;
+                let value = self.ident()?;
+                cref = cref.pin(axis, value);
+                if !self.accept(&Tok::Comma) {
+                    break;
+                }
+            }
+            self.expect(&Tok::RBrack)?;
+        }
+        Ok(cref)
+    }
+
+    /// Parse an optional `fulfills C[…]` clause and apply it to the output
+    /// ports — sugar for `:: C` on each output that doesn't already declare one.
+    fn parse_fulfills_into(&mut self, interface: &mut Interface) -> Result<(), ParseError> {
+        if self.accept(&Tok::Fulfills) {
+            let c = self.parse_contract_ref()?;
+            for (_, decl) in interface.outputs.iter_mut() {
+                if decl.contract.is_none() {
+                    decl.contract = Some(c.clone());
+                }
+            }
+        }
+        Ok(())
     }
 
     // `name(params) = expr`
@@ -1182,11 +1241,21 @@ impl Parser {
             } else {
                 SchemaExpr::Any
             };
-            let decl = if self.accept(&Tok::Eq) {
+            // Optional `:: Contract` — the process-contract this port carries
+            // (output) or demands (input). See docs/process-contracts.md.
+            let contract = if self.accept(&Tok::ColonColon) {
+                Some(self.parse_contract_ref()?)
+            } else {
+                None
+            };
+            let mut decl = if self.accept(&Tok::Eq) {
                 PortDecl::with_default(schema, self.parse_expr()?)
             } else {
                 PortDecl::required(schema)
             };
+            if let Some(c) = contract {
+                decl = decl.with_contract(c);
+            }
             ports.push((name, decl));
             if !self.accept(&Tok::Comma) {
                 break;
@@ -1261,7 +1330,8 @@ impl Parser {
         self.bump(); // `process` | `step`
         let name = self.ident()?;
         let params = self.parse_bracket_params()?;
-        let interface = self.parse_interface()?;
+        let mut interface = self.parse_interface()?;
+        self.parse_fulfills_into(&mut interface)?;
         let body = self.parse_body()?;
         Ok(if is_step {
             Def::Step(StepDef { name, params, interface, body })
@@ -1301,7 +1371,8 @@ impl Parser {
         let _ = self.accept(&Tok::Process) || self.accept(&Tok::Step);
         let name = self.ident()?;
         let params = self.parse_bracket_params()?;
-        let interface = self.parse_interface()?;
+        let mut interface = self.parse_interface()?;
+        self.parse_fulfills_into(&mut interface)?;
         Ok(Def::Extern(ExternDef { name, params, interface }))
     }
 

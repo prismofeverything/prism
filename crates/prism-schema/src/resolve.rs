@@ -346,6 +346,26 @@ pub fn generalize(current: &Schema, update: &Schema) -> Schema {
     }
 }
 
+// ───────────────────────────────────────────────────────────────────────
+// refines — the lattice **order**, derived from the join
+// ───────────────────────────────────────────────────────────────────────
+
+/// `refines(specific, general)` — the partial order induced by the join:
+/// `specific ⊒ general  ⟺  resolve(specific, general) == specific`.
+///
+/// This is **derived from [`resolve`]**, not a new operation — it is
+/// `resolve` plus `==`, so it stays inside the algebra (no new primitive,
+/// no law to port). It is the predicate behind process-contract
+/// substitutability — a fulfiller's contract must `refine` the demanded one
+/// (`docs/process-contracts.md`) — and, generally, "is `specific` an
+/// admissible refinement of `general`". `refines(s, Any)` is always true
+/// (`Any` is ⊥); `refines` is reflexive and transitive (it is a lattice
+/// order). The companion meet-form `general` ⊒-relation is
+/// `generalize(s, g) == g`.
+pub fn refines(specific: &Schema, general: &Schema) -> bool {
+    resolve(specific, general) == *specific
+}
+
 /// The inner schema of an update-modifier wrapper, if any. `generalize`
 /// forgets these; `resolve` keeps them.
 fn strip_modifier(s: &Schema) -> Option<&Schema> {
@@ -597,5 +617,21 @@ mod tests {
     fn generalize_any_is_identity() {
         assert_eq!(generalize(&Schema::Any, &Schema::float()), Schema::float());
         assert_eq!(generalize(&Schema::float(), &Schema::Any), Schema::float());
+    }
+
+    // ── refines (the join order) ──────────────────────────────────────
+
+    #[test]
+    fn refines_is_the_join_order() {
+        // `Any` is ⊥: everything refines it; it refines nothing concrete.
+        assert!(refines(&Schema::float(), &Schema::Any));
+        assert!(!refines(&Schema::Any, &Schema::float()));
+        // Reflexive.
+        assert!(refines(&Schema::float(), &Schema::float()));
+        // Array ⊒ List (the more specific sequence refines the looser one).
+        let arr = Schema::Array { shape: vec![3], element: Box::new(Schema::float()) };
+        let list = Schema::List { element: Box::new(Schema::Any) };
+        assert!(refines(&arr, &list));
+        assert!(!refines(&list, &arr));
     }
 }

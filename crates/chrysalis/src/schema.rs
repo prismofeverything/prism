@@ -20,7 +20,7 @@ use indexmap::IndexMap;
 
 use prism_schema::{Key, Schema};
 
-use crate::ast::{CompositeDef, Def, Expr, PortDecl, Program, SchemaExpr};
+use crate::ast::{CompositeDef, ContractRef, Def, Expr, PortDecl, Program, SchemaExpr};
 
 /// Lower a [`SchemaExpr`] **with the program in scope**, so a `custom(Name)`
 /// that names a *definer* (composite / process / step) expands to that
@@ -143,6 +143,35 @@ pub fn composite_instance_schema(def: &CompositeDef) -> Schema {
         ) {
             branches.insert(Key::from(name.as_str()), s);
         }
+    }
+    Schema::Tree { branches }
+}
+
+/// A parameter-free nominal axis value. `resolve` keeps a same-named
+/// `Custom` and prefers the update for a mismatched one, so the
+/// target/method/advance axes get nominal equality for free.
+fn nominal_axis(name: &str) -> Schema {
+    Schema::Custom {
+        name: name.to_string(),
+        parameters: IndexMap::new(),
+    }
+}
+
+/// Lower a [`ContractRef`] to its schema — a `Tree` of nominal axes (the
+/// named contract's base axes, with the ref's pins layered on). Process-
+/// contract substitutability is `prism_schema::algebra::refines` over these
+/// trees: a fulfiller's contract must refine the demanded one. No new algebra
+/// op — see docs/process-contracts.md. `program` supplies the named contract's
+/// base axes.
+pub fn contract_ref_schema(r: &ContractRef, program: &Program) -> Schema {
+    let mut branches: IndexMap<Key, Schema> = IndexMap::new();
+    if let Some(Def::Contract(base)) = program.lookup(&r.name) {
+        for (axis, value) in &base.axes {
+            branches.insert(Key::from(axis.as_str()), nominal_axis(value));
+        }
+    }
+    for (axis, value) in &r.pins {
+        branches.insert(Key::from(axis.as_str()), nominal_axis(value));
     }
     Schema::Tree { branches }
 }

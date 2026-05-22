@@ -1111,7 +1111,7 @@ fn generate_plots(
 }
 
 /// Render a timeseries plot as SVG using plotters.
-fn render_timeseries_svg(
+pub(crate) fn render_timeseries_svg(
     title: &str,
     times: &[f64],
     series: &IndexMap<String, Vec<f64>>,

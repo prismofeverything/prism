@@ -172,12 +172,40 @@ impl Param {
     }
 }
 
+/// A reference to a process contract: a named contract plus optional axis
+/// pins layered on top (`DeterministicMassAction[method: Rk4]`). Axis
+/// values are nominal members (lowered to parameter-free `Custom`s); pins
+/// refine the named contract's axes. See docs/process-contracts.md.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ContractRef {
+    pub name: Name,
+    pub pins: IndexMap<Name, Name>,
+}
+
+impl ContractRef {
+    pub fn new(name: impl Into<Name>) -> Self {
+        Self {
+            name: name.into(),
+            pins: IndexMap::new(),
+        }
+    }
+    pub fn pin(mut self, axis: impl Into<Name>, value: impl Into<Name>) -> Self {
+        self.pins.insert(axis.into(), value.into());
+        self
+    }
+}
+
 /// A port declaration on the interface of a process/step/composite
 /// definition: `port_name: Schema = default?`.
 #[derive(Clone, Debug)]
 pub struct PortDecl {
     pub schema: SchemaExpr,
     pub default: Option<Expr>,
+    /// `port :: Contract` — the process-contract this port carries (an
+    /// output port) or demands (an input port). Substitutability at a wire
+    /// is `refines` over the lowered contract schemas (see
+    /// docs/process-contracts.md). `None` = no contract constraint.
+    pub contract: Option<ContractRef>,
 }
 
 impl PortDecl {
@@ -185,13 +213,20 @@ impl PortDecl {
         Self {
             schema,
             default: None,
+            contract: None,
         }
     }
     pub fn with_default(schema: SchemaExpr, default: Expr) -> Self {
         Self {
             schema,
             default: Some(default),
+            contract: None,
         }
+    }
+    /// Attach a contract constraint (`port :: Contract`).
+    pub fn with_contract(mut self, contract: ContractRef) -> Self {
+        self.contract = Some(contract);
+        self
     }
 }
 
@@ -409,6 +444,11 @@ pub enum Def {
     /// (an update directive `{_call: {method, args}}` on a slot of this type,
     /// which `apply` interprets — generalizing `_add`/`_remove`/`_divide`).
     Type(TypeDef),
+    /// `contract Name (axis: value, …)` — a named process contract: a record
+    /// of axes (target / method / claims / advance). Substitutability between
+    /// contracts is `refines` over their lowered `Tree` schemas — no new
+    /// algebra op. See [`ContractDef`] and docs/process-contracts.md.
+    Contract(ContractDef),
     /// `import Name from "path.ys"` — pull another file's definitions into
     /// scope. Resolved by [`crate::parse::parse_file`] (load the file, merge
     /// its defs); after resolution no `Import` remains in a `Program`.
@@ -439,6 +479,17 @@ pub struct MethodDef {
     pub name: Name,
     pub params: Vec<Param>,
     pub body: Expr,
+}
+
+/// `contract Name (axis: value, …)` — a named process contract: a record of
+/// axes (target / method / claims / advance), each pinned to a nominal
+/// member. Lowers to a `Schema::Tree` of nominal `Custom`s; substitutability
+/// between contracts is `refines` over those trees — no new algebra op. See
+/// docs/process-contracts.md.
+#[derive(Clone, Debug)]
+pub struct ContractDef {
+    pub name: Name,
+    pub axes: IndexMap<Name, Name>,
 }
 
 #[derive(Clone, Debug)]
@@ -533,6 +584,7 @@ pub fn def_name(def: &Def) -> &str {
         Def::Unit(d) => &d.name,
         Def::Context(d) => &d.name,
         Def::Type(d) => &d.name,
+        Def::Contract(d) => &d.name,
         Def::Import { name, .. } => name,
         Def::Binding { name, .. } => name,
     }

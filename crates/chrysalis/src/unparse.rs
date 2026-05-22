@@ -119,6 +119,15 @@ fn unparse_def(def: &Def) -> String {
             )
         }
         Def::Pattern(p) => format!("# pattern {} (unparse: TODO)", p.name),
+        Def::Contract(c) => {
+            let axes = c
+                .axes
+                .iter()
+                .map(|(a, v)| format!("{a}: {v}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("contract {} ({axes})", c.name)
+        }
         Def::Import { name, path } => format!("import {name} from '{path}'"),
         Def::Binding { name, value } => {
             if name == "main" {

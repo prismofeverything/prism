@@ -16,6 +16,37 @@ from a framework into a language.
 **Contract:** `chrysalis::compile(source) -> (Topology, ProcessRegistry entries)`.
 Everything below the compiler is prism-native.
 
+## Two kinds of process
+
+chrysalis hosts **two kinds of process**, and the distinction is
+load-bearing:
+
+1. **Rust-native processes** — defined in Rust, exposing the prism
+   process interface (`Process` / `Step`), called from chrysalis via
+   `extern`. These are the fundamental building blocks: numerical
+   solvers, integrators, FBA, diffusion, particle physics. They live in
+   prism crates, register factories in a `ProcessRegistry`, and a
+   chrysalis `extern process Name ~{} ->{}` binds to the factory by name
+   (resolved at `compile_with_registry`). A *growing library* of
+   ready-to-call primitives. First example: the mass-action ODE
+   integrators `Rk4` / `ForwardEuler`
+   (`spatio-flux::processes::mass_action::MassActionIntegrator`,
+   registered in `build_registry`).
+2. **ys-native processes** — defined *in chrysalis* as `process` /
+   `step` / `composite` whose bodies are expressions over the values
+   arriving at their inputs/config. They compose the native primitives
+   and each other; their "implementation" is the interpreted body (value
+   methods dispatched via the `MethodRegistry`, structural deltas,
+   sub-process wiring). No Rust required.
+
+The two meet at the typed port interface (`~{} ->{}`): a ys-native
+process can't tell whether what it wires to is native or ys-native, and
+vice versa (composite-as-process is the categorical reality). The set of
+types these processes exchange — quantities, `TimeSeries`,
+`MassActionNetwork`, meshes, patterns, `ReactionRule`/`BRS`, contracts —
+is the **fundamental-type catalog** to enumerate and organize into
+packages (on the task list).
+
 ## Homoiconicity goal
 
 **Chrysalis is homoiconic when a process can construct a new reaction

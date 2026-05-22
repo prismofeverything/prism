@@ -45,6 +45,44 @@ See memory `schema-algebra-rebuild-done` and `composite-typing-and-resolve`.
    `Step` instances. A path toward replacing SED-ML. See task list +
    `docs/chrysalis-design.md`.
 
+   **First concrete instance: the process-contract demonstration** —
+   `docs/process-contracts.md` (design + build sequence). A contract-typed
+   COPASI/Tellurium-style comparison: two processes, one interface, each
+   `fulfills` a shared contract (target semantics + method class), and a
+   `Compare` node typed by that shared contract so an illegitimate comparison
+   won't compile. Replaces `biocompose` (which stalled at the interface).
+   - **Rung 1 substrate — built + green (2026-05-21):** mass-action ODE
+     integrators in `spatio-flux::processes::mass_action` — `Rk4` /
+     `ForwardEuler` over a shared `MassActionNetwork`, `TimeSeries` with
+     `species_mse`, analytic-solution tests. **Now native processes:** wrapped as
+     a one-shot `Step` (`MassActionIntegrator`) and registered in `build_registry`
+     as `Rk4` / `ForwardEuler`, so chrysalis `extern Rk4` binds to them
+     (`reg.create("Rk4", config)` → Foreign `TimeSeries`, tested). See
+     `docs/chrysalis-design.md` "Two kinds of process".
+   - **Contract layer — DONE (2026-05-21):** substitutability is
+     `prism_schema::algebra::refines` (= `resolve==`, **no new op**); AST
+     (`Def::Contract` / `ContractRef` / `PortDecl.contract`), lowering
+     (`schema::contract_ref_schema` → `Tree` of nominal axes), enforcement
+     (`check::check_contract` — a producer wired into a contract-demanding port
+     must refine it, via producer paths like `r.trajectory`), and the **parser**
+     (`contract …`, `port :: C`, `fulfills C[…]`). Proven by
+     `prism-schema/tests/contract_substitutability.rs` (7) +
+     `chrysalis/tests/contract_enforcement.rs` (3, AST) +
+     `chrysalis/tests/parse_contract.rs` (2, parse `.ys` → enforce).
+   - **Runnable demo COMPLETE (2026-05-22):** `TimeSeries::species_mse`/`overlay`
+     are registered methods; `crates/chrysalis/ys/integrator-comparison.ys` runs
+     end to end — parse → enforce contracts → compile with the native registry +
+     injected methods (`compile_with_methods`) → Engine run → MSE produced
+     (`chrysalis/tests/integrator_comparison.rs`, 2 green). Native integrators are
+     one-shot `Process`es; `Compare` is a ys-native step calling the registered
+     methods; contracts flow through wirings to slots
+     (`check::collect_slot_contracts`). Gotcha learned:
+     `reference_ys_workflow_dag_scheduling`.
+   - **Remaining for the contracts arc:** rung-3 KISAO export (#5); convert other
+     examples to `.ys` (#6); the fundamental-type catalog + packages (#1).
+   - HiGHS/FBA is the cross-target **negative test** (constraint-based steady
+     state ≠ mass-action ODE), not a fulfiller; dFBA is the bridge case.
+
 ---
 
 ## Historical: the rebuild launch prompt (for reference)
