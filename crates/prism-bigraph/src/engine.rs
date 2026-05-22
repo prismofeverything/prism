@@ -250,9 +250,15 @@ impl Engine {
             specs.insert(name.clone(), spec.clone());
         }
 
+        // Establish a real schema even when the topology declares only `Any`:
+        // infer structure from the state, refined by whatever the topology
+        // declared — the same rule as `from_state`, so no engine ever runs
+        // schema-free (an `Any` root sends `reconcile`/`apply` down the opaque
+        // last-wins path, which silently drops concurrent partial updates).
+        let schema = algebra::resolve(&Schema::infer(&state), &topology.state_schema);
         let mut engine = Self {
             state,
-            schema: topology.state_schema,
+            schema,
             time: 0.0,
             nodes: instances,
             interfaces,
@@ -1212,21 +1218,6 @@ impl Engine {
         self.run_step_layers(steps);
     }
 
-    /// Whether every wired input path of a step currently resolves to a present
-    /// (non-`None`) value — the readiness condition for the one-shot sweep.
-    fn step_inputs_present(&self, step_name: &str) -> bool {
-        match self.specs.get(step_name) {
-            Some(spec) => spec.inputs.values().all(|path| {
-                // Wildcard (`*`) paths resolve during firing via star
-                // expansion; a literal `get` can't see them, so don't gate the
-                // readiness check on them.
-                path.iter().any(|seg| seg.as_str() == "*")
-                    || self.get(path).is_some_and(|v| !matches!(v, Value::None))
-            }),
-            None => false,
-        }
-    }
-
     /// Scan the entire top-level state for process specs and instantiate them.
     /// Used for initial discovery when building a Composite engine.
     pub fn discover_all_processes(&mut self) {
@@ -1456,59 +1447,6 @@ impl Engine {
                 results.push((child_name, spec, node));
             }
         }
-    }
-}
-
-/// Fold a process/step's projected outputs `(path, value)` into one
-/// state-shaped update Value (rooted at the engine state), ready for
-/// `reconcile` to combine with other updates from the same tick.
-///
-/// Overlapping ports are **deep-merged**, not overwritten: a process commonly
-/// targets both a child path (e.g. `pool.a0.value`) and that child's parent
-/// (e.g. `pool` with an `_add`/`_remove`, or an empty `{}`). A flat `set_path`
-/// would let the parent write clobber the child write (or vice-versa); deep
-/// merge keeps both so the whole update survives into `reconcile`.
-fn projections_to_update(projections: &[(Path, Value, Option<Schema>)]) -> Value {
-    let mut update = Value::map();
-    for (path, value, _) in projections {
-        merge_projection(&mut update, path, value.clone());
-    }
-    update
-}
-
-/// Deep-merge `value` into `update` at `path`, recursing into maps so overlapping
-/// projections combine (empty maps are no-ops; leaves are set).
-fn merge_projection(update: &mut Value, path: &[Key], value: Value) {
-    match path.split_first() {
-        None => deep_merge_value(update, value),
-        Some((head, rest)) => {
-            if !matches!(update, Value::Map(_)) {
-                *update = Value::map();
-            }
-            if let Value::Map(map) = update {
-                let entry = map.entry(head.clone()).or_insert_with(Value::map);
-                merge_projection(entry, rest, value);
-            }
-        }
-    }
-}
-
-/// Recursively merge `value` into `target`: maps union key-by-key; anything else
-/// overwrites. (Update sentinels like `_add`/`_remove` are ordinary map keys and
-/// merge naturally; `reconcile` later resolves any same-key collisions.)
-fn deep_merge_value(target: &mut Value, value: Value) {
-    match (target, value) {
-        (Value::Map(t), Value::Map(v)) => {
-            for (k, val) in v {
-                match t.get_mut(&k) {
-                    Some(existing) => deep_merge_value(existing, val),
-                    None => {
-                        t.insert(k, val);
-                    }
-                }
-            }
-        }
-        (t, v) => *t = v,
     }
 }
 

@@ -6,7 +6,7 @@ The schema *algebra* is complete (see below). This session found the **engine's
 USE of it** (the run loop) had correctness gaps and fixed them in the core — no
 workarounds. Started from a RunProcess/process-contract demo (#8) and the
 integrator-comparison `.ys`; that uncovered the run-loop bugs. **Suite went 8
-failures → 1**, with the last (`culture`) fix mid-flight.
+failures → 0** — full workspace green (67 suites).
 
 **Landed (prism-bigraph/src/engine.rs, prism-schema/src/{schema.rs,reconcile.rs}):**
 1. **invoke/apply separation** — run loop is now `advance_to_next_event`:
@@ -36,6 +36,13 @@ failures → 1**, with the last (`culture`) fix mid-flight.
    (overlapping parent/child writes compose schema-aware — no hand-rolled merge).
    `apply_reconciled` also preserves each writer's port schema so additive fields
    promote across a nested composite bridge (the culture fix).
+9. **`Engine::new` infers its schema** (`resolve(infer(state), declared)`, same as
+   `from_state`) — no engine runs schema-free. This was the monod regression: with
+   an `Any` root, `reconcile`/`apply` take the opaque *last-wins* branch and drop
+   concurrent partial updates (biomass stayed 0.1). It only surfaced once fragments
+   split a process's output into partial per-port updates — deep_merge had hidden
+   it by handing reconcile one complete tree. Tasks #20 (unify construction paths)
+   and #21 (survey algebra-evasion + schema-free tree ops) capture the follow-up.
 
 **✅ DONE — full workspace green (66 suites, 0 failed).** The last failure
 (`culture_imports_nests_and_runs_dish`) is fixed: `apply_reconciled` now takes
@@ -44,9 +51,11 @@ field promotes and reconstructs across the nested bridge (it had been overwritte
 by the zero-sum diffusion delta).
 
 **Plan (remaining — all follow-ups; the core is green + clean):**
-- #16: write the composite-execution invariant tests (executable axioms: snapshot
-  isolation, reconciliation incl. remove-wins + `_add`-compose, dependency
-  layering, settle, mid-tick-creation-fires-next, removed-store-expiry).
+- ✅ #16 done: `crates/prism-bigraph/tests/execution_invariants.rs` — 6 executable
+  axioms: invoke/apply snapshot isolation, reconcile-by-sum, dependency layering
+  (D=B*(A+B)=714), remove-wins, `_add`-compose, and `_remove`+`_add`=replace.
+  (Mid-tick-creation-fires-next and removed-store-expiry are already covered by
+  the grow_divide / dynamic_structure tests.)
 - Resume the demo arc (#9 packages, #11 Plot split + view SVG, #5 KISAO) and the
   surveys/refactors (#19 method survey, #14 Core, #15 Foreign).
 
