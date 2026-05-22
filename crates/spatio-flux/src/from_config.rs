@@ -287,16 +287,26 @@ pub fn build_registry() -> ProcessRegistry {
     // (the DeterministicMassAction process contract). See
     // docs/process-contracts.md and processes/mass_action.rs.
     reg.register("Rk4", |config| {
-        ProcessNode::Process(Box::new(crate::processes::mass_action::integrator_from_config(
+        ProcessNode::Process(Box::new(crate::processes::mass_action::process_from_config(
             &config,
             crate::processes::mass_action::Integrator::Rk4,
         )))
     });
     reg.register("ForwardEuler", |config| {
-        ProcessNode::Process(Box::new(crate::processes::mass_action::integrator_from_config(
+        ProcessNode::Process(Box::new(crate::processes::mass_action::process_from_config(
             &config,
             crate::processes::mass_action::Integrator::ForwardEuler,
         )))
+    });
+
+    // RunProcess turns a plain Process into a one-shot Step: it runs the wrapped
+    // process for `runtime` and emits its state history as a TimeSeries Value.
+    // The engine injects the registry (set_registry) so it can instantiate the
+    // wrapped process. (process-bigraph parameter_scan.py RunProcess pattern.)
+    reg.register("RunProcess", |config| {
+        ProcessNode::Step(Box::new(
+            crate::processes::process_runner::RunProcess::from_config(&config),
+        ))
     });
 
     reg

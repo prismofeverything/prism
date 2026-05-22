@@ -10,9 +10,6 @@
 //! providing the six lean axioms — `default`, `apply`, `divide`,
 //! `serialize`, `realize`, `check`. The registry walks inheritance
 //! chains when a type lacks a direct method impl.
-//!
-//! See `docs/RICH_TYPES.md` in the totality repo (or its successor
-//! upstream doc) for the strategic framing.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -626,8 +623,6 @@ fn divide_tuple(
 
 // ════════════════════════════════════════════════════════════════════
 // Generic catalog (RT.4 upstream) — types every domain can reuse.
-// totality registers biology aliases against these (e.g.
-// "polymer_chain" → "chain", "mesh_topology" → "graph").
 // ════════════════════════════════════════════════════════════════════
 
 /// `chain` — generic ordered kinetic sequence. Subunits live in
@@ -642,10 +637,6 @@ fn divide_tuple(
 /// can override (per-index daughter assignment).
 ///
 /// Serializes as a plain `Value::List`. Realizes from same.
-///
-/// Inheritance candidates: totality's `polymer_chain` aliases this;
-/// `ftsz` / `chromosome` / `transcripts` etc. *instances* hang their
-/// kinetics off this base via type parameters.
 pub struct ChainTypeMethods;
 
 impl TypeMethods for ChainTypeMethods {

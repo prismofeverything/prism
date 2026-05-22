@@ -6,6 +6,7 @@ pub mod mass_action;
 pub mod monod_kinetics;
 pub mod newtonian;
 pub mod particles;
+pub mod process_runner;
 pub mod spatial_dfba;
 
 pub use dfba::DynamicFBA;

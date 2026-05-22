@@ -8,6 +8,7 @@
 
 use std::any::Any;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use prism_schema::{Schema, Value};
 
@@ -71,6 +72,14 @@ pub trait Process: Send + Sync + Debug {
         Value::None
     }
 
+    /// Receive the engine's process registry, once, at instantiation. Default:
+    /// ignore. A process that *composes other processes* (instantiates them
+    /// from a spec — e.g. `RunProcess`) overrides this to capture the registry,
+    /// so every process in an engine shares the same one. The engine owns the
+    /// registry and hands it down here — the principled form of what `Composite`
+    /// does by hand, and the seed of a future unified `Core`.
+    fn set_registry(&mut self, _registry: Arc<crate::factory::ProcessRegistry>) {}
+
     /// Downcast support for trait objects.
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -108,6 +117,11 @@ pub trait Step: Send + Sync + Debug {
     fn initial_state(&self) -> Value {
         Value::None
     }
+
+    /// Receive the engine's process registry at instantiation (default: ignore).
+    /// A step that instantiates other processes (e.g. `RunProcess`) overrides
+    /// this to capture it. See [`Process::set_registry`].
+    fn set_registry(&mut self, _registry: Arc<crate::factory::ProcessRegistry>) {}
 
     /// Downcast support.
     fn as_any(&self) -> &dyn Any;

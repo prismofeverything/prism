@@ -1,45 +1,43 @@
-# Process-contract tier-1 demo (docs/process-contracts.md). Two deterministic
-# mass-action ODE integrators — RUST-NATIVE processes `Rk4` / `ForwardEuler`,
-# called via `extern` — share the `DeterministicMassAction` contract. A
-# YS-NATIVE `Compare` step calls registered `TimeSeries` methods to MSE +
-# overlay their two trajectories. Wiring a different-target producer (e.g. an
-# FBA flux vector) into `Compare` would not compile — the contract has teeth.
+# Process-contract tier-1 demo (docs/process-contracts.md), as a one-shot Step
+# network. Two RUST-NATIVE *stepwise* integrator Processes (Rk4, ForwardEuler)
+# are each wrapped by a `RunProcess` Step that runs them over [0, runtime] and
+# emits a `TimeSeries`. A ys-native `Compare` step MSEs the two trajectories.
 #
-# This is the chrysalis form of biocompose's COPASI/Tellurium comparison, with
-# the comparison typed by the shared contract instead of stopping at the
-# interface. The two process kinds (docs/chrysalis-design.md) meet at `Compare`.
+# Integrators are plain Processes (one step per update — reusable); `RunProcess`
+# turns one into a one-shot Step. The whole workflow is a one-shot Step DAG, fired
+# in dependency order by the engine. `TimeSeries`/`Figure` are declared ys types
+# (Values, not Foreign): their methods (species_mse, overlay) dispatch on `_type`.
+#
+# (Contracts: Rk4/ForwardEuler `fulfill` DeterministicMassAction, but the demand
+# on Compare's inputs returns in #9, when the contract propagates through
+# RunProcess to the timeseries output.)
 
-contract DeterministicMassAction (
-  target: MassActionODE, claims: Deterministic, advance: Continuous
-)
+type TimeSeries = {times: list[float], columns: map[list[float]]}
+type Figure = {svg: string}
 
-extern Rk4[network: any, t_end: float, dt: float]
-  ~{init: map[float]}
-  ->{trajectory: TimeSeries}
+contract DeterministicMassAction (target: MassActionODE, claims: Deterministic, advance: Continuous)
+
+extern Rk4[network: any]
+  ~{state: map[float]} ->{state: map[float]}
   fulfills DeterministicMassAction[method: Rk4]
 
-extern ForwardEuler[network: any, t_end: float, dt: float]
-  ~{init: map[float]}
-  ->{trajectory: TimeSeries}
+extern ForwardEuler[network: any]
+  ~{state: map[float]} ->{state: map[float]}
   fulfills DeterministicMassAction[method: ForwardEuler]
 
-# ys-native: its body is operations on the values at its inputs — `species_mse`
-# and `overlay` are registered native methods on the `TimeSeries` type.
-step Compare
-  ~{a: TimeSeries :: DeterministicMassAction, b: TimeSeries :: DeterministicMassAction}
-  ->{mse: map[float], figure: Figure}
-(
-  { mse: a.species_mse(b), figure: a.overlay(b) }
+extern RunProcess[proc: any, runtime: float, timestep: float]
+  ~{state: map[float]} ->{timeseries: TimeSeries}
+
+step Compare ~{a: TimeSeries, b: TimeSeries} ->{mse: map[float]} (
+  { mse: a.species_mse(b) }
 )
 
-composite IntegratorComparison
-  ->{mse: map[float]}
-(
+composite IntegratorComparison ->{mse: map[float]} (
   init: {A: 1.0, B: 0.0} |
-  r: Rk4[network: {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}, t_end: 5.0, dt: 0.2]
-       ~{init: init} ->{trajectory: rk4_traj} |
-  e: ForwardEuler[network: {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}, t_end: 5.0, dt: 0.2]
-       ~{init: init} ->{trajectory: euler_traj} |
+  rk4: RunProcess[proc: Rk4[network: {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}], runtime: 5.0, timestep: 0.2]
+         ~{state: init} ->{timeseries: rk4_traj} |
+  euler: RunProcess[proc: ForwardEuler[network: {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}], runtime: 5.0, timestep: 0.2]
+         ~{state: init} ->{timeseries: euler_traj} |
   compare: Compare ~{a: rk4_traj, b: euler_traj} ->{mse: mse}
 )
 

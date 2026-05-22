@@ -240,6 +240,12 @@ fn reconcile_keyed<'s>(
         }
     }
 
+    // A key removed this tick voids any concurrent value-update to it
+    // ("remove wins") — otherwise applying the modification would re-create the
+    // removed store. (Equivalent to the sequential order "modify, then remove".)
+    // Snapshot the removed set before `removes` is consumed below.
+    let removed_set: std::collections::HashSet<Key> = removes.iter().cloned().collect();
+
     let mut result: StateMap = IndexMap::new();
     if !adds.is_empty() {
         result.insert("_add".into(), Value::Map(adds));
@@ -256,6 +262,9 @@ fn reconcile_keyed<'s>(
         result.insert("_divide".into(), d);
     }
     for (k, v) in value_updates {
+        if remove_all || removed_set.contains(&k) {
+            continue;
+        }
         result.insert(k, v);
     }
     if result.is_empty() {

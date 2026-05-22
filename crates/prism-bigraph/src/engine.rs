@@ -93,8 +93,16 @@ use crate::topology::{ProcessSpec, Topology};
 /// Scheduling state for a temporal process.
 #[derive(Debug)]
 struct ProcessFront {
+    /// Time of this process's next event: when it is next due to invoke, and —
+    /// once invoked — when its `pending` update applies (both `process_time +
+    /// interval`).
     next_time: f64,
     interval: f64,
+    /// Update computed by invoke but not yet applied. The run loop invokes all
+    /// due processes against the SAME state snapshot, advances time, then applies
+    /// these together — so processes in a tick never see each other's mid-tick
+    /// mutations (invoke/apply separation, faithful to process-bigraph).
+    pending: Option<Value>,
 }
 
 /// A running composition of processes and shared state.
@@ -133,6 +141,12 @@ pub struct Engine {
 
     /// Step dependency tracking: state path -> set of step names to trigger.
     step_triggers: HashMap<Path, HashSet<String>>,
+
+    /// Steps already fired by the init `settle_steps` sweep, so each fires once
+    /// at init no matter how many times discovery runs (`from_state` auto-discovers
+    /// and callers may discover again) — i.e. settle is idempotent. Reactive
+    /// re-firing during `run` is separate (`trigger_steps`, not gated by this).
+    fired_init_steps: HashSet<String>,
 
     /// Specs retained for introspection.
     specs: HashMap<String, ProcessSpec>,
@@ -215,6 +229,7 @@ impl Engine {
                     ProcessFront {
                         next_time: 0.0,
                         interval,
+                        pending: None,
                     },
                 );
                 // Store interval in state tree so Steps can wire to it
@@ -244,6 +259,7 @@ impl Engine {
             interfaces,
             fronts,
             step_triggers,
+            fired_init_steps: HashSet::new(),
             specs,
             registry: None,
             type_registry: None,
@@ -256,17 +272,10 @@ impl Engine {
             passthrough_deltas: IndexMap::new(),
         };
 
-        // Fire one-shot steps on initialization, in dependency order (the
-        // composite triggering its steps). The identical sweep runs after
-        // `discover_all_processes`, so ys-compiled, address-based Step networks
-        // fire the same way construction-time steps do (#7).
-        let step_names: Vec<String> = engine
-            .specs
-            .iter()
-            .filter(|(_, s)| s.interval.is_none())
-            .map(|(name, _)| name.clone())
-            .collect();
-        engine.fire_steps_in_dependency_order(step_names);
+        // Settle the step network on init: fire every step whose inputs are
+        // present, cascading downstream as outputs appear (the same
+        // `trigger_steps` mechanism the run loop uses after each process tick).
+        engine.settle_steps();
 
         engine
     }
@@ -313,32 +322,21 @@ impl Engine {
         let mut topology = Topology::new();
         topology.state_schema = merged_schema.clone();
 
-        // Walk the schema to find Link nodes and extract process specs from state
-        let mut instances: HashMap<String, ProcessNode> = HashMap::new();
-        let mut clean_state = state.clone();
-
-        Self::extract_processes(
-            &merged_schema,
-            &state,
-            &[],
-            &protocols,
-            &registry,
-            &mut topology.processes,
-            &mut instances,
-        );
-
-        // Remove process-spec fields from state (keep only data)
-        // Process nodes in state have address/config/inputs/outputs which
-        // the engine manages — the data state shouldn't contain them.
-        for name in topology.processes.keys() {
-            let path: Vec<String> = name.split('.').map(|s| s.to_string()).collect();
-            // Don't remove the node entirely — just let the engine manage it
-        }
-
+        // Build the engine WITHOUT pre-instantiating processes here. A single
+        // discovery pass (`discover_all_processes` → `scan_for_processes`) finds
+        // every process — schema-`Link`-typed AND address-marked — so there is
+        // ONE discovery path, not a schema-walk here plus a state-scan there.
+        // This matches `Composite::from_config`, which already does
+        // `Engine::new(empty)` then `discover_all_processes()`. (`scan_for_processes`
+        // is a superset of the old `extract_processes`, which checked schema only.)
         topology.initial_state = state;
-        let mut engine = Engine::new(topology, instances);
+        let mut engine = Engine::new(topology, HashMap::new());
         engine.set_registry(registry);
         engine.set_protocol_registry(protocols);
+        // Self-contained: instantiate processes + settle the step network now,
+        // so `from_state` returns a ready engine like a freshly-built Composite.
+        // Idempotent — callers that also call `discover_all_processes` are no-ops.
+        engine.discover_all_processes();
         Ok(engine)
     }
 
@@ -705,7 +703,7 @@ impl Engine {
 
     /// Run the simulation for the given duration.
     pub fn run(&mut self, duration: f64) {
-        // Process pending changes from composite bridge inputs
+        // Process pending changes from composite bridge inputs.
         if !self.pending_changes.is_empty() {
             let pending = std::mem::take(&mut self.pending_changes);
             self.trigger_steps(&pending);
@@ -714,113 +712,149 @@ impl Engine {
         let end_time = self.time + duration;
         let mut iter_count = 0u64;
         while self.time < end_time {
-            let next_time = self.next_fire_time(end_time);
-            match next_time {
-                Some(fire_time) => {
-                    self.time = fire_time;
-                    let firing: Vec<String> = self.fronts
-                        .iter()
-                        .filter(|(_, front)| (front.next_time - fire_time).abs() < 1e-10)
-                        .map(|(name, _)| name.clone())
-                        .collect();
-
-                    let mut all_changed = Vec::new();
-                    let mut any_structural = false;
-                    for name in &firing {
-                        let changed = self.run_process(name);
-                        any_structural |= self.last_structural;
-                        all_changed.extend(changed);
-                    }
-
-                    let step_changes = if self.step_triggers.is_empty() {
-                        Vec::new()
-                    } else {
-                        self.trigger_steps(&all_changed)
-                    };
-
-                    // Only discover when structural changes occurred
-                    if any_structural || !step_changes.is_empty() {
-                        let mut discover_paths = all_changed;
-                        discover_paths.extend(step_changes);
-                        self.discover_processes(&discover_paths);
-                    }
-
-                    iter_count += 1;
-                    if iter_count > 100_000 {
-                        eprintln!("[engine] SAFETY: breaking after {iter_count} iterations at t={}", self.time);
-                        self.time = end_time;
-                        break;
-                    }
-                }
-                None => { self.time = end_time; }
+            let before = self.time;
+            self.advance_to_next_event(end_time);
+            iter_count += 1;
+            if iter_count > 100_000 {
+                eprintln!(
+                    "[engine] SAFETY: breaking after {iter_count} iterations at t={}",
+                    self.time
+                );
+                self.time = end_time;
+                break;
+            }
+            if self.time <= before {
+                // No event advanced time (e.g. only steps remain) — done.
+                self.time = end_time;
+                break;
             }
         }
     }
 
-    /// Run a single tick: advance to the next event and process it.
-    /// Returns the time advanced to, or None if no events pending.
+    /// Run a single tick: advance to the next process event and apply it.
+    /// Returns the time advanced to, or `None` if no events are pending.
     pub fn tick(&mut self) -> Option<f64> {
-        match self.next_fire_time(f64::INFINITY) {
-            Some(fire_time) => {
-                self.time = fire_time;
-                let firing: Vec<String> = self.fronts
-                    .iter()
-                    .filter(|(_, front)| (front.next_time - fire_time).abs() < 1e-10)
-                    .map(|(name, _)| name.clone())
-                    .collect();
-                let mut all_changed = Vec::new();
-                for name in &firing {
-                    all_changed.extend(self.run_process(name));
-                }
-                self.discover_processes(&all_changed);
-                self.trigger_steps(&all_changed);
-                Some(self.time)
-            }
-            None => None,
-        }
+        let before = self.time;
+        self.advance_to_next_event(f64::INFINITY);
+        (self.time > before).then_some(self.time)
     }
 
-    /// Find the earliest fire time before `end_time`.
-    fn next_fire_time(&self, end_time: f64) -> Option<f64> {
-        self.fronts
-            .values()
-            .filter(|front| front.next_time < end_time)
-            .map(|front| front.next_time)
-            .min_by_key(|t| OrderedFloat(*t))
-    }
+    /// One simulation step, faithful to process-bigraph's run loop —
+    /// **invoke → advance → apply → trigger/discover**:
+    ///
+    /// 1. **invoke** every *due* process (`next_time <= time`) against the
+    ///    current state, stashing its update in the front and advancing that
+    ///    front to `process_time + interval`. Nothing is applied yet, so every
+    ///    process this step reads the SAME snapshot — one process can never see
+    ///    another's mid-step mutation (the core correctness property).
+    /// 2. **advance** `time` by `full_step` — the smallest interval to any
+    ///    process's next event.
+    /// 3. **apply** the stashed updates whose time has now come, together.
+    /// 4. **trigger** steps on the applied changes and **discover** any processes
+    ///    the structural changes created. Because this happens AFTER the advance,
+    ///    new processes are stamped at the new `time` and run on the NEXT step —
+    ///    never re-run in the step that created them (what `+interval` was faking).
+    fn advance_to_next_event(&mut self, end_time: f64) {
+        let names: Vec<String> = self.fronts.keys().cloned().collect();
 
-    /// Execute one process and apply its update. Returns changed paths.
-    /// Does NOT trigger steps — caller is responsible for that.
-    fn run_process(&mut self, name: &str) -> Vec<Path> {
-        let interval = match self.fronts.get(name) {
-            Some(front) => front.interval,
-            None => return Vec::new(),
-        };
-
-        // Build view and call process without cloning Interface.
-        // We borrow interfaces and nodes immutably, then state mutably via the free fn.
-        let input_state = match self.interfaces.get(name) {
-            Some(iface) => iface.view(&self.state),
-            None => return Vec::new(),
-        };
-
-        let update = match self.nodes.get(name) {
-            Some(ProcessNode::Process(p)) => p.update(&input_state, interval),
-            _ => return Vec::new(),
-        };
-
-        self.fronts.get_mut(name).unwrap().next_time += interval;
-
-        if let Some(update_value) = update.into_value() {
-            let projections = match self.interfaces.get(name) {
-                Some(iface) => iface.project(&update_value),
-                None => return Vec::new(),
+        // 1. invoke pass — all reads against the pre-step snapshot.
+        let mut full_step = f64::INFINITY;
+        for name in &names {
+            let (process_time, interval) = match self.fronts.get(name) {
+                Some(f) => (f.next_time, f.interval),
+                None => continue,
             };
-            let (changed, _) = self.apply_projections(&projections);
-            changed
-        } else {
-            Vec::new()
+            if process_time <= self.time {
+                let future = process_time + interval;
+                full_step = full_step.min(future - self.time);
+                if future <= end_time {
+                    let input = match self.interfaces.get(name) {
+                        Some(iface) => iface.view(&self.state),
+                        None => continue,
+                    };
+                    let update = match self.nodes.get(name) {
+                        Some(ProcessNode::Process(p)) => p.update(&input, interval),
+                        _ => continue,
+                    };
+                    let front = self.fronts.get_mut(name).expect("front exists");
+                    front.next_time = future;
+                    front.pending = update.into_value();
+                }
+            } else {
+                // Not due yet, but its event bounds how far time may move.
+                full_step = full_step.min(process_time - self.time);
+            }
         }
+
+        // No process event within reach — jump to the end (steps already settled).
+        if !full_step.is_finite() || self.time + full_step > end_time {
+            self.time = end_time;
+            return;
+        }
+
+        // 2. advance global time.
+        self.time += full_step;
+
+        // 3. apply pass — collect every stashed update now due and apply them as
+        //    ONE reconciled batch, so updates targeting the same store combine
+        //    (deltas sum, _add/_remove batch) instead of clobbering each other.
+        let mut updates: Vec<Value> = Vec::new();
+        for name in &names {
+            let ready = self
+                .fronts
+                .get(name)
+                .is_some_and(|f| f.next_time <= self.time && f.pending.is_some());
+            if !ready {
+                continue;
+            }
+            let pending = self.fronts.get_mut(name).unwrap().pending.take().unwrap();
+            let projections = match self.interfaces.get(name) {
+                Some(iface) => iface.project(&pending),
+                None => continue,
+            };
+            updates.push(projections_to_update(&projections));
+        }
+        let (all_changed, any_structural) = self.apply_reconciled(&updates);
+
+        // 4. trigger steps + discover newly-created processes.
+        let step_changes = if self.step_triggers.is_empty() {
+            Vec::new()
+        } else {
+            self.trigger_steps(&all_changed)
+        };
+        if any_structural || !step_changes.is_empty() {
+            let mut discover_paths = all_changed;
+            discover_paths.extend(step_changes);
+            self.discover_processes(&discover_paths);
+        }
+    }
+
+    /// Reconcile a tick's batch of state-shaped updates into one and apply it —
+    /// THE single apply path for a timestep. Processes (all due this tick) and
+    /// steps (each layer) funnel their updates through here, so updates targeting
+    /// the same store are *combined* by `reconcile` (deltas sum, `_add`/`_remove`
+    /// batch, overwrite last-wins) rather than clobbering one another, and the
+    /// whole batch lands atomically. Returns (changed paths, had structural).
+    fn apply_reconciled(&mut self, updates: &[Value]) -> (Vec<Path>, bool) {
+        let combined = match algebra::reconcile_with(
+            self.type_registry.as_deref(),
+            &self.schema,
+            updates,
+        ) {
+            Some(c) => c,
+            None => return (Vec::new(), false),
+        };
+        // Apply the combined update one top-level store at a time (each subtree
+        // carries its own nested `_add`/`_remove`), reusing the structural-aware
+        // apply + change tracking.
+        let projections: Vec<(Path, Value, Option<Schema>)> = match combined.as_map() {
+            Some(m) => m
+                .iter()
+                .map(|(k, v)| (vec![k.clone()], v.clone(), None))
+                .collect(),
+            None => return (Vec::new(), false),
+        };
+        self.apply_projections(&projections)
     }
 
     /// Apply projected updates to the state tree.
@@ -903,94 +937,157 @@ impl Engine {
 
     /// Fire steps and return both changed paths AND raw (path, delta) projections.
     fn trigger_steps_impl(&mut self, changed_paths: &[Path]) -> (Vec<Path>, Vec<(Path, Value)>) {
-        let mut triggered: Vec<String> = Vec::new();
-
-        for path in changed_paths {
-            if let Some(steps) = self.step_triggers.get(path) {
-                triggered.extend(steps.iter().cloned());
+        // The steps reachable from `changed_paths` through the output→input
+        // dependency graph (a triggered step's output may trigger another step),
+        // then run them once each in dependency layers.
+        let mut set: HashSet<String> = HashSet::new();
+        let mut frontier = self.steps_triggered_by(changed_paths);
+        while !frontier.is_empty() {
+            let mut next: Vec<String> = Vec::new();
+            for s in frontier {
+                if set.insert(s.clone()) {
+                    let out_paths: Vec<Path> = self
+                        .specs
+                        .get(&s)
+                        .map(|spec| spec.outputs.values().cloned().collect())
+                        .unwrap_or_default();
+                    next.extend(self.steps_triggered_by(&out_paths));
+                }
             }
-            for i in 1..path.len() {
-                let prefix = path[..i].to_vec();
-                if let Some(steps) = self.step_triggers.get(&prefix) {
-                    triggered.extend(steps.iter().cloned());
+            frontier = next;
+        }
+        let steps: Vec<String> = set.into_iter().collect();
+        self.run_step_layers(steps)
+    }
+
+    /// Run a set of steps once each, in dependency *layers*: a step that consumes
+    /// another's output runs in a later layer than its producer (process-bigraph's
+    /// `wire_step_layers`). Each layer invokes against ONE snapshot and applies its
+    /// updates *reconciled* together (`apply_reconciled`), so a consumer sees its
+    /// producer's output via layer ordering (not a mid-tick leak), while
+    /// independent same-layer steps neither see nor clobber each other. The single
+    /// step-run path for settle (init) and trigger (reactive).
+    fn run_step_layers(&mut self, steps: Vec<String>) -> (Vec<Path>, Vec<(Path, Value)>) {
+        // Map each output path to its producing step (among `steps`).
+        let mut producer: HashMap<Path, String> = HashMap::new();
+        for name in &steps {
+            if let Some(spec) = self.specs.get(name) {
+                for out in spec.outputs.values() {
+                    producer.insert(out.clone(), name.clone());
                 }
             }
         }
+        // deps[B] = the steps (among `steps`) that produce one of B's inputs.
+        let deps: HashMap<String, HashSet<String>> = steps
+            .iter()
+            .map(|name| {
+                let d: HashSet<String> = self
+                    .specs
+                    .get(name)
+                    .map(|spec| {
+                        spec.inputs
+                            .values()
+                            .filter_map(|inp| producer.get(inp))
+                            .filter(|&p| p != name)
+                            .cloned()
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                (name.clone(), d)
+            })
+            .collect();
 
-        triggered.sort();
-        triggered.dedup();
-        triggered.sort_by(|a, b| {
+        let mut remaining: Vec<String> = steps;
+        let mut done: HashSet<String> = HashSet::new();
+        let mut all_changed: Vec<Path> = Vec::new();
+        let mut all_deltas: Vec<(Path, Value)> = Vec::new();
+        let mut any_structural = false;
+
+        while !remaining.is_empty() {
+            // Next layer: every remaining step whose producers have all run.
+            let mut layer: Vec<String> = remaining
+                .iter()
+                .filter(|s| {
+                    deps.get(s.as_str())
+                        .map_or(true, |d| d.iter().all(|p| done.contains(p)))
+                })
+                .cloned()
+                .collect();
+            // A dependency cycle leaves nothing ready — break it by running the
+            // remainder in one batch (a cycle has no valid layering anyway).
+            if layer.is_empty() {
+                layer = std::mem::take(&mut remaining);
+            }
+
+            let (updates, deltas) = self.invoke_step_wave(&layer);
+            all_deltas.extend(deltas);
+            let (changed, structural) = self.apply_reconciled(&updates);
+            any_structural |= structural;
+            all_changed.extend(changed);
+
+            for s in &layer {
+                done.insert(s.clone());
+            }
+            remaining.retain(|s| !done.contains(s));
+        }
+
+        if any_structural && !all_changed.is_empty() {
+            self.discover_processes(&all_changed);
+        }
+        (all_changed, all_deltas)
+    }
+
+    /// Steps triggered by any of `paths` (or a path prefix), priority-ordered and
+    /// deduped. (Order is moot within a reconciled wave, but kept deterministic.)
+    fn steps_triggered_by(&self, paths: &[Path]) -> Vec<String> {
+        let mut steps: Vec<String> = Vec::new();
+        for path in paths {
+            if let Some(s) = self.step_triggers.get(path) {
+                steps.extend(s.iter().cloned());
+            }
+            for i in 1..path.len() {
+                if let Some(s) = self.step_triggers.get(&path[..i].to_vec()) {
+                    steps.extend(s.iter().cloned());
+                }
+            }
+        }
+        steps.sort();
+        steps.dedup();
+        steps.sort_by(|a, b| {
             let pa = self.specs.get(a).map(|s| s.priority).unwrap_or(0.0);
             let pb = self.specs.get(b).map(|s| s.priority).unwrap_or(0.0);
             pb.partial_cmp(&pa).unwrap_or(std::cmp::Ordering::Equal)
         });
+        steps
+    }
 
-        let mut already_run = HashSet::new();
-        let mut queue = triggered;
-        let mut all_step_changes = Vec::new();
-        let mut all_step_deltas: Vec<(Path, Value)> = Vec::new();
-        let mut any_structural = false;
-
-        while let Some(step_name) = queue.pop() {
-            if already_run.contains(&step_name) {
-                continue;
-            }
-            already_run.insert(step_name.clone());
-
-            let input_state = match self.interfaces.get(&step_name) {
+    /// Invoke a wave of steps against the CURRENT state snapshot (no mutation),
+    /// returning each step's state-shaped update (ready for `reconcile`) plus the
+    /// raw (path, delta) projections (for bridge/passthrough deltas). The shared
+    /// invoke half of the one reconciled apply path used by settle and trigger.
+    fn invoke_step_wave(&self, wave: &[String]) -> (Vec<Value>, Vec<(Path, Value)>) {
+        let mut updates: Vec<Value> = Vec::new();
+        let mut deltas: Vec<(Path, Value)> = Vec::new();
+        for name in wave {
+            let input_state = match self.interfaces.get(name) {
                 Some(iface) => iface.view(&self.state),
                 None => continue,
             };
-
-            let update = match self.nodes.get(&step_name) {
+            let update = match self.nodes.get(name) {
                 Some(ProcessNode::Step(s)) => s.update(&input_state),
                 _ => continue,
             };
-
             if let Some(update_value) = update.into_value() {
-                let projections = match self.interfaces.get(&step_name) {
-                    Some(iface) => iface.project(&update_value),
-                    None => continue,
-                };
-
-                for (path, value, _schema) in &projections {
-                    all_step_deltas.push((path.clone(), value.clone()));
-                }
-
-                let (newly_changed, structural) = self.apply_projections(
-                    &projections);
-                any_structural |= structural;
-
-                // Cascade: find downstream steps triggered by this step's output
-                for path in &newly_changed {
-                    if let Some(steps) = self.step_triggers.get(path) {
-                        for s in steps {
-                            if !already_run.contains(s) {
-                                queue.push(s.clone());
-                            }
-                        }
+                if let Some(iface) = self.interfaces.get(name) {
+                    let projections = iface.project(&update_value);
+                    for (path, value, _schema) in &projections {
+                        deltas.push((path.clone(), value.clone()));
                     }
-                    for i in 1..path.len() {
-                        let prefix = path[..i].to_vec();
-                        if let Some(steps) = self.step_triggers.get(&prefix) {
-                            for s in steps {
-                                if !already_run.contains(s) {
-                                    queue.push(s.clone());
-                                }
-                            }
-                        }
-                    }
+                    updates.push(projections_to_update(&projections));
                 }
-
-                all_step_changes.extend(newly_changed);
             }
         }
-
-        if any_structural && !all_step_changes.is_empty() {
-            self.discover_processes(&all_step_changes);
-        }
-
-        (all_step_changes, all_step_deltas)
+        (updates, deltas)
     }
 
     /// Dynamically add a process to the running engine.
@@ -998,21 +1095,27 @@ impl Engine {
         &mut self,
         name: String,
         spec: ProcessSpec,
-        node: ProcessNode,
+        mut node: ProcessNode,
     ) {
         let mut interface = spec.interface();
         interface.output_schemas = node.outputs();
         self.interfaces.insert(name.clone(), interface);
 
         if let Some(interval) = spec.interval {
-            // Schedule for NEXT cycle, not current time.
-            // This prevents infinite discovery-fire-discover loops
-            // when new processes are added mid-tick.
+            // A process's first event is at its creation time, `self.time`:
+            //  - at init (t=0) it's invoked in the first step;
+            //  - mid-run, the run loop creates processes only AFTER advancing time
+            //    and applying updates (invoke→advance→apply→discover), so
+            //    `self.time` here is already the post-advance time — the new
+            //    process is invoked on the NEXT step, never re-run in the step that
+            //    created it. No `+interval` deferral, matching process-bigraph's
+            //    `empty_front(global_time)`.
             self.fronts.insert(
                 name.clone(),
                 ProcessFront {
-                    next_time: self.time + interval,
+                    next_time: self.time,
                     interval,
+                    pending: None,
                 },
             );
         } else {
@@ -1025,6 +1128,15 @@ impl Engine {
         }
 
         self.specs.insert(name.clone(), spec);
+        // Hand the engine's registry to nodes that compose other processes
+        // (e.g. `RunProcess` instantiates the process it wraps). The engine
+        // owns the registry; every node it builds shares it.
+        if let Some(registry) = &self.registry {
+            match &mut node {
+                ProcessNode::Process(p) => p.set_registry(Arc::clone(registry)),
+                ProcessNode::Step(s) => s.set_registry(Arc::clone(registry)),
+            }
+        }
         self.nodes.insert(name, node);
     }
 
@@ -1047,90 +1159,29 @@ impl Engine {
         self.discover_processes(changed_paths);
     }
 
-    /// Fire a set of one-shot Steps in dependency order: a step that consumes
-    /// another's output runs after it. This is how a composite "triggers" its
-    /// steps — run at construction AND after discovery, so a ys-compiled
-    /// one-shot Step network (discovered, address-based) fires the same way
-    /// construction-time steps do (#7). A step whose wired inputs aren't present
-    /// yet is skipped; it fires later when a state change triggers it.
-    fn fire_steps_in_dependency_order(&mut self, step_names: Vec<String>) {
-        if step_names.is_empty() {
-            return;
-        }
-
-        // output_path → producing step.
-        let mut output_to_step: HashMap<Path, String> = HashMap::new();
-        for name in &step_names {
-            if let Some(spec) = self.specs.get(name) {
-                for path in spec.outputs.values() {
-                    output_to_step.insert(path.clone(), name.clone());
-                }
-            }
-        }
-
-        // A depends on B if B produces an input of A.
-        let mut deps: HashMap<String, HashSet<String>> = HashMap::new();
-        for name in &step_names {
-            let d: HashSet<String> = self
-                .specs
-                .get(name)
-                .map(|s| {
-                    s.inputs
-                        .values()
-                        .filter_map(|p| output_to_step.get(p).cloned())
-                        .filter(|dep| dep != name)
-                        .collect()
-                })
-                .unwrap_or_default();
-            deps.insert(name.clone(), d);
-        }
-
-        // Kahn topological sort (deterministic).
-        let mut in_degree: HashMap<String, usize> = step_names
+    /// Settle the step network at init / after discovery: repeatedly fire any
+    /// ready (all inputs present) step that hasn't fired yet, until none remain.
+    /// A *source* step (no inputs) is ready immediately; a consumer becomes
+    /// ready once its producers have fired — so a one-shot Step DAG runs in
+    /// dependency order without any explicit topological sort (readiness IS the
+    /// order). Reactive re-firing on later state changes is `trigger_steps`
+    /// during `run`. This is the single init-firing path (replaced three).
+    fn settle_steps(&mut self) {
+        // Run every not-yet-fired step once, in dependency layers (see
+        // `run_step_layers`). A consumer lands a layer after its producer, so it
+        // sees the producer's output via layer ordering — not a mid-tick leak.
+        let steps: Vec<String> = self
+            .nodes
             .iter()
-            .map(|n| (n.clone(), deps.get(n).map(|d| d.len()).unwrap_or(0)))
-            .collect();
-        let mut queue: Vec<String> = in_degree
-            .iter()
-            .filter(|(_, deg)| **deg == 0)
+            .filter(|(n, node)| {
+                matches!(node, ProcessNode::Step(_)) && !self.fired_init_steps.contains(n.as_str())
+            })
             .map(|(n, _)| n.clone())
             .collect();
-        queue.sort();
-        let mut order: Vec<String> = Vec::new();
-        while let Some(name) = queue.pop() {
-            order.push(name.clone());
-            for (other, other_deps) in &deps {
-                if other_deps.contains(&name) {
-                    if let Some(deg) = in_degree.get_mut(other) {
-                        *deg -= 1;
-                        if *deg == 0 {
-                            queue.push(other.clone());
-                            queue.sort();
-                        }
-                    }
-                }
-            }
+        for name in &steps {
+            self.fired_init_steps.insert(name.clone());
         }
-
-        // Fire each ready step in order.
-        for step_name in &order {
-            if !self.step_inputs_present(step_name) {
-                continue; // upstream not produced yet — fires later via trigger
-            }
-            let interface = match self.interfaces.get(step_name) {
-                Some(i) => i.clone(),
-                None => continue,
-            };
-            let input_state = interface.view(&self.state);
-            let update = match self.nodes.get(step_name) {
-                Some(ProcessNode::Step(s)) => s.update(&input_state),
-                _ => continue,
-            };
-            if let Some(update_value) = update.into_value() {
-                let projections = interface.project(&update_value);
-                self.apply_projections(&projections);
-            }
-        }
+        self.run_step_layers(steps);
     }
 
     /// Whether every wired input path of a step currently resolves to a present
@@ -1159,19 +1210,15 @@ impl Engine {
         if let Some(map) = self.state.as_map().cloned() {
             self.scan_for_processes(&map, &[], &registry, &mut to_add);
         }
-        let mut added_steps: Vec<String> = Vec::new();
         for (name, spec, node) in to_add {
             if !self.nodes.contains_key(&name) {
-                let is_step = matches!(node, ProcessNode::Step(_));
-                self.add_process(name.clone(), spec, node);
-                if is_step {
-                    added_steps.push(name);
-                }
+                self.add_process(name, spec, node);
             }
         }
-        // Fire newly-discovered one-shot steps in dependency order (#7) — the
-        // composite triggering its steps, the same sweep construction runs.
-        self.fire_steps_in_dependency_order(added_steps);
+        // Settle the step network now that new steps are registered: fire any
+        // whose inputs are present, cascading downstream — the same dataflow
+        // mechanism the run loop uses after each process tick.
+        self.settle_steps();
     }
 
     pub fn node_names(&self) -> Vec<&str> {
@@ -1381,6 +1428,59 @@ impl Engine {
                 results.push((child_name, spec, node));
             }
         }
+    }
+}
+
+/// Fold a process/step's projected outputs `(path, value)` into one
+/// state-shaped update Value (rooted at the engine state), ready for
+/// `reconcile` to combine with other updates from the same tick.
+///
+/// Overlapping ports are **deep-merged**, not overwritten: a process commonly
+/// targets both a child path (e.g. `pool.a0.value`) and that child's parent
+/// (e.g. `pool` with an `_add`/`_remove`, or an empty `{}`). A flat `set_path`
+/// would let the parent write clobber the child write (or vice-versa); deep
+/// merge keeps both so the whole update survives into `reconcile`.
+fn projections_to_update(projections: &[(Path, Value, Option<Schema>)]) -> Value {
+    let mut update = Value::map();
+    for (path, value, _) in projections {
+        merge_projection(&mut update, path, value.clone());
+    }
+    update
+}
+
+/// Deep-merge `value` into `update` at `path`, recursing into maps so overlapping
+/// projections combine (empty maps are no-ops; leaves are set).
+fn merge_projection(update: &mut Value, path: &[Key], value: Value) {
+    match path.split_first() {
+        None => deep_merge_value(update, value),
+        Some((head, rest)) => {
+            if !matches!(update, Value::Map(_)) {
+                *update = Value::map();
+            }
+            if let Value::Map(map) = update {
+                let entry = map.entry(head.clone()).or_insert_with(Value::map);
+                merge_projection(entry, rest, value);
+            }
+        }
+    }
+}
+
+/// Recursively merge `value` into `target`: maps union key-by-key; anything else
+/// overwrites. (Update sentinels like `_add`/`_remove` are ordinary map keys and
+/// merge naturally; `reconcile` later resolves any same-key collisions.)
+fn deep_merge_value(target: &mut Value, value: Value) {
+    match (target, value) {
+        (Value::Map(t), Value::Map(v)) => {
+            for (k, val) in v {
+                match t.get_mut(&k) {
+                    Some(existing) => deep_merge_value(existing, val),
+                    None => {
+                        t.insert(k, val);
+                    }
+                }
+            }
+        }
+        (t, v) => *t = v,
     }
 }
 

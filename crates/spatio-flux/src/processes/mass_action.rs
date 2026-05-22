@@ -1,31 +1,27 @@
-//! Deterministic mass-action ODE integrators.
+//! Deterministic mass-action ODE: a reaction network + two single-step
+//! integrators (forward Euler, RK4), each a plain prism `Process`.
 //!
-//! Two fixed-step explicit integrators — forward Euler and classical
-//! RK4 — over a mass-action reaction network. Both realize the **same
-//! target** (the deterministic mass-action ODE, i.e. the mean-field /
-//! large-copy-number limit of the chemical master equation that a
-//! Gillespie `BigraphicalReactiveSystem` samples); they differ only in
-//! **method**. They are the two `DeterministicMassAction` fulfillers for
-//! the process-contract demonstration (`docs/process-contracts.md`):
-//! same model, same target, different method — so their trajectories are
-//! legitimately comparable and any divergence is method-induced.
+//! A `Process` advances ONE step per `update(state, interval)` — reusable,
+//! repeatable. `RunProcess` (`process_runner.rs`) drives one over a runtime to
+//! produce a `TimeSeries`. Both integrators realize the **same target** (the
+//! deterministic mass-action ODE — the mean-field limit of the chemical master
+//! equation a Gillespie BRS samples) by different **methods**: the two
+//! `DeterministicMassAction` fulfillers (`docs/process-contracts.md`).
 //!
-//! The network here is the deterministic reading of the same reactions a
-//! BRS fires stochastically: one model, multiple realizations under
-//! different contracts (Gillespie → CME; these → mass-action ODE; FBA →
-//! constraint-based steady-state flux). HiGHS/FBA targets a *different*
-//! object, which is why it cannot stand in here — see the doc.
+//! `TimeSeries` here is a plain ys VALUE (`{_type:"TimeSeries", times, columns}`),
+//! not a Foreign Rust struct — `species_mse`/`overlay` are registered methods on
+//! the `"TimeSeries"` type that read that Value (the "all types are declared
+//! types" rule).
 
 use std::any::Any;
 
 use indexmap::IndexMap;
-use prism_bigraph::{Foreign, Process, Schema, Update, Value};
+use prism_bigraph::{Process, Schema, StateMap, Update, Value};
 use prism_schema::{MethodError, MethodRegistry};
 
 /// A single mass-action reaction: `reactants -> products` at rate `k`.
-///
-/// Stoichiometry entries are `(species_index, coefficient)`. The
-/// mass-action propensity is `k · ∏ x[i]^coeff` over the reactants.
+/// Stoichiometry entries are `(species_index, coefficient)`; the mass-action
+/// propensity is `k · ∏ x[i]^coeff` over the reactants.
 #[derive(Clone, Debug)]
 pub struct Reaction {
     pub reactants: Vec<(usize, u32)>,
@@ -33,9 +29,9 @@ pub struct Reaction {
     pub k: f64,
 }
 
-/// A mass-action reaction network: named species plus reactions over
-/// them. This is the shared *model*; an integrator is a *method*
-/// realizing the deterministic mass-action *target* over it.
+/// A mass-action reaction network: named species + reactions over them. The
+/// shared *model*; an integrator is a *method* realizing the deterministic
+/// mass-action *target* over it.
 #[derive(Clone, Debug)]
 pub struct MassActionNetwork {
     pub species: Vec<String>,
@@ -50,20 +46,17 @@ impl MassActionNetwork {
         }
     }
 
-    /// Index of a species by name.
     pub fn index_of(&self, name: &str) -> Option<usize> {
         self.species.iter().position(|s| s == name)
     }
 
-    /// Builder: append a reaction.
     pub fn with_reaction(mut self, r: Reaction) -> Self {
         self.reactions.push(r);
         self
     }
 
-    /// `dx/dt` at state `x`. For each reaction the propensity is
-    /// `v = k · ∏ xᵢ^νᵢ` over reactants; it contributes `(νprod − νreac)·v`
-    /// to each participating species.
+    /// `dx/dt` at state `x`: each reaction's propensity `v = k · ∏ xᵢ^νᵢ` over
+    /// reactants contributes `(νprod − νreac)·v` to each species.
     pub fn derivatives(&self, x: &[f64]) -> Vec<f64> {
         let mut dx = vec![0.0; self.species.len()];
         for r in &self.reactions {
@@ -82,45 +75,8 @@ impl MassActionNetwork {
     }
 }
 
-/// A simulated trajectory: sample `times` plus one value column per
-/// species, each column aligned with `times`. The column shape matches
-/// `spatio_flux::report::render_timeseries_svg` so plotting (the
-/// `overlay` analysis method, rung-1 step 2) is a direct fit.
-#[derive(Clone, Debug)]
-pub struct TimeSeries {
-    pub times: Vec<f64>,
-    pub columns: IndexMap<String, Vec<f64>>,
-}
-
-impl TimeSeries {
-    /// Mean squared error per species against another trajectory sampled
-    /// on the same time grid. Only species present in both are reported;
-    /// each MSE averages over the overlapping prefix length.
-    ///
-    /// This is the comparison `biocompose`'s `CompareResults` performs —
-    /// but here the two inputs are guaranteed (by a shared contract) to
-    /// approximate the same mathematical object, so the number has a
-    /// warrant. See `docs/process-contracts.md`.
-    pub fn species_mse(&self, other: &TimeSeries) -> IndexMap<String, f64> {
-        let mut out = IndexMap::new();
-        for (name, a) in &self.columns {
-            if let Some(b) = other.columns.get(name) {
-                let n = a.len().min(b.len());
-                if n == 0 {
-                    continue;
-                }
-                let sse: f64 = (0..n).map(|i| (a[i] - b[i]).powi(2)).sum();
-                out.insert(name.clone(), sse / n as f64);
-            }
-        }
-        out
-    }
-}
-
-/// Which fixed-step explicit scheme to integrate with — the **method**
-/// axis of the process contract. Both schemes share the deterministic
-/// mass-action **target**; that shared target is what makes a comparison
-/// between their outputs legitimate.
+/// Which fixed-step explicit scheme — the **method** axis of the contract.
+/// Both share the deterministic mass-action **target**.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Integrator {
     /// Forward (explicit) Euler — first order. Maps to KISAO:0000030.
@@ -129,53 +85,13 @@ pub enum Integrator {
     Rk4,
 }
 
-/// Integrate `network` from `init` over `[0, t_end]` with fixed step
-/// `dt`, recording the state after every step (including `t = 0`).
-/// `init` is indexed like `network.species`.
-pub fn integrate(
-    network: &MassActionNetwork,
-    init: &[f64],
-    t_end: f64,
-    dt: f64,
-    method: Integrator,
-) -> TimeSeries {
-    assert_eq!(
-        init.len(),
-        network.species.len(),
-        "init must have one value per species"
-    );
-    assert!(dt > 0.0, "dt must be positive");
-
-    let n_steps = (t_end / dt).round().max(0.0) as usize;
-    let mut x = init.to_vec();
-    let mut times = Vec::with_capacity(n_steps + 1);
-    let mut cols: Vec<Vec<f64>> = vec![Vec::with_capacity(n_steps + 1); network.species.len()];
-
-    times.push(0.0);
-    for (i, xi) in x.iter().enumerate() {
-        cols[i].push(*xi);
-    }
-
-    for step in 0..n_steps {
-        x = match method {
-            Integrator::ForwardEuler => euler_step(network, &x, dt),
-            Integrator::Rk4 => rk4_step(network, &x, dt),
-        };
-        times.push((step + 1) as f64 * dt);
-        for (i, xi) in x.iter().enumerate() {
-            cols[i].push(*xi);
-        }
-    }
-
-    let columns = network.species.iter().cloned().zip(cols).collect();
-    TimeSeries { times, columns }
-}
-
+/// One forward-Euler step of size `dt`.
 fn euler_step(net: &MassActionNetwork, x: &[f64], dt: f64) -> Vec<f64> {
     let k1 = net.derivatives(x);
     x.iter().zip(&k1).map(|(xi, d)| xi + dt * d).collect()
 }
 
+/// One classical RK4 step of size `dt`.
 fn rk4_step(net: &MassActionNetwork, x: &[f64], dt: f64) -> Vec<f64> {
     let axpy = |x: &[f64], k: &[f64], s: f64| -> Vec<f64> {
         x.iter().zip(k).map(|(xi, ki)| xi + s * ki).collect()
@@ -189,30 +105,22 @@ fn rk4_step(net: &MassActionNetwork, x: &[f64], dt: f64) -> Vec<f64> {
         .collect()
 }
 
-// ── Native process: the integrator as a one-shot Step ──────────────────
-//
-// `Rk4` / `ForwardEuler` are RUST-NATIVE processes (defined here, exposing the
-// process interface) that chrysalis calls via `extern`. A one-shot uniform-
-// time-course step (cf. biocompose's `*UTCStep`): given the initial
-// concentrations it integrates the whole `[0, t_end]` and emits the full
-// `trajectory` as a Foreign `TimeSeries`. Network / method / dt / t_end are
-// config; `init` is the input. The first of a growing library of ready-to-call
-// native building blocks (the other process kind is ys-native, defined in terms
-// of operations on the types these expose).
+// ── The integrator as a plain (stepwise) Process ───────────────────────
 
-/// One-shot mass-action ODE integrator, exposed as a native `Step`.
+/// A one-step mass-action integrator: `update(state, interval)` advances the
+/// concentrations by one Euler/RK4 step of size `interval` and returns the full
+/// next state. Reusable — call it repeatedly (that is what `RunProcess` does).
+/// `Rk4` / `ForwardEuler` register this; the network is config.
 #[derive(Clone, Debug)]
-pub struct MassActionIntegrator {
+pub struct MassActionProcess {
     pub network: MassActionNetwork,
     pub method: Integrator,
-    pub t_end: f64,
-    pub dt: f64,
 }
 
-impl Process for MassActionIntegrator {
+impl Process for MassActionProcess {
     fn inputs(&self) -> IndexMap<String, Schema> {
         IndexMap::from([(
-            "init".to_string(),
+            "state".to_string(),
             Schema::Map {
                 value: Box::new(Schema::float()),
             },
@@ -221,41 +129,39 @@ impl Process for MassActionIntegrator {
 
     fn outputs(&self) -> IndexMap<String, Schema> {
         IndexMap::from([(
-            "trajectory".to_string(),
-            Schema::Custom {
-                name: "TimeSeries".to_string(),
-                parameters: IndexMap::new(),
+            "state".to_string(),
+            Schema::Map {
+                value: Box::new(Schema::float()),
             },
         )])
     }
 
-    // One-shot: integrate the whole `[0, t_end]` each invocation, ignoring the
-    // tick interval. Implemented as a `Process` so the engine schedules it
-    // directly — its `trajectory` output then triggers the downstream `Compare`
-    // step. (A `Step` would only fire in the construction-time dependency sweep,
-    // which a ys-compiled spec discovered later misses.)
-    fn interval(&self) -> f64 {
-        1.0
-    }
-
-    fn update(&self, state: &Value, _interval: f64) -> Update {
-        let init_map = state.get_field("init").and_then(|v| v.as_map());
-        let init: Vec<f64> = self
+    fn update(&self, state: &Value, interval: f64) -> Update {
+        let map = state.get_field("state").and_then(|v| v.as_map());
+        let x: Vec<f64> = self
             .network
             .species
             .iter()
             .map(|s| {
-                init_map
-                    .and_then(|m| m.get(s.as_str()))
+                map.and_then(|m| m.get(s.as_str()))
                     .and_then(|v| v.as_f64())
                     .unwrap_or(0.0)
             })
             .collect();
-        let ts = integrate(&self.network, &init, self.t_end, self.dt, self.method);
-        Update::value(Value::tree([(
-            "trajectory",
-            Value::Foreign(Foreign::new("TimeSeries", ts)),
-        )]))
+        let next = match self.method {
+            Integrator::ForwardEuler => euler_step(&self.network, &x, interval),
+            Integrator::Rk4 => rk4_step(&self.network, &x, interval),
+        };
+        // The full next state (RunProcess feeds it straight back next step).
+        let out = Value::tree(
+            self.network
+                .species
+                .iter()
+                .cloned()
+                .zip(next)
+                .map(|(s, v)| (s, Value::float(v))),
+        );
+        Update::value(Value::tree([("state", out)]))
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -266,28 +172,19 @@ impl Process for MassActionIntegrator {
     }
 }
 
-/// Build a [`MassActionIntegrator`] from a vivarium-style config:
-/// `{ network: { species: [...], reactions: [{reactants, products, k}] },
-/// t_end, dt }`. The `method` (Rk4 / ForwardEuler) is fixed by the registered
-/// factory name.
-pub fn integrator_from_config(config: &Value, method: Integrator) -> MassActionIntegrator {
+/// Build a [`MassActionProcess`] from a config `{ network: {species, reactions} }`.
+/// The `method` (Rk4 / ForwardEuler) is fixed by the registered factory name.
+pub fn process_from_config(config: &Value, method: Integrator) -> MassActionProcess {
     let network = config
         .get_field("network")
         .map(network_from_value)
         .unwrap_or_else(|| MassActionNetwork::new(Vec::<String>::new()));
-    let t_end = config.get_field("t_end").and_then(|v| v.as_f64()).unwrap_or(1.0);
-    let dt = config.get_field("dt").and_then(|v| v.as_f64()).unwrap_or(0.01);
-    MassActionIntegrator {
-        network,
-        method,
-        t_end,
-        dt,
-    }
+    MassActionProcess { network, method }
 }
 
 /// Decode `{ species: [...], reactions: [{reactants, products, k}] }` into a
 /// [`MassActionNetwork`]; stoichiometry maps are `{species: coeff}`.
-fn network_from_value(v: &Value) -> MassActionNetwork {
+pub fn network_from_value(v: &Value) -> MassActionNetwork {
     let species: Vec<String> = v
         .get_field("species")
         .and_then(|s| s.as_list())
@@ -322,19 +219,21 @@ fn stoichiometry(net: &MassActionNetwork, v: Option<&Value>) -> Vec<(usize, u32)
     out
 }
 
-// ── TimeSeries value-methods (the ys-native side) ──────────────────────
+// ── TimeSeries value-methods (a declared type, not Foreign) ─────────────
 //
-// Registered against the `TimeSeries` type so a *ys-native* process body can
-// call `a.species_mse(b)` / `a.overlay(b)`, dispatched via the `MethodRegistry`
-// (the second process kind reaching native operations — docs/chrysalis-design.md
-// "Two kinds of process"). This is how a contract-typed `Compare` step computes
-// its analysis + plot from two trajectories.
+// `TimeSeries` is the Value `{_type:"TimeSeries", times:[…], columns:{sp:[…]}}`.
+// `species_mse` / `overlay` are registered against the `"TimeSeries"` type and
+// read that Value — so a ys-native `Compare` calls `a.species_mse(b)` and it
+// dispatches here, with no Foreign anywhere ys can see.
 
-fn as_timeseries(v: &Value) -> Option<&TimeSeries> {
-    match v {
-        Value::Foreign(f) => f.downcast_ref::<TimeSeries>(),
-        _ => None,
-    }
+fn ts_columns(v: &Value) -> Option<&StateMap> {
+    v.get_field("columns").and_then(|c| c.as_map())
+}
+
+fn ts_floats(v: &Value) -> Vec<f64> {
+    v.as_list()
+        .map(|l| l.iter().filter_map(|x| x.as_f64()).collect())
+        .unwrap_or_default()
 }
 
 fn ts_err(method: &str, message: &str) -> MethodError {
@@ -346,35 +245,50 @@ fn ts_err(method: &str, message: &str) -> MethodError {
 }
 
 /// Register `TimeSeries` value-methods (`species_mse`, `overlay`) on a
-/// `MethodRegistry`. A workflow that composes these native integrators merges
-/// this into chrysalis's method registry so ys-native bodies can call them.
+/// `MethodRegistry`. A workflow that composes the integrators merges this into
+/// the method registry so ys-native bodies can call them.
 pub fn register_methods(reg: &mut MethodRegistry) {
     reg.register("TimeSeries", "species_mse", |recv, args| {
-        let a = as_timeseries(recv).ok_or_else(|| ts_err("species_mse", "receiver is not a TimeSeries"))?;
+        let a = ts_columns(recv).ok_or_else(|| ts_err("species_mse", "receiver is not a TimeSeries"))?;
         let b = args
             .first()
-            .and_then(as_timeseries)
+            .and_then(ts_columns)
             .ok_or_else(|| ts_err("species_mse", "argument 0 must be a TimeSeries"))?;
-        Ok(Value::tree(
-            a.species_mse(b).into_iter().map(|(k, v)| (k, Value::float(v))),
-        ))
+        let mse = a.iter().filter_map(|(sp, acol)| {
+            let bcol = b.get(sp.as_str())?;
+            let (av, bv) = (ts_floats(acol), ts_floats(bcol));
+            let n = av.len().min(bv.len());
+            if n == 0 {
+                return None;
+            }
+            let sse: f64 = (0..n).map(|i| (av[i] - bv[i]).powi(2)).sum();
+            Some((sp.to_string(), Value::float(sse / n as f64)))
+        });
+        Ok(Value::tree(mse))
     });
 
     reg.register("TimeSeries", "overlay", |recv, args| {
-        let a = as_timeseries(recv).ok_or_else(|| ts_err("overlay", "receiver is not a TimeSeries"))?;
+        let a = ts_columns(recv).ok_or_else(|| ts_err("overlay", "receiver is not a TimeSeries"))?;
         let b = args
             .first()
-            .and_then(as_timeseries)
+            .and_then(ts_columns)
             .ok_or_else(|| ts_err("overlay", "argument 0 must be a TimeSeries"))?;
+        let times: Vec<f64> = recv
+            .get_field("times")
+            .map(ts_floats)
+            .unwrap_or_default();
         let mut series: IndexMap<String, Vec<f64>> = IndexMap::new();
-        for (sp, col) in &a.columns {
-            series.insert(format!("{sp} (a)"), col.clone());
+        for (sp, col) in a {
+            series.insert(format!("{sp} (a)"), ts_floats(col));
         }
-        for (sp, col) in &b.columns {
-            series.insert(format!("{sp} (b)"), col.clone());
+        for (sp, col) in b {
+            series.insert(format!("{sp} (b)"), ts_floats(col));
         }
-        let svg = crate::report::render_timeseries_svg("overlay", &a.times, &series, false);
-        Ok(Value::Foreign(Foreign::new("Figure", svg)))
+        let svg = crate::report::render_timeseries_svg("overlay", &times, &series, false);
+        Ok(Value::tree([
+            ("_type", Value::from("Figure")),
+            ("svg", Value::String(svg)),
+        ]))
     });
 }
 
@@ -382,8 +296,7 @@ pub fn register_methods(reg: &mut MethodRegistry) {
 mod tests {
     use super::*;
 
-    /// `A -> B` at rate `k` — the network used across the contract demo.
-    /// Closed form: `A(t) = A₀·e^{−kt}`, `B(t) = A₀·(1 − e^{−kt})`.
+    /// `A -> B` at rate `k`. Closed form: `A(t) = A₀·e^{−kt}`.
     fn a_to_b(k: f64) -> MassActionNetwork {
         MassActionNetwork::new(["A", "B"]).with_reaction(Reaction {
             reactants: vec![(0, 1)],
@@ -392,140 +305,91 @@ mod tests {
         })
     }
 
+    /// Loop the stepwise process over `[0, t_end]` — the trajectory `RunProcess`
+    /// produces — returning per-step `[A, B]` snapshots and their times.
+    fn run(net: &MassActionNetwork, init: &[f64], t_end: f64, dt: f64, m: Integrator) -> Vec<(f64, Vec<f64>)> {
+        let n = (t_end / dt).round() as usize;
+        let mut x = init.to_vec();
+        let mut out = vec![(0.0, x.clone())];
+        for s in 0..n {
+            x = match m {
+                Integrator::ForwardEuler => euler_step(net, &x, dt),
+                Integrator::Rk4 => rk4_step(net, &x, dt),
+            };
+            out.push(((s + 1) as f64 * dt, x.clone()));
+        }
+        out
+    }
+
     #[test]
     fn rk4_matches_analytic_decay_and_conserves_mass() {
         let k = 0.7;
-        let net = a_to_b(k);
-        let ts = integrate(&net, &[1.0, 0.0], 5.0, 0.01, Integrator::Rk4);
-        for (i, &t) in ts.times.iter().enumerate() {
-            let exact_a = (-k * t).exp();
-            let a = ts.columns["A"][i];
-            let b = ts.columns["B"][i];
-            assert!((a - exact_a).abs() < 1e-6, "A(t={t}) = {a}, exact {exact_a}");
-            assert!((a + b - 1.0).abs() < 1e-9, "A+B not conserved at t={t}");
+        for (t, x) in run(&a_to_b(k), &[1.0, 0.0], 5.0, 0.01, Integrator::Rk4) {
+            assert!((x[0] - (-k * t).exp()).abs() < 1e-6, "A(t={t})={}", x[0]);
+            assert!((x[0] + x[1] - 1.0).abs() < 1e-9, "A+B not conserved at t={t}");
         }
     }
 
     #[test]
-    fn euler_is_first_order_and_lags() {
+    fn euler_lags_but_tracks() {
         let k = 0.7;
-        let net = a_to_b(k);
-        let ts = integrate(&net, &[1.0, 0.0], 5.0, 0.05, Integrator::ForwardEuler);
-        let max_err = ts
-            .times
-            .iter()
-            .enumerate()
-            .map(|(i, &t)| (ts.columns["A"][i] - (-k * t).exp()).abs())
+        let max_err = run(&a_to_b(k), &[1.0, 0.0], 5.0, 0.05, Integrator::ForwardEuler)
+            .into_iter()
+            .map(|(t, x)| (x[0] - (-k * t).exp()).abs())
             .fold(0.0_f64, f64::max);
-        // Measurably worse than RK4, but still in the right ballpark.
-        assert!(max_err > 1e-4, "euler should be measurably off: {max_err}");
-        assert!(max_err < 5e-2, "euler should still track the solution: {max_err}");
+        assert!(max_err > 1e-4 && max_err < 5e-2, "euler max err {max_err}");
     }
 
     #[test]
-    fn same_target_different_method_diverges_then_converges() {
-        // The contract claim made executable: Rk4 and ForwardEuler share
-        // the DeterministicMassAction target, so their trajectories are
-        // legitimately comparable; the MSE between them is method-induced
-        // and shrinks as the step refines.
+    fn process_advances_exactly_one_step() {
         let net = a_to_b(0.7);
-        let mse_a_at = |dt: f64| -> f64 {
-            let r = integrate(&net, &[1.0, 0.0], 5.0, dt, Integrator::Rk4);
-            let e = integrate(&net, &[1.0, 0.0], 5.0, dt, Integrator::ForwardEuler);
-            r.species_mse(&e)["A"]
-        };
-        let coarse = mse_a_at(0.2);
-        let fine = mse_a_at(0.02);
-        assert!(coarse > 0.0, "methods must differ at a coarse step");
-        assert!(fine < coarse, "MSE must shrink as dt refines: {fine} !< {coarse}");
-    }
-
-    #[test]
-    fn registered_as_a_native_process_and_runs() {
-        use prism_bigraph::ProcessNode;
-
-        // `Rk4` resolves through the spatio-flux registry — the same factory an
-        // `extern Rk4` in chrysalis binds to. Config carries the network + dt +
-        // t_end (A→B at k=0.7); `init` is the input.
-        let reg = crate::from_config::build_registry();
-        let config = Value::tree([
-            (
-                "network",
-                Value::tree([
-                    ("species", Value::List(vec![Value::from("A"), Value::from("B")])),
-                    (
-                        "reactions",
-                        Value::List(vec![Value::tree([
-                            ("reactants", Value::tree([("A", Value::float(1.0))])),
-                            ("products", Value::tree([("B", Value::float(1.0))])),
-                            ("k", Value::float(0.7)),
-                        ])]),
-                    ),
-                ]),
-            ),
-            ("t_end", Value::float(5.0)),
-            ("dt", Value::float(0.01)),
-        ]);
-
-        let ProcessNode::Process(proc) =
-            reg.create("Rk4", config).expect("Rk4 factory registered")
-        else {
-            panic!("Rk4 should be a Process");
-        };
-
+        let proc = MassActionProcess { network: net.clone(), method: Integrator::Rk4 };
         let state = Value::tree([(
-            "init",
+            "state",
             Value::tree([("A", Value::float(1.0)), ("B", Value::float(0.0))]),
         )]);
-        let traj = proc
-            .update(&state, 1.0)
+        let next = proc
+            .update(&state, 0.1)
             .into_value()
-            .and_then(|v| v.get_field("trajectory").cloned())
-            .expect("trajectory output");
-        let Value::Foreign(f) = traj else {
-            panic!("trajectory should be a Foreign TimeSeries");
-        };
-        let ts = f.downcast_ref::<TimeSeries>().expect("downcast TimeSeries");
-
-        let last = ts.times.len() - 1;
-        let a_final = ts.columns["A"][last];
-        assert!(
-            (a_final - (-0.7 * 5.0_f64).exp()).abs() < 1e-5,
-            "native Rk4 step should match the analytic decay e^(-kt); got {a_final}"
-        );
+            .and_then(|v| v.get_field("state").cloned())
+            .expect("state output");
+        let a = next.get_field("A").and_then(|v| v.as_f64()).unwrap();
+        let expected = rk4_step(&net, &[1.0, 0.0], 0.1)[0];
+        assert!((a - expected).abs() < 1e-12, "{a} vs {expected}");
     }
 
     #[test]
-    fn timeseries_methods_dispatch_via_registry() {
-        use prism_bigraph::Foreign;
-        use prism_schema::MethodRegistry;
-
+    fn timeseries_methods_dispatch_on_a_value() {
         let mut reg = MethodRegistry::new();
         register_methods(&mut reg);
 
-        let net = a_to_b(0.7);
-        let rk4 = integrate(&net, &[1.0, 0.0], 5.0, 0.01, Integrator::Rk4);
-        let euler = integrate(&net, &[1.0, 0.0], 5.0, 0.01, Integrator::ForwardEuler);
-        let a = Value::Foreign(Foreign::new("TimeSeries", rk4));
-        let b = Value::Foreign(Foreign::new("TimeSeries", euler));
-
-        // `a.species_mse(b)` → a Map of per-species MSE; A's is method-induced
-        // (small, but nonzero — the two methods genuinely differ).
-        let mse = reg
-            .dispatch(&a, "species_mse", std::slice::from_ref(&b))
-            .expect("species_mse dispatch");
-        let a_mse = mse.get_field("A").and_then(|v| v.as_f64()).expect("A's MSE");
-        assert!(a_mse > 0.0 && a_mse < 1e-2, "method-induced MSE on A: {a_mse}");
-
-        // `a.overlay(b)` → a Foreign Figure carrying an SVG document.
-        let fig = reg
-            .dispatch(&a, "overlay", std::slice::from_ref(&b))
-            .expect("overlay dispatch");
-        let Value::Foreign(f) = fig else {
-            panic!("overlay should return a Figure");
+        // Two TimeSeries Values that differ on A: a Value, not a Foreign.
+        let ts = |col: &[f64]| {
+            Value::tree([
+                ("_type", Value::from("TimeSeries")),
+                ("times", Value::List(vec![Value::float(0.0), Value::float(1.0)])),
+                (
+                    "columns",
+                    Value::tree([("A", Value::List(col.iter().map(|x| Value::float(*x)).collect()))]),
+                ),
+            ])
         };
-        assert_eq!(f.type_name, "Figure");
-        let svg = f.downcast_ref::<String>().expect("Figure wraps an SVG string");
+        let x = ts(&[1.0, 0.5]);
+        let y = ts(&[1.0, 0.4]);
+
+        // MSE on A = mean([0, (0.5-0.4)^2]) = 0.01/2 = 0.005.
+        let mse = reg
+            .dispatch(&x, "species_mse", std::slice::from_ref(&y))
+            .expect("species_mse");
+        let a_mse = mse.get_field("A").and_then(|v| v.as_f64()).expect("A mse");
+        assert!((a_mse - 0.005).abs() < 1e-9, "mse {a_mse}");
+
+        // overlay → a Figure VALUE carrying an SVG (no Foreign).
+        let fig = reg
+            .dispatch(&x, "overlay", std::slice::from_ref(&y))
+            .expect("overlay");
+        assert_eq!(fig.get_field("_type").and_then(|v| v.as_str()), Some("Figure"));
+        let svg = fig.get_field("svg").and_then(|v| v.as_str()).expect("svg");
         assert!(svg.contains("<svg"), "overlay should be an SVG document");
     }
 }
