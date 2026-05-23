@@ -323,6 +323,21 @@ codegen tool. (4) apply down `CANONICAL_ORDER`, validating each family.
 *The abstraction is settled (see delta-traces.md); the rest is the runner + the
 per-type renderers + the template + serialization.*
 
+🌐 **HORIZON — distributed bigraphs across HPC → [`docs/distributed-bigraphs.md`](distributed-bigraphs.md)**
+(vision, 2026-05-23). prism IS already a distributed actor system (place graph =
+partition, link graph = channels, composite = actor, delta = message, algebra =
+sync, trace = durable log). Working backwards, the whole HPC picture reduces to
+**ONE seam: the engine stepping a `rest`-addressed subengine like a local one**
+(send input state, get output delta, `apply`) — then a chrysalis `composite`
+reaches an HPC by flipping a subengine's address `local`→`rest`, *`.ys`
+unchanged*. FIRST MOVE: split one composite across two REST processes (parent
+engine ↔ `RestProcessServer` child) exchanging bridge deltas once per step (BSP
+barrier of 2); builds on the REST server we shipped. Protocols are a **ladder**
+(REST control-plane → Arrow Flight data-plane → MPI/UCX collectives, where
+`all-reduce` = commutative-delta `merge`), pluggable behind the protocol seam.
+The parallelize-vs-synchronize lines are schema-derived (commutative deltas →
+async; non-commutative → barrier). Far horizon; the linchpin is small.
+
 **Suggested order:** **#10 codegen** is the architecture marquee — it unblocks #15
 (spatio-flux as `.ys`), full export/import self-containment, and `server`/`import`
 on packages (the single path). Then **#16 diagnostics → #21 defaults → #6 SBML
