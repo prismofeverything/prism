@@ -14,7 +14,7 @@
 ;; Kernel forms recognised:
 ;;
 ;;   - Definers (lowercase): def (values + functions), type, process, step,
-;;     composite, reaction, pattern, extern, unit, context, contract
+;;     composite, reaction, pattern, unit, context, contract
 ;;   - Modifiers: `from M import a, b' (native host imports), `import N
 ;;     from "p.ys"' (file imports), fulfills, using, with, where, replace
 ;;   - Control / logic: let, in, if, then, else, for, not, and, or
@@ -83,7 +83,7 @@ for parallel composition."
 
 (defconst ys-definer-keywords
   '("def" "type" "process" "step" "composite" "reaction" "pattern"
-    "extern" "unit" "context" "contract")
+    "unit" "context" "contract")
   "Top-level definer keywords (each introduces a named definition).
 `def name = …` / `def name :: T = …` (value), `def name(args) = …` (function).")
 
@@ -170,7 +170,7 @@ contexts (`using'), type methods (`with'), guards (`where'), rewrites.")
     ;; capture group below sits at position 1.
     (,(concat "\\<"
               (regexp-opt '("type" "process" "step" "composite"
-                            "reaction" "pattern" "extern" "contract"))
+                            "reaction" "pattern" "contract"))
               "\\>\\s-+\\([A-Z][A-Za-z0-9_]*\\)")
      1 'ys-declaration-face)
 

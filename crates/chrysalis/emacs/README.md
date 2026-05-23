@@ -5,7 +5,7 @@ Syntax highlighting + light indentation for chrysalis source.
 ## What it highlights
 
 - **Definer keywords** (lowercase): `def`, `type`, `process`, `step`,
-  `composite`, `reaction`, `pattern`, `extern`, `unit`, `context`,
+  `composite`, `reaction`, `pattern`, `unit`, `context`,
   `contract`
 - **Modifier keywords**: `from`, `import`, `using`, `fulfills`, `with`,
   `where`, `replace`; **control/logic**: `let`, `in`, `if`, `then`,

@@ -1,181 +1,174 @@
-# Next session — launch prompt
+# Next session — launch prompt & plan
 
-## 🔧 IN PROGRESS (2026-05-22): engine execution-correctness arc
+## Where we are (2026-05-22, post language-foundation session)
 
-The schema *algebra* is complete (see below). This session found the **engine's
-USE of it** (the run loop) had correctness gaps and fixed them in the core — no
-workarounds. Started from a RunProcess/process-contract demo (#8) and the
-integrator-comparison `.ys`; that uncovered the run-loop bugs. **Suite went 8
-failures → 0** — full workspace green (67 suites).
+The chrysalis **language foundation + the `chrysalis` build tool** are in, and the
+architecture is realigned to **prism-std → chrysalis → spatio-flux**. Full
+workspace green. The process-contract integrator-comparison demo runs end to end:
 
-**Landed (prism-bigraph/src/engine.rs, prism-schema/src/{schema.rs,reconcile.rs}):**
-1. **invoke/apply separation** — run loop is now `advance_to_next_event`:
-   invoke all due processes against ONE snapshot → advance time → apply together
-   → trigger/discover. (Was fire=invoke+apply immediately ⇒ a process could see
-   another's mid-tick mutation. The core correctness bug.)
-2. **`reconcile` wired into apply** (`apply_reconciled`) — a tick's updates are
-   reconciled into one combined update, applied once. `reconcile` had 13 laws +
-   tests but was **never called by the engine** before.
-3. **reconcile remove-wins** (reconcile.rs `reconcile_keyed`) — a `_remove`d key
-   voids a concurrent value-update.
-4. **apply `_add`/per-key ordering** (schema.rs — Map/Tree/RecursiveTree/Any
-   arms) — per-key loop now bases on `result` (post-`_add`), not `cur`, so a
-   re-added key composes with a concurrent update instead of reverting. (Was the
-   dynamic_structure bug: rewired worker reverted to old config, never
-   re-instantiated.)
-5. **process front = creation time** (`add_process`: `next_time = self.time`, no
-   `+interval` hack); mid-run-created processes land post-advance ⇒ run next step.
-6. **step firing = dependency layers** (`run_step_layers`, replaced the
-   readiness-wave): producer→consumer layers (pb `wire_step_layers`); each layer
-   invokes one snapshot + reconciled apply. settle (init) + trigger (reactive)
-   both use it.
-7. **`from_state` auto-discovers** (idempotent via `fired_init_steps`) — like
-   `Composite`, so callers that don't call `discover_all_processes` still work.
-8. **projections → fragments + reconcile** (`apply_reconciled`) — each port
-   output becomes a single-path fragment; `reconcile` combines them all
-   (overlapping parent/child writes compose schema-aware — no hand-rolled merge).
-   `apply_reconciled` also preserves each writer's port schema so additive fields
-   promote across a nested composite bridge (the culture fix).
-9. **`Engine::new` infers its schema** (`resolve(infer(state), declared)`, same as
-   `from_state`) — no engine runs schema-free. This was the monod regression: with
-   an `Any` root, `reconcile`/`apply` take the opaque *last-wins* branch and drop
-   concurrent partial updates (biomass stayed 0.1). It only surfaced once fragments
-   split a process's output into partial per-port updates — deep_merge had hidden
-   it by handing reconcile one complete tree. Tasks #20 (unify construction paths)
-   and #21 (survey algebra-evasion + schema-free tree ops) capture the follow-up.
-
-**✅ DONE — full workspace green (66 suites, 0 failed).** The last failure
-(`culture_imports_nests_and_runs_dish`) is fixed: `apply_reconciled` now takes
-projection-sets and preserves each writer's port schema, so the additive `Array`
-field promotes and reconstructs across the nested bridge (it had been overwritten
-by the zero-sum diffusion delta).
-
-**Plan (remaining — all follow-ups; the core is green + clean):**
-- ✅ #16 done: `crates/prism-bigraph/tests/execution_invariants.rs` — 6 executable
-  axioms: invoke/apply snapshot isolation, reconcile-by-sum, dependency layering
-  (D=B*(A+B)=714), remove-wins, `_add`-compose, and `_remove`+`_add`=replace.
-  (Mid-tick-creation-fires-next and removed-store-expiry are already covered by
-  the grow_divide / dynamic_structure tests.)
-- Resume the demo arc (#9 packages, #11 Plot split + view SVG, #5 KISAO) and the
-  surveys/refactors (#19 method survey, #14 Core, #15 Foreign).
-
-**Fast debug loop (build is slow — full workspace links ~16 binaries w/ heavy
-deps):** `cargo check -p <crate>` (compile, no link, ~secs) for "does it build";
-`cargo test -p <crate> --test <name>` for the touched area; full `cargo test`
-only at checkpoints. No `.cargo/config.toml` linker override (rustflags change ⇒
-whole-tree rebuild). See memory `feedback_test_timeout`.
-
-**Memories added:** `feedback_no_sleep_polling`, `feedback_test_timeout`,
-`feedback_ys_layering`. Pattern: the algebra is ported & faithful; gaps were the
-engine's *use* of it. A defined-but-unused op (`reconcile`) was a latent bug ⇒
-**#19** surveys upstream methods for more "ported but not wired" gaps.
-
-**Tasks #1–19 in the tracker; key in-flight: #8, #16, #17, #18, #19.**
-
----
-
-## ✅ The fresh-core schema-algebra rebuild is COMPLETE (2026-05-21)
-
-The rebuild described below (tasks #20→#18→#19→#21 + cutover) is **done**.
-Closure is achieved and enforced. Full workspace green (375 passed, 2 ignored =
-doctests). Do **not** re-do it. State of the core:
-
-- **`prism_schema::algebra`** is the single public door for all schema/state
-  transformation: `apply`/`apply_with`, `reconcile`, `merge`, `diff`,
-  `resolve`, `promote`, `generalize`, plus `default`/`check`/`infer`/`realize`/
-  `serialize`/`deserialize`. The raw mutators (`apply_update`,
-  `apply_update_with`, `apply_add_remove`) are `pub(crate)` — external crates
-  must use `algebra::*`, so a shortcut won't compile.
-- **Laws** (`prism-schema/tests/algebra_laws.rs`, `proptest`): 13 executable
-  axioms over generated `(schema, value)` pairs — apply-identity / preserves-
-  sort, reconcile-coherence, diff↔apply inverse, resolve idempotent /
-  commutative / associative / `Any`-identity, promote ≤ resolve, generalize
-  idempotent / `Any`-identity, codec round-trip, check-default.
-- **Closure guard** (`prism-bigraph/tests/closure_guard.rs`): ratchet over
-  engine/composite/chrysalis; `KNOWN_REMAINING = &[]` (empty = closed). Keep it
-  empty.
-- **Stand-ins deleted**: `Schema::infer_and_merge`, the `Schema::resolve` stub,
-  chrysalis `overlay_apply_types`, composite `compute_delta`/`merge_value_maps`,
-  dead engine helpers. `from_state` = `resolve(infer(state), declared)`;
-  `apply_projections_to` = `promote(slot, port)` + `algebra::apply` (fixed the
-  #14 diffusion gotcha — un-ignored + passing); Composite output bridge =
-  `algebra::diff` on its real inner schema (law #10).
-
-See memory `schema-algebra-rebuild-done` and `composite-typing-and-resolve`.
-
-## What's next (follow-up milestones, not yet done)
-
-1. **First-class `Custom` types** — make a `Custom` indistinguishable from a
-   built-in sort: a type = (representation `Schema`, op-handler overrides,
-   value-methods). Thread a `Core`/registry through the algebra ops so each
-   resolves a `Custom` to its repr+handlers (with-no-override = delegate to the
-   representation; first-class by delegation). Add a chrysalis `type Name =
-   <repr> with { op = <expr>, method(args) = <expr> }` surface — the
-   algebraic-effects *handler* model. The closure rebuild is the prerequisite
-   (one algebra fn per op to make `Custom`-aware, not scattered sites).
-2. **`.ys` workflow files as task-graph composites** — an `.ys` file is itself a
-   composite; a *workflow* style (init → simulate → analyze DAG, edges inferred
-   from data dependencies = the step-trigger graph) compiles to a Composite of
-   `Step` instances. A path toward replacing SED-ML. See task list +
-   `docs/chrysalis-design.md`.
-
-   **First concrete instance: the process-contract demonstration** —
-   `docs/process-contracts.md` (design + build sequence). A contract-typed
-   COPASI/Tellurium-style comparison: two processes, one interface, each
-   `fulfills` a shared contract (target semantics + method class), and a
-   `Compare` node typed by that shared contract so an illegitimate comparison
-   won't compile. Replaces `biocompose` (which stalled at the interface).
-   - **Rung 1 substrate — built + green (2026-05-21):** mass-action ODE
-     integrators in `spatio-flux::processes::mass_action` — `Rk4` /
-     `ForwardEuler` over a shared `MassActionNetwork`, `TimeSeries` with
-     `species_mse`, analytic-solution tests. **Now native processes:** wrapped as
-     a one-shot `Step` (`MassActionIntegrator`) and registered in `build_registry`
-     as `Rk4` / `ForwardEuler`, so chrysalis `extern Rk4` binds to them
-     (`reg.create("Rk4", config)` → Foreign `TimeSeries`, tested). See
-     `docs/chrysalis-design.md` "Two kinds of process".
-   - **Contract layer — DONE (2026-05-21):** substitutability is
-     `prism_schema::algebra::refines` (= `resolve==`, **no new op**); AST
-     (`Def::Contract` / `ContractRef` / `PortDecl.contract`), lowering
-     (`schema::contract_ref_schema` → `Tree` of nominal axes), enforcement
-     (`check::check_contract` — a producer wired into a contract-demanding port
-     must refine it, via producer paths like `r.trajectory`), and the **parser**
-     (`contract …`, `port :: C`, `fulfills C[…]`). Proven by
-     `prism-schema/tests/contract_substitutability.rs` (7) +
-     `chrysalis/tests/contract_enforcement.rs` (3, AST) +
-     `chrysalis/tests/parse_contract.rs` (2, parse `.ys` → enforce).
-   - **Runnable demo COMPLETE (2026-05-22):** `TimeSeries::species_mse`/`overlay`
-     are registered methods; `crates/chrysalis/ys/integrator-comparison.ys` runs
-     end to end — parse → enforce contracts → compile with the native registry +
-     injected methods (`compile_with_methods`) → Engine run → MSE + overlay
-     `Figure` produced (`spatio-flux/tests/integrator_comparison.rs`, 3 green —
-     the test lives in spatio-flux, not chrysalis, per `feedback_ys_layering`).
-     Native integrators are one-shot `Process`es; `Compare` is a ys-native step
-     calling the registered methods; contracts flow through wirings to slots
-     (`check::collect_slot_contracts`). Gotcha learned:
-     `reference_ys_workflow_dag_scheduling`.
-   - **Artifacts (2026-05-22):** wrapped as a runnable example,
-     `crates/spatio-flux/examples/integrator_comparison.rs` — `cargo run -p
-     spatio-flux --example integrator_comparison` writes trajectory CSVs, an MSE
-     table, the overlay SVG (the workflow's own `Figure`), and `state.json` to
-     `outputs/integrator-comparison/` (gitignored). RK4 tracks `e^{-kt}`, Euler
-     lags ⇒ MSE ≈ 3.6e-4/species: warranted comparison, method-induced divergence.
-   - **Remaining for the contracts arc:** rung-3 KISAO export (#5); convert other
-     examples to `.ys` (#6); the fundamental-type catalog + packages (#1).
-   - HiGHS/FBA is the cross-target **negative test** (constraint-based steady
-     state ≠ mass-action ODE), not a fulfiller; dFBA is the bridge case.
-
----
-
-## Historical: the rebuild launch prompt (for reference)
-
-The block below was the original launch prompt. Kept for provenance.
-
+```sh
+cargo run -p chrysalis --bin chrysalis -- run crates/chrysalis/ys/integrator-comparison.ys
+# → outputs/integrator-comparison/{Rk4,ForwardEuler,mse}.csv + overlay.svg
 ```
-We're doing the fresh-core rebuild of prism's schema algebra. [...]
-GOAL: faithfully port the schema algebra and rebuild Composite *in terms of it*,
-deleting every ad-hoc stand-in, so the core has real algebraic closure.
-ORDER: #20 scaffolding → #18 lattice → #19 value/update ops → #21 Composite →
-cutover. DONE = every transform via the algebra; laws green; closure-guard
-green; Composite via the algebra; stand-ins deleted; workspace green; diffusion
-un-ignored. (Full text in git history.)
-```
+
+### Landed this session
+- **Import model** — `from <module> import <names>` (replaces `extern`): a
+  `ModuleRegistry` the host populates; whole processes (`from core import
+  RunProcess`), objects (`from integrators import rk4` → `rk4.method(…)`), and
+  types (`from chem import CRN`) importable. Entry: `compile_with_modules`.
+- **`def` (required) + first-class functions** — `def name :: Type = expr`,
+  `def f(args) = body`; functions are values (pass/return/store) via `Expr::Call`.
+  Bare `name = …` is now an error.
+- **Process contracts** — `contract` / `fulfills` / `::`; substitutability =
+  `algebra::refines` (no new op). The demo enforces it at compile time.
+- **Self-outputting workflows** — effectful `Output` step (`->{}`), `Path` type,
+  `/` path-join, `.name`, `.csv`/`.svg` writer methods; the `.ys` emits its own
+  artifacts (no Rust harness).
+- **Canonical formatting** — `fulfills` parses either side of the interface; the
+  unparser emits canonical multi-line and no longer drops contracts.
+- **`prism-std`** — prism's native standard library (`RunProcess`, the
+  mass-action integrators, `CRN`, `TimeSeries` + methods); the SVG plotter →
+  `prism-viz`. chrysalis bundles it via `chrysalis::prelude::std_{registry,
+  methods,modules}`.
+- **The `chrysalis` build tool** (`crates/chrysalis/src/bin/chrysalis.rs`) —
+  `run` / `check` / `bigraph` live (std path, in-process via the prelude +
+  `chrysalis::runner::run`).
+- **Docs** — top-level `README.md`; `crates/chrysalis/ys/{README,GUIDE}.md`
+  (GUIDE = how to write `.ys`); refreshed emacs README.
+
+### Architecture orientation (read first)
+- **Layering is prism-std → chrysalis → spatio-flux.** chrysalis bundles prism-std
+  as its std library and **never deps spatio-flux**. spatio-flux is a downstream
+  demo package (FBA/diffusion/particles). See memory `feedback_ys_layering`.
+- **The run command is `chrysalis::runner::run(program, registry, methods,
+  modules, time)`** — parameterized by the host's packages; never reimplemented.
+- **`chrysalis` IS the build tool.** std `.ys` run in-process; non-std need the
+  codegen path (#10).
+- The schema layer is a closed algebra (`prism_schema::algebra`, single door,
+  laws + closure-guard green) and the engine run-loop correctness arc is done
+  (both historical now — see bottom).
+
+## Next — the task tracker (durable; the harness task list is ephemeral)
+
+🔧 **#10 — finish the `chrysalis` build tool's codegen path.** `run`/`check`/
+`bigraph` are live for std `.ys`. Remaining: `chrysalis compile` + running `.ys`
+that import **non-std** packages (e.g. spatio-flux). Model (rust-script style):
+parse → resolve `from X import Y` to crates via a **module→crate manifest** →
+generate a runner crate (deps = those crates; main = assemble registry + run) →
+`cargo build` (cache by content hash) → run. This is also the **packages**
+milestone. *Medium-large.*
+
+⏳ **#6 — SBML→CRN importer / repressilator (the original goal).** Native subset
+SBML/MathML reader (roxmltree + ~6-operator evaluator + one-time assignment-rule
+param precompute) → a `CRN`; generalize the integrators to an arbitrary ODE RHS
+(an `OdeSystem` trait both `MassActionNetwork` and an `SbmlOde` implement — the
+repressilator BIOMD0000000012 is Hill-kinetics, not mass-action). Add
+`CRN.from_sbml(path)` (or `from models import repressilator`). The model + Python
+reference are at `../biocompose/biocompose/{models/BIOMD0000000012_url.xml,
+experiments/copasi_tellurium_comparison.py, processes/}`. NOT a COPASI port —
+this model has no events/rules/function-defs/piecewise. *Large.*
+
+⏳ **#7 — dt-refinement convergence sweep.** Run the comparison at several
+timesteps; show MSE → 0 as dt shrinks (the two methods converge to the same
+target — divergence is pure discretization). Emit a convergence plot/CSV.
+*Small — good warm-up.*
+
+⏳ **#8 — comment-preserving parse/unparse.** Retain comments through
+`parse→unparse` so all `.ys` regenerate losslessly. Leading block comments
+(before a def) are easy; trailing/inline comments need node-level trivia (type
+aliases, ports, body items). Then regenerate every hand-written `.ys` canonically
+(~190 comment lines to preserve). *~half-day.*
+
+⏳ **#12 — prism-svg: SVG as place-graph values.** Types for SVG nodes
+(svg/g/rect/line/polyline/text); a `Figure` becomes a tree of typed nodes
+(homoiconic); rendering = a `serialize`. Replaces the plotters string in
+`prism-viz::render_timeseries_svg`. *Medium.*
+
+🧹 **#13 — fully retire `extern`.** The import model (`from … import`) replaced it,
+but the construct is still live: `Tok::Extern` / `Def::Extern` / `parse_extern_def`
+with `compile`/`eval`/`check`/`unparse` arms, the grow-divide fixtures
+(`src/fixtures/grow_divide*.rs`), and five tests (`parse_contract.rs`,
+`contract_enforcement.rs`, `parse_use_import.rs`, `compile_imports.rs`,
+`grow_divide_homoiconic.rs`). Migrate those to imports, then delete the token + AST
+variant + every arm. The emacs mode already de-highlights `extern` (2026-05-22), so
+the grammar is the current laggard. *Small-medium; mechanical, ~13 files.*
+
+🦷 **#14 — real contract enforcement through `RunProcess`.** The flagship
+`integrator-comparison.ys` only *declares* `fulfills` on the integrators; its
+`Compare` takes plain `TimeSeries`, so nothing is rejected in that file (the teeth
+live in the dedicated enforcement tests). To make its "a different target would not
+compile" comment literally true: (a) add `:: DeterministicMassAction` to
+`Compare`'s input ports, and (b) propagate the wrapped process's output contract
+through `RunProcess`'s `timeseries` output — today `RunProcess` is a generic driver
+that drops it, so `check::provider_contract` finds no contract at `rk4_traj`. The
+real capability: a contract a process carries must survive a generic wrapper. Fix
+in prism (`RunProcess` forwards its inner process's output contract) + a test that
+a wrong-target inner process is rejected at the demanding port. *Medium.*
+
+📦 **#15 — convert spatio-flux to a `.ys` project (the downstream-package
+endgame).** spatio-flux is Rust today; the goal is `chrysalis run
+spatio-flux/ys/*.ys` over its native solvers (FBA/HiGHS, diffusion,
+particles/rapier2d). This is the *consumer* that proves #10's codegen path and
+forces the **project manifest**:
+- a `project.ys` (uv-style) at the package root declaring the package's native
+  crate(s) and the module→crate map (`from fba import …` → spatio-flux's FBA), so
+  `chrysalis run` from a project root pulls the local package in as importable
+  modules;
+- `chrysalis compile` generates a runner crate (deps = those crates), builds it
+  (cached by content hash), and runs — #10's rust-script model;
+- port spatio-flux's processes to importable native modules + thin `.ys` wrappers
+  (mirrors how prism-std exposes `core`/`integrators`/`chem`/`io`);
+- move the spatio-flux demos to `spatio-flux/ys/*.ys`, run via `chrysalis`.
+Layering stays prism-std → chrysalis → spatio-flux; the flip is that spatio-flux's
+*demos* become `.ys` driven by the tool, not Rust examples. *Large; gated on #10 —
+the marquee proof that build tool + import model + packages all compose.*
+
+**Suggested order:** **#13 (quick cleanup) → #7 (quick win) → #14 (flagship teeth)
+→ #6 (the headline) → #10 codegen → #15 (spatio-flux `.ys`, gated on #10) → #8 →
+#12** — #6 is the science marquee, #15 the architecture marquee; both move whenever
+there's appetite.
+
+## Long-run milestones (beyond the tracker)
+- **First-class `Custom` types** — `type Name = <repr> with { op = …,
+  method(args) = … }` (the algebraic-effects handler model): make a `Custom`
+  indistinguishable from a built-in sort by threading a registry through the
+  algebra ops. `CRN`/`Path` are synthetic types today; this makes them truly
+  first-class. The contract layer + import-types are the substrate.
+- **KISAO export (contract rung 3)** — contract → KISAO term mapping; OMEX/SED-ML
+  round-trip. "Tell us your target semantics and we'll tell you the admissible
+  methods" — a contribution back to the standard, not just consumption.
+- **dFBA cross-target bridge** — comparing a kinetic integrator vs dFBA needs an
+  explicit, *named* cross-target contract (the contract forces you to name the
+  approximation rather than silently MSE-ing incomparable things).
+- **More demos as `.ys`** — convert remaining examples; optional rung-2 real
+  COPASI/Tellurium via a BioSimulators subprocess bridge (interop, not new
+  contract content).
+- **Tier-2: evolving M/R** — process bodies as first-class values (after
+  Fontana's AlChemy); schema-driven typed construction so illegal programs are
+  unrepresentable.
+- **A packages ecosystem** — #15 makes spatio-flux the first non-std `.ys`
+  package; generalize so any native crate ships importable `.ys` modules (a
+  `project.ys` manifest + a resolver/registry), plus a fundamental-type catalog.
+
+## Build / test loop
+Build is slow (links many binaries). Use `cargo check -p <crate>` for "does it
+build", `cargo test -p <crate> --test <name>` for the touched area, full
+`cargo test --workspace` only at checkpoints. Wrap runs in `timeout` — prism
+tests run <1s, so a slow run means an infinite loop / structural explosion, not
+patience. No `.cargo/config.toml` linker override (rustflags change ⇒ whole-tree
+rebuild). See memories `feedback_test_timeout`, `feedback_no_sleep_polling`.
+
+## Pointers
+- `README.md` — the port + chrysalis + commands.
+- `crates/chrysalis/ys/GUIDE.md` — how to write `.ys` (the tutorial).
+- `docs/prism-architecture.md`, `docs/schema-algebra.md`,
+  `docs/chrysalis-design.md`, `docs/process-contracts.md`.
+- Memories: `feedback_ys_layering` (the architecture), `feedback_chrysalis_thin_layer`,
+  `feedback_no_half_measures`, `feedback_consult_upstream`, `feedback_test_timeout`.
+
+## Historical (done — provenance in git)
+- The fresh-core **schema-algebra rebuild** — closure achieved; `prism_schema::
+  algebra` is the single door; 13 laws + closure-guard green.
+- The **engine execution-correctness arc** — invoke/apply separation, `reconcile`
+  wired into apply, dependency-layered step firing, schema always inferred.
+- The **process-contract demo** — built and now runs via `chrysalis run`.
