@@ -1,6 +1,7 @@
 pub mod brs;
 pub mod builder;
 pub mod composite;
+pub mod core;
 pub mod defer;
 pub mod document;
 pub mod engine;
@@ -10,6 +11,7 @@ pub mod process;
 pub mod protocol;
 pub mod protocol_runtime;
 pub mod protocols;
+pub mod step_cache;
 pub mod topology;
 pub mod update;
 pub mod vivarium;
@@ -24,10 +26,12 @@ pub use protocols::{ParallelProtocol, RestProtocol};
 pub use document::Document;
 pub use vivarium::VivariumDocument;
 pub use composite::Composite;
+pub use core::Core;
 pub use engine::Engine;
 pub use factory::ProcessRegistry;
 pub use ports::{Interface, PortSchema, Wires};
 pub use process::{Process, ProcessNode, Step};
+pub use step_cache::StepCache;
 pub use topology::{ProcessSpec, Topology};
 pub use update::Update;
 

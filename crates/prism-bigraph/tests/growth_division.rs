@@ -16,7 +16,7 @@ use prism_bigraph::composite::Composite;
 use prism_bigraph::factory::ProcessRegistry;
 use prism_bigraph::process::{Process, ProcessNode, Step};
 use prism_bigraph::topology::{ProcessSpec, Topology};
-use prism_bigraph::{Engine, Key, Schema, Update, Value};
+use prism_bigraph::{Core, Engine, Key, Schema, Update, Value};
 
 // ── Grow: mass += mass * rate * interval (a delta) ──────────────────
 #[derive(Debug)]
@@ -152,20 +152,21 @@ fn subengine_cell_grows_and_divides_via_bridge() {
             .unwrap_or_default();
         ProcessNode::Step(Box::new(Divide { threshold, agent_id }))
     });
-    // The cell composite is discovered/instantiated through from_config too.
-    let handle: Arc<std::sync::OnceLock<Arc<ProcessRegistry>>> =
-        Arc::new(std::sync::OnceLock::new());
+    // The cell composite is discovered/instantiated through from_config too —
+    // it captures the whole Core (set once everything is built).
+    let handle: Arc<std::sync::OnceLock<Core>> = Arc::new(std::sync::OnceLock::new());
     {
         let handle = Arc::clone(&handle);
         registry.register("Composite", move |config| {
-            let registry = handle.get().cloned().expect("registry handle");
+            let core = handle.get().expect("core handle");
             ProcessNode::Process(Box::new(
-                Composite::from_config(&config, registry).expect("from_config"),
+                Composite::from_config(&config, core).expect("from_config"),
             ))
         });
     }
     let registry = Arc::new(registry);
-    let _ = handle.set(Arc::clone(&registry));
+    let core = Core::from(Arc::clone(&registry));
+    let _ = handle.set(core.clone());
 
     // Top engine: an `environment` map holding one cell, plus the cell's
     // process spec so it is discovered.
@@ -175,7 +176,7 @@ fn subengine_cell_grows_and_divides_via_bridge() {
         "environment",
         Value::tree([("cell", cell_spec(1.6, "cell"))]),
     )]);
-    let mut engine = Engine::from_state(Schema::Any, topo.initial_state.clone(), Arc::clone(&registry))
+    let mut engine = Engine::from_state(Schema::Any, topo.initial_state.clone(), core)
         .expect("engine");
     engine.discover_all_processes();
 

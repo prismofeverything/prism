@@ -110,7 +110,7 @@ impl Composite {
     /// when the inner engine runs.
     pub fn from_config(
         config: &Value,
-        registry: std::sync::Arc<crate::factory::ProcessRegistry>,
+        core: &crate::core::Core,
     ) -> Option<Self> {
         let map = config.as_map()?;
 
@@ -145,7 +145,10 @@ impl Composite {
             state_schema: inner_schema,
         };
         let mut engine = Engine::new(inner_topology, HashMap::new());
-        engine.set_registry(registry);
+        // The subengine inherits the WHOLE core (types + processes + methods +
+        // protocols), so a Custom-typed / method-using / `rest:`-addressed process
+        // works inside a composite exactly as at the top level.
+        engine.set_core(core.clone());
 
         // Discover all process specs in the inner state
         engine.discover_all_processes();

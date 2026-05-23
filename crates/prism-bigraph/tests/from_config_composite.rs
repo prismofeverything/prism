@@ -17,7 +17,7 @@ use prism_bigraph::composite::Composite;
 use prism_bigraph::factory::ProcessRegistry;
 use prism_bigraph::process::{Process, ProcessNode};
 use prism_bigraph::topology::{ProcessSpec, Topology};
-use prism_bigraph::{Engine, Key, Schema, Update, Value};
+use prism_bigraph::{Core, Engine, Key, Schema, Update, Value};
 
 #[derive(Debug)]
 struct Grow {
@@ -86,7 +86,8 @@ fn from_config_builds_and_runs_a_composite() {
         ),
     ]);
 
-    let composite = Composite::from_config(&config, Arc::clone(&registry))
+    let core = Core::from(Arc::clone(&registry));
+    let composite = Composite::from_config(&config, &core)
         .expect("from_config should build a composite");
 
     // Parent engine: the composite's bridged `mass` output lands in `cell_mass`.

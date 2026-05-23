@@ -7,8 +7,6 @@
 //! program imports are supplied by the caller, keeping chrysalis independent of
 //! any downstream package (e.g. spatio-flux).
 
-use std::sync::Arc;
-
 use prism_bigraph::{Engine, ProcessRegistry};
 use prism_schema::{MethodRegistry, Value};
 
@@ -38,7 +36,7 @@ pub fn run(
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .map_err(RunError::Engine)?;
     engine.discover_all_processes();

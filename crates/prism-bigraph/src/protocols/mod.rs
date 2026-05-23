@@ -5,6 +5,8 @@
 
 pub mod parallel;
 pub mod rest;
+pub mod rest_server;
 
 pub use parallel::{ParallelProcess, ParallelProtocol};
 pub use rest::{RestProcess, RestProtocol};
+pub use rest_server::RestProcessServer;

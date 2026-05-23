@@ -13,7 +13,9 @@ use indexmap::IndexMap;
 use prism_schema::algebra;
 use prism_schema::{Key, Path, Schema, Value};
 
+use crate::core::Core;
 use crate::factory::ProcessRegistry;
+use crate::step_cache::StepCache;
 
 /// Resolve wires for a process at a given path.
 ///
@@ -150,23 +152,12 @@ pub struct Engine {
     /// Specs retained for introspection.
     specs: HashMap<String, ProcessSpec>,
 
-    /// Process registry for dynamic process discovery.
-    registry: Option<Arc<ProcessRegistry>>,
-
-    /// Optional type registry for `Schema::Custom` dispatch
-    /// (RT.4 — rich-type method dispatch). When set, the engine's
-    /// merge logic consults this registry's `TypeMethods` for custom-
-    /// typed paths; otherwise applies use the structural Schema
-    /// semantics (replace for Custom).
-    type_registry: Option<Arc<prism_schema::registry::TypeRegistry>>,
-
-    /// Optional method registry for value-receiver method dispatch
-    /// (used by chrysalis to call into prism's Rust API from
-    /// surface-language expression bodies). Not consulted by the
-    /// engine itself — held here so processes that need it (e.g.
-    /// `chrysalis::runtime::ChrysalisBrs`) can access it via the
-    /// engine handle.
-    method_registry: Option<Arc<prism_schema::MethodRegistry>>,
+    /// The unified runtime core: type schemas (`Custom` dispatch), process/step
+    /// factories (discovery), value-methods (chrysalis dispatch), and protocols
+    /// (`local`/`rest`/…). Threaded as one object so a subengine (a `Composite`)
+    /// inherits the WHOLE core — see [`Core`]. (Was four separate registry
+    /// fields; `Composite::from_config` used to receive only the process one.)
+    core: Core,
 
     /// Per-tick batching runtimes registered by protocols that need
     /// to coalesce per-process `invoke()` calls into one batched RPC
@@ -174,12 +165,11 @@ pub struct Engine {
     /// Empty for synchronous-only setups — flush is a no-op.
     protocol_runtimes: crate::protocol_runtime::ProtocolRuntimes,
 
-    /// Protocol resolver — dispatches `address.protocol` to a per-protocol
-    /// resolver. Defaults to a fresh [`crate::protocol::ProtocolRegistry`]
-    /// containing only the `local` protocol, which delegates to
-    /// `process_registry`. Add additional protocols via
-    /// [`Engine::register_protocol`] for parallel / rest / ray / etc.
-    protocol_registry: Arc<crate::protocol::ProtocolRegistry>,
+    /// Optional incremental-step cache. When set, the step scheduler skips a step
+    /// whose output is cached and fresh (reloading it instead of firing), and the
+    /// step DAG cascades staleness downstream. `None` ⇒ every step always fires
+    /// (the default; identical to pre-cache behaviour). See [`StepCache`].
+    step_cache: Option<StepCache>,
 }
 
 impl Engine {
@@ -190,6 +180,17 @@ impl Engine {
     pub fn new(
         topology: Topology,
         instances: HashMap<String, ProcessNode>,
+    ) -> Self {
+        Self::new_with_cache(topology, instances, None)
+    }
+
+    /// Like [`Engine::new`] but with an incremental-step cache in place *before*
+    /// the init settle, so the init step DAG itself is cached/skipped. Pass `None`
+    /// for the default (every step fires).
+    pub fn new_with_cache(
+        topology: Topology,
+        instances: HashMap<String, ProcessNode>,
+        step_cache: Option<StepCache>,
     ) -> Self {
         let mut fronts = HashMap::new();
         let mut interfaces = HashMap::new();
@@ -266,15 +267,13 @@ impl Engine {
             step_triggers,
             fired_init_steps: HashSet::new(),
             specs,
-            registry: None,
-            type_registry: None,
-            method_registry: None,
+            core: Core::new(),
             protocol_runtimes: crate::protocol_runtime::ProtocolRuntimes::new(),
-            protocol_registry: Arc::new(crate::protocol::ProtocolRegistry::new()),
             last_structural: false,
             pending_changes: Vec::new(),
             passthrough_paths: HashSet::new(),
             passthrough_deltas: IndexMap::new(),
+            step_cache,
         };
 
         // Settle the step network on init: fire every step whose inputs are
@@ -294,28 +293,30 @@ impl Engine {
     pub fn from_state(
         schema: Schema,
         state: Value,
-        registry: Arc<ProcessRegistry>,
+        core: impl Into<Core>,
     ) -> Result<Self, String> {
-        Self::from_state_with_protocols(
-            schema,
-            state,
-            registry,
-            Arc::new(crate::protocol::ProtocolRegistry::new()),
-        )
+        Self::from_state_core(schema, state, core.into())
     }
 
-    /// Like [`Engine::from_state`] but accepts a custom protocol
-    /// registry. Use this when the state contains addresses for
-    /// protocols other than `local` (e.g. `parallel:Foo`,
-    /// `rest:Bar`) — they need to be resolvable at construction time
-    /// so processes get scheduled in the first tick rather than the
-    /// second.
+    /// Like [`Engine::from_state`] but takes the process + protocol registries
+    /// separately (folded into a [`Core`]). Use when protocols are built apart
+    /// from a core; addresses for non-`local` protocols (`rest:`, `parallel:`)
+    /// must be resolvable at construction so processes schedule in the first tick.
     pub fn from_state_with_protocols(
         schema: Schema,
         state: Value,
         registry: Arc<ProcessRegistry>,
         protocols: Arc<crate::protocol::ProtocolRegistry>,
     ) -> Result<Self, String> {
+        Self::from_state_core(
+            schema,
+            state,
+            Core::new().with_processes(registry).with_protocols(protocols),
+        )
+    }
+
+    /// The shared `from_state` body: build + discover against a whole [`Core`].
+    fn from_state_core(schema: Schema, state: Value, core: Core) -> Result<Self, String> {
         // Resolve the schema inferred from state (structure + `_type`
         // annotations) with the declared `schema`. The declared schema is the
         // refining side: it wins ties and contributes the apply-critical types
@@ -336,8 +337,7 @@ impl Engine {
         // is a superset of the old `extract_processes`, which checked schema only.)
         topology.initial_state = state;
         let mut engine = Engine::new(topology, HashMap::new());
-        engine.set_registry(registry);
-        engine.set_protocol_registry(protocols);
+        engine.set_core(core);
         // Self-contained: instantiate processes + settle the step network now,
         // so `from_state` returns a ready engine like a freshly-built Composite.
         // Idempotent — callers that also call `discover_all_processes` are no-ops.
@@ -385,9 +385,9 @@ impl Engine {
         }
 
         // 4. Discover and instantiate new processes from the merged schema
-        if let Some(registry) = &self.registry {
-            let registry = Arc::clone(registry);
-            let protocols = Arc::clone(&self.protocol_registry);
+        {
+            let registry = Arc::clone(&self.core.processes);
+            let protocols = Arc::clone(&self.core.protocols);
             let mut new_specs = IndexMap::new();
             let mut new_instances = HashMap::new();
 
@@ -561,7 +561,25 @@ impl Engine {
     }
 
     pub fn set_registry(&mut self, registry: Arc<ProcessRegistry>) {
-        self.registry = Some(registry);
+        self.core.processes = registry;
+    }
+
+    /// Replace the whole runtime [`Core`] (types + processes + methods +
+    /// protocols). A subengine built from a parent's core inherits all of them.
+    pub fn set_core(&mut self, core: Core) {
+        self.core = core;
+    }
+
+    /// Borrow the runtime [`Core`].
+    pub fn core(&self) -> &Core {
+        &self.core
+    }
+
+    /// Attach an incremental-step [`StepCache`]. Set this *before* steps fire (the
+    /// init settle / `discover_all_processes`) for the workflow's steps to be
+    /// cached/skipped. `None`-equivalent behaviour is the default when unset.
+    pub fn set_step_cache(&mut self, cache: StepCache) {
+        self.step_cache = Some(cache);
     }
 
     /// Attach a `TypeRegistry` for `Schema::Custom` dispatch (RT.4).
@@ -572,14 +590,14 @@ impl Engine {
         &mut self,
         registry: Arc<prism_schema::registry::TypeRegistry>,
     ) {
-        self.type_registry = Some(registry);
+        self.core.types = registry;
     }
 
-    /// Borrow the attached type registry, if any.
+    /// Borrow the type registry (always present in the core; may be empty).
     pub fn type_registry(
         &self,
     ) -> Option<&Arc<prism_schema::registry::TypeRegistry>> {
-        self.type_registry.as_ref()
+        Some(&self.core.types)
     }
 
     /// Attach a `MethodRegistry` for value-receiver method dispatch.
@@ -589,14 +607,14 @@ impl Engine {
         &mut self,
         registry: Arc<prism_schema::MethodRegistry>,
     ) {
-        self.method_registry = Some(registry);
+        self.core.methods = registry;
     }
 
-    /// Borrow the attached method registry, if any.
+    /// Borrow the method registry (always present in the core; may be empty).
     pub fn method_registry(
         &self,
     ) -> Option<&Arc<prism_schema::MethodRegistry>> {
-        self.method_registry.as_ref()
+        Some(&self.core.methods)
     }
 
     /// Register a protocol-level batching runtime. The engine calls
@@ -629,7 +647,7 @@ impl Engine {
     /// registry containing only the `local` protocol if none was set
     /// explicitly.
     pub fn protocol_registry(&self) -> &Arc<crate::protocol::ProtocolRegistry> {
-        &self.protocol_registry
+        &self.core.protocols
     }
 
     /// Replace the protocol registry. Use when registering additional
@@ -638,7 +656,7 @@ impl Engine {
         &mut self,
         registry: Arc<crate::protocol::ProtocolRegistry>,
     ) {
-        self.protocol_registry = registry;
+        self.core.protocols = registry;
     }
 
     /// Register an additional protocol with the active registry.
@@ -647,13 +665,13 @@ impl Engine {
     pub fn register_protocol(&mut self, protocol: Arc<dyn crate::protocol::Protocol>) {
         let mut new_registry = crate::protocol::ProtocolRegistry::new();
         // Re-register any protocols already present (apart from default local).
-        for name in self.protocol_registry.names() {
-            if let Some(existing) = self.protocol_registry.get(name) {
+        for name in self.core.protocols.names() {
+            if let Some(existing) = self.core.protocols.get(name) {
                 new_registry.register(Arc::clone(existing));
             }
         }
         new_registry.register(protocol);
-        self.protocol_registry = Arc::new(new_registry);
+        self.core.protocols = Arc::new(new_registry);
     }
 
     /// Current simulation time.
@@ -864,7 +882,7 @@ impl Engine {
             return (Vec::new(), false);
         }
         let combined = match algebra::reconcile_with(
-            self.type_registry.as_deref(),
+            Some(self.core.types.as_ref()),
             &self.schema,
             &fragments,
         ) {
@@ -899,7 +917,7 @@ impl Engine {
                 &mut self.state,
                 &self.schema,
                 projections,
-                self.type_registry.as_deref(),
+                Some(self.core.types.as_ref()),
             );
             self.last_structural = result.1;
             return result;
@@ -934,7 +952,7 @@ impl Engine {
                         root_schema
                     };
                     delta = algebra::reconcile_with(
-                        self.type_registry.as_deref(),
+                        Some(self.core.types.as_ref()),
                         s,
                         &[existing.clone(), delta.clone()],
                     )
@@ -950,7 +968,7 @@ impl Engine {
             &mut self.state,
             &self.schema,
             &normal,
-            self.type_registry.as_deref(),
+            Some(self.core.types.as_ref()),
         );
         let has_passthrough = !self.passthrough_deltas.is_empty();
         self.last_structural = structural || has_passthrough;
@@ -1033,6 +1051,9 @@ impl Engine {
         let mut all_changed: Vec<Path> = Vec::new();
         let mut all_deltas: Vec<(Path, Value)> = Vec::new();
         let mut any_structural = false;
+        // Steps that recomputed this run (forced, uncached/stale, or downstream of
+        // a stale step) — drives the cascade to dependents in later layers.
+        let mut stale_set: HashSet<String> = HashSet::new();
 
         while !remaining.is_empty() {
             // Next layer: every remaining step whose producers have all run.
@@ -1050,11 +1071,63 @@ impl Engine {
                 layer = std::mem::take(&mut remaining);
             }
 
-            let (projection_sets, deltas) = self.invoke_step_wave(&layer);
-            all_deltas.extend(deltas);
+            // Per step: FRESH ⇒ reload its cached output; STALE ⇒ fire it. STALE =
+            // forced, not cached-fresh, or downstream of a stale step. Both feed one
+            // combined projection set for the layer's reconciled apply, so a skipped
+            // step's cached output still reaches its consumers. With no cache
+            // attached every step is STALE ⇒ identical to firing each.
+            let mut projection_sets: Vec<Vec<(Path, Value, Option<Schema>)>> = Vec::new();
+            let mut to_store: Vec<(String, Value)> = Vec::new();
+            for name in &layer {
+                let upstream_stale = deps
+                    .get(name.as_str())
+                    .map_or(false, |d| d.iter().any(|p| stale_set.contains(p)));
+                let stale = match self.step_cache.as_ref() {
+                    None => true,
+                    Some(c) => c.is_forced(name) || !c.is_fresh(name) || upstream_stale,
+                };
+                // FRESH reloads the cached output; a missing/unreadable entry falls
+                // back to firing.
+                let cached = if stale {
+                    None
+                } else {
+                    self.step_cache.as_ref().and_then(|c| c.load(name))
+                };
+                match cached {
+                    Some(value) => {
+                        if let Some(iface) = self.interfaces.get(name) {
+                            let projections = iface.project(&value);
+                            for (path, val, _) in &projections {
+                                all_deltas.push((path.clone(), val.clone()));
+                            }
+                            projection_sets.push(projections);
+                        }
+                    }
+                    None => {
+                        stale_set.insert(name.clone());
+                        if let Some((value, projections)) = self.invoke_one_step(name) {
+                            for (path, val, _) in &projections {
+                                all_deltas.push((path.clone(), val.clone()));
+                            }
+                            if self.step_cache.is_some() {
+                                to_store.push((name.clone(), value));
+                            }
+                            projection_sets.push(projections);
+                        }
+                    }
+                }
+            }
+
             let (changed, structural) = self.apply_reconciled(&projection_sets);
             any_structural |= structural;
             all_changed.extend(changed);
+
+            // Persist recomputed outputs AFTER they have been applied.
+            if let Some(cache) = self.step_cache.as_ref() {
+                for (name, value) in &to_store {
+                    cache.store(name, value);
+                }
+            }
 
             for s in &layer {
                 done.insert(s.clone());
@@ -1092,36 +1165,22 @@ impl Engine {
         steps
     }
 
-    /// Invoke a wave of steps against the CURRENT state snapshot (no mutation),
-    /// returning each step's state-shaped update (ready for `reconcile`) plus the
-    /// raw (path, delta) projections (for bridge/passthrough deltas). The shared
-    /// invoke half of the one reconciled apply path used by settle and trigger.
-    fn invoke_step_wave(
+    /// Invoke ONE step against the CURRENT state snapshot (no mutation), returning
+    /// its raw output value (for caching) and the projected state update (ready for
+    /// `reconcile`). The per-step invoke primitive used by `run_step_layers`, which
+    /// decides FRESH (reload from cache) vs STALE (call this) for each step.
+    fn invoke_one_step(
         &self,
-        wave: &[String],
-    ) -> (Vec<Vec<(Path, Value, Option<Schema>)>>, Vec<(Path, Value)>) {
-        let mut projection_sets: Vec<Vec<(Path, Value, Option<Schema>)>> = Vec::new();
-        let mut deltas: Vec<(Path, Value)> = Vec::new();
-        for name in wave {
-            let input_state = match self.interfaces.get(name) {
-                Some(iface) => iface.view(&self.state),
-                None => continue,
-            };
-            let update = match self.nodes.get(name) {
-                Some(ProcessNode::Step(s)) => s.update(&input_state),
-                _ => continue,
-            };
-            if let Some(update_value) = update.into_value() {
-                if let Some(iface) = self.interfaces.get(name) {
-                    let projections = iface.project(&update_value);
-                    for (path, value, _schema) in &projections {
-                        deltas.push((path.clone(), value.clone()));
-                    }
-                    projection_sets.push(projections);
-                }
-            }
-        }
-        (projection_sets, deltas)
+        name: &str,
+    ) -> Option<(Value, Vec<(Path, Value, Option<Schema>)>)> {
+        let iface = self.interfaces.get(name)?;
+        let input_state = iface.view(&self.state);
+        let value = match self.nodes.get(name)? {
+            ProcessNode::Step(s) => s.update(&input_state).into_value()?,
+            _ => return None,
+        };
+        let projections = iface.project(&value);
+        Some((value, projections))
     }
 
     /// Dynamically add a process to the running engine.
@@ -1165,7 +1224,8 @@ impl Engine {
         // Hand the engine's registry to nodes that compose other processes
         // (e.g. `RunProcess` instantiates the process it wraps). The engine
         // owns the registry; every node it builds shares it.
-        if let Some(registry) = &self.registry {
+        {
+            let registry = &self.core.processes;
             match &mut node {
                 ProcessNode::Process(p) => p.set_registry(Arc::clone(registry)),
                 ProcessNode::Step(s) => s.set_registry(Arc::clone(registry)),
@@ -1221,10 +1281,7 @@ impl Engine {
     /// Scan the entire top-level state for process specs and instantiate them.
     /// Used for initial discovery when building a Composite engine.
     pub fn discover_all_processes(&mut self) {
-        let registry = match &self.registry {
-            Some(r) => std::sync::Arc::clone(r),
-            None => return,
-        };
+        let registry = std::sync::Arc::clone(&self.core.processes);
         let mut to_add = Vec::new();
         if let Some(map) = self.state.as_map().cloned() {
             self.scan_for_processes(&map, &[], &registry, &mut to_add);
@@ -1273,10 +1330,7 @@ impl Engine {
     /// Scan changed state paths for new process nodes and instantiate them.
     /// Also remove processes whose parent state was deleted.
     fn discover_processes(&mut self, changed_paths: &[Path]) {
-        let registry = match &self.registry {
-            Some(r) => Arc::clone(r),
-            None => return,
-        };
+        let registry = Arc::clone(&self.core.processes);
 
         // Collect processes to add/remove (can't mutate self while iterating)
         let mut to_add: Vec<(String, ProcessSpec, ProcessNode)> = Vec::new();
@@ -1401,7 +1455,7 @@ impl Engine {
                     .unwrap_or(Value::None);
 
                 // Dispatch through the protocol registry.
-                let node = match self.protocol_registry.instantiate(
+                let node = match self.core.protocols.instantiate(
                     &parsed,
                     config.clone(),
                     registry,

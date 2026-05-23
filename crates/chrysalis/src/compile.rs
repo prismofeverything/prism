@@ -28,7 +28,7 @@ use std::sync::{Arc, OnceLock};
 use indexmap::IndexMap;
 
 use prism_bigraph::composite::Composite;
-use prism_bigraph::{BigraphicalReactiveSystem, ProcessNode, ProcessRegistry, Topology};
+use prism_bigraph::{BigraphicalReactiveSystem, Core, ProcessNode, ProcessRegistry, Topology};
 use prism_schema::units::Context;
 use prism_schema::algebra;
 use prism_schema::registry::TypeMethods;
@@ -55,10 +55,12 @@ pub struct CompileResult {
     pub evaluator: Arc<Evaluator>,
     pub methods: Arc<MethodRegistry>,
     /// Registry of user-declared `type`s (`Custom` dispatch delegates to each
-    /// type's representation). Attach to an engine via
-    /// [`prism_bigraph::Engine::set_type_registry`] to make those types
-    /// first-class in a running simulation.
+    /// type's representation).
     pub type_registry: Arc<TypeRegistry>,
+    /// The unified runtime [`Core`] (types + processes + methods + protocols).
+    /// Pass to [`prism_bigraph::Engine::from_state`] so the engine and every
+    /// subengine it builds share it.
+    pub core: Core,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -327,7 +329,11 @@ pub fn compile_with_modules(
     register_user_types(&mut type_registry, &program_arc);
     let type_registry = Arc::new(type_registry);
 
-    let registry_handle: Arc<OnceLock<Arc<ProcessRegistry>>> = Arc::new(OnceLock::new());
+    // The Composite factory needs the WHOLE Core to build subengines (so a
+    // subengine inherits types/methods/protocols). The Core contains the process
+    // registry, which contains this factory — a cycle resolved by late-binding
+    // through a OnceLock set once everything is built.
+    let core_handle: Arc<OnceLock<Core>> = Arc::new(OnceLock::new());
 
     // `registry` arrives with any native factories the caller supplied;
     // chrysalis registers its own on top.
@@ -387,20 +393,22 @@ pub fn compile_with_modules(
     // instantiated through the engine's ported `Composite::from_config`
     // (the upstream model), not chrysalis's old `{_type, _process}` wrapper.
     {
-        let handle = Arc::clone(&registry_handle);
+        let handle = Arc::clone(&core_handle);
         registry.register("Composite", move |config| {
-            let registry = handle
-                .get()
-                .cloned()
-                .expect("registry handle not initialized");
-            let composite = Composite::from_config(&config, registry)
+            let core = handle.get().expect("core handle not initialized");
+            let composite = Composite::from_config(&config, core)
                 .unwrap_or_else(|| panic!("Composite::from_config failed: {config:?}"));
             ProcessNode::Process(Box::new(composite))
         });
     }
 
     let registry = Arc::new(registry);
-    let _ = registry_handle.set(Arc::clone(&registry));
+    // The unified Core threaded into the engine + every subengine.
+    let core = Core::new()
+        .with_types(Arc::clone(&type_registry))
+        .with_processes(Arc::clone(&registry))
+        .with_methods(Arc::clone(&methods));
+    let _ = core_handle.set(core.clone());
 
     // Evaluate `main`. If main is a call to a user-defined composite,
     // *inline* it: the top-level engine becomes that composite, so its
@@ -465,6 +473,7 @@ pub fn compile_with_modules(
         evaluator,
         methods,
         type_registry,
+        core,
     })
 }
 
