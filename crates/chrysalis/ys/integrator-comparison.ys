@@ -1,16 +1,38 @@
-# Process-contract tier-1 demo (docs/process-contracts.md), as a one-shot Step
-# network. Two RUST-NATIVE *stepwise* integrator Processes (Rk4, ForwardEuler)
-# are each wrapped by a `RunProcess` Step that runs them over [0, runtime] and
-# emits a `TimeSeries`. A ys-native `Compare` step MSEs the two trajectories.
+# ─────────────────────────────────────────────────────────────────────────
+# Process contracts — a worked demonstration (docs/process-contracts.md)
+# ─────────────────────────────────────────────────────────────────────────
 #
-# Integrators are plain Processes (one step per update — reusable); `RunProcess`
-# turns one into a one-shot Step. The whole workflow is a one-shot Step DAG, fired
-# in dependency order by the engine. `TimeSeries`/`Figure` are declared ys types
-# (Values, not Foreign): their methods (species_mse, overlay) dispatch on `_type`.
+# THE PROBLEM. To compare two simulators you wire them to the same inputs and
+# diff their outputs. But matching port *shapes* ("counts in, a time series
+# out") does NOT make two processes comparable: an exact-stochastic trajectory,
+# a deterministic ODE, and a well-mixed PDE collapse can all share that shape
+# while approximating *different mathematical objects*. Diffing them is a
+# category error the interface can't see. (This is the gap underneath SED-ML /
+# KISAO "reproducibility" — see the doc.)
 #
-# (Contracts: Rk4/ForwardEuler `fulfill` DeterministicMassAction, but the demand
-# on Compare's inputs returns in #9, when the contract propagates through
-# RunProcess to the timeseries output.)
+# A PROCESS CONTRACT is the missing layer: it states a process's *meaning*, not
+# just its shape — which mathematical object it approximates (target), how it
+# realizes it (method), and the sense in which two realizations may agree
+# (claims / advance). A contract is to a port interface what a schema is to a
+# value: inseparable from it, and checked at wiring time.
+#
+# HOW IT WORKS HERE. `DeterministicMassAction` is one point in contract-space:
+# target = the deterministic mass-action ODE, claims = Deterministic; `method`
+# is left open. `Rk4` and `ForwardEuler` each `fulfill` it — same target,
+# *different* method — so they are substitutable, and comparing their
+# trajectories is warranted *by construction*. A process targeting a different
+# object (Gillespie → the CME; FBA → a steady-state flux polytope) fulfills a
+# DIFFERENT contract, so wiring it into this comparison would not compile. The
+# MSE this workflow reports therefore has a warrant: it measures method-space
+# distance at a shared target, not an accidental diff of incomparable things.
+#
+# THE WORKFLOW. A shared `network` (the reaction model) feeds two `RunProcess`
+# steps that drive the integrators over [0, runtime], each emitting a
+# `TimeSeries`; `Compare` MSEs them, `Plot` overlays them, `Output` writes the
+# artifacts. The whole thing is a one-shot Step DAG the engine fires in
+# dependency order. Integrators (`rk4`/`euler`), the model type (`CRN`), and
+# `RunProcess` are imported native capabilities; the ports, the contract, and
+# the comparison are the language's.
 
 type TimeSeries = {
   times: list[float],
@@ -19,21 +41,21 @@ type TimeSeries = {
 
 type Figure = {svg: string}
 
+# The contract — a point in contract-space the fulfillers share. `method` is
+# left open, so two different methods can fulfill the same target.
 contract DeterministicMassAction (
   target: MassActionODE,
   claims: Deterministic,
   advance: Continuous
 )
 
-# `RunProcess` is imported wholesale (a native Step, used as-is). `rk4`/`euler`
-# are native integrator functions and `CRN` a native type; the `process`
-# declarations below give them their ports + `fulfills` contract — the math and
-# the model type are borrowed, the interface is ours.
 from core import RunProcess
 from integrators import rk4, euler
 from chem import CRN
 from io import Path
 
+# The two fulfillers — same target (the mass-action ODE), different method. The
+# math is the imported native function; the ports + `fulfills` contract are ours.
 process Rk4[network: CRN]
   fulfills DeterministicMassAction[method: Rk4]
   ~{state: map[float]} ->{state: map[float]}
@@ -44,6 +66,9 @@ process ForwardEuler[network: CRN]
   ~{state: map[float]} ->{state: map[float]}
   ( euler.integrate(network, state, interval) )
 
+# Analysis steps. `Compare` is the warranted MSE; `Plot` overlays the two
+# trajectories; `Output` writes the artifacts itself (`.csv`/`.svg` are native
+# effects), so the workflow needs no external harness to produce its outputs.
 step Compare ~{a: TimeSeries, b: TimeSeries} ->{mse: map[float]} (
   {mse: a.species_mse(b)}
 )
@@ -52,9 +77,6 @@ step Plot ~{a: TimeSeries, b: TimeSeries} ->{figure: Figure} (
   {figure: a.overlay(b, 'Rk4 vs ForwardEuler')}
 )
 
-# The workflow writes its own artifacts (no Rust harness): each writer method
-# (`.csv`/`.svg`) is a native effect. `path / a.name` is path-join over the
-# imported `Path` type. `->{}` = a pure side-effect step (run for its writes).
 step Output[path: Path] ~{a: TimeSeries, b: TimeSeries, mse: map[float], figure: Figure} (
   a.csv(path / a.name) |
   b.csv(path / b.name) |
@@ -62,10 +84,15 @@ step Output[path: Path] ~{a: TimeSeries, b: TimeSeries, mse: map[float], figure:
   figure.svg(path / 'overlay')
 )
 
+# The shared model — defined once, referenced by both integrators, and realized
+# into a reaction network by the integrator method.
+def network :: CRN = {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}
+
+# The workflow: shared model → two integrators → compare / plot / output.
 composite IntegratorComparison[out: Path = 'outputs/integrator-comparison'] ->{mse: map[float], figure: Figure} (
   init: {A: 1.0, B: 0.0} |
-  rk4: RunProcess[proc: Rk4[network: {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}], runtime: 5.0, timestep: 0.2] ~{state: init} ->{timeseries: rk4_traj} |
-  euler: RunProcess[proc: ForwardEuler[network: {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}], runtime: 5.0, timestep: 0.2] ~{state: init} ->{timeseries: euler_traj} |
+  rk4: RunProcess[proc: Rk4[network: network], runtime: 5.0, timestep: 0.2] ~{state: init} ->{timeseries: rk4_traj} |
+  euler: RunProcess[proc: ForwardEuler[network: network], runtime: 5.0, timestep: 0.2] ~{state: init} ->{timeseries: euler_traj} |
   compare: Compare ~{a: rk4_traj, b: euler_traj} ->{mse: mse} |
   plot: Plot ~{a: rk4_traj, b: euler_traj} ->{figure: figure} |
   output: Output[path: out] ~{a: rk4_traj, b: euler_traj, mse: mse, figure: figure}

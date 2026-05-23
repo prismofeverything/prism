@@ -13,8 +13,8 @@
 ;;
 ;; Kernel forms recognised:
 ;;
-;;   - Definers (lowercase): type, process, step, composite, reaction,
-;;     pattern, extern, unit, context, contract
+;;   - Definers (lowercase): def (values + functions), type, process, step,
+;;     composite, reaction, pattern, extern, unit, context, contract
 ;;   - Modifiers: `from M import a, b' (native host imports), `import N
 ;;     from "p.ys"' (file imports), fulfills, using, with, where, replace
 ;;   - Control / logic: let, in, if, then, else, for, not, and, or
@@ -82,9 +82,10 @@ for parallel composition."
 ;; ── Keyword sets ────────────────────────────────────────────────────
 
 (defconst ys-definer-keywords
-  '("type" "process" "step" "composite" "reaction" "pattern"
+  '("def" "type" "process" "step" "composite" "reaction" "pattern"
     "extern" "unit" "context" "contract")
-  "Top-level definer keywords (each introduces a named definition).")
+  "Top-level definer keywords (each introduces a named definition).
+`def name = …` / `def name :: T = …` (value), `def name(args) = …` (function).")
 
 (defconst ys-modifier-keywords
   '("from" "import" "using" "fulfills" "with" "where" "replace")
@@ -172,6 +173,10 @@ contexts (`using'), type methods (`with'), guards (`where'), rewrites.")
                             "reaction" "pattern" "extern" "contract"))
               "\\>\\s-+\\([A-Z][A-Za-z0-9_]*\\)")
      1 'ys-declaration-face)
+
+    ;; `def name` / `def name(params)` — the defined value/function name
+    ;; (lowercase or capitalized).
+    ("\\<def\\>\\s-+\\([A-Za-z_][A-Za-z0-9_]*\\)" 1 'ys-declaration-face)
 
     ;; Definer keywords
     (,(regexp-opt ys-definer-keywords 'symbols)

@@ -139,11 +139,17 @@ impl Evaluator {
             Expr::Float(f) => Ok(Value::float(*f)),
             Expr::Str(lit) => self.eval_string(lit, env),
 
-            Expr::Var(name) | Expr::Site { name, .. } => env
-                .get(name)
-                .or_else(|| self.imports.get(name))
-                .cloned()
-                .ok_or_else(|| EvalError::UnboundVar(name.clone())),
+            Expr::Var(name) | Expr::Site { name, .. } => {
+                if let Some(v) = env.get(name).or_else(|| self.imports.get(name)) {
+                    Ok(v.clone())
+                } else if matches!(self.program.lookup(name), Some(crate::ast::Def::Function(_))) {
+                    // A bare reference to a `def`ined function → a first-class
+                    // function value (passable to / returnable from functions).
+                    Ok(function_value(name))
+                } else {
+                    Err(EvalError::UnboundVar(name.clone()))
+                }
+            }
 
             Expr::Path(path) => self.eval_path(path, env),
 
@@ -191,6 +197,8 @@ impl Evaluator {
                     .collect::<Result<_, _>>()?;
                 Ok(self.methods.dispatch(&recv, method, &arg_vals)?)
             }
+
+            Expr::Call { func, args } => self.eval_call(func, args, env),
 
             Expr::Comprehension { var, source, filter, body } => {
                 let source_val = self.eval_value(source, env)?;
@@ -296,6 +304,60 @@ impl Evaluator {
             }
         }
         Ok(Value::String(out))
+    }
+
+    /// Evaluate a function call `func(args)`. `func` is usually a `Var` naming a
+    /// `def name(params) = body` ([`crate::ast::Def::Function`]); the body
+    /// evaluates with `params` bound positionally to the evaluated args.
+    fn eval_call(
+        &self,
+        func: &Expr,
+        args: &[Expr],
+        env: &IndexMap<Name, Value>,
+    ) -> Result<Value, EvalError> {
+        let arg_vals: Vec<Value> = args
+            .iter()
+            .map(|a| self.eval_value(a, env))
+            .collect::<Result<_, _>>()?;
+        // 1. Direct: `func` is a Var naming a top-level `def`ined function.
+        if let Expr::Var(name) = func {
+            if let Some(crate::ast::Def::Function(f)) = self.program.lookup(name) {
+                let f = f.clone();
+                return self.eval_function_body(&f.body, &f.params, &arg_vals);
+            }
+        }
+        // 2. Indirect: `func` evaluates to a first-class function value — a
+        // function passed as an argument, returned, or stored. Resolve it to its
+        // definition and call. (Higher-order: `apply(double, 5)`, `f(x)`.)
+        let fval = self.eval_value(func, env)?;
+        if let Some(name) = function_value_name(&fval) {
+            if let Some(crate::ast::Def::Function(f)) = self.program.lookup(&name) {
+                let f = f.clone();
+                return self.eval_function_body(&f.body, &f.params, &arg_vals);
+            }
+        }
+        Err(EvalError::InvalidForm {
+            context: "call".into(),
+            message: match func {
+                Expr::Var(n) => format!("`{n}` is not a function (no `def {n}(…)`)"),
+                _ => "call target is not a function".into(),
+            },
+        })
+    }
+
+    /// Evaluate a function body with `params` bound positionally to `args`.
+    /// Pure: the body sees only its parameters (no closure capture yet).
+    fn eval_function_body(
+        &self,
+        body: &Expr,
+        params: &[crate::ast::Param],
+        args: &[Value],
+    ) -> Result<Value, EvalError> {
+        let mut env: IndexMap<Name, Value> = IndexMap::new();
+        for (i, p) in params.iter().enumerate() {
+            env.insert(p.name.clone(), args.get(i).cloned().unwrap_or(Value::None));
+        }
+        self.eval_value(body, &env)
     }
 
     fn eval_path(
@@ -465,6 +527,10 @@ impl Evaluator {
                 let def = reaction_def.clone();
                 self.build_reaction_value(&def, args, env)
             }
+            Some(Def::Function(_)) => Err(EvalError::InvalidForm {
+                context: "value-term".into(),
+                message: format!("`{control}` is a function — call it as `{control}(args)`, not `{control}[args]`"),
+            }),
             Some(Def::Pattern(_))
             | Some(Def::Unit(_))
             | Some(Def::Context(_))
@@ -1135,6 +1201,22 @@ impl Evaluator {
 // ===============================================================
 // Helpers
 // ===============================================================
+
+/// A first-class function value: `{_type: "Function", _name: <name>}` — a
+/// by-name reference to a `def`ined function, so it can be passed to / returned
+/// from / stored by other functions.
+fn function_value(name: &str) -> Value {
+    Value::tree([("_type", Value::from("Function")), ("_name", Value::from(name))])
+}
+
+/// If `v` is a function value, the name of the function it references.
+fn function_value_name(v: &Value) -> Option<String> {
+    if v.get_field("_type").and_then(|t| t.as_str()) == Some("Function") {
+        v.get_field("_name").and_then(|n| n.as_str()).map(str::to_string)
+    } else {
+        None
+    }
+}
 
 fn apply_binop(op: BinOp, lhs: &Value, rhs: &Value) -> Result<Value, EvalError> {
     use BinOp::*;

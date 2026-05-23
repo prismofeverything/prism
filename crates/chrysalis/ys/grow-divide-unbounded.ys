@@ -90,8 +90,8 @@ composite Environment[cells: Map[Cell]]
 # `@` is the empty wire `[]`, which the (container-relative) engine resolves
 # to the process's own container — here, the `cells` map the cell lives in.
 # (`^` → `[".."]` would pop one level too high.)
-main = Environment[cells: {'0': Cell[id: '0', mass: 1.2] ->{environment: @}}]
-main.run(50.0)
+def env = Environment[cells: {'0': Cell[id: '0', mass: 1.2] ->{environment: @}}]
+env.run(50.0)
 
 
 # ── Homoiconic division — NOW RUNS (the research goal) ──────────────────

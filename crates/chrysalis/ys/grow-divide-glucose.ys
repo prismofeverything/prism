@@ -99,8 +99,8 @@ composite Environment[
 )
 
 
-main = Environment[
+def env = Environment[
   glucose: 1000.0,
   cells: {'0': Cell[id: '0', mass: 1.2]}
 ]
-main.run(300.0)   # long enough to deplete the pool and reach the asymptote
+env.run(300.0)   # long enough to deplete the pool and reach the asymptote

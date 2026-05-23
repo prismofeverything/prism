@@ -423,6 +423,10 @@ pub struct ContextUse {
 pub enum Def {
     Process(ProcessDef),
     Step(StepDef),
+    /// `def name(params) [:: Ret] = body` — a first-class function: a named
+    /// param→value body, the same eval as a process/step body without the
+    /// bigraph interface. Called as `name(args)` ([`Expr::Call`]).
+    Function(FunctionDef),
     Composite(CompositeDef),
     Reaction(ReactionDef),
     Pattern(PatternDef),
@@ -511,6 +515,15 @@ pub struct ProcessDef {
     pub body: Expr,
 }
 
+/// `def name(params) [:: Ret] = body` — a first-class function (see
+/// [`Def::Function`]). No interface; the body is a param→value expression.
+#[derive(Clone, Debug)]
+pub struct FunctionDef {
+    pub name: Name,
+    pub params: Vec<Param>,
+    pub body: Expr,
+}
+
 #[derive(Clone, Debug)]
 pub struct StepDef {
     pub name: Name,
@@ -588,6 +601,7 @@ pub fn def_name(def: &Def) -> &str {
     match def {
         Def::Process(d) => &d.name,
         Def::Step(d) => &d.name,
+        Def::Function(d) => &d.name,
         Def::Composite(d) => &d.name,
         Def::Reaction(d) => &d.name,
         Def::Pattern(d) => &d.name,
@@ -718,6 +732,13 @@ pub enum Expr {
     Method {
         receiver: Box<Expr>,
         method: Name,
+        args: Vec<Expr>,
+    },
+    /// `func(args)` — call a function. `func` is usually a `Var` naming a
+    /// `def name(params) = body` ([`Def::Function`]); the body evaluates with
+    /// `params` bound to `args` (the same mechanism as a process/step body).
+    Call {
+        func: Box<Expr>,
         args: Vec<Expr>,
     },
     /// `[ body for var in source if filter ]` — a list comprehension (map +

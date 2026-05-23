@@ -359,6 +359,9 @@ pub fn compile_with_modules(
             // Types register in the TypeRegistry + MethodRegistry, not as
             // process factories — see `register_user_types` below.
             Def::Type(_) => {}
+            // Functions are resolved by the evaluator from the program defs
+            // when called (`Expr::Call`); they register no process factory.
+            Def::Function(_) => {}
             Def::Reaction(_)
             | Def::Pattern(_)
             | Def::Unit(_)

@@ -3,6 +3,7 @@
 //! types, and an undeclared import is a compile error (not a silent opaque
 //! fallback). This pins the `extern` replacement at the compile boundary.
 
+use chrysalis::ast::Def;
 use chrysalis::compile::{compile_with_modules, ModuleRegistry};
 use chrysalis::parse::parse_program;
 use prism_bigraph::ProcessRegistry;
@@ -56,7 +57,7 @@ fn resolves_object_and_type_imports() {
 #[test]
 fn top_level_binding_resolves_inside_a_composite_body() {
     let src = r#"
-net = {species: ['A'], reactions: []}
+def net = {species: ['A'], reactions: []}
 
 composite W ->{out: map[any]} (
   out: net
@@ -70,6 +71,33 @@ W[]
     assert!(
         result.is_ok(),
         "a top-level binding must resolve inside the composite body: {:?}",
+        result.err()
+    );
+}
+
+/// `def name :: Type = expr` — the value definer. Parses to a typed binding and
+/// resolves inside a composite body (the shared-`network` pattern).
+#[test]
+fn def_typed_binding_parses_and_resolves() {
+    let src = r#"
+def net :: CRN = {species: ['A'], reactions: []}
+
+composite W ->{out: map[any]} (
+  out: net
+)
+
+W[]
+"#;
+    let prog = parse_program(src).expect("parse");
+    assert!(
+        prog.defs.iter().any(|d| matches!(d, Def::Binding { name, schema: Some(_), .. } if name == "net")),
+        "`def net :: CRN` should parse as a typed binding"
+    );
+    let result =
+        compile_with_modules(&prog, ProcessRegistry::new(), MethodRegistry::new(), ModuleRegistry::new());
+    assert!(
+        result.is_ok(),
+        "the def binding should resolve inside the composite body: {:?}",
         result.err()
     );
 }

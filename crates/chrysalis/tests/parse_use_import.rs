@@ -36,13 +36,13 @@ from plot import overlay
 }
 
 #[test]
-fn from_is_still_a_field_name_binding() {
-    // `from` stays a contextual keyword: `from = …` is a normal binding, not an
-    // import (guarded by peek2 != `=`).
-    let prog = parse_program("from = 3.0\n").expect("parse");
+fn from_is_still_a_usable_identifier() {
+    // `from` stays a contextual keyword: `def from = …` is a normal binding, not
+    // an import (guarded by peek2 != `import`).
+    let prog = parse_program("def from = 3.0\n").expect("parse");
     assert!(
         prog.defs.iter().any(|d| matches!(d, Def::Binding { name, .. } if name == "from")),
-        "`from = 3.0` should parse as a binding named `from`, got {:?}",
+        "`def from = 3.0` should parse as a binding named `from`, got {:?}",
         prog.defs
     );
 }

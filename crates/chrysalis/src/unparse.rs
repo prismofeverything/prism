@@ -52,6 +52,9 @@ fn unparse_def(def: &Def) -> String {
         }
         Def::Process(p) => unparse_definer("process", &p.name, &p.params, &p.interface, &p.body),
         Def::Step(p) => unparse_definer("step", &p.name, &p.params, &p.interface, &p.body),
+        Def::Function(f) => {
+            format!("def {}({}) = {}", f.name, unparse_fn_params(&f.params), unparse_expr(&f.body))
+        }
         Def::Composite(c) => {
             let using: String = c
                 .using
@@ -143,9 +146,9 @@ fn unparse_def(def: &Def) -> String {
                 // The trailing-value form.
                 unparse_expr(value)
             } else if let Some(s) = schema {
-                format!("{name} :: {} = {}", unparse_schema(s), unparse_expr(value))
+                format!("def {name} :: {} = {}", unparse_schema(s), unparse_expr(value))
             } else {
-                format!("{name} = {}", unparse_expr(value))
+                format!("def {name} = {}", unparse_expr(value))
             }
         }
     }
@@ -221,6 +224,22 @@ fn unparse_params_inner(params: &[crate::ast::Param]) -> String {
             match &p.default {
                 Some(d) => format!("{base} = {}", unparse_expr(d)),
                 None => base,
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Function parameters: `name` for an untyped (`any`) param, `name: schema`
+/// otherwise — so `def f(x) = …` round-trips without gaining a `: any`.
+fn unparse_fn_params(params: &[crate::ast::Param]) -> String {
+    params
+        .iter()
+        .map(|p| {
+            if matches!(p.schema, SchemaExpr::Any) {
+                p.name.clone()
+            } else {
+                format!("{}: {}", p.name, unparse_schema(&p.schema))
             }
         })
         .collect::<Vec<_>>()
@@ -351,6 +370,10 @@ pub fn unparse_expr(e: &Expr) -> String {
         Expr::Method { receiver, method, args } => {
             let a: Vec<String> = args.iter().map(unparse_arg).collect();
             format!("{}.{method}({})", unparse_expr(receiver), a.join(", "))
+        }
+        Expr::Call { func, args } => {
+            let a: Vec<String> = args.iter().map(unparse_arg).collect();
+            format!("{}({})", unparse_expr(func), a.join(", "))
         }
         Expr::Comprehension { var, source, filter, body } => {
             let mut s = format!("[{} for {var} in {}", unparse_expr(body), unparse_expr(source));

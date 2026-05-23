@@ -25,6 +25,7 @@ pub enum Tok {
 
     // keywords
     Type,
+    Def,
     With,
     Process,
     Step,
@@ -104,6 +105,7 @@ pub struct ParseError {
 fn keyword(word: &str) -> Option<Tok> {
     Some(match word {
         "type" => Tok::Type,
+        "def" => Tok::Def,
         "with" => Tok::With,
         "process" => Tok::Process,
         "step" => Tok::Step,
@@ -517,6 +519,7 @@ impl Parser {
     fn parse_def(&mut self) -> Result<Def, ParseError> {
         match self.peek() {
             Tok::Type => self.parse_type_def(),
+            Tok::Def => self.parse_def_binding(),
             Tok::Process => self.parse_process_def(false),
             Tok::Step => self.parse_process_def(true),
             Tok::Composite => self.parse_composite_def(),
@@ -547,24 +550,65 @@ impl Parser {
             // `name = expr` binding (e.g. `growth = 0.02`), OR a trailing bare
             // expression — the file's root VALUE, which becomes the implicit
             // `main` (so `Environment[…]` on the last line needs no `main =`).
+            // A bare trailing expression is the implicit `main`. Named values
+            // require `def` — so `name = …` / `name :: T = …` can't silently
+            // shadow a control or type. Give a pointed error for the old form.
             _ => {
-                if matches!(self.peek(), Tok::Ident(_)) && *self.peek2() == Tok::ColonColon {
-                    // `name :: Type = expr` — a type-ascribed binding (e.g. a
-                    // shared `network :: CRN = {…}`).
+                if matches!(self.peek(), Tok::Ident(_))
+                    && matches!(self.peek2(), Tok::Eq | Tok::ColonColon)
+                {
                     let name = self.ident()?;
-                    self.expect(&Tok::ColonColon)?;
-                    let schema = self.parse_schema()?;
-                    self.expect(&Tok::Eq)?;
-                    Ok(Def::Binding { name, schema: Some(schema), value: self.parse_expr()? })
-                } else if matches!(self.peek(), Tok::Ident(_)) && *self.peek2() == Tok::Eq {
-                    let name = self.ident()?;
-                    self.expect(&Tok::Eq)?;
-                    Ok(Def::Binding { name, schema: None, value: self.parse_expr()? })
-                } else {
-                    Ok(Def::Binding { name: "main".into(), schema: None, value: self.parse_expr()? })
+                    return Err(self.err(&format!(
+                        "bare binding `{name}`: named values require `def` \u{2014} write `def {name} = …`"
+                    )));
                 }
+                Ok(Def::Binding { name: "main".into(), schema: None, value: self.parse_expr()? })
             }
         }
+    }
+
+    // ── value definer ───────────────────────────────────────────────
+    // `def name [:: Type] = expr` — a named value (the definer for bindings, so
+    // values read like every other top-level form). Functions (`def name(args)
+    // = body`) are a planned extension; today the value form covers shared data
+    // like `def network :: CRN = {…}`.
+    fn parse_def_binding(&mut self) -> Result<Def, ParseError> {
+        self.expect(&Tok::Def)?;
+        let name = self.ident()?;
+        // Function form: `def name(params) [:: Ret] = body`. Params may be
+        // untyped (`x`) or typed (`x: float`).
+        if self.check(&Tok::LParen) {
+            self.expect(&Tok::LParen)?;
+            let mut params = Vec::new();
+            while !self.check(&Tok::RParen) {
+                let pname = self.ident()?;
+                let schema = if self.accept(&Tok::Colon) {
+                    self.parse_schema()?
+                } else {
+                    SchemaExpr::Any
+                };
+                params.push(Param { name: pname, schema, default: None });
+                if !self.accept(&Tok::Comma) {
+                    break;
+                }
+            }
+            self.expect(&Tok::RParen)?;
+            if self.accept(&Tok::ColonColon) {
+                let _ret = self.parse_schema()?; // return type: reserved, unused
+            }
+            self.expect(&Tok::Eq)?;
+            let body = self.parse_expr()?;
+            return Ok(Def::Function(crate::ast::FunctionDef { name, params, body }));
+        }
+        // Value form: `def name [:: Type] = expr`.
+        let schema = if self.accept(&Tok::ColonColon) {
+            Some(self.parse_schema()?)
+        } else {
+            None
+        };
+        self.expect(&Tok::Eq)?;
+        let value = self.parse_expr()?;
+        Ok(Def::Binding { name, schema, value })
     }
 
     // ── native host import ──────────────────────────────────────────
@@ -913,37 +957,50 @@ impl Parser {
     // `*` wildcard path segments, e.g. `agents.*.mass`) + method calls.
     fn parse_postfix(&mut self) -> Result<Expr, ParseError> {
         let mut base = self.parse_primary()?;
-        while self.accept(&Tok::Dot) {
-            // `*` is a wildcard path segment (a fan-out wire); else an identifier.
-            let name = if self.accept(&Tok::Star) {
-                "*".to_string()
-            } else {
-                self.ident()?
-            };
-            if self.accept(&Tok::LParen) {
-                let mut args = Vec::new();
-                while !self.check(&Tok::RParen) {
-                    args.push(self.parse_expr()?);
-                    if !self.accept(&Tok::Comma) {
-                        break;
-                    }
-                }
-                self.expect(&Tok::RParen)?;
-                base = Expr::Method { receiver: Box::new(base), method: name, args };
-            } else {
-                // field access — extend a place path
-                base = match base {
-                    Expr::Var(v) => Expr::Path(PlacePath::local(v).dot(name)),
-                    Expr::Path(p) => Expr::Path(p.dot(name)),
-                    other => {
-                        return Err(self.err(&format!(
-                            "field access `.{name}` on a non-path expression {other:?}"
-                        )))
-                    }
+        loop {
+            if self.accept(&Tok::Dot) {
+                // `*` is a wildcard path segment (a fan-out wire); else an identifier.
+                let name = if self.accept(&Tok::Star) {
+                    "*".to_string()
+                } else {
+                    self.ident()?
                 };
+                if self.check(&Tok::LParen) {
+                    base = Expr::Method { receiver: Box::new(base), method: name, args: self.parse_call_args()? };
+                } else {
+                    // field access — extend a place path
+                    base = match base {
+                        Expr::Var(v) => Expr::Path(PlacePath::local(v).dot(name)),
+                        Expr::Path(p) => Expr::Path(p.dot(name)),
+                        other => {
+                            return Err(self.err(&format!(
+                                "field access `.{name}` on a non-path expression {other:?}"
+                            )))
+                        }
+                    };
+                }
+            } else if self.check(&Tok::LParen) {
+                // bare call: `f(args)` — call a function value.
+                base = Expr::Call { func: Box::new(base), args: self.parse_call_args()? };
+            } else {
+                break;
             }
         }
         Ok(base)
+    }
+
+    /// Parse `( expr, … )` argument list (shared by method calls and `f(args)`).
+    fn parse_call_args(&mut self) -> Result<Vec<Expr>, ParseError> {
+        self.expect(&Tok::LParen)?;
+        let mut args = Vec::new();
+        while !self.check(&Tok::RParen) {
+            args.push(self.parse_expr()?);
+            if !self.accept(&Tok::Comma) {
+                break;
+            }
+        }
+        self.expect(&Tok::RParen)?;
+        Ok(args)
     }
 
     /// Parse a (possibly interpolated) string: `'plain'` → one `Lit`;
