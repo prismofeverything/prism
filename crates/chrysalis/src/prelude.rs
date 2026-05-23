@@ -4,7 +4,10 @@
 //! (`core`/`integrators`/`chem`/`io`) runs with no extra packages. Downstream
 //! packages (e.g. spatio-flux) extend these with their own.
 
-use prism_bigraph::ProcessRegistry;
+use std::sync::{Arc, OnceLock};
+
+use prism_bigraph::composite::Composite;
+use prism_bigraph::{Core, ProcessNode, ProcessRegistry};
 use prism_schema::MethodRegistry;
 
 use crate::compile::ModuleRegistry;
@@ -21,6 +24,35 @@ pub fn std_methods() -> MethodRegistry {
     let mut m = MethodRegistry::new();
     prism_std::register_methods(&mut m);
     m
+}
+
+/// The std library assembled as a runnable [`Core`]: the std process factories +
+/// the generic `Composite` factory (so a server can build composites from a doc)
+/// + std value-methods. One object carrying the full std capability set — used by
+/// `chrysalis server` and any in-process host that wants it whole.
+pub fn std_core() -> Core {
+    // The Composite factory needs the whole Core (to build subengines); the Core
+    // contains the registry that contains this factory — a cycle resolved by a
+    // OnceLock set once the Core is built.
+    let handle: Arc<OnceLock<Core>> = Arc::new(OnceLock::new());
+    let mut registry = ProcessRegistry::new();
+    prism_std::register_processes(&mut registry);
+    {
+        let handle = Arc::clone(&handle);
+        registry.register("Composite", move |config| {
+            let core = handle.get().expect("core handle not initialized");
+            ProcessNode::Process(Box::new(
+                Composite::from_config(&config, core).expect("Composite::from_config"),
+            ))
+        });
+    }
+    let mut methods = MethodRegistry::new();
+    prism_std::register_methods(&mut methods);
+    let core = Core::new()
+        .with_processes(Arc::new(registry))
+        .with_methods(Arc::new(methods));
+    let _ = handle.set(core.clone());
+    core
 }
 
 /// The std importable modules: `core` (RunProcess), `integrators` (rk4/euler),

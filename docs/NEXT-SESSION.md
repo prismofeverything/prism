@@ -137,18 +137,54 @@ test suite of deliberately-wrong `.ys`, each asserting its exact diagnostic, so
 error *quality* is regression-guarded. *Medium-large; high-DX-value; generalize
 the missing-ref pattern.*
 
-💾 **#17 — `chrysalis bigraph export`/`import`: a runnable process-bigraph
-document.** `chrysalis bigraph export f.ys out.json` writes a process-bigraph
-document (state tree with process addresses + configs, schema — everything needed
-to reconstruct), and `chrysalis bigraph import out.json` reads it back and **runs
-it directly**, no `.ys` needed. The exported JSON is a first-class *input*, not a
-debug dump. **Invariant: `import(export(f.ys))` ≡ `run(f.ys)`** — the round-trip
-test asserts identical results. Std-only docs run in-process via the std prelude
-core; non-std docs must name the packages/registries they need so `import` can
-assemble the right core (ties to #10/#15 codegen). Builds on today's
-`chrysalis bigraph <file>` (already serializes `initial_state`) + prism's
-`Document`/serialize; wire-compatible with the upstream doc format where feasible.
-*Medium.*
+✅ **#17 — `chrysalis bigraph export`/`import` (DONE).**
+`chrysalis bigraph export f.ys out.json` writes a process-bigraph `Document`
+(**schema rendered alongside state** — else import loses `Array`/`Delta`);
+`chrysalis bigraph import out.json [--time T]` reads it back and runs it. Built:
+`runner::{document_of, to_document, run_document}` + the CLI dispatch; the
+invariant **`import(export(f))` ≡ `run(f)`** is proven by
+`chrysalis/tests/export_import.rs` (round-trip via the program's own core).
+*Remaining:* a doc with USER-defined processes needs that program's core — the
+CLI's `std_core` import runs std-self-contained docs and **clearly rejects**
+others (the missing-ref diagnostic, e.g. "document references 5 unregistered
+process(es): …"). Full self-containment — capturing user-process *bodies* as
+homoiconic values, or naming packages — is the follow-on (ties to #10 codegen +
+schema-as-state #20).
+
+✅ **#18 — `chrysalis server` (DONE).** `chrysalis server [--port P]` serves the
+std `Core` over the rest-process protocol (`prelude::std_core` — std factories +
+the `Composite` factory + std methods; CLI parks the main thread). Lifecycle
+cleanup + missing-ref rejection come from `RestProcessServer`. Proven by
+`chrysalis/tests/server.rs` (serves a composite over REST with cleanup; rejects an
+unknown-process doc) + the `grow_divide_over_rest` tests (a `rest:` node is
+discovered + driven). Remaining polish: a named-package core (needs #10), graceful
+shutdown. → **distributed simulation**: a `.ys` with `rest:` nodes pointing at
+`chrysalis server`s.
+
+🟢 **#19 — `chrysalis repl`: interactive homoiconic prompt.** Read a line of
+`.ys`, evaluate, print with inferred type, accumulate a session env. The
+homoiconic payoff: build a process / reaction / pattern / composite as a VALUE at
+the prompt, inspect its schema, modify it, install/run it live; step a workflow
+tick-by-tick over the incremental-step cache; `:load` a file, `:export` the
+session as a bigraph document (#17). Builds on parser + evaluator + schema +
+`runner`; line editing via rustyline or hand-rolled. Also the front-end for
+exploring a remote (`chrysalis server`) simulation. CLI surface →
+`run / check / bigraph / compile / server / repl`. *Medium.*
+
+🧬 **#20 — schema-as-state: a meta-schema; operate on the schema, reconcile state
+to match.** Make the schema itself first-class operable STATE (a `Value`;
+`schema_to_value`/`value_to_schema` already round-trip it), governed by a
+META-SCHEMA so schema operations are themselves type-checked. The behavior:
+mutating the schema (add a field, retype, add a `Custom` variant) **generates /
+fills in the corresponding state to match** — new field → its `default`, removed →
+dropped, retyped → `coerce`d — via the algebra (`default`/`coerce`/`apply`/
+`reconcile`), **transactionally** (schema change + state reconciliation commit
+atomically; state always satisfies its schema; roll back on failure). The
+meta-circular completion of the schema-is-state principle (memories
+`project_schema_as_state`, `project_schema_state_unity`); the substrate for
+self-modifying simulations (a process that evolves its own type, illegal states
+unrepresentable throughout). *Deep/foundational; a new named algebra op + laws,
+not ad-hoc munging.*
 
 **Suggested order:** **#13 (quick cleanup) → #7 (quick win) → #14 (flagship teeth)
 → #6 (the headline) → #10 codegen → #15 (spatio-flux `.ys`, gated on #10) → #8 →

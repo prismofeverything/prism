@@ -51,7 +51,16 @@ pub struct RestProcessServer {
 impl RestProcessServer {
     /// Start a server on `127.0.0.1:0` (an OS-chosen free port) serving `registry`.
     pub fn start(registry: Arc<ProcessRegistry>) -> std::io::Result<Self> {
-        let listener = TcpListener::bind("127.0.0.1:0")?;
+        Self::start_on(registry, "127.0.0.1:0")
+    }
+
+    /// Start a server bound to `addr` (e.g. `"127.0.0.1:8088"`; port `0` = an
+    /// OS-chosen free port — read it back via [`RestProcessServer::port`]).
+    pub fn start_on(
+        registry: Arc<ProcessRegistry>,
+        addr: impl std::net::ToSocketAddrs,
+    ) -> std::io::Result<Self> {
+        let listener = TcpListener::bind(addr)?;
         let port = listener.local_addr()?.port();
         listener.set_nonblocking(true)?;
 
