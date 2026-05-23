@@ -217,3 +217,22 @@ which parses, type-checks, compiles, and runs with `chrysalis run` (see
 DeterministicMassAction`, fixing the shared meaning the comparison relies on; the
 compile-time *rejection* of a non-fulfiller comes from a contract-demanding port
 (`:: C`, shown under *The teeth* below and proven by the enforcement tests).
+
+## Sources
+
+- Smith, Malik-Sheriff et al., *Verification and reproducible curation
+  of the BioModels repository* (PLOS Comp Bio, 2025) —
+  <https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1013239>
+- SED-ML Level 1 Version 5 specification (2024) —
+  <https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11294059/>
+- SED-ML Level 1 Version 4 specification —
+  <https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8560344/>
+- Waltemath et al., *Reproducible computational biology experiments
+  with SED-ML* (the original 2011 paper) —
+  <https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3292844/>
+- Courtot et al., *Ontologies for use in Systems Biology: SBO, KiSAO
+  and TEDDY* —
+  <https://www.researchgate.net/publication/47541394_Ontologies_for_use_in_Systems_Biology_SBO_KiSAO_and_TEDDY>
+- KiSAO GitHub repository — <https://github.com/SED-ML/KiSAO>
+- BioSimulations / BioSimulators SED-ML conventions —
+  <https://docs.biosimulations.org/concepts/conventions/simulation-experiments/>
