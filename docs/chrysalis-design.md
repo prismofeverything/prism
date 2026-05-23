@@ -448,7 +448,7 @@ metadata. Two ways this differs from pint, both bigraph-native:
    *is* the scope:
 
    ```
-   composite Cytoplasm[volume: Volume] using concentration(volume: @.volume) (
+   composite Cytoplasm[volume: Volume] using concentration(volume: %.volume) (
      ...   # a [substance] amount in here reads as a concentration
    )
    ```
@@ -609,11 +609,39 @@ lowercase/capitalized distinction is what makes it readable that those
 
 | Symbol | Meaning |
 |---|---|
-| `@` | self / here / this composite as a value |
+| `%` | self / here / this composite as a value |
 | `^` | parent (one place-graph level up) |
 | `name` | child / field of current location |
-| `@.id` | `id` field of self |
+| `%.id` | `id` field of self |
 | `^.cells` | `cells` field on parent |
+| `@` | **composite bridge operator** (in a port decl) — not a path |
+
+`%` is the place-graph self-reference (the empty wire `[]`, which the
+container-relative engine resolves to the process's own container).
+`@` was the self sigil before decision #23 and is now exclusively the
+composite-bridge operator — see *Composite bridge syntax* below.
+
+### Composite bridge syntax (decision #23)
+
+A composite's interface ports map to paths in its inner state — the
+**bridge**. By default the bridge is *name-inferred*: a port `F` maps to
+the same-named top-level field `[F]`. To target a *nested* or
+*differently-named* inner path, declare it explicitly with `@`:
+
+```
+composite Group
+  ~{values :: Map[Float] @ fields.values}   # input bridges to fields.values
+  ->{total  :: Float      @ stats.total}     # output bridges to stats.total
+( fields: { values: {} } | stats: { total: 0.0 } )
+```
+
+The full port-decl grammar is
+`name :: Type [@ inner.path] [fulfills Contract] [= default]`. The bridge
+clause is optional; absent, name-inference applies (backward-compatible).
+The explicit path lands in `config.bridge.{inputs,outputs}` as a wire
+(segment list) consumed by `Composite::from_config` — `eval::build_composite_outer`
+builds it. This makes the bridge a *declared* part of the interface rather
+than an assumption recovered from port names.
 
 ### Records vs maps
 
@@ -675,7 +703,8 @@ return value, and the lack of separator marks it visually.
 | `~{port: target}` | `Interface.inputs` IndexMap (domain of the morphism) |
 | `->{port: target}` | `Interface.outputs` IndexMap (codomain of the morphism) |
 | `^` in path | `..` in prism wire-resolution |
-| `@` in path | empty / current relative root |
+| `%` in path | empty / current relative root (self / here) |
+| `port :: T @ inner.path` | explicit `config.bridge` wire (else name-inferred `[port]`) |
 | `Cell[mass: 0.5]` inside a delta | `Value::Map` with `_type: "Cell"`, `config: {…}` — `discover_processes` instantiates |
 | `replace x with {…}` | `Value::Map` with `_remove: [x]`, `_add: {…}` |
 | `'{var}'` | string with template interpolation at runtime |

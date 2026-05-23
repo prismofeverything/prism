@@ -232,6 +232,21 @@ port `:: C`→`fulfills C` (consider a lenient phase then tighten); unparser emi
 the new forms; regenerate every `.ys` + GUIDE/design examples; update parse tests.
 *Medium; do while the syntax is young.*
 
+✅ **#23 — explicit composite-bridge syntax `@` + self → `%`** (DONE
+2026-05-23; chrysalis-design.md resolved decision #23). A composite's
+interface ports map to inner-state paths (the *bridge*); this was assumed
+(name-inference) and is now *declarable*: `name :: Type [@ inner.path]
+[fulfills C] [= default]` (e.g. `~{values :: Map[Float] @ fields.values}`).
+Absent ⇒ name-inference, backward-compatible. `@` (formerly the self/here
+sigil) is now the bridge operator; **self/here moved to `%`** (`->{env: %}`,
+`%.volume`). Lexer `%`→`Tok::Percent`; `PortDecl.bridge: Option<Vec<Name>>`;
+`eval::build_composite_outer` reads the explicit wire (else `[port]`);
+unparser emits `@ path` (and `%` self), in parser order (bridge, `fulfills`,
+`= default` — fixed a latent default-before-contract roundtrip bug). The 8
+`@`-as-self uses across grow-divide / nuclear-shuttle `.ys` migrated to `%`;
+emacs `ys-mode` sigils updated. Tests: `crates/chrysalis/tests/composite_bridge.rs`
+(parse, name-infer fallback, unparse-fixpoint, **eval lands in `config.bridge`**).
+
 **Suggested order:** **#10 codegen** is the architecture marquee — it unblocks #15
 (spatio-flux as `.ys`), full export/import self-containment, and `server`/`import`
 on packages (the single path). Then **#16 diagnostics → #21 defaults → #6 SBML

@@ -230,8 +230,9 @@ contexts (`using'), type methods (`with'), guards (`where'), rewrites.")
     ;; Unbound port `!'
     ("\\(!\\)" 1 font-lock-warning-face)
 
-    ;; Self / parent path tokens
-    ("\\([@^]\\)" 1 font-lock-builtin-face)
+    ;; Place-path / bridge sigils: `%` (self/here), `^` (parent), `@` (composite
+    ;; bridge: `port :: Type @ inner.path`).
+    ("\\([%^@]\\)" 1 font-lock-builtin-face)
 
     ;; Numbers (int and float)
     ("\\b\\(-?[0-9]+\\(\\.[0-9]+\\)?\\)\\b"
