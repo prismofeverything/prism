@@ -682,6 +682,28 @@ registered under the name `X`. Same content, two surface forms — the
 lowercase/capitalized distinction is what makes it readable that those
 *are* the same thing.
 
+### Evaluation: every name a value, every value composes
+
+The REPL (and eval generally) follows one rule — **read → AST → eval → Value →
+print, where every name has a value and every value composes**:
+
+- A **bare definer** is a value: a `def` function → a first-class function; a
+  `composite`/`process`/`step` → its **no-arg instantiation** (the
+  composite-as-data spec), so `all` ≡ `all[]`. A definer that needs args reports
+  the missing arg (not "unbound"). Composites are *data*; functions are
+  *behaviour* — hence the spec vs callable distinction.
+- **Field access composes on any expression**, not just place-paths: `.field`
+  on a term/method/call result is a value field read (`all[].config.bridge`,
+  `all.config.state.field.what`), exactly as `.method()` already works on any
+  base. An absent field is `none`, never an error. (`var.seg` and the bracketless
+  `all.config.bridge` resolve their root through the same logic, so `[]` is
+  optional.)
+
+A composite-as-data spec is `{address, config: {state, bridge, schema}, inputs,
+outputs}` — so the *interface* view is `…config.bridge` (the wiring contract) and
+the *internals* are `…config.state` (reaching in; prefer the bridge, per the
+black-box principle).
+
 ### Path syntax
 
 | Symbol | Meaning |

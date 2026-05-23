@@ -146,6 +146,28 @@ impl Evaluator {
                     // A bare reference to a `def`ined function → a first-class
                     // function value (passable to / returnable from functions).
                     Ok(function_value(name))
+                } else if matches!(
+                    self.program.lookup(name),
+                    Some(
+                        crate::ast::Def::Composite(_)
+                            | crate::ast::Def::Process(_)
+                            | crate::ast::Def::Step(_)
+                    )
+                ) {
+                    // A bare reference to a composite/process/step definer → its
+                    // no-arg instantiation (the composite-as-data spec), so
+                    // `all` ≡ `all[]`. A definer needing args reports the missing
+                    // arg — still informative, and signals it's a definer rather
+                    // than "unbound".
+                    self.eval_value(
+                        &Expr::Term {
+                            control: name.clone(),
+                            args: vec![],
+                            ports: crate::ast::PortBindings::default(),
+                            body: None,
+                        },
+                        env,
+                    )
                 } else {
                     Err(EvalError::UnboundVar(name.clone()))
                 }
@@ -196,6 +218,14 @@ impl Evaluator {
                     .map(|a| self.eval_value(a, env))
                     .collect::<Result<_, _>>()?;
                 Ok(self.methods.dispatch(&recv, method, &arg_vals)?)
+            }
+
+            // Value field access: read `name` off the evaluated base (`None` if
+            // absent), so any value composes under `.field` — e.g.
+            // `all[].config.bridge`. (Place-path access stays `Expr::Path`.)
+            Expr::Field { base, name } => {
+                let v = self.eval_value(base, env)?;
+                Ok(v.get_field(name).cloned().unwrap_or(Value::None))
             }
 
             Expr::Call { func, args } => self.eval_call(func, args, env),
@@ -372,10 +402,14 @@ impl Evaluator {
         // wirings, not in expression bodies that eval_value evaluates.
         match &path.root {
             PathRoot::Local(name) => {
-                let mut current = env
-                    .get(name)
-                    .cloned()
-                    .ok_or_else(|| EvalError::UnboundVar(name.clone()))?;
+                // Resolve the root through the same logic as a bare `Var`: an env
+                // binding, else a function/composite/process/step definer value
+                // (so `all.config.bridge` ≡ `all[].config.bridge`), else
+                // unbound. Then walk the field segments.
+                let mut current = match env.get(name) {
+                    Some(v) => v.clone(),
+                    None => self.eval_value(&Expr::Var(name.clone()), env)?,
+                };
                 for seg in &path.segments {
                     current = current
                         .get_field(seg)

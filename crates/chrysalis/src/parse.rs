@@ -988,15 +988,15 @@ impl Parser {
                 if self.check(&Tok::LParen) {
                     base = Expr::Method { receiver: Box::new(base), method: name, args: self.parse_call_args()? };
                 } else {
-                    // field access — extend a place path
+                    // Field access. A `Var`/`Path` base extends a *place path*
+                    // (the wiring form, `var.seg.seg`); any other base is a
+                    // *value* field access (`all[].config.bridge`) — so every
+                    // value composes under `.field`, like `.method()` already
+                    // does.
                     base = match base {
                         Expr::Var(v) => Expr::Path(PlacePath::local(v).dot(name)),
                         Expr::Path(p) => Expr::Path(p.dot(name)),
-                        other => {
-                            return Err(self.err(&format!(
-                                "field access `.{name}` on a non-path expression {other:?}"
-                            )))
-                        }
+                        other => Expr::Field { base: Box::new(other), name },
                     };
                 }
             } else if self.check(&Tok::LParen) {

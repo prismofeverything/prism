@@ -378,6 +378,7 @@ pub fn unparse_expr(e: &Expr) -> String {
             let a: Vec<String> = args.iter().map(unparse_arg).collect();
             format!("{}.{method}({})", unparse_expr(receiver), a.join(", "))
         }
+        Expr::Field { base, name } => format!("{}.{name}", unparse_expr(base)),
         Expr::Call { func, args } => {
             let a: Vec<String> = args.iter().map(unparse_arg).collect();
             format!("{}({})", unparse_expr(func), a.join(", "))

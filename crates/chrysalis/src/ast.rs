@@ -765,6 +765,16 @@ pub enum Expr {
         method: Name,
         args: Vec<Expr>,
     },
+    /// `base.field` where `base` is a *value* expression, not a place-path —
+    /// value field access: evaluate `base`, then read field `name` (`None` if
+    /// absent). Place-rooted access (`var.seg`, for wiring) stays a `Path`; this
+    /// is the general case so *any* value composes under `.field` (e.g.
+    /// `all[].config.bridge`), mirroring how `.method()` already works on any
+    /// base.
+    Field {
+        base: Box<Expr>,
+        name: Name,
+    },
     /// `func(args)` — call a function. `func` is usually a `Var` naming a
     /// `def name(params) = body` ([`Def::Function`]); the body evaluates with
     /// `params` bound to `args` (the same mechanism as a process/step body).
