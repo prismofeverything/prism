@@ -38,7 +38,7 @@ use prism_schema::{
 };
 
 use crate::ast::{
-    CompositeDef, ContextUse, Def, Expr, Name, Param, PortDecl, ProcessDef, Program, SchemaExpr,
+    ContextUse, Def, Expr, Name, Param, PortDecl, ProcessDef, Program, SchemaExpr,
     StepDef, TermArg,
 };
 use crate::units::UnitEnv;

@@ -357,7 +357,7 @@ fn deduplicate_for_viz(topology: &Topology, state: &Value) -> (Topology, Value, 
 
     // 1. Filter nested duplicate processes (particles/spatial grids).
     // Count how many were removed per representative so we can label them.
-    let pre_count = filtered.processes.len();
+    let _pre_count = filtered.processes.len();
     let mut nested_rep_counts: HashMap<String, usize> = HashMap::new();
     for name in filtered.processes.keys() {
         if !is_rep(name) {

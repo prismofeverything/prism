@@ -85,7 +85,7 @@ fn resolve_wires_from_process(
     result
 }
 use crate::ports::Interface;
-use crate::process::{Process, ProcessNode};
+use crate::process::ProcessNode;
 use crate::topology::{ProcessSpec, Topology};
 
 

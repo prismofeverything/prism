@@ -18,7 +18,7 @@
 use prism_schema::Value;
 
 use crate::ast::{
-    CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, ReactionDef, SchemaExpr, StringLit,
+    CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, ReactionDef, SchemaExpr,
 };
 
 // ── pattern-context ion helpers ──────────────────────────────────────

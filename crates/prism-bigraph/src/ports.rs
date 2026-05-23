@@ -5,7 +5,7 @@
 
 use indexmap::IndexMap;
 
-use prism_schema::{Key, Path, Schema, StructLayout, Value};
+use prism_schema::{Key, Path, Schema, Value};
 
 /// Resolve a path with `*` wildcards against a state tree.
 ///

@@ -33,7 +33,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 use prism_schema::reaction::{
-    ControlStatus, FireUpdate, Match, ReactionRule, apply_fire, find_matches,
+    ControlStatus, Match, ReactionRule, apply_fire, find_matches,
     fire_rule_at,
 };
 use prism_schema::{Key, Schema, StateMap, Value};
