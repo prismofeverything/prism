@@ -64,13 +64,24 @@ impl Step for RunProcess {
     }
 
     fn outputs(&self) -> IndexMap<String, Schema> {
-        IndexMap::from([(
-            "timeseries".to_string(),
-            Schema::Custom {
-                name: "TimeSeries".to_string(),
-                parameters: IndexMap::new(),
-            },
-        )])
+        IndexMap::from([
+            (
+                "timeseries".to_string(),
+                Schema::Custom {
+                    name: "TimeSeries".to_string(),
+                    parameters: IndexMap::new(),
+                },
+            ),
+            // The FULL state trace (every frame), not just the scalar columns —
+            // the single-item state "extended through time". Feeds the
+            // schema-driven `prism_viz::plot(schema, trace.frames)`, which derives
+            // the characteristic view from the output port's type. (`timeseries`
+            // stays for the integrator comparison + its TimeSeries methods.)
+            (
+                "trace".to_string(),
+                Schema::Custom { name: "Trace".to_string(), parameters: IndexMap::new() },
+            ),
+        ])
     }
 
     fn set_registry(&mut self, registry: Arc<ProcessRegistry>) {
@@ -105,6 +116,18 @@ impl Step for RunProcess {
             local = Value::tree([("state", next)]);
         }
 
+        // The full state trace: every frame, as the single-item state extended
+        // through time. `prism_viz::plot(output_schema, frames)` dispatches on
+        // the type to its characteristic view. (A future optimization stores
+        // this as `initial + diffs` via `prism_schema::diff`/`apply` — change-
+        // only — but full frames are the simplest plot-ready form.)
+        let trace = Value::tree([
+            ("_type", Value::from("Trace")),
+            ("name", Value::from(self.address.as_str())),
+            ("times", Value::List(times.clone())),
+            ("frames", Value::List(history.clone())),
+        ]);
+
         // Transpose the history (list of `{species: float}`) into columns
         // `{species: [float]}`, then assemble the TimeSeries Value.
         let species: Vec<String> = history
@@ -128,7 +151,7 @@ impl Step for RunProcess {
             ("times", Value::List(times)),
             ("columns", columns),
         ]);
-        Update::value(Value::tree([("timeseries", timeseries)]))
+        Update::value(Value::tree([("timeseries", timeseries), ("trace", trace)]))
     }
 
     fn as_any(&self) -> &dyn Any {

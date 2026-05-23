@@ -277,6 +277,41 @@ the `Emitter`/`Output` substrate (batch first). NOTE: legacy `.ys` ending in
 `env.run(t)` (e.g. grow-divide-unbounded) never ran via the bin (`run` isn't a
 method); migrate them to end in the composite + `--time`.
 
+🎨 **#25 — type-driven canonical outputs: `plot(schema, trace)` + report sections
+as self-outputting workflows** (STARTED 2026-05-23). The crystallized vision (co-
+designed): **a report section is a complete `.ys` workflow that derives its
+canonical outputs from the composite's TYPES** — not a hand-written plot per sim.
+
+THE UNIFICATION: *everything is a single-item type extended through time = a
+**trace** (`list[state]`)*, and **`plot(schema, trace)` is a schema-driven
+operation** (dispatches on schema like the algebra's `serialize`/`apply`/`divide`):
+- scalars (`float`/`map[float]`/tree-of-scalars) → **line plot** (the integrator
+  `TimeSeries` is just this case);
+- a **field** (`array`/`map[array]`) → **heatmap / animation**;
+- the **structure** (the state `Tree`) → a **"4D" bigraph-viz**: the structure
+  shown at its change-points. The t=0 tree is just one snapshot; the structural
+  trace is naturally stored as **diffs** (`algebra::diff`, reconstructed via
+  `apply` — change-only), so structure is *not special* — it's another type
+  whose trace is plotted.
+
+DONE: `crates/prism-viz/src/plot.rs` — `plot(schema, trace, title) -> svg` +
+`characteristic(schema) -> View{Lines,Field,Snapshot}`, dispatching over the
+existing prism-viz renderers (`render_timeseries_svg`; snapshot for field/tree as
+a placeholder). Tested (schema→view; scalar trace→line SVG; nested scalars
+flatten to `substrates.glucose`).
+
+REMAINING (ordered): (1) **trace capture** — extend `RunProcess` (today: flat
+`map[float]`→scalar columns only) to emit the **full state trace** ("arbitrary
+outputs"); store as diffs. (2) a real **field heatmap/animation** renderer
+(port report.rs's plotters heatmap into prism-viz) + the **4D structural** plot
+(bigraph-viz at change-points). (3) **expose** `plot` + a bigraph-viz writer to
+`.ys` (method/step). (4) the **`Section` template** — a composite param'd by
+`(sim, title, description, out)` that runs the sim, calls `plot(output_schema,
+trace)` per output port (schema-driven), and self-outputs to `outputs/<name>/`.
+(5) apply down `CANONICAL_ORDER`, validating each family via the codegen tool.
+*The abstraction (`plot(schema,trace)`) is settled + seeded; the rest is the
+trace plumbing + the per-type renderers + the template.*
+
 **Suggested order:** **#10 codegen** is the architecture marquee — it unblocks #15
 (spatio-flux as `.ys`), full export/import self-containment, and `server`/`import`
 on packages (the single path). Then **#16 diagnostics → #21 defaults → #6 SBML
