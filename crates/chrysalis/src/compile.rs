@@ -70,6 +70,162 @@ pub enum CompileError {
     Other(String),
 }
 
+/// A native function importable into a `.ys` body as a bare call (`overlay(...)`).
+/// (Bare-function imports are wired in a later milestone; the type + builder
+/// exist now so the host-facing API is stable.)
+pub type HostFn = Arc<dyn Fn(&[Value]) -> Result<Value, MethodError> + Send + Sync>;
+
+/// What a native module exports under a name.
+// `Function`'s payload is consumed in the bare-function milestone (`Expr::Call`);
+// for now an imported function resolves but errs, so the field isn't read yet.
+#[allow(dead_code)]
+enum Export {
+    /// A whole process — its factory lives in the `ProcessRegistry`.
+    Process,
+    /// A value/object bound by name; methods on it dispatch via `MethodRegistry`.
+    Object(Value),
+    /// A bare callable invoked as `name(args)`.
+    Function(HostFn),
+    /// A native type whose representation is the schema source string; imported
+    /// types become first-class via a synthetic `type` def (`network: CRN`).
+    Type(String),
+}
+
+/// The native modules a host (e.g. spatio-flux) makes importable from `.ys` via
+/// `from <module> import <names>` — the replacement for `extern`. The host owns
+/// the implementations (process factories in the [`ProcessRegistry`], value
+/// methods in the [`MethodRegistry`]); this declares only *which* names each
+/// module exports and of what kind, so chrysalis can resolve a `Def::Use`.
+#[derive(Clone, Default)]
+pub struct ModuleRegistry {
+    modules: HashMap<String, ModuleExports>,
+}
+
+#[derive(Clone, Default)]
+struct ModuleExports {
+    processes: HashSet<String>,
+    objects: IndexMap<String, Value>,
+    functions: IndexMap<String, HostFn>,
+    /// name → representation schema source (parsed into a synthetic `type` def).
+    types: IndexMap<String, String>,
+}
+
+impl ModuleRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Declare that `module` exports a whole native process named `name`
+    /// (its factory must be registered in the `ProcessRegistry`).
+    pub fn process(mut self, module: &str, name: &str) -> Self {
+        self.modules
+            .entry(module.to_string())
+            .or_default()
+            .processes
+            .insert(name.to_string());
+        self
+    }
+
+    /// Declare that `module` exports an object `name` bound to `value`; its
+    /// methods (`name.method(args)`) dispatch via the `MethodRegistry`.
+    pub fn object(mut self, module: &str, name: &str, value: Value) -> Self {
+        self.modules
+            .entry(module.to_string())
+            .or_default()
+            .objects
+            .insert(name.to_string(), value);
+        self
+    }
+
+    /// Declare that `module` exports a bare function `name` (`name(args)`).
+    pub fn function(mut self, module: &str, name: &str, f: HostFn) -> Self {
+        self.modules
+            .entry(module.to_string())
+            .or_default()
+            .functions
+            .insert(name.to_string(), f);
+        self
+    }
+
+    /// Declare that `module` exports a native type `name` with the given
+    /// representation schema (surface source, e.g. `"{species: list[string], …}"`).
+    /// The import becomes a first-class `type` (`network: CRN` resolves, methods
+    /// like `from_sbml` attach to it).
+    pub fn type_(mut self, module: &str, name: &str, representation: &str) -> Self {
+        self.modules
+            .entry(module.to_string())
+            .or_default()
+            .types
+            .insert(name.to_string(), representation.to_string());
+        self
+    }
+
+    fn resolve(&self, module: &str, name: &str) -> Option<Export> {
+        let m = self.modules.get(module)?;
+        if m.processes.contains(name) {
+            Some(Export::Process)
+        } else if let Some(v) = m.objects.get(name) {
+            Some(Export::Object(v.clone()))
+        } else if let Some(src) = m.types.get(name) {
+            Some(Export::Type(src.clone()))
+        } else {
+            m.functions.get(name).map(|f| Export::Function(Arc::clone(f)))
+        }
+    }
+}
+
+/// Resolve every `from <module> import …` (`Def::Use`) against the host
+/// `modules`: object exports bind by name (resolvable in any body), process
+/// exports are recognised as wholesale native controls, and type exports become
+/// synthetic `type` defs (so the import is a first-class type).
+fn resolve_imports(
+    program: &Program,
+    modules: &ModuleRegistry,
+) -> Result<(IndexMap<Name, Value>, HashSet<Name>, Vec<Def>), CompileError> {
+    let mut imports: IndexMap<Name, Value> = IndexMap::new();
+    let mut processes: HashSet<Name> = HashSet::new();
+    let mut type_defs: Vec<Def> = Vec::new();
+    for def in &program.defs {
+        if let Def::Use { module, names } = def {
+            for name in names {
+                match modules.resolve(module, name) {
+                    Some(Export::Process) => {
+                        processes.insert(name.clone());
+                    }
+                    Some(Export::Object(v)) => {
+                        imports.insert(name.clone(), v);
+                    }
+                    Some(Export::Type(repr_src)) => {
+                        let representation =
+                            crate::parse::parse_schema_expr(&repr_src).map_err(|e| {
+                                CompileError::Other(format!(
+                                    "native type `{module}::{name}` has an invalid representation: {e}"
+                                ))
+                            })?;
+                        type_defs.push(Def::Type(crate::ast::TypeDef {
+                            name: name.clone(),
+                            params: vec![],
+                            representation,
+                            methods: vec![],
+                        }));
+                    }
+                    Some(Export::Function(_)) => {
+                        return Err(CompileError::Other(format!(
+                            "bare-function import `{module}::{name}` is not supported yet"
+                        )));
+                    }
+                    None => {
+                        return Err(CompileError::Other(format!(
+                            "unknown import `{name}` from native module `{module}`"
+                        )));
+                    }
+                }
+            }
+        }
+    }
+    Ok((imports, processes, type_defs))
+}
+
 /// Compile a chrysalis program into prism runtime artifacts.
 ///
 /// Entry conventions: the program must contain a top-level
@@ -101,9 +257,40 @@ pub fn compile_with_registry(
 /// native methods via `methods`, ys-native logic via the compiled bodies.
 pub fn compile_with_methods(
     program: &Program,
+    registry: ProcessRegistry,
+    methods: MethodRegistry,
+) -> Result<CompileResult, CompileError> {
+    compile_with_modules(program, registry, methods, ModuleRegistry::new())
+}
+
+/// Like [`compile_with_methods`], but also takes a [`ModuleRegistry`] declaring
+/// the native modules a `.ys` may `from <module> import …` — the replacement for
+/// `extern`. A *process* import (`from core import RunProcess`) becomes a
+/// wholesale native control wired straight from its call site; an *object*
+/// import (`from integrators import rk4`) binds a value resolvable in bodies, so
+/// `rk4.integrate(network, state, interval)` dispatches via the `MethodRegistry`.
+pub fn compile_with_modules(
+    program: &Program,
     mut registry: ProcessRegistry,
     mut methods: MethodRegistry,
+    modules: ModuleRegistry,
 ) -> Result<CompileResult, CompileError> {
+    // Resolve native host imports (`Def::Use`): object/process bindings plus
+    // synthetic `type` defs for imported native types (`from chem import CRN`).
+    let (imports, imported_processes, type_defs) = resolve_imports(program, &modules)?;
+    // Inject the imported types so they're first-class (resolve in annotations,
+    // register in the TypeRegistry, carry methods) — indistinguishable from a
+    // `type` declared in the `.ys`.
+    let program_owned;
+    let program: &Program = if type_defs.is_empty() {
+        program
+    } else {
+        let mut p = program.clone();
+        p.defs.extend(type_defs);
+        program_owned = p;
+        &program_owned
+    };
+
     // Reject ill-typed connections up front — illegal connections are
     // unrepresentable. Validated on the surface program (full unit info).
     let connection_errors = crate::check::validate_connections(program);
@@ -127,7 +314,12 @@ pub fn compile_with_methods(
     register_divide_methods(&mut methods, &program);
     register_user_type_methods(&mut methods, &program_arc);
     let methods = Arc::new(methods);
-    let evaluator = Arc::new(Evaluator::new(Arc::clone(&program_arc), Arc::clone(&methods)));
+    let evaluator = Arc::new(Evaluator::with_native_imports(
+        Arc::clone(&program_arc),
+        Arc::clone(&methods),
+        imports,
+        imported_processes,
+    ));
 
     // User `type` declarations → a TypeRegistry whose entries delegate the
     // algebra to each type's representation (first-class Custom dispatch).
@@ -175,8 +367,10 @@ pub fn compile_with_methods(
             // schema lowering); they register no process factory.
             | Def::Contract(_)
             // `Import` is resolved away by `parse::parse_file`; a leftover one
-            // registers no factory.
+            // registers no factory. `Use` (native host imports) is resolved
+            // separately (binds imported names); registers no factory here.
             | Def::Import { .. }
+            | Def::Use { .. }
             | Def::Binding { .. } => {}
         }
     }

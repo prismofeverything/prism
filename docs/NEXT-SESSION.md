@@ -146,12 +146,19 @@ See memory `schema-algebra-rebuild-done` and `composite-typing-and-resolve`.
    - **Runnable demo COMPLETE (2026-05-22):** `TimeSeries::species_mse`/`overlay`
      are registered methods; `crates/chrysalis/ys/integrator-comparison.ys` runs
      end to end — parse → enforce contracts → compile with the native registry +
-     injected methods (`compile_with_methods`) → Engine run → MSE produced
-     (`chrysalis/tests/integrator_comparison.rs`, 2 green). Native integrators are
-     one-shot `Process`es; `Compare` is a ys-native step calling the registered
-     methods; contracts flow through wirings to slots
+     injected methods (`compile_with_methods`) → Engine run → MSE + overlay
+     `Figure` produced (`spatio-flux/tests/integrator_comparison.rs`, 3 green —
+     the test lives in spatio-flux, not chrysalis, per `feedback_ys_layering`).
+     Native integrators are one-shot `Process`es; `Compare` is a ys-native step
+     calling the registered methods; contracts flow through wirings to slots
      (`check::collect_slot_contracts`). Gotcha learned:
      `reference_ys_workflow_dag_scheduling`.
+   - **Artifacts (2026-05-22):** wrapped as a runnable example,
+     `crates/spatio-flux/examples/integrator_comparison.rs` — `cargo run -p
+     spatio-flux --example integrator_comparison` writes trajectory CSVs, an MSE
+     table, the overlay SVG (the workflow's own `Figure`), and `state.json` to
+     `outputs/integrator-comparison/` (gitignored). RK4 tracks `e^{-kt}`, Euler
+     lags ⇒ MSE ≈ 3.6e-4/species: warranted comparison, method-induced divergence.
    - **Remaining for the contracts arc:** rung-3 KISAO export (#5); convert other
      examples to `.ys` (#6); the fundamental-type catalog + packages (#1).
    - HiGHS/FBA is the cross-target **negative test** (constraint-based steady

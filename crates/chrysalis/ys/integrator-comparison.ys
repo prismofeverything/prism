@@ -17,28 +17,54 @@ type Figure = {svg: string}
 
 contract DeterministicMassAction (target: MassActionODE, claims: Deterministic, advance: Continuous)
 
-extern Rk4[network: any]
-  ~{state: map[float]} ->{state: map[float]}
+# `RunProcess` is imported wholesale (a native Step, used as-is). `rk4`/`euler`
+# are native integrator functions and `CRN` a native type; the `process`
+# declarations below give them their ports + `fulfills` contract — the math and
+# the model type are borrowed, the interface is ours.
+from core import RunProcess
+from integrators import rk4, euler
+from chem import CRN
+from io import Path
+
+process Rk4[network: CRN]
   fulfills DeterministicMassAction[method: Rk4]
-
-extern ForwardEuler[network: any]
   ~{state: map[float]} ->{state: map[float]}
-  fulfills DeterministicMassAction[method: ForwardEuler]
+  ( rk4.integrate(network, state, interval) )
 
-extern RunProcess[proc: any, runtime: float, timestep: float]
-  ~{state: map[float]} ->{timeseries: TimeSeries}
+process ForwardEuler[network: CRN]
+  fulfills DeterministicMassAction[method: ForwardEuler]
+  ~{state: map[float]} ->{state: map[float]}
+  ( euler.integrate(network, state, interval) )
 
 step Compare ~{a: TimeSeries, b: TimeSeries} ->{mse: map[float]} (
   { mse: a.species_mse(b) }
 )
 
-composite IntegratorComparison ->{mse: map[float]} (
+step Plot ~{a: TimeSeries, b: TimeSeries} ->{figure: Figure} (
+  { figure: a.overlay(b, 'Rk4 vs ForwardEuler') }
+)
+
+# The workflow writes its own artifacts (no Rust harness): each writer method
+# (`.csv`/`.svg`) is a native effect. `path / a.name` is path-join over the
+# imported `Path` type. `->{}` = a pure side-effect step (run for its writes).
+step Output[path: Path]
+  ~{a: TimeSeries, b: TimeSeries, mse: map[float], figure: Figure} ->{} (
+    a.csv(path / a.name) |
+    b.csv(path / b.name) |
+    mse.csv(path / 'mse') |
+    figure.svg(path / 'overlay')
+)
+
+composite IntegratorComparison[out: Path = 'outputs/integrator-comparison']
+  ->{mse: map[float], figure: Figure} (
   init: {A: 1.0, B: 0.0} |
   rk4: RunProcess[proc: Rk4[network: {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}], runtime: 5.0, timestep: 0.2]
          ~{state: init} ->{timeseries: rk4_traj} |
   euler: RunProcess[proc: ForwardEuler[network: {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}], runtime: 5.0, timestep: 0.2]
          ~{state: init} ->{timeseries: euler_traj} |
-  compare: Compare ~{a: rk4_traj, b: euler_traj} ->{mse: mse}
+  compare: Compare ~{a: rk4_traj, b: euler_traj} ->{mse: mse} |
+  plot: Plot ~{a: rk4_traj, b: euler_traj} ->{figure: figure} |
+  output: Output[path: out] ~{a: rk4_traj, b: euler_traj, mse: mse, figure: figure}
 )
 
 IntegratorComparison[]

@@ -453,6 +453,15 @@ pub enum Def {
     /// scope. Resolved by [`crate::parse::parse_file`] (load the file, merge
     /// its defs); after resolution no `Import` remains in a `Program`.
     Import { name: Name, path: String },
+    /// `from <module> import <name>, …` — pull NATIVE host capabilities into
+    /// scope: either a whole process (`from core import RunProcess`, used as-is
+    /// with no interface redeclaration) or functions/objects
+    /// (`from integrators import rk4, euler`) that a `.ys` `process`/`step` body
+    /// then calls (`rk4.integrate(network, state, interval)`). Resolved at
+    /// compile time against the host-supplied native module registry — the
+    /// replacement for `extern`. (Distinct from [`Def::Import`], which pulls in
+    /// another `.ys` *file*.)
+    Use { module: Name, names: Vec<Name> },
     /// Top-level `name = expr` binding.
     Binding { name: Name, value: Expr },
 }
@@ -586,6 +595,7 @@ pub fn def_name(def: &Def) -> &str {
         Def::Type(d) => &d.name,
         Def::Contract(d) => &d.name,
         Def::Import { name, .. } => name,
+        Def::Use { module, .. } => module,
         Def::Binding { name, .. } => name,
     }
 }

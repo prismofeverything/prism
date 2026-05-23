@@ -377,12 +377,30 @@ realizations" contribution back to the standard.
    wrong-target wire is a compile error).
 4. **Workflow** — *DONE (2026-05-22).*
    [`crates/chrysalis/ys/integrator-comparison.ys`](../crates/chrysalis/ys/integrator-comparison.ys)
-   runs end to end (`chrysalis/tests/integrator_comparison.rs`, 2 green): parse →
+   runs end to end (`spatio-flux/tests/integrator_comparison.rs`, 3 green — the
+   test lives in spatio-flux because it wires the ys *language* to spatio-flux's
+   *native* processes, and chrysalis must not depend on spatio-flux): parse →
    enforce contracts → `compile_with_methods` (native registry + injected
-   `TimeSeries` methods) → Engine run → MSE produced. Native integrators run as
-   one-shot `Process`es; `Compare` is ys-native (its body calls the registered
-   methods). Contracts flow through wirings to slots
-   (`check::collect_slot_contracts`). Steps 1–4 complete; only rung 3 remains.
+   `TimeSeries` methods) → Engine run → MSE + overlay `Figure` produced. Native
+   integrators run as one-shot `Process`es; `Compare` is ys-native (its body
+   calls the registered methods `a.species_mse(b)` and `a.overlay(b, …)`).
+   Contracts flow through wirings to slots (`check::collect_slot_contracts`).
+   Steps 1–4 complete; only rung 3 remains.
+
+   **Runnable artifacts.** The same workflow is wrapped as a runnable example,
+   [`crates/spatio-flux/examples/integrator_comparison.rs`](../crates/spatio-flux/examples/integrator_comparison.rs):
+
+   ```text
+   cargo run -p spatio-flux --example integrator_comparison
+   ```
+
+   writes to `outputs/integrator-comparison/` (gitignored, reproducible):
+   `rk4.csv` / `euler.csv` (the two trajectories), `mse.csv` (per-species MSE),
+   `overlay.svg` (the workflow's own `Figure` — both trajectories, four labeled
+   series), and `state.json` (the full final engine state). On `A → B` at
+   k = 0.7, dt = 0.2, RK4 tracks the analytic decay `e^{-kt}` while forward Euler
+   lags, giving MSE ≈ 3.6e-4 on each species — "same target, different method,
+   warranted comparison, method-induced divergence."
 5. **Rung 3**: contract → KISAO export; OMEX/SED-ML round-trip.
 
 ## Sources

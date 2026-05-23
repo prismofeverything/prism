@@ -21,31 +21,47 @@ Everything below the compiler is prism-native.
 chrysalis hosts **two kinds of process**, and the distinction is
 load-bearing:
 
-1. **Rust-native processes** — defined in Rust, exposing the prism
-   process interface (`Process` / `Step`), called from chrysalis via
-   `extern`. These are the fundamental building blocks: numerical
-   solvers, integrators, FBA, diffusion, particle physics. They live in
-   prism crates, register factories in a `ProcessRegistry`, and a
-   chrysalis `extern process Name ~{} ->{}` binds to the factory by name
-   (resolved at `compile_with_registry`). A *growing library* of
-   ready-to-call primitives. First example: the mass-action ODE
-   integrators `Rk4` / `ForwardEuler`
-   (`spatio-flux::processes::mass_action::MassActionIntegrator`,
-   registered in `build_registry`).
+1. **Rust-native capabilities** — defined in Rust. The host registers
+   process factories in a `ProcessRegistry`, value-methods in a
+   `MethodRegistry`, and declares what each native **module** exports via
+   a `ModuleRegistry`. A `.ys` pulls them in with
+   `from <module> import <names>` — the **replacement for `extern`**,
+   resolved at `compile_with_modules`. Two import granularities:
+   - **whole process** — `from core import RunProcess` uses the native
+     `Step`/`Process` as-is: no interface redeclaration, wired straight
+     from the call site.
+   - **function / object / type** — `from integrators import rk4, euler`
+     imports native callables (their methods dispatch via the
+     `MethodRegistry`); `from chem import CRN` / `from io import Path`
+     import native *types* (first-class via a synthetic `type` def). A ys
+     `process` then declares the ports + `fulfills` contract and calls the
+     imported function in its body:
+     `process Rk4[network: CRN] fulfills DeterministicMassAction[method: Rk4] ~{state: map[float]} ->{state: map[float]} ( rk4.integrate(network, state, interval) )`.
+     The interface and contract are the surface language's; only the math
+     is borrowed. This is the principled split that `extern` conflated
+     (interface *and* implementation forced to mirror one native process).
 2. **ys-native processes** — defined *in chrysalis* as `process` /
    `step` / `composite` whose bodies are expressions over the values
    arriving at their inputs/config. They compose the native primitives
    and each other; their "implementation" is the interpreted body (value
-   methods dispatched via the `MethodRegistry`, structural deltas,
-   sub-process wiring). No Rust required.
+   methods dispatched via the `MethodRegistry`, native imported functions,
+   structural deltas, sub-process wiring). No Rust required. Bodies may
+   also call **effectful** writer methods (`a.csv(path)`, `figure.svg(path)`),
+   so a workflow can emit its own artifacts — an `Output` step with `->{}`
+   runs purely for its writes.
+3. (`extern` is retained only as a legacy alias; new code uses `from … import …`.)
 
 The two meet at the typed port interface (`~{} ->{}`): a ys-native
 process can't tell whether what it wires to is native or ys-native, and
 vice versa (composite-as-process is the categorical reality). The set of
-types these processes exchange — quantities, `TimeSeries`,
-`MassActionNetwork`, meshes, patterns, `ReactionRule`/`BRS`, contracts —
-is the **fundamental-type catalog** to enumerate and organize into
-packages (on the task list).
+types these processes exchange — quantities, `TimeSeries`, `CRN`,
+`Figure`, `Path`, meshes, patterns, `ReactionRule`/`BRS`, contracts — is
+the **fundamental-type catalog** to enumerate and organize into packages
+(on the task list). The worked example is
+[`ys/integrator-comparison.ys`](../crates/chrysalis/ys/integrator-comparison.ys):
+`from` imports of `RunProcess` (process), `rk4`/`euler` (objects), `CRN`/`Path`
+(types), function-bodied integrator processes, split `Compare`/`Plot` steps, and
+a self-outputting `Output` step.
 
 ## Homoiconicity goal
 

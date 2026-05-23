@@ -15,6 +15,7 @@
 //! [`Program`]. Method calls dispatch through
 //! `prism_schema::MethodRegistry`.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -63,11 +64,37 @@ pub enum EvalError {
 pub struct Evaluator {
     pub program: Arc<Program>,
     pub methods: Arc<MethodRegistry>,
+    /// Imported native OBJECTS (`from integrators import rk4`) — bound as values
+    /// resolvable by name in any body, so `rk4.integrate(...)` dispatches like
+    /// any value method. The replacement for `extern` value handles.
+    pub imports: IndexMap<Name, Value>,
+    /// Imported native PROCESS names (`from core import RunProcess`) — used
+    /// wholesale: a call site `Name[args] ~{…}->{…}` compiles to a
+    /// `{address: local:Name, config, inputs, outputs}` spec with config + ports
+    /// taken straight from the call site (no interface declaration needed).
+    pub imported_processes: HashSet<Name>,
 }
 
 impl Evaluator {
     pub fn new(program: Arc<Program>, methods: Arc<MethodRegistry>) -> Self {
-        Self { program, methods }
+        Self {
+            program,
+            methods,
+            imports: IndexMap::new(),
+            imported_processes: HashSet::new(),
+        }
+    }
+
+    /// Like [`Evaluator::new`], but seeded with native host imports resolved
+    /// from a `ModuleRegistry` (objects bound by name; process names recognised
+    /// as wholesale native controls).
+    pub fn with_native_imports(
+        program: Arc<Program>,
+        methods: Arc<MethodRegistry>,
+        imports: IndexMap<Name, Value>,
+        imported_processes: HashSet<Name>,
+    ) -> Self {
+        Self { program, methods, imports, imported_processes }
     }
 
     // ===============================================================
@@ -114,6 +141,7 @@ impl Evaluator {
 
             Expr::Var(name) | Expr::Site { name, .. } => env
                 .get(name)
+                .or_else(|| self.imports.get(name))
                 .cloned()
                 .ok_or_else(|| EvalError::UnboundVar(name.clone())),
 
@@ -443,15 +471,62 @@ impl Evaluator {
             | Some(Def::Type(_))
             | Some(Def::Contract(_))
             | Some(Def::Import { .. })
+            | Some(Def::Use { .. })
             | Some(Def::Binding { .. }) => Err(EvalError::InvalidForm {
                 context: "value-term".into(),
                 message: format!("control `{}` is not callable in value context", control),
             }),
+            None if self.imported_processes.contains(control) => {
+                // A wholesale native process import (`from core import …`):
+                // no Def, no declared interface — wire straight from the call.
+                self.build_native_spec(control, args, ports, env)
+            }
             None => match control.as_str() {
                 "BRS" => self.build_brs_value(args, ports, env),
                 _ => self.build_plain_map_value(control, args, body, env),
             },
         }
+    }
+
+    /// Build a `{address, config, inputs, outputs}` spec for a WHOLESALE-imported
+    /// native process. Unlike [`build_spec_value`], there is no declared
+    /// interface, so config is every call-site named arg and the wired ports are
+    /// exactly those the call site connects (`from core import RunProcess`).
+    fn build_native_spec(
+        &self,
+        control: &Name,
+        args: &[TermArg],
+        ports: &PortBindings,
+        env: &IndexMap<Name, Value>,
+    ) -> Result<Value, EvalError> {
+        let mut config_map: IndexMap<Key, Value> = IndexMap::new();
+        for a in args {
+            if let TermArg::Named { name, value } = a {
+                config_map.insert(Key::from(name.as_str()), self.eval_value(value, env)?);
+            }
+        }
+        let lower = |binds: &IndexMap<Name, Expr>,
+                     ev: &Self|
+         -> Result<IndexMap<Key, Value>, EvalError> {
+            let mut m: IndexMap<Key, Value> = IndexMap::new();
+            for (name, target) in binds {
+                let segs = lower_target_to_segments(target, ev, env)?;
+                m.insert(
+                    Key::from(name.as_str()),
+                    Value::List(segs.into_iter().map(Value::String).collect()),
+                );
+            }
+            Ok(m)
+        };
+        let inputs_map = lower(&ports.inputs, self)?;
+        let outputs_map = lower(&ports.outputs, self)?;
+
+        let mut spec: IndexMap<Key, Value> = IndexMap::new();
+        spec.insert("address".into(), Value::String(format!("local:{control}")));
+        spec.insert("config".into(), Value::Map(config_map));
+        spec.insert("inputs".into(), Value::Map(inputs_map));
+        spec.insert("outputs".into(), Value::Map(outputs_map));
+        Ok(Value::Map(spec))
     }
 
     /// Build an outer-map for a composite call site.
@@ -1058,6 +1133,18 @@ impl Evaluator {
 
 fn apply_binop(op: BinOp, lhs: &Value, rhs: &Value) -> Result<Value, EvalError> {
     use BinOp::*;
+    // Path join: `Path / segment` with string operands → "lhs/rhs" (so the
+    // Output step can write `a.csv(path / a.name)`). `/` is otherwise division.
+    if matches!(op, Div) {
+        if let (Value::String(l), Value::String(r)) = (lhs, rhs) {
+            let joined = if l.is_empty() || l.ends_with('/') {
+                format!("{l}{r}")
+            } else {
+                format!("{l}/{r}")
+            };
+            return Ok(Value::String(joined));
+        }
+    }
     match op {
         Add | Sub | Mul | Div => {
             let (l, r) = (lhs.as_f64(), rhs.as_f64());

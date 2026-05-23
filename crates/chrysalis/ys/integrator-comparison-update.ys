@@ -1,0 +1,80 @@
+# Process-contract tier-1 demo (docs/process-contracts.md), as a one-shot Step
+# network. Two RUST-NATIVE *stepwise* integrator Processes (Rk4, ForwardEuler)
+# are each wrapped by a `RunProcess` Step that runs them over [0, runtime] and
+# emits a `TimeSeries`. A ys-native `Compare` step MSEs the two trajectories.
+#
+# Integrators are plain Processes (one step per update — reusable); `RunProcess`
+# turns one into a one-shot Step. The whole workflow is a one-shot Step DAG, fired
+# in dependency order by the engine. `TimeSeries`/`Figure` are declared ys types
+# (Values, not Foreign): their methods (species_mse, overlay) dispatch on `_type`.
+#
+# (Contracts: Rk4/ForwardEuler `fulfill` DeterministicMassAction, but the demand
+# on Compare's inputs returns in #9, when the contract propagates through
+# RunProcess to the timeseries output.)
+
+type TimeSeries = {
+  times: list[float],
+  columns: map[list[float]]
+}
+
+type Figure = {svg: string}
+
+contract DeterministicMassAction (
+  target: MassActionODE,
+  claims: Deterministic,
+  advance: Continuous
+)
+
+# `RunProcess` is imported wholesale (a native Step, used as-is). `rk4`/`euler`
+# are native integrator functions; the `process` declarations below give them
+# their ports + `fulfills` contract — the math is borrowed, the interface is ours.
+from core import RunProcess
+from integrators import rk4, euler
+from network import CRN
+
+process Rk4[network: any]
+  fulfills DeterministicMassAction[method: Rk4]
+  ~{state: map[float]} ->{state: map[float]}
+  ( rk4.integrate(network, state, interval) )
+
+process ForwardEuler[network: any]
+  fulfills DeterministicMassAction[method: ForwardEuler]
+  ~{state: map[float]} ->{state: map[float]}
+  ( euler.integrate(network, state, interval) )
+
+step Compare ~{a: TimeSeries, b: TimeSeries} ->{mse: map[float], figure: Figure} ({
+    mse: a.species_mse(b),
+    figure: a.overlay(b, 'Rk4 vs ForwardEuler')
+  }
+)
+
+network = CRN({
+  species: ['A', 'B'],
+  reactions: [{
+    reactants: {A: 1.0},
+    products: {B: 1.0},
+    k: 0.7}]
+  }
+)
+
+composite IntegratorComparison ->{mse: map[float], figure: Figure} (
+  init: {A: 1.0, B: 0.0} |
+
+  rk4: RunProcess[
+    proc: Rk4[network: network],
+    runtime: 5.0,
+    timestep: 0.2]
+    ~{state: init} ->{timeseries: rk4_traj} |
+
+  euler: RunProcess[
+    proc: ForwardEuler[network: network],
+    runtime: 5.0,
+    timestep: 0.2]
+    ~{state: init} ->{timeseries: euler_traj} |
+
+  compare: Compare
+    ~{a: rk4_traj, b: euler_traj}
+    ->{mse: mse, figure: figure}
+)
+
+IntegratorComparison[]

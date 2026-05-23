@@ -129,6 +129,7 @@ fn unparse_def(def: &Def) -> String {
             format!("contract {} ({axes})", c.name)
         }
         Def::Import { name, path } => format!("import {name} from '{path}'"),
+        Def::Use { module, names } => format!("from {module} import {}", names.join(", ")),
         Def::Binding { name, value } => {
             if name == "main" {
                 // The trailing-value form.

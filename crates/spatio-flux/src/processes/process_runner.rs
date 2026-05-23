@@ -122,6 +122,9 @@ impl Step for RunProcess {
 
         let timeseries = Value::tree([
             ("_type", Value::from("TimeSeries")),
+            // The wrapped process's name (e.g. "Rk4"), so the Output step can
+            // write `a.csv(path / a.name)` to a meaningful filename.
+            ("name", Value::from(self.address.as_str())),
             ("times", Value::List(times)),
             ("columns", columns),
         ]);

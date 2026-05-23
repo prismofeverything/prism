@@ -2,4 +2,5 @@
 /dna
 perf.data*
 out/
+/outputs
 __pycache__*

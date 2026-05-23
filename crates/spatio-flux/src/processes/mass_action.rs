@@ -17,7 +17,7 @@ use std::any::Any;
 
 use indexmap::IndexMap;
 use prism_bigraph::{Process, Schema, StateMap, Update, Value};
-use prism_schema::{MethodError, MethodRegistry};
+use prism_schema::{MethodError, MethodRegistry, MethodResult};
 
 /// A single mass-action reaction: `reactants -> products` at rate `k`.
 /// Stoichiometry entries are `(species_index, coefficient)`; the mass-action
@@ -244,10 +244,58 @@ fn ts_err(method: &str, message: &str) -> MethodError {
     }
 }
 
-/// Register `TimeSeries` value-methods (`species_mse`, `overlay`) on a
-/// `MethodRegistry`. A workflow that composes the integrators merges this into
-/// the method registry so ys-native bodies can call them.
+/// A native integrator object for `from integrators import rk4, euler`: the
+/// value `{_type: "Integrator", method}` whose `integrate(network, state,
+/// interval)` method advances one step. A `.ys` `process` wraps it, declaring
+/// the ports + `fulfills` contract; the math stays here (the "import a function,
+/// build the process in ys" model — `docs/process-contracts.md`).
+pub fn integrator(method: &str) -> Value {
+    Value::tree([
+        ("_type", Value::from("Integrator")),
+        ("method", Value::from(method)),
+    ])
+}
+
+/// Register `TimeSeries` value-methods (`species_mse`, `overlay`) and the
+/// `Integrator` `integrate` method on a `MethodRegistry`. A workflow that
+/// composes the integrators merges this into the method registry so ys-native
+/// bodies can call them.
 pub fn register_methods(reg: &mut MethodRegistry) {
+    // `rk4.integrate(network, state, interval)` — one explicit step of the
+    // method named by the receiver, returning `{state: <next>}` (the output
+    // port shape `RunProcess` feeds back in). Mirrors `MassActionProcess`.
+    reg.register("Integrator", "integrate", |recv, args| {
+        let method = recv.get_field("method").and_then(|v| v.as_str()).unwrap_or("rk4");
+        let network = args
+            .first()
+            .map(network_from_value)
+            .ok_or_else(|| ts_err("integrate", "argument 0 must be a reaction network"))?;
+        let state = args.get(1).and_then(|v| v.as_map());
+        let interval = args.get(2).and_then(|v| v.as_f64()).unwrap_or(1.0);
+        let x: Vec<f64> = network
+            .species
+            .iter()
+            .map(|s| {
+                state
+                    .and_then(|m| m.get(s.as_str()))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0)
+            })
+            .collect();
+        let next = match method {
+            "euler" | "ForwardEuler" => euler_step(&network, &x, interval),
+            _ => rk4_step(&network, &x, interval),
+        };
+        let out = Value::tree(
+            network
+                .species
+                .iter()
+                .cloned()
+                .zip(next)
+                .map(|(s, v)| (s, Value::float(v))),
+        );
+        Ok(Value::tree([("state", out)]))
+    });
     reg.register("TimeSeries", "species_mse", |recv, args| {
         let a = ts_columns(recv).ok_or_else(|| ts_err("species_mse", "receiver is not a TimeSeries"))?;
         let b = args
@@ -273,6 +321,8 @@ pub fn register_methods(reg: &mut MethodRegistry) {
             .first()
             .and_then(ts_columns)
             .ok_or_else(|| ts_err("overlay", "argument 0 must be a TimeSeries"))?;
+        // Optional second arg: a plot title (`a.overlay(b, 'Rk4 vs ForwardEuler')`).
+        let title = args.get(1).and_then(|v| v.as_str()).unwrap_or("overlay");
         let times: Vec<f64> = recv
             .get_field("times")
             .map(ts_floats)
@@ -284,12 +334,91 @@ pub fn register_methods(reg: &mut MethodRegistry) {
         for (sp, col) in b {
             series.insert(format!("{sp} (b)"), ts_floats(col));
         }
-        let svg = crate::report::render_timeseries_svg("overlay", &times, &series, false);
+        let svg = crate::report::render_timeseries_svg(title, &times, &series, false);
         Ok(Value::tree([
             ("_type", Value::from("Figure")),
             ("svg", Value::String(svg)),
         ]))
     });
+
+    // ── Effectful writers (the self-outputting Output step) ─────────────
+    // `a.csv(path)` / `mse.csv(path)` / `figure.svg(path)` write a file to
+    // `<path>.<ext>` and return None. The `.ys` workflow emits its own artifacts.
+    reg.register("TimeSeries", "csv", |recv, args| {
+        let path = arg_path(args, "csv")?;
+        write_file(&format!("{path}.csv"), &timeseries_to_csv(recv), "csv")
+    });
+
+    reg.register("Map", "csv", |recv, args| {
+        let path = arg_path(args, "csv")?;
+        let map = recv.as_map().ok_or_else(|| ts_err("csv", "receiver is not a map"))?;
+        let mut out = String::from("key,value\n");
+        for (k, v) in map {
+            if k.as_str() == "_type" {
+                continue;
+            }
+            let cell = v.as_f64().map(|f| f.to_string()).unwrap_or_default();
+            out.push_str(&format!("{k},{cell}\n"));
+        }
+        write_file(&format!("{path}.csv"), &out, "csv")
+    });
+
+    reg.register("Figure", "svg", |recv, args| {
+        let path = arg_path(args, "svg")?;
+        let svg = recv.get_field("svg").and_then(|v| v.as_str()).unwrap_or("");
+        write_file(&format!("{path}.svg"), svg, "svg")
+    });
+}
+
+/// Read the path argument (first positional) of a writer method.
+fn arg_path<'a>(args: &'a [Value], method: &str) -> Result<&'a str, MethodError> {
+    args.first()
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ts_err(method, "a path string argument is required"))
+}
+
+/// Write `contents` to `path`, creating parent directories. Returns `None`.
+fn write_file(path: &str, contents: &str, method: &str) -> MethodResult {
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| ts_err(method, &format!("create dir for {path}: {e}")))?;
+    }
+    std::fs::write(path, contents).map_err(|e| ts_err(method, &format!("write {path}: {e}")))?;
+    Ok(Value::None)
+}
+
+/// Render a `TimeSeries` value as CSV text: a `time` column then one per species.
+fn timeseries_to_csv(ts: &Value) -> String {
+    let times: Vec<f64> = ts
+        .get_field("times")
+        .map(ts_floats)
+        .unwrap_or_default();
+    let columns = ts_columns(ts);
+    let species: Vec<String> = columns
+        .map(|m| m.keys().map(|k| k.to_string()).collect())
+        .unwrap_or_default();
+
+    let mut out = String::from("time");
+    for sp in &species {
+        out.push(',');
+        out.push_str(sp);
+    }
+    out.push('\n');
+    for (i, t) in times.iter().enumerate() {
+        out.push_str(&t.to_string());
+        for sp in &species {
+            let v = columns
+                .and_then(|m| m.get(sp.as_str()))
+                .and_then(|c| c.as_list())
+                .and_then(|l| l.get(i))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(f64::NAN);
+            out.push(',');
+            out.push_str(&v.to_string());
+        }
+        out.push('\n');
+    }
+    out
 }
 
 #[cfg(test)]

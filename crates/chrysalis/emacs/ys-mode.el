@@ -13,13 +13,18 @@
 ;;
 ;; Kernel forms recognised:
 ;;
-;;   - Definers (lowercase): process, step, composite, reaction,
-;;     pattern, let, if, then, else, where, in, replace, with, expr
+;;   - Definers (lowercase): type, process, step, composite, reaction,
+;;     pattern, extern, unit, context, contract
+;;   - Modifiers: `from M import a, b' (native host imports), `import N
+;;     from "p.ys"' (file imports), fulfills, using, with, where, replace
+;;   - Control / logic: let, in, if, then, else, for, not, and, or
+;;   - Built-in schema types (lowercase): float, int, string, bool, map,
+;;     list, tree, any, array, maybe
 ;;   - Controls (Capitalised): highlighted via face for capitalised
 ;;     identifiers
 ;;   - Pattern variables: ?name
 ;;   - Link variables: ~name (as bare token)
-;;   - Port bindings: ~{ ... } -> { ... }
+;;   - Port bindings: ~{ ... } -> { ... }, with `fulfills C[…]' contracts
 ;;   - Reaction arrow: =>
 ;;   - Single-quoted strings with {expr} interpolation
 ;;   - `#' line comments
@@ -77,19 +82,34 @@ for parallel composition."
 ;; ── Keyword sets ────────────────────────────────────────────────────
 
 (defconst ys-definer-keywords
-  '("process" "step" "composite" "reaction" "pattern" "expr"
-    "let" "in" "if" "then" "else" "where" "replace" "with")
-  "Lowercase definer keywords.")
+  '("type" "process" "step" "composite" "reaction" "pattern"
+    "extern" "unit" "context" "contract")
+  "Top-level definer keywords (each introduces a named definition).")
+
+(defconst ys-modifier-keywords
+  '("from" "import" "using" "fulfills" "with" "where" "replace")
+  "Keywords connecting or modifying definitions: native/file imports
+\(`from M import x', `import N from \"p\"'), contracts (`fulfills'),
+contexts (`using'), type methods (`with'), guards (`where'), rewrites.")
+
+(defconst ys-control-keywords
+  '("let" "in" "if" "then" "else" "for" "not" "and" "or")
+  "Expression-level control and logical keywords.")
+
+(defconst ys-constant-keywords
+  '("true" "false")
+  "Boolean literals.")
 
 (defconst ys-builtin-type-keywords
-  '("Float" "Int" "Integer" "Bool" "Boolean" "String"
-    "Map" "List" "Tree" "Maybe" "Tuple" "Array"
-    "Any" "None"))
+  '("float" "int" "string" "bool" "map" "list" "tree"
+    "any" "array" "maybe" "tuple"
+    ;; extensivity / affinity modifiers in schema position
+    "extensive" "intensive" "affine")
+  "Lowercase built-in schema type leaves (`map[float]', `list[string]').")
 
 (defconst ys-builtin-control-keywords
-  '("BRS" "Reaction" "Pattern" "ProcessDef" "StepDef"
-    "Bridge" "Interface")
-  "Built-in capitalised constructors.")
+  '("BRS" "RunProcess")
+  "Built-in capitalised controls.")
 
 ;; ── Syntax table ────────────────────────────────────────────────────
 
@@ -148,8 +168,8 @@ for parallel composition."
     ;; keyword alternation in a shy group `\(?:...\)' so our explicit
     ;; capture group below sits at position 1.
     (,(concat "\\<"
-              (regexp-opt '("process" "step" "composite"
-                            "reaction" "pattern" "expr"))
+              (regexp-opt '("type" "process" "step" "composite"
+                            "reaction" "pattern" "extern" "contract"))
               "\\>\\s-+\\([A-Z][A-Za-z0-9_]*\\)")
      1 'ys-declaration-face)
 
@@ -157,7 +177,21 @@ for parallel composition."
     (,(regexp-opt ys-definer-keywords 'symbols)
      . font-lock-keyword-face)
 
-    ;; Built-in type names
+    ;; Modifier / connective keywords (from, import, fulfills, using, with, …).
+    ;; `from' is contextual (also a field name); highlighting it as a keyword
+    ;; is a harmless cosmetic over-reach.
+    (,(regexp-opt ys-modifier-keywords 'symbols)
+     . font-lock-keyword-face)
+
+    ;; Control / logical keywords
+    (,(regexp-opt ys-control-keywords 'symbols)
+     . font-lock-keyword-face)
+
+    ;; Boolean constants
+    (,(regexp-opt ys-constant-keywords 'symbols)
+     . font-lock-constant-face)
+
+    ;; Built-in (lowercase) schema type leaves
     (,(regexp-opt ys-builtin-type-keywords 'symbols)
      . font-lock-type-face)
 

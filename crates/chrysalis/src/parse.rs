@@ -444,6 +444,29 @@ pub fn parse_program(src: &str) -> Result<Program, ParseError> {
     Ok(program)
 }
 
+/// Attach `contract` to every output port that doesn't already declare one
+/// (`fulfills C` = `:: C` on each output).
+fn apply_fulfills(interface: &mut Interface, contract: &ContractRef) {
+    for (_, decl) in interface.outputs.iter_mut() {
+        if decl.contract.is_none() {
+            decl.contract = Some(contract.clone());
+        }
+    }
+}
+
+/// Parse a standalone schema expression — the surface form used on the RHS of a
+/// `type Name = …` declaration. Used to give a native imported type (declared via
+/// a `ModuleRegistry`) its representation from a source string.
+pub fn parse_schema_expr(src: &str) -> Result<SchemaExpr, ParseError> {
+    let toks = lex(src)?;
+    let mut p = Parser { toks, pos: 0, aliases: Default::default() };
+    let schema = p.parse_schema()?;
+    if !p.check(&Tok::Eof) {
+        return Err(p.err("unexpected trailing tokens after schema expression"));
+    }
+    Ok(schema)
+}
+
 /// Parse a `.ys` file, **resolving `import Name from "rel"`** by loading the
 /// referenced files (relative to each file's directory) and merging their
 /// definitions. Imported `main` bindings and already-defined names are skipped;
@@ -517,6 +540,10 @@ impl Parser {
                 };
                 Ok(Def::Import { name, path })
             }
+            // `from <module> import <name>, …` — native host imports (the
+            // `extern` replacement). `from` is a contextual keyword, so guard on
+            // it not being a `from = …` binding.
+            Tok::Ident(s) if s == "from" && *self.peek2() != Tok::Eq => self.parse_use_def(),
             // `name = expr` binding (e.g. `growth = 0.02`), OR a trailing bare
             // expression — the file's root VALUE, which becomes the implicit
             // `main` (so `Environment[…]` on the last line needs no `main =`).
@@ -530,6 +557,29 @@ impl Parser {
                 }
             }
         }
+    }
+
+    // ── native host import ──────────────────────────────────────────
+    // `from <module> import <name> (, <name>)*` — pull native processes /
+    // functions into scope (replaces `extern`). `from`/the module/the names are
+    // identifiers; `import` is the keyword token.
+    fn parse_use_def(&mut self) -> Result<Def, ParseError> {
+        let kw = self.ident()?; // contextual `from`
+        debug_assert_eq!(kw, "from");
+        let module = self.ident()?;
+        match self.bump() {
+            Tok::Import => {}
+            other => {
+                return Err(self.err(&format!(
+                    "expected `import` after `from {module}`, found {other:?}"
+                )))
+            }
+        }
+        let mut names = vec![self.ident()?];
+        while self.accept(&Tok::Comma) {
+            names.push(self.ident()?);
+        }
+        Ok(Def::Use { module, names })
     }
 
     // ── type declaration ────────────────────────────────────────────
@@ -590,16 +640,22 @@ impl Parser {
         Ok(cref)
     }
 
-    /// Parse an optional `fulfills C[…]` clause and apply it to the output
-    /// ports — sugar for `:: C` on each output that doesn't already declare one.
-    fn parse_fulfills_into(&mut self, interface: &mut Interface) -> Result<(), ParseError> {
+    /// Parse an optional `fulfills C[…]` clause, returning the contract (applied
+    /// to outputs once the interface is known — `fulfills` may sit before or
+    /// after the `~{}->{}` interface).
+    fn parse_optional_fulfills(&mut self) -> Result<Option<ContractRef>, ParseError> {
         if self.accept(&Tok::Fulfills) {
-            let c = self.parse_contract_ref()?;
-            for (_, decl) in interface.outputs.iter_mut() {
-                if decl.contract.is_none() {
-                    decl.contract = Some(c.clone());
-                }
-            }
+            Ok(Some(self.parse_contract_ref()?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Parse an optional `fulfills C[…]` clause and apply it to the output ports
+    /// — sugar for `:: C` on each output that doesn't already declare one.
+    fn parse_fulfills_into(&mut self, interface: &mut Interface) -> Result<(), ParseError> {
+        if let Some(c) = self.parse_optional_fulfills()? {
+            apply_fulfills(interface, &c);
         }
         Ok(())
     }
@@ -1330,8 +1386,13 @@ impl Parser {
         self.bump(); // `process` | `step`
         let name = self.ident()?;
         let params = self.parse_bracket_params()?;
+        // `fulfills C[…]` may appear before or after the `~{}->{}` interface.
+        let fulfills_before = self.parse_optional_fulfills()?;
         let mut interface = self.parse_interface()?;
-        self.parse_fulfills_into(&mut interface)?;
+        let fulfills_after = self.parse_optional_fulfills()?;
+        if let Some(c) = fulfills_before.or(fulfills_after) {
+            apply_fulfills(&mut interface, &c);
+        }
         let body = self.parse_body()?;
         Ok(if is_step {
             Def::Step(StepDef { name, params, interface, body })
