@@ -608,6 +608,24 @@ impl Program {
     pub fn lookup(&self, name: &str) -> Option<&Def> {
         self.defs.iter().find(|d| def_name(d) == name)
     }
+
+    /// The file's runnable **entry point** — its *last* top-level definition that
+    /// carries an interface: a `composite`/`process`/`step` (a simulation) or a
+    /// `def` function (a pure transform). This realizes the rule "a file's value
+    /// is its last top-level term": vocabulary defs accumulate, and the final
+    /// interfaced term is what `chrysalis run file.ys` invokes — its interface
+    /// becomes the command's typed I/O (config + inputs in, outputs out). An
+    /// explicit trailing expression (parsed as the `main` binding) still takes
+    /// precedence; this is the no-`main` fallback. `None` ⇒ a pure package
+    /// (importable, not runnable on its own). See chrysalis-design.md (#24).
+    pub fn entry(&self) -> Option<&Def> {
+        self.defs.iter().rev().find(|d| {
+            matches!(
+                d,
+                Def::Composite(_) | Def::Process(_) | Def::Step(_) | Def::Function(_)
+            )
+        })
+    }
 }
 
 pub fn def_name(def: &Def) -> &str {

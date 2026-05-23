@@ -421,7 +421,18 @@ pub fn compile_with_modules(
     // exported (importable, callable, dispatchable). No mandatory entry point.
     let main_expr: Option<Expr> = match program.lookup("main") {
         Some(Def::Binding { value, .. }) => Some(value.clone()),
-        _ => None,
+        // No explicit `main` ⇒ the file's value is its last top-level term
+        // (decision #24). A *bare-runnable* `composite` entry (all config
+        // params + inputs defaulted) runs by inlining a bare call to it (its
+        // body becomes the root state). An entry that needs config/inputs is
+        // run via the `invoke` path (CLI-bound), not as a bare root — so it is
+        // left out here (empty root) rather than failing on missing args.
+        _ => match program.entry() {
+            Some(Def::Composite(d)) if bare_runnable(d) => {
+                Some(Expr::term(d.name.clone()).build())
+            }
+            _ => None,
+        },
     };
     let env: IndexMap<Name, Value> = collect_top_level_bindings(&program, &evaluator)?;
 
@@ -478,8 +489,9 @@ pub fn compile_with_modules(
 }
 
 /// Evaluate top-level `name = expr` bindings into a starter env so
-/// that compile-time references resolve.
-fn collect_top_level_bindings(
+/// that compile-time references resolve. (Used by both `compile` and the
+/// `invoke` path, which seeds it before binding CLI config/inputs.)
+pub(crate) fn collect_top_level_bindings(
     program: &Program,
     evaluator: &Evaluator,
 ) -> Result<IndexMap<Name, Value>, CompileError> {
@@ -497,6 +509,14 @@ fn collect_top_level_bindings(
         }
     }
     Ok(env)
+}
+
+/// A composite is *bare-runnable* (inlinable as the root with no CLI args) when
+/// every config param and input port has a default. Otherwise it must be run via
+/// the `invoke` path, which binds config/inputs from the command line.
+fn bare_runnable(d: &crate::ast::CompositeDef) -> bool {
+    d.params.iter().all(|p| p.default.is_some())
+        && d.interface.inputs.values().all(|p| p.default.is_some())
 }
 
 // ===============================================================

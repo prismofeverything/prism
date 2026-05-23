@@ -131,6 +131,83 @@ the **fundamental-type catalog** to enumerate and organize into packages
 (types), function-bodied integrator processes, split `Compare`/`Plot` steps, and
 a self-outputting `Output` step.
 
+## A file is a composite — compositional invocation (decision #24)
+
+**A `.ys` file's value is its *last top-level term*** — the same convention as
+a body block, whose value is its last `|`-less line. From this one rule both
+"file as package" and "file as composite" fall out, independently and opt-in:
+
+- **Vocabulary.** `process`/`composite`/`step`/`def`/`reaction`/`type` are the
+  file's definitions — all importable (`from things import Grow`). A file with
+  only these is a **pure package**.
+- **Entry point.** The file's *runnable interface* is its **last** definition
+  that carries one: a `composite`/`process` (a simulation) or a `def` (a pure
+  function). `chrysalis run file.ys` binds the command line to that interface
+  and renders its outputs. An explicit trailing expression (the implicit `main`
+  binding) still wins; the last-term rule is the no-`main` fallback. No
+  interfaced term ⇒ not runnable on its own (import-only). [`Program::entry`]
+- **Headless sugar.** A trailing `[config] ~{in} ->{out} ( body )` with no
+  `composite Name` prefix is just an *anonymous composite* as the last term —
+  optional sugar; identical to the named form. So the keyword is never required
+  but always available.
+
+### The command IS the interface
+
+```
+chrysalis run things.ys --threshold 2.0 --seed cell.ys   >  population.ys
+```
+
+The entry's `[config]` params **and** `~{inputs}` are both bound from the
+command line; `->{outputs}` are rendered back. The **source is explicit** — the
+schema only ever drives `realize`, never *where the bytes come from*. Each
+`--name SOURCE`:
+
+- bare text → a **literal** (the serialized value itself): `--threshold 2.0`
+- `file:PATH` → a **file** (bash process-substitution `file:<(gen)` works, so
+  "pipe a huge generated value" needs no special support)
+- `-` / `stdin:` → **stdin** (the one pipe)
+- `stream:…` → reserved for the streaming layer
+- `lit:…` → force a literal that would otherwise look like a scheme
+
+Multiple inputs are multiple flags (unix-style). The reserved flags are `--time`
+(run duration — *not* `--interval`, which is the engine's per-step dt) and
+`--out FILE`. The decoded value flows through the port's `@` bridge into inner
+state; after the run each output is pulled back through its bridge and serialized
+out, as one record, to stdout (or `--out FILE`).
+
+### I/O is the codec, which already exists
+
+Port I/O is exactly the schema algebra's **codec** — no new operation:
+
+- **input** = `realize`/`deserialize(port_schema, encoded)` — external
+  (file/literal) → typed `Value`.
+- **output** = `serialize(port_schema, value)` — typed `Value` → external.
+- Law: `deserialize(s, serialize(s, v)) ≡ v` (`prism_schema::algebra`).
+
+**Rich types carry their own codec** (per-type `serialize`/`realize` in the
+`TypeRegistry`): a `CRN` ↔ SBML, a `Figure` ↔ SVG, a `TimeSeries` ↔ CSV — no
+CLI special-casing; the type owns its external form. The input path finishes
+with `realize`'s sibling, process **realization** (`discover_processes`), so a
+deserialized process-bearing value becomes runnable.
+
+### Streaming is a typed layer, not a new mechanism
+
+Batch (one-shot) I/O is the foundation; **multiplex = just several named ports**,
+each its own channel/flag/file. A port whose *type* is a stream / time-series is
+a **channel** the engine fills incrementally over sim time — and prism already
+streams output (the effectful `Output` step + `Emitter`/`RAMEmitter` write
+during the run); streaming input is the dual reader. Each frame is the same
+`realize`/`serialize` codec applied per step. So "channels with properties based
+on type" needs no new primitive — a stream type bound to the emitter substrate.
+Land batch first; layer streaming when a live channel is required.
+
+*Status:* built for `composite` entries — `Program::entry`, the `compile`
+no-`main` fallback, `runner::invoke` (explicit-connector config/input binding via
+`realize`, output record via `serialize`), and the `chrysalis run f.ys --<port>
+SOURCE [--out F]` CLI. Tests: `tests/file_entry.rs`, `tests/invoke.rs`. Follow-on
+slices: `process`/`def`-function entries (a file that *is* a process or a pure
+function), the headless top-level form (parser), and streaming.
+
 ## Homoiconicity goal
 
 **Chrysalis is homoiconic when a process can construct a new reaction

@@ -247,6 +247,29 @@ unparser emits `@ path` (and `%` self), in parser order (bridge, `fulfills`,
 emacs `ys-mode` sigils updated. Tests: `crates/chrysalis/tests/composite_bridge.rs`
 (parse, name-infer fallback, unparse-fixpoint, **eval lands in `config.bridge`**).
 
+🚧 **#24 — a file IS a composite (compositional invocation)** (in progress
+2026-05-23; chrysalis-design.md resolved decision #24; harness task #21). The
+rule: **a file's value is its last top-level term** (like a body block's last
+`|`-less line). Defs are importable vocabulary; the *last* `composite`/`process`/
+`def` is the file's runnable interface; a trailing headless `[config] ~{} ->{}
+( body )` is anonymous-composite sugar; no interfaced term ⇒ pure package. DONE
+(composite entries): `Program::entry`; `compile` no-`main` fallback inlines a
+*bare-runnable* composite; `runner::invoke` binds `[config]`+`~{inputs}` from the
+command line with **explicit connectors** (bare=literal, `file:PATH`, `-`/stdin,
+`stream:` reserved, `lit:` force) — the schema only drives `realize`, never the
+source (the type-based file/literal guess was rejected); `->{outputs}`
+`serialize`d to one JSON record on stdout / `--out FILE`; `chrysalis run f.ys
+--<port> SOURCE` wired. Run duration is `--time` (the engine's `interval` is the
+per-step dt). Round-trips (a run's output is another run's input). Tests:
+`tests/file_entry.rs`, `tests/invoke.rs` + manual CLI (literal/file/stdin/--out/
+error). NEXT SLICES: `process` + `def`-function entries (function = pure CLI
+transform); the headless top-level form (parser). The codec already existed
+(`serialize`/`realize`/`deserialize`, law `deserialize∘serialize≡id`); rich types
+carry their own (`CRN`↔SBML, `Figure`↔SVG). LATER: streaming ports = a channel on
+the `Emitter`/`Output` substrate (batch first). NOTE: legacy `.ys` ending in
+`env.run(t)` (e.g. grow-divide-unbounded) never ran via the bin (`run` isn't a
+method); migrate them to end in the composite + `--time`.
+
 **Suggested order:** **#10 codegen** is the architecture marquee — it unblocks #15
 (spatio-flux as `.ys`), full export/import self-containment, and `server`/`import`
 on packages (the single path). Then **#16 diagnostics → #21 defaults → #6 SBML

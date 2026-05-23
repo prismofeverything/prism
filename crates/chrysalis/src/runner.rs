@@ -7,11 +7,19 @@
 //! program imports are supplied by the caller, keeping chrysalis independent of
 //! any downstream package (e.g. spatio-flux).
 
-use prism_bigraph::{Core, Document, Engine, ProcessRegistry};
-use prism_schema::{schema_to_value, value_to_schema, MethodRegistry, Schema, Value};
+use std::collections::BTreeMap;
+use std::io::Read;
 
-use crate::ast::Program;
-use crate::compile::{compile_with_modules, CompileError, CompileResult, ModuleRegistry};
+use indexmap::IndexMap;
+use prism_bigraph::{Core, Document, Engine, ProcessRegistry};
+use prism_schema::{algebra, schema_to_value, value_to_schema, Key, MethodRegistry, Schema, Value};
+
+use crate::ast::{Def, Expr, Name, Program, SchemaExpr};
+use crate::compile::{
+    collect_top_level_bindings, compile_with_modules, CompileError, CompileResult, ModuleRegistry,
+};
+use crate::eval::Evaluator;
+use crate::schema::{composite_inner_schema, lower_schema_in_program};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RunError {
@@ -19,6 +27,8 @@ pub enum RunError {
     Compile(#[from] CompileError),
     #[error("engine init: {0}")]
     Engine(String),
+    #[error("invoke: {0}")]
+    Invoke(String),
 }
 
 /// Compile `program` against the host's native packages (`registry` process
@@ -75,4 +85,143 @@ pub fn run_document(doc: &Document, core: Core, time: f64) -> Result<Value, RunE
     engine.discover_all_processes();
     engine.run(time);
     Ok(engine.state().clone())
+}
+
+// ── Compositional invocation (decision #24) ─────────────────────────────────
+
+/// Read an input SOURCE spec to its raw serialized text. The connector is
+/// **explicit** — the schema only ever drives `realize`, never where bytes come
+/// from. Forms: bare text is a *literal*; `file:PATH` reads a file (bash
+/// process-substitution `file:<(gen)` works, covering "pipe a huge value");
+/// `-`/`stdin:` reads stdin (the one pipe); `stream:` is reserved for the
+/// streaming layer; `lit:` forces a literal that would otherwise look like a
+/// scheme.
+fn read_source(spec: &str) -> Result<String, RunError> {
+    let s = spec.trim();
+    if s == "-" || s == "stdin:" {
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .map_err(|e| RunError::Invoke(format!("read stdin: {e}")))?;
+        Ok(buf)
+    } else if let Some(path) = s.strip_prefix("file:") {
+        std::fs::read_to_string(path).map_err(|e| RunError::Invoke(format!("read {path}: {e}")))
+    } else if s.starts_with("stream:") {
+        Err(RunError::Invoke("stream: sources not supported yet (batch I/O only)".into()))
+    } else {
+        Ok(s.strip_prefix("lit:").unwrap_or(s).to_string())
+    }
+}
+
+/// Parse a source's text as the JSON-compatible [`Value`] that `serialize`
+/// produces. A bare word that isn't valid JSON is taken as a string literal, so
+/// both `--name foo` and `--name '"foo"'` work.
+fn parse_encoded(text: &str) -> Value {
+    let t = text.trim();
+    serde_json::from_str::<Value>(t).unwrap_or_else(|_| Value::String(t.to_string()))
+}
+
+/// Bind one config param / input port `name` into `env`: from the command-line
+/// SOURCE (decoded via the schema's `realize`) if present, else its default,
+/// else an error. Defaults evaluate against the env built so far.
+#[allow(clippy::too_many_arguments)]
+fn bind_arg(
+    env: &mut IndexMap<Name, Value>,
+    ev: &Evaluator,
+    program: &Program,
+    args: &BTreeMap<String, String>,
+    name: &str,
+    schema_expr: &SchemaExpr,
+    default: &Option<Expr>,
+    kind: &str,
+) -> Result<(), RunError> {
+    let schema = lower_schema_in_program(schema_expr, program);
+    let val = if let Some(spec) = args.get(name) {
+        algebra::realize(&schema, &parse_encoded(&read_source(spec)?))
+    } else if let Some(def) = default {
+        ev.eval_value(def, env).map_err(CompileError::from)?
+    } else {
+        return Err(RunError::Invoke(format!("missing required {kind} `--{name}`")));
+    };
+    env.insert(name.to_string(), val);
+    Ok(())
+}
+
+/// **Compositional invocation** — run a `.ys` file as its entry composite, with
+/// the command line bound to that composite's interface (decision #24). Each
+/// `[config]` param and `~{input}` port is filled from `args` (flag name →
+/// SOURCE spec, decoded via the schema codec) or its default; the body is
+/// evaluated with them as the root state; after running `duration`, each
+/// `->{output}` port is read back through its `@` bridge and `serialize`d into
+/// the returned record. Because input/output share the algebra codec
+/// (`realize`/`serialize`), a run's output round-trips as another run's input.
+pub fn invoke(
+    program: &Program,
+    registry: ProcessRegistry,
+    methods: MethodRegistry,
+    modules: ModuleRegistry,
+    args: &BTreeMap<String, String>,
+    duration: f64,
+) -> Result<Value, RunError> {
+    let entry = match program.entry() {
+        Some(Def::Composite(d)) => d.clone(),
+        Some(other) => {
+            return Err(RunError::Invoke(format!(
+                "entry `{}` is a {}; only `composite` entries are invokable so far",
+                crate::ast::def_name(other),
+                entry_kind(other),
+            )))
+        }
+        None => {
+            return Err(RunError::Invoke(
+                "no entry point: this file declares no composite/process/def to run".into(),
+            ))
+        }
+    };
+
+    let result = compile_with_modules(program, registry, methods, modules)?;
+    let ev = &result.evaluator;
+
+    // Seed env with top-level bindings, then bind config params + input ports.
+    let mut env = collect_top_level_bindings(program, ev)?;
+    for p in &entry.params {
+        bind_arg(&mut env, ev, program, args, &p.name, &p.schema, &p.default, "config")?;
+    }
+    for (name, port) in &entry.interface.inputs {
+        bind_arg(&mut env, ev, program, args, name, &port.schema, &port.default, "input")?;
+    }
+
+    // Root state = the entry body evaluated with config + inputs in scope.
+    let root = ev.eval_value(&entry.body, &env).map_err(CompileError::from)?;
+    let schema = algebra::resolve(&Schema::infer(&root), &composite_inner_schema(&entry, program));
+    let mut engine =
+        Engine::from_state(schema, root, result.core.clone()).map_err(RunError::Engine)?;
+    engine.discover_all_processes();
+    engine.run(duration);
+    let final_state = engine.state();
+
+    // Pull each output back through its `@` bridge path and serialize.
+    let mut record: IndexMap<Key, Value> = IndexMap::new();
+    for (name, port) in &entry.interface.outputs {
+        let path: Vec<Key> = port
+            .bridge
+            .clone()
+            .unwrap_or_else(|| vec![name.clone()])
+            .into_iter()
+            .map(|s| Key::from(s.as_str()))
+            .collect();
+        let val = final_state.get_path(&path).cloned().unwrap_or(Value::None);
+        let schema = lower_schema_in_program(&port.schema, program);
+        record.insert(Key::from(name.as_str()), algebra::serialize(&schema, &val));
+    }
+    Ok(Value::Map(record))
+}
+
+fn entry_kind(def: &Def) -> &'static str {
+    match def {
+        Def::Process(_) => "process",
+        Def::Step(_) => "step",
+        Def::Function(_) => "def function",
+        _ => "definition",
+    }
 }
