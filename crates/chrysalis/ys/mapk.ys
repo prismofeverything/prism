@@ -36,4 +36,3 @@ composite Mapk[cell: map[any]] ->{cell: map[any]} (
 )
 
 Mapk[cell: Cell (cytoplasm: Compartment (kind: Cytoplasm | mek: MEK | erk0: pERK[name: 'erk0'] | erk1: ERK[name: 'erk1'] | erk2: ERK[name: 'erk2'] | nucleus: Compartment (kind: Nucleus) | er_lumen: Compartment (kind: ERLumen | erk3: ERK[name: 'erk3'])))]
-

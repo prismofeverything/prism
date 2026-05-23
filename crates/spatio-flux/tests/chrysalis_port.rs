@@ -63,6 +63,7 @@ fn monod_program() -> Program {
 
     p.push(Def::Binding {
         name: "main".into(),
+        schema: None,
         value: Expr::term("Well")
             .arg_named("biomass", Expr::float(0.1))
             .arg_named(
@@ -164,6 +165,7 @@ fn diffusion_program() -> Program {
     let acetate = field_list(&[0.0; 9]);
     p.push(Def::Binding {
         name: "main".into(),
+        schema: None,
         value: Expr::term("Dish")
             .arg_named(
                 "fields",

@@ -49,6 +49,31 @@ fn resolves_object_and_type_imports() {
     );
 }
 
+/// Top-level bindings are visible inside a composite body (params shadow them) —
+/// the foundation for a shared `def network :: CRN = …` referenced by the
+/// composite's children. Before the `eval_top_level` fix, a composite body saw
+/// only its own params and a top-level reference was unbound.
+#[test]
+fn top_level_binding_resolves_inside_a_composite_body() {
+    let src = r#"
+net = {species: ['A'], reactions: []}
+
+composite W ->{out: map[any]} (
+  out: net
+)
+
+W[]
+"#;
+    let prog = parse_program(src).expect("parse");
+    let result =
+        compile_with_modules(&prog, ProcessRegistry::new(), MethodRegistry::new(), ModuleRegistry::new());
+    assert!(
+        result.is_ok(),
+        "a top-level binding must resolve inside the composite body: {:?}",
+        result.err()
+    );
+}
+
 #[test]
 fn undeclared_import_is_a_compile_error() {
     let prog = parse_program(SRC).expect("parse");

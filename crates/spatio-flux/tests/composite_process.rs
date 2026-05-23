@@ -117,7 +117,7 @@ fn culture_program() -> Program {
         ]),
     }));
 
-    p.push(Def::Binding { name: "main".into(), value: Expr::term("Culture").build() });
+    p.push(Def::Binding { name: "main".into(), schema: None, value: Expr::term("Culture").build() });
     p
 }
 

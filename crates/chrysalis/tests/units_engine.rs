@@ -130,6 +130,7 @@ fn program(n0: f64, vol_slot: &str) -> Program {
 
     p.push(Def::Binding {
         name: "main".into(),
+        schema: None,
         value: Expr::term("Cell").build(),
     });
     p
@@ -247,6 +248,7 @@ fn tissue_program(n0: f64) -> Program {
 
     p.push(Def::Binding {
         name: "main".into(),
+        schema: None,
         value: Expr::term("Tissue").build(),
     });
     p

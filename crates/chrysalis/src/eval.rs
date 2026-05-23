@@ -613,7 +613,12 @@ impl Evaluator {
             if let Some(crate::ast::Def::Composite(def)) = self.program.lookup(control) {
                 let resolved =
                     self.resolve_args_against_params(&def.name, args, &def.params, env)?;
-                return self.eval_value(&def.body, &resolved);
+                // The composite body sees the outer (top-level) bindings, with
+                // its own params shadowing them — so a shared `network :: CRN =
+                // …` resolves inside the body.
+                let mut body_env = env.clone();
+                body_env.extend(resolved);
+                return self.eval_value(&def.body, &body_env);
             }
         }
         self.eval_value(expr, env)

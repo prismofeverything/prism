@@ -462,8 +462,10 @@ pub enum Def {
     /// replacement for `extern`. (Distinct from [`Def::Import`], which pulls in
     /// another `.ys` *file*.)
     Use { module: Name, names: Vec<Name> },
-    /// Top-level `name = expr` binding.
-    Binding { name: Name, value: Expr },
+    /// Top-level binding `name = expr`, or type-ascribed `name :: Type = expr`
+    /// (e.g. `network :: CRN = {species: …}` — a shared, typed value realized
+    /// through the consuming method). `schema` is the optional `:: Type`.
+    Binding { name: Name, schema: Option<SchemaExpr>, value: Expr },
 }
 
 /// `type Name = <representation> with { method(args) = body }`.

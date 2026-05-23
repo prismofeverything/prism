@@ -8,24 +8,34 @@
 //! Output is deterministic (a fixed format) so the fixpoint is meaningful.
 
 use crate::ast::{
-    BinOp, Block, Def, Expr, Interface, PathRoot, PlacePath, PortBindings, PortDecl, Program,
-    SchemaExpr, StringLit, StringSeg, TermArg, UnaryOp, UnitExpr,
+    BinOp, Block, ContractRef, Def, Expr, Interface, PathRoot, PlacePath, PortBindings, PortDecl,
+    Program, SchemaExpr, StringLit, StringSeg, TermArg, UnaryOp, UnitExpr,
 };
 
-/// Unparse a whole program: each definition, blank-line separated.
+/// Unparse a whole program: each definition blank-line separated, except
+/// consecutive imports (`from … import …` / `import … from …`), which group
+/// together with a single newline.
 pub fn unparse(program: &Program) -> String {
+    let is_import = |d: &Def| matches!(d, Def::Use { .. } | Def::Import { .. });
     let mut out = String::new();
-    for def in &program.defs {
+    for (i, def) in program.defs.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+            // Blank line between defs, unless this and the previous are imports.
+            if !(is_import(def) && is_import(&program.defs[i - 1])) {
+                out.push('\n');
+            }
+        }
         out.push_str(&unparse_def(def));
-        out.push_str("\n\n");
     }
+    out.push('\n');
     out
 }
 
 fn unparse_def(def: &Def) -> String {
     match def {
         Def::Type(t) => {
-            let mut s = format!("type {} = {}", t.name, unparse_schema(&t.representation));
+            let mut s = format!("type {} = {}", t.name, unparse_type_repr(&t.representation));
             if !t.methods.is_empty() {
                 s.push_str(" with {\n");
                 for m in &t.methods {
@@ -40,20 +50,8 @@ fn unparse_def(def: &Def) -> String {
             }
             s
         }
-        Def::Process(p) => format!(
-            "process {}{}{} {}",
-            p.name,
-            unparse_bracket_params(&p.params),
-            unparse_interface(&p.interface),
-            unparse_body(&p.body)
-        ),
-        Def::Step(p) => format!(
-            "step {}{}{} {}",
-            p.name,
-            unparse_bracket_params(&p.params),
-            unparse_interface(&p.interface),
-            unparse_body(&p.body)
-        ),
+        Def::Process(p) => unparse_definer("process", &p.name, &p.params, &p.interface, &p.body),
+        Def::Step(p) => unparse_definer("step", &p.name, &p.params, &p.interface, &p.body),
         Def::Composite(c) => {
             let using: String = c
                 .using
@@ -120,24 +118,88 @@ fn unparse_def(def: &Def) -> String {
         }
         Def::Pattern(p) => format!("# pattern {} (unparse: TODO)", p.name),
         Def::Contract(c) => {
-            let axes = c
-                .axes
-                .iter()
-                .map(|(a, v)| format!("{a}: {v}"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("contract {} ({axes})", c.name)
+            if c.axes.len() > 1 {
+                let axes = c
+                    .axes
+                    .iter()
+                    .map(|(a, v)| format!("  {a}: {v}"))
+                    .collect::<Vec<_>>()
+                    .join(",\n");
+                format!("contract {} (\n{axes}\n)", c.name)
+            } else {
+                let axes = c
+                    .axes
+                    .iter()
+                    .map(|(a, v)| format!("{a}: {v}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("contract {} ({axes})", c.name)
+            }
         }
         Def::Import { name, path } => format!("import {name} from '{path}'"),
         Def::Use { module, names } => format!("from {module} import {}", names.join(", ")),
-        Def::Binding { name, value } => {
+        Def::Binding { name, schema, value } => {
             if name == "main" {
                 // The trailing-value form.
                 unparse_expr(value)
+            } else if let Some(s) = schema {
+                format!("{name} :: {} = {}", unparse_schema(s), unparse_expr(value))
             } else {
                 format!("{name} = {}", unparse_expr(value))
             }
         }
+    }
+}
+
+// ── process / step definer (canonical multi-line) ────────────────────
+
+/// A `process`/`step` definer. When all outputs share one contract it hoists to
+/// a `fulfills C` clause and the header goes multi-line (fulfills + interface on
+/// their own lines); otherwise the header stays single-line. A simple-expression
+/// body renders inline `( e )`; a record / parallel / block body multi-line.
+fn unparse_definer(
+    kw: &str,
+    name: &str,
+    params: &[crate::ast::Param],
+    interface: &Interface,
+    body: &Expr,
+) -> String {
+    match common_output_contract(interface) {
+        Some(c) => format!(
+            "{kw} {name}{}\n  fulfills {}\n  {}\n  {}",
+            unparse_bracket_params(params),
+            unparse_contract_ref(&c),
+            unparse_interface_inner(interface, Some(&c)).trim_start(),
+            unparse_body(body)
+        ),
+        None => format!(
+            "{kw} {name}{}{} {}",
+            unparse_bracket_params(params),
+            unparse_interface_inner(interface, None),
+            unparse_body(body)
+        ),
+    }
+}
+
+/// If every output port carries the *same* contract, return it (so it hoists to
+/// one `fulfills C` clause). Otherwise `None` (contracts stay per-port `:: C`).
+fn common_output_contract(iface: &Interface) -> Option<ContractRef> {
+    let mut outputs = iface.outputs.values();
+    let first = outputs.next()?.contract.clone()?;
+    for decl in outputs {
+        if decl.contract.as_ref() != Some(&first) {
+            return None;
+        }
+    }
+    Some(first)
+}
+
+fn unparse_contract_ref(c: &ContractRef) -> String {
+    if c.pins.is_empty() {
+        c.name.clone()
+    } else {
+        let pins: Vec<String> = c.pins.iter().map(|(a, v)| format!("{a}: {v}")).collect();
+        format!("{}[{}]", c.name, pins.join(", "))
     }
 }
 
@@ -166,10 +228,21 @@ fn unparse_params_inner(params: &[crate::ast::Param]) -> String {
 }
 
 fn unparse_interface(iface: &Interface) -> String {
+    unparse_interface_inner(iface, None)
+}
+
+/// Render `~{…} ->{…}`. A port's contract is emitted as `:: C` unless it equals
+/// `hoisted` (already raised to a `fulfills C` clause by the caller).
+fn unparse_interface_inner(iface: &Interface, hoisted: Option<&ContractRef>) -> String {
     let port = |(name, decl): (&String, &PortDecl)| {
         let mut s = format!("{name}: {}", unparse_schema(&decl.schema));
         if let Some(d) = &decl.default {
             s.push_str(&format!(" = {}", unparse_expr(d)));
+        }
+        if let Some(c) = &decl.contract {
+            if hoisted != Some(c) {
+                s.push_str(&format!(" :: {}", unparse_contract_ref(c)));
+            }
         }
         s
     };
@@ -187,8 +260,9 @@ fn unparse_interface(iface: &Interface) -> String {
 
 // ── bodies ───────────────────────────────────────────────────────────
 
-/// A declaration body `( … )`: Block → bindings + value; Parallel → entries;
-/// anything else → a single value.
+/// A declaration body `( … )`. Block/Parallel (multiple statements) and
+/// record/map literals render multi-line; a simple expression renders inline
+/// `( e )` (e.g. a one-liner `( rk4.integrate(network, state, interval) )`).
 fn unparse_body(body: &Expr) -> String {
     match body {
         Expr::Block(Block { bindings, value }) => {
@@ -197,11 +271,12 @@ fn unparse_body(body: &Expr) -> String {
             items.push(unparse_expr(value));
             format!("(\n  {}\n)", items.join(" |\n  "))
         }
-        Expr::Parallel(items) => {
+        Expr::Parallel(items) if !items.is_empty() => {
             let parts: Vec<String> = items.iter().map(unparse_expr).collect();
             format!("(\n  {}\n)", parts.join(" |\n  "))
         }
-        other => format!("(\n  {}\n)", unparse_expr(other)),
+        Expr::Record(_) | Expr::Map(_) => format!("(\n  {}\n)", unparse_expr(body)),
+        other => format!("( {} )", unparse_expr(other)),
     }
 }
 
@@ -274,7 +349,7 @@ pub fn unparse_expr(e: &Expr) -> String {
             UnaryOp::Not => format!("not {}", unparse_expr(operand)),
         },
         Expr::Method { receiver, method, args } => {
-            let a: Vec<String> = args.iter().map(unparse_expr).collect();
+            let a: Vec<String> = args.iter().map(unparse_arg).collect();
             format!("{}.{method}({})", unparse_expr(receiver), a.join(", "))
         }
         Expr::Comprehension { var, source, filter, body } => {
@@ -339,11 +414,24 @@ fn inline_body(b: &Expr) -> String {
 fn unparse_term_args(args: &[TermArg]) -> String {
     args.iter()
         .map(|a| match a {
-            TermArg::Positional(e) => unparse_expr(e),
-            TermArg::Named { name, value } => format!("{name}: {}", unparse_expr(value)),
+            TermArg::Positional(e) => unparse_arg(e),
+            TermArg::Named { name, value } => format!("{name}: {}", unparse_arg(value)),
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// Unparse an expression in an argument position (method/term arg). The
+/// surrounding `( )` already delimits it, so a top-level binary op needn't be
+/// re-parenthesized: `f(a / b)`, not `f((a / b))`. Nested operands keep their
+/// own parens via `unparse_expr`.
+fn unparse_arg(e: &Expr) -> String {
+    match e {
+        Expr::BinOp { op, lhs, rhs } => {
+            format!("{} {} {}", unparse_expr(lhs), unparse_binop(*op), unparse_expr(rhs))
+        }
+        other => unparse_expr(other),
+    }
 }
 
 fn unparse_path(p: &PlacePath) -> String {
@@ -399,6 +487,21 @@ fn unparse_binop(op: BinOp) -> &'static str {
 }
 
 // ── schemas / units / dimensions ─────────────────────────────────────
+
+/// A `type Name = …` representation: a record with more than one field renders
+/// multi-line (one field per line); everything else stays inline.
+fn unparse_type_repr(s: &SchemaExpr) -> String {
+    match s {
+        SchemaExpr::Record(fields) if fields.len() > 1 => {
+            let parts: Vec<String> = fields
+                .iter()
+                .map(|(k, v)| format!("  {k}: {}", unparse_schema(v)))
+                .collect();
+            format!("{{\n{}\n}}", parts.join(",\n"))
+        }
+        other => unparse_schema(other),
+    }
+}
 
 fn unparse_schema(s: &SchemaExpr) -> String {
     match s {

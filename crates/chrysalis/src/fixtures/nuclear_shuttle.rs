@@ -72,6 +72,7 @@ pub fn program() -> Program {
     p.push(Def::Composite(cell_def()));
     p.push(Def::Binding {
         name: "main".into(),
+        schema: None,
         value: Expr::term("Cell").arg_named("id", Expr::string("0")).build(),
     });
     p

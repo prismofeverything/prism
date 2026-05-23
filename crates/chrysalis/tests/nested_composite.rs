@@ -78,6 +78,7 @@ fn composite_in_map_runs() {
     }));
     p.push(Def::Binding {
         name: "main".into(),
+        schema: None,
         value: Expr::term("Holder")
             .arg_named(
                 "leaves",
@@ -111,6 +112,7 @@ fn composite_in_direct_slot_runs() {
     }));
     p.push(Def::Binding {
         name: "main".into(),
+        schema: None,
         value: Expr::term("Holder").build(),
     });
 

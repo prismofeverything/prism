@@ -76,6 +76,7 @@ fn program() -> Program {
         .build();
     p.push(Def::Binding {
         name: "main".into(),
+        schema: None,
         value: Expr::term("Lab")
             .arg_named(
                 "compartments",
@@ -215,6 +216,7 @@ fn phospho_program() -> Program {
         .build();
     p.push(Def::Binding {
         name: "main".into(),
+        schema: None,
         value: Expr::term("Lab")
             .arg_named(
                 "compartments",

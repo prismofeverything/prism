@@ -473,8 +473,10 @@ fn collect_top_level_bindings(
 ) -> Result<IndexMap<Name, Value>, CompileError> {
     let mut env: IndexMap<Name, Value> = IndexMap::new();
     for def in &program.defs {
-        if let Def::Binding { name, value } = def {
-            // `main` is handled separately at the top of compile().
+        if let Def::Binding { name, value, .. } = def {
+            // `main` is handled separately at the top of compile(). A `:: Type`
+            // ascription is documentary here — the value is realized through the
+            // consuming method (e.g. a `CRN` record by the integrator).
             if name == "main" {
                 continue;
             }

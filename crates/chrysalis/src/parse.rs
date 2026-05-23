@@ -548,12 +548,20 @@ impl Parser {
             // expression — the file's root VALUE, which becomes the implicit
             // `main` (so `Environment[…]` on the last line needs no `main =`).
             _ => {
-                if matches!(self.peek(), Tok::Ident(_)) && *self.peek2() == Tok::Eq {
+                if matches!(self.peek(), Tok::Ident(_)) && *self.peek2() == Tok::ColonColon {
+                    // `name :: Type = expr` — a type-ascribed binding (e.g. a
+                    // shared `network :: CRN = {…}`).
+                    let name = self.ident()?;
+                    self.expect(&Tok::ColonColon)?;
+                    let schema = self.parse_schema()?;
+                    self.expect(&Tok::Eq)?;
+                    Ok(Def::Binding { name, schema: Some(schema), value: self.parse_expr()? })
+                } else if matches!(self.peek(), Tok::Ident(_)) && *self.peek2() == Tok::Eq {
                     let name = self.ident()?;
                     self.expect(&Tok::Eq)?;
-                    Ok(Def::Binding { name, value: self.parse_expr()? })
+                    Ok(Def::Binding { name, schema: None, value: self.parse_expr()? })
                 } else {
-                    Ok(Def::Binding { name: "main".into(), value: self.parse_expr()? })
+                    Ok(Def::Binding { name: "main".into(), schema: None, value: self.parse_expr()? })
                 }
             }
         }

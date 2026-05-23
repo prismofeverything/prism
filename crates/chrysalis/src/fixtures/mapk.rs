@@ -476,6 +476,7 @@ pub fn program() -> Program {
     p.push(Def::Composite(mapk_composite()));
     p.push(Def::Binding {
         name: "main".into(),
+        schema: None,
         value: main_expr(),
     });
     p

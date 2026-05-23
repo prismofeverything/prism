@@ -166,6 +166,7 @@ pub fn program() -> Program {
     }
     p.push(Def::Binding {
         name: "main".into(),
+        schema: None,
         value: Expr::Record(IndexMap::new()),
     });
     p
