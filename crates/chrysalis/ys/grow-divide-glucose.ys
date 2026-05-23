@@ -1,10 +1,11 @@
-# Grow / divide on a shared glucose pool — chrysalis surface form
-# ──────────────────────────────────────────────────────────────────────
-# Tier-1 benchmark #1b: resource-limited growth.
+# Grow / divide on a shared glucose pool
+# ──────────────────────────────────────
 #
-# The same cells as `grow-divide-unbounded.ys` — same `Grow`, same
-# `Divide` reaction — but now growth is bounded by a finite glucose pool
-# shared across the whole environment. Each cell:
+# The same cells as `grow-divide-unbounded.ys` — same `Grow`, but now with
+# a `Divide` reaction in a first-class BRS system — also now growth is
+# bounded by a finite glucose pool shared across the whole environment.
+#
+# Each cell:
 #   - reads the shared glucose level through an input port,
 #   - grows at a Monod-saturating rate   mu = mu_max · S / (k_half + S),
 #   - draws glucose from the pool in proportion to the biomass it makes

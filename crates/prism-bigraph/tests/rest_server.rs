@@ -83,3 +83,16 @@ fn rest_server_lifecycle_creates_runs_and_cleans_up() {
     drop(procs);
     assert_eq!(server.live_count(), 0, "every ended process is cleaned up — no leaks");
 }
+
+/// A document referencing a process the server's core lacks is rejected, not run
+/// as a partial graph (here: the whole class is unknown).
+#[test]
+fn rest_server_rejects_an_unregistered_process() {
+    let server = RestProcessServer::start(grow_registry()).expect("start server");
+    std::thread::sleep(Duration::from_millis(50));
+
+    // `Grow` is registered; `Ghost` is not.
+    let result = RestProcess::initialize(server.base_url(), "Ghost", Value::None);
+    assert!(result.is_err(), "initializing an unregistered process must error");
+    assert_eq!(server.live_count(), 0, "nothing is created for a rejected request");
+}

@@ -13,10 +13,10 @@
 use std::sync::Arc;
 
 use prism_schema::registry::TypeRegistry;
-use prism_schema::MethodRegistry;
+use prism_schema::{MethodRegistry, Value};
 
 use crate::factory::ProcessRegistry;
-use crate::protocol::ProtocolRegistry;
+use crate::protocol::{ParsedAddress, ProtocolRegistry};
 
 /// All runtime registries, carried together. Cheap to clone — each field is an
 /// `Arc`, so a clone shares the same registries (exactly what lets a subengine
@@ -70,6 +70,55 @@ impl Core {
     pub fn with_protocols(mut self, protocols: Arc<ProtocolRegistry>) -> Self {
         self.protocols = protocols;
         self
+    }
+
+    /// `local:` process classes referenced anywhere in `state` (via an `address`)
+    /// that this core's process registry does NOT have — recursing through the
+    /// whole tree, including composite `config`/`state` subdocuments. Empty ⇒ every
+    /// process reference resolves. Remote (`rest:`/`parallel:`) addresses are
+    /// validated by the remote side, so they are not reported here.
+    ///
+    /// A document referencing a process the core can't build is an error, not a
+    /// silent drop — callers (`Engine::from_state`, the rest-process server) reject
+    /// it with this list rather than running a partial graph.
+    pub fn missing_process_refs(&self, state: &Value) -> Vec<String> {
+        missing_process_refs(state, &self.processes)
+    }
+}
+
+/// `local:` process classes referenced in `state` that `registry` can't build.
+/// Free-function form of [`Core::missing_process_refs`], for callers that hold a
+/// process registry rather than a whole core (e.g. the rest-process server).
+pub fn missing_process_refs(state: &Value, registry: &ProcessRegistry) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_missing_processes(state, registry, &mut out);
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn collect_missing_processes(value: &Value, registry: &ProcessRegistry, out: &mut Vec<String>) {
+    if let Some(map) = value.as_map() {
+        if let Some(addr) = map.get("address") {
+            if let Ok(parsed) = ParsedAddress::parse(addr) {
+                // Only `local` addresses are resolved against this registry;
+                // remote protocols resolve on their own server.
+                if parsed.protocol == "local" {
+                    if let Some(class) = parsed.data.as_str() {
+                        if class != "RAMEmitter" && !registry.contains(class) {
+                            out.push(class.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        for v in map.values() {
+            collect_missing_processes(v, registry, out);
+        }
+    } else if let Value::List(items) = value {
+        for v in items {
+            collect_missing_processes(v, registry, out);
+        }
     }
 }
 

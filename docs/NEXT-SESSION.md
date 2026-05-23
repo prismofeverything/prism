@@ -123,6 +123,33 @@ Layering stays prism-std → chrysalis → spatio-flux; the flip is that spatio-
 *demos* become `.ys` driven by the tool, not Rust examples. *Large; gated on #10 —
 the marquee proof that build tool + import model + packages all compose.*
 
+🩺 **#16 — chrysalis diagnostics: comprehensible `.ys` error messages.** A
+first-class diagnostics subsystem so EVERY way a `.ys` program can go wrong gives a
+clear, located, actionable, *educational* error (rustc/Elm-quality), in
+surface-language terms (not prism internals). Three parts: (a) a survey/taxonomy of
+failure modes — parse errors, unknown imports, unknown process/type refs (the new
+`document references unregistered process(es): …` is the first instance),
+contract mismatches, wiring/port errors (unbound port, cross-wire type mismatch),
+unbound vars, unit-dimension errors, schema-resolution failures, malformed
+addresses; (b) a structured diagnostic (code + source span + message + why +
+how-to-fix) threaded parse→eval→compile→check→run and surfaced by the CLI; (c) a
+test suite of deliberately-wrong `.ys`, each asserting its exact diagnostic, so
+error *quality* is regression-guarded. *Medium-large; high-DX-value; generalize
+the missing-ref pattern.*
+
+💾 **#17 — `chrysalis bigraph export`/`import`: a runnable process-bigraph
+document.** `chrysalis bigraph export f.ys out.json` writes a process-bigraph
+document (state tree with process addresses + configs, schema — everything needed
+to reconstruct), and `chrysalis bigraph import out.json` reads it back and **runs
+it directly**, no `.ys` needed. The exported JSON is a first-class *input*, not a
+debug dump. **Invariant: `import(export(f.ys))` ≡ `run(f.ys)`** — the round-trip
+test asserts identical results. Std-only docs run in-process via the std prelude
+core; non-std docs must name the packages/registries they need so `import` can
+assemble the right core (ties to #10/#15 codegen). Builds on today's
+`chrysalis bigraph <file>` (already serializes `initial_state`) + prism's
+`Document`/serialize; wire-compatible with the upstream doc format where feasible.
+*Medium.*
+
 **Suggested order:** **#13 (quick cleanup) → #7 (quick win) → #14 (flagship teeth)
 → #6 (the headline) → #10 codegen → #15 (spatio-flux `.ys`, gated on #10) → #8 →
 #12** — #6 is the science marquee, #15 the architecture marquee; both move whenever

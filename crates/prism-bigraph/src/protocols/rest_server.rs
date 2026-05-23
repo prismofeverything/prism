@@ -172,7 +172,22 @@ fn route(
     match (method, segs.as_slice()) {
         // POST /process/{class}/initialize  body=config → "process_id"
         ("POST", ["process", class, "initialize"]) => {
+            if !registry.contains(class) {
+                return ("404 Not Found", json_string(&format!("process-not-found: {class}")));
+            }
             let config = json_to_value(&parse_json(body));
+            // A composite document may reference inner processes this server's core
+            // doesn't have — reject it rather than silently building a partial graph.
+            let missing = crate::core::missing_process_refs(&config, &**registry);
+            if !missing.is_empty() {
+                return (
+                    "400 Bad Request",
+                    json_string(&format!(
+                        "document references unregistered process(es): {}",
+                        missing.join(", ")
+                    )),
+                );
+            }
             match registry.create(class, config) {
                 Some(node) => {
                     let id = format!("{class}-{}", next_id.fetch_add(1, Ordering::SeqCst));

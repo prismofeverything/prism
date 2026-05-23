@@ -150,6 +150,16 @@ impl Composite {
         // works inside a composite exactly as at the top level.
         engine.set_core(core.clone());
 
+        // A composite carries its own incremental-step cache directive in config
+        // (`config.cache = {dir, forced}`) — DATA, not a Rust handle — so each
+        // composite caches its OWN step network without reaching across the
+        // boundary. Set before discovery, so the inner step DAG is cached/skipped.
+        if let Some(cache_cfg) = map.get("cache") {
+            if let Some(cache) = crate::step_cache::StepCache::from_config(cache_cfg) {
+                engine.set_step_cache(cache);
+            }
+        }
+
         // Discover all process specs in the inner state
         engine.discover_all_processes();
 

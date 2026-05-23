@@ -82,6 +82,25 @@ impl StepCache {
         serde_json::from_slice(&bytes).ok()
     }
 
+    /// Parse a cache directive carried in a composite's `config.cache`:
+    /// `{ dir: <path>, forced: [<step>, …] }`. Returns `None` when no `dir` is
+    /// given (the composite simply runs without caching). This is how the cache
+    /// crosses the composite boundary — as DATA in config, never a Rust handle —
+    /// so each composite caches its OWN step network (and a remote composite gets
+    /// the same directive over the wire). `source_mtime` is `None` here
+    /// (presence-based freshness); granular per-step fingerprints are future work.
+    pub fn from_config(value: &Value) -> Option<StepCache> {
+        let map = value.as_map()?;
+        let dir = map.get("dir").and_then(|v| v.as_str())?;
+        let forced = match map.get("forced") {
+            Some(Value::List(items)) => {
+                items.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+            }
+            _ => HashSet::new(),
+        };
+        Some(StepCache::new(dir, None, forced))
+    }
+
     /// Persist a step's output value (creating the cache dir on first write).
     /// Best-effort: a write failure just means this step won't be cached.
     pub fn store(&self, step: &str, value: &Value) {

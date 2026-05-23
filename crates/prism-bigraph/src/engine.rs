@@ -17,6 +17,23 @@ use crate::core::Core;
 use crate::factory::ProcessRegistry;
 use crate::step_cache::StepCache;
 
+/// The process class named by an address. A `local` address carries the class as
+/// a bare string (`local:Cell` → `"Cell"`); a remote address (`rest`/`parallel`)
+/// carries a map whose `process` field is the class (`{process: Cell, host, …}`).
+/// Returning the class for BOTH is what lets discovery instantiate a remote node
+/// found in state, not just a local one.
+fn address_class(parsed: &crate::protocol::ParsedAddress) -> Option<String> {
+    if let Some(s) = parsed.data.as_str() {
+        return Some(s.to_string());
+    }
+    parsed
+        .data
+        .as_map()
+        .and_then(|m| m.get("process"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
 /// Resolve wires for a process at a given path.
 ///
 /// If the wire path starts with "..", resolve relative to the process's location
@@ -338,6 +355,9 @@ impl Engine {
         topology.initial_state = state;
         let mut engine = Engine::new(topology, HashMap::new());
         engine.set_core(core);
+        // Reject a document that references a process the core can't build — a
+        // missing reference is an error, not a silently-dropped node.
+        engine.check_references()?;
         // Self-contained: instantiate processes + settle the step network now,
         // so `from_state` returns a ready engine like a freshly-built Composite.
         // Idempotent — callers that also call `discover_all_processes` are no-ops.
@@ -448,8 +468,8 @@ impl Engine {
                     Ok(p) => p,
                     Err(_) => return,
                 };
-                let class_name = match parsed.data.as_str() {
-                    Some(n) if n != "RAMEmitter" => n.to_string(),
+                let class_name = match address_class(&parsed) {
+                    Some(n) if n != "RAMEmitter" => n,
                     _ => return,
                 };
 
@@ -573,6 +593,23 @@ impl Engine {
     /// Borrow the runtime [`Core`].
     pub fn core(&self) -> &Core {
         &self.core
+    }
+
+    /// Verify every process reference in the current state resolves against the
+    /// core. `Err` lists any `local:` classes the core can't build — so a document
+    /// referencing a missing process is rejected up front, not silently run as a
+    /// partial graph. See [`Core::missing_process_refs`].
+    pub fn check_references(&self) -> Result<(), String> {
+        let missing = self.core.missing_process_refs(&self.state);
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "document references {} unregistered process(es): {}",
+                missing.len(),
+                missing.join(", ")
+            ))
+        }
     }
 
     /// Attach an incremental-step [`StepCache`]. Set this *before* steps fire (the
@@ -1443,8 +1480,8 @@ impl Engine {
                     Ok(p) => p,
                     Err(_) => continue,
                 };
-                let class_name = match parsed.data.as_str() {
-                    Some(name) if name != "RAMEmitter" => name.to_string(),
+                let class_name = match address_class(&parsed) {
+                    Some(name) if name != "RAMEmitter" => name,
                     _ => continue,
                 };
 

@@ -13,8 +13,71 @@ from a framework into a language.
 **File extension:** `.ys` (chrYSalis). Source files live in
 `crates/chrysalis/ys/`.
 
-**Contract:** `chrysalis::compile(source) -> (Topology, ProcessRegistry entries)`.
+**Contract:** `chrysalis::compile(source) -> CompileResult { topology, core, … }`.
 Everything below the compiler is prism-native.
+
+## Where chrysalis is now (the story so far, and the road ahead)
+
+Chrysalis began as AST fixtures hand-compiled to prism (the tier-1 acceptance
+trio: grow/divide, MAPK, M/R). It is now a parsed, schema-aware language with a
+build tool and a real distribution story. The arc, in layers:
+
+**1. The surface language — built.** `process` / `step` / `composite` definers
+with `~{in} ->{out}` port interfaces and `|` parallel composition (wiring *is*
+categorical composition — see "Categorical structure"). `def` introduces
+first-class values **and functions** (`def network :: CRN = {…}`,
+`def f(x) = …`; functions pass/return/store). `from <module> import <names>`
+pulls in native host capabilities — a whole process (`from core import
+RunProcess`), or functions / types a `.ys` `process` wraps with its own ports +
+contract (this **replaced `extern`**, which still lingers in the grammar pending
+retirement). **Process contracts** (`contract` / `fulfills` / `::`) give a
+process its *meaning* — which mathematical object it approximates — so two
+processes are substitutable only when they share a contract, and an illegitimate
+comparison does not compile (`docs/process-contracts.md`; substitutability =
+`algebra::refines`, no new op). **Units** are checked once and erased to raw `f64`.
+
+**2. The runtime substrate — built, and prism-native.** chrysalis is a THIN
+layer: it compiles to a prism `Topology` + a `Core`, and never reimplements the
+engine. **prism-std** is prism's native standard library (`RunProcess`, the
+mass-action integrators, `CRN`, `TimeSeries`) that chrysalis bundles as the
+importable modules `core` / `integrators` / `chem` / `io`. The unified
+**`Core`** (`prism_bigraph::Core` = types + processes + methods + protocols,
+prism's port of upstream `core`/`link_registry`) is threaded through the engine
+and **every subengine**, so a `Custom`-typed, method-using, or remote process
+works inside a composite exactly as at the top level (before this, a composite's
+subengine silently lost three of the four registries). **Incremental steps**
+(`prism_bigraph::StepCache`): a workflow's steps are *skipped* when their output
+is cached and fresh, *forced* per-step (`chrysalis run f.ys --steps a,b`), with
+staleness cascading down the step DAG — the basis for "the report is one
+workflow, each section a step you can selectively expire."
+
+**3. The build tool — `run`/`check`/`bigraph` live; `compile` next.** The
+`chrysalis` binary runs `.ys` over the bundled std library in-process. Programs
+importing *non-std* native packages (e.g. spatio-flux's FBA/particles) need the
+codegen path (`chrysalis compile` — generate a runner crate, `cargo build`,
+cache, run; a `project.ys` manifest mapping modules → crates). That is the
+packages milestone, and the consumer that proves it is rewriting the spatio-flux
+demo suite as `.ys`.
+
+**4. The boundary, made real.** A process or composite is a black box reachable
+through **protocols** (`local` in-process; `rest` / `parallel` remote) — the
+simulation can't tell whether a process runs in-thread or over HTTP. The
+**REST process server** (`prism_bigraph::protocols::RestProcessServer`) exposes a
+`Core` over the rest-process wire protocol and manages process lifecycles
+(`initialize` → `update` → `end` deletes — verified by a no-leaks test). A
+document that references a process the core can't build is **rejected with a clear
+message** (`Core::missing_process_refs` / `Engine::check_references` / a server
+400), not silently run as a partial graph — the first instance of the diagnostics
+discipline below.
+
+**5. The road ahead.** Comprehensible **diagnostics** — every way a `.ys` can be
+wrong should yield a located, actionable, *educational* error in surface terms
+(generalize the missing-reference error; see NEXT-SESSION #16). The
+**codegen/packages** path and **spatio-flux-in-`.ys`**. The **report as one
+expirable step-DAG** over the incremental-step cache. **First-class `Custom`
+types** (`type Name = <repr> with {…}`). **SBML / repressilator** import. **Tier 2**
+— process bodies as first-class values, evolving M/R. And **grow-divide over
+REST** end to end (needs discovery to resolve `rest:` addresses found in state).
 
 ## Two kinds of process
 
@@ -1000,6 +1063,45 @@ is the full target.
     typed scheduling (should fix the nested-composite bug), method
     dispatch, and compile-time wire-schema validation. This realizes the
     schema-driven-dispatch goal end to end.
+14. **Native imports replace `extern`.** `from <module> import <names>`
+    (`compile_with_modules` + a `ModuleRegistry`) pulls in host capabilities:
+    a whole process, or functions/types a `.ys` `process` wraps with its own
+    ports + `fulfills`. `extern` is deprecated (still parses; retirement is a
+    tracked task).
+15. **`def` is the binder for values AND functions.** `def name :: T = expr`;
+    `def f(args) = body`. Functions are first-class values (pass / return /
+    store; `Expr::Call`). Bare `name = …` is an error — naming requires `def`.
+16. **Process contracts are the meaning layer.** A contract is to an interface
+    what a schema is to a value; `fulfills` rides on the producer's output-port
+    schema; `:: C` makes a port *demand* a contract; substitutability is
+    `algebra::refines` (`resolve==`, no new op). See `docs/process-contracts.md`.
+17. **prism-std → chrysalis → spatio-flux; chrysalis bundles prism-std and IS the
+    build tool.** prism-std is prism's native std library; chrysalis exposes it as
+    `core`/`integrators`/`chem`/`io` and owns the `chrysalis` CLI
+    (`run`/`check`/`bigraph` live; `compile` codegen pending). chrysalis NEVER
+    depends on spatio-flux; spatio-flux is a downstream demo package.
+18. **One unified `Core`, not four registries.** `prism_bigraph::Core` =
+    `{types, processes, methods, protocols}` (upstream `registry` +
+    `link_registry`), threaded through the engine and every subengine via
+    `Composite::from_config(&Core)`. Fixes the class of bug where a subengine lost
+    types/methods/protocols. `Engine::from_state(…, impl Into<Core>)` keeps old
+    registry-only callers compiling.
+19. **Steps are incrementally cacheable.** `prism_bigraph::StepCache`: a step is
+    skipped when its on-disk output is fresh; `--steps a,b` forces specific steps;
+    the step DAG cascades staleness. The substrate for the report-as-expirable-DAG.
+    (Increment 1 = presence + force + cascade; granular content-fingerprint
+    invalidation is the planned increment 2.)
+20. **The composite boundary is real and protocol-mediated.** Composites are black
+    boxes reached only through their ports, dispatched via `local`/`rest`/`parallel`
+    protocols; the `RestProcessServer` runs one over HTTP with full lifecycle
+    cleanup. Cross-boundary config (incl. a future cache directive) travels as
+    DATA in config, never as a Rust handle threaded inside.
+21. **A missing reference is an error, not a silent drop.** A document referencing
+    a process/type the core can't build is rejected up front
+    (`Core::missing_process_refs` / `Engine::check_references` / rest server 400).
+    This is the seed of the diagnostics goal: chrysalis errors must be
+    comprehensible *within chrysalis* (surface terms), located, and educational —
+    a first-class subsystem to build out (NEXT-SESSION #16).
 
 ## Open design decisions
 
@@ -1025,6 +1127,15 @@ is the full target.
 - **Parser tool choice**: chumsky vs pest vs hand-written.
 
 ## Implementation plan
+
+> **Status (2026-05-22):** the original build order below (steps 1–8 — the
+> tier-1 fixtures, `MethodRegistry`, `eval`, `compile`, and the parser) is
+> **done**, and the language has grown well past it (import model, `def` +
+> functions, contracts, prism-std, the `chrysalis` tool, the unified `Core`,
+> incremental steps, the REST boundary). See **"Where chrysalis is now"** above
+> for current state and **`docs/NEXT-SESSION.md`** for the live roadmap. Tier 2
+> (steps 9–11) and the milestones in NEXT-SESSION are what remain. The original
+> plan is kept below for provenance.
 
 1. Create `crates/chrysalis/` skeleton: `Cargo.toml` (added as workspace
    member in prism root), `src/lib.rs`, empty modules.
