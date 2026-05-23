@@ -6,6 +6,7 @@ members = [
     "crates/prism-viz",
     "crates/prism-derive",
     "crates/prism-mapk",
+    "crates/prism-std",
     "crates/spatio-flux",
     "crates/chrysalis",
     "examples",
@@ -23,6 +24,7 @@ prism-bigraph = { path = "crates/prism-bigraph" }
 prism-viz = { path = "crates/prism-viz" }
 prism-derive = { path = "crates/prism-derive" }
 prism-mapk = { path = "crates/prism-mapk" }
+prism-std = { path = "crates/prism-std" }
 spatio-flux = { path = "crates/spatio-flux" }
 chrysalis = { path = "crates/chrysalis" }
 serde = { version = "1", features = ["derive"] }

@@ -30,6 +30,8 @@ pub mod compile;
 pub mod eval;
 pub mod fixtures;
 pub mod parse;
+pub mod prelude;
+pub mod runner;
 pub mod unparse;
 pub mod runtime;
 pub mod schema;

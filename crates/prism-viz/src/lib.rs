@@ -17,6 +17,7 @@ pub mod dot;
 pub mod mol_svg;
 pub mod pattern;
 pub mod pattern_dot;
+pub mod timeseries;
 
 pub use dot::{
     render_dot, render_state_dot, render_state_dot_with_links, render_to_file,
@@ -27,3 +28,4 @@ pub use pattern::{
     linkvar_color, render_pattern_svg, render_rule_pair_svg, rule_color, RULE_COLORS,
 };
 pub use pattern_dot::{render_pattern_dot, render_rule_pair_dot};
+pub use timeseries::render_timeseries_svg;

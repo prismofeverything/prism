@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 prism-schema = { workspace = true }
 prism-bigraph = { workspace = true }
+prism-std = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

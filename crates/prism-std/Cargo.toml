@@ -1,0 +1,13 @@
+[package]
+name = "prism-std"
+description = "prism's native standard library — reusable processes, types, and value-methods that chrysalis exposes to .ys as importable modules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+prism-schema = { workspace = true }
+prism-bigraph = { workspace = true }
+prism-viz = { workspace = true }
+indexmap = { workspace = true }

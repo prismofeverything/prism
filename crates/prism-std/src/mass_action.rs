@@ -334,7 +334,7 @@ pub fn register_methods(reg: &mut MethodRegistry) {
         for (sp, col) in b {
             series.insert(format!("{sp} (b)"), ts_floats(col));
         }
-        let svg = crate::report::render_timeseries_svg(title, &times, &series, false);
+        let svg = prism_viz::render_timeseries_svg(title, &times, &series, false);
         Ok(Value::tree([
             ("_type", Value::from("Figure")),
             ("svg", Value::String(svg)),

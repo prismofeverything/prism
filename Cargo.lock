@@ -152,6 +152,7 @@ dependencies = [
  "ordered-float",
  "prism-bigraph",
  "prism-schema",
+ "prism-std",
  "rand 0.8.5",
  "serde",
  "serde_json",
@@ -925,10 +926,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "prism-std"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "prism-bigraph",
+ "prism-schema",
+ "prism-viz",
+]
+
+[[package]]
 name = "prism-viz"
 version = "0.1.0"
 dependencies = [
  "indexmap",
+ "plotters",
  "prism-bigraph",
  "prism-schema",
 ]

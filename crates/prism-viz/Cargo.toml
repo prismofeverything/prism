@@ -9,3 +9,4 @@ license.workspace = true
 prism-schema = { workspace = true }
 prism-bigraph = { workspace = true }
 indexmap = { workspace = true }
+plotters = { workspace = true }
