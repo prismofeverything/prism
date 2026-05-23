@@ -1,0 +1,6 @@
+# chrysalis project manifest — `.ys` files under this directory run against the
+# `spatio-flux` package (its native FBA / diffusion / particle processes), via
+# the codegen path: `chrysalis run` generates + builds + caches a runner crate
+# linking this package. The crate must expose
+# `spatio_flux::prelude::{registry, methods, modules}` (the codegen convention).
+package spatio-flux

@@ -1,0 +1,14 @@
+# diffusion.ys — a single DiffusionAdvection over a 3x3 glucose field. Runs via
+# the codegen path: `chrysalis run` finds ../project.ys (package spatio-flux),
+# generates + builds + caches a runner linking the package, then invokes this
+# composite. The diffused field is rendered as the `fields` output.
+from diffusion import DiffusionAdvection
+
+composite Diffuse[
+  field :: map[array[[3, 3], float]] =
+    { glucose: [0.0, 0.0, 0.0, 5.0, 5.0, 5.0, 10.0, 10.0, 10.0] }
+] ->{fields :: map[array[[3, 3], float]] @ fields} (
+  fields: field |
+  diffusion: DiffusionAdvection[n_bins: [3, 3], bounds: [3.0, 3.0], diffusion_coeffs: {glucose: 0.1}]
+    ~{fields: fields} ->{fields: fields}
+)

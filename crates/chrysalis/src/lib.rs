@@ -26,6 +26,8 @@
 
 pub mod ast;
 pub mod check;
+pub mod cli;
+pub mod codegen;
 pub mod compile;
 pub mod eval;
 pub mod fixtures;

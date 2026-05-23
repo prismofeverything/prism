@@ -1,0 +1,13 @@
+# kinetics.ys — MonodKinetics growth on glucose. A second spatio-flux process
+# family, run through the SAME codegen path + cached runner as diffusion.ys.
+from kinetics import MonodKinetics
+
+composite Grow[
+  biomass :: float = 0.1,
+  substrates :: map[float] = { glucose: 10.0 }
+] ->{biomass :: float @ biomass, substrates :: map[float] @ substrates} (
+  biomass: biomass |
+  substrates: substrates |
+  kinetics: MonodKinetics[reactions: { growth: { reactant: 'glucose', product: 'biomass', vmax: 1.0 } }]
+    ~{biomass: biomass, substrates: substrates} ->{biomass: biomass, substrates: substrates}
+)

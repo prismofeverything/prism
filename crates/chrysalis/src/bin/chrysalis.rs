@@ -123,67 +123,20 @@ fn die(context: &str, msg: impl std::fmt::Display) -> ! {
 }
 
 fn cmd_run(args: &[String]) {
-    // Separate reserved flags (`--time`, `--out`) from arbitrary `--name SOURCE`
-    // interface args (decision #24). The latter bind the entry composite's
-    // config params + input ports for compositional invocation.
-    let mut path: Option<String> = None;
-    let mut time = 2.0_f64;
-    let mut out: Option<String> = None;
-    let mut inputs: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--time" => {
-                i += 1;
-                time = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(time);
-            }
-            "--out" => {
-                i += 1;
-                out = args.get(i).cloned();
-            }
-            flag if flag.starts_with("--") => {
-                i += 1;
-                inputs.insert(flag[2..].to_string(), args.get(i).cloned().unwrap_or_default());
-            }
-            p => path = Some(p.to_string()),
+    // A `.ys` under a non-std `project.ys` is run via the codegen path (generate
+    // + build + cache a runner crate linking that package); otherwise run
+    // in-process over the std packages. Both call the SAME `cli::run_command`.
+    if let Some(path) = args.iter().find(|a| !a.starts_with("--")) {
+        if let Some(manifest) = chrysalis::codegen::find_manifest(path) {
+            std::process::exit(chrysalis::codegen::run(&manifest, "run", args));
         }
-        i += 1;
     }
-    let Some(path) = path else {
-        usage();
-        std::process::exit(2);
-    };
-    let prog = parse_file(&path).unwrap_or_else(|e| die(&format!("parse {path}"), e));
-
-    // A `composite` entry with no explicit `main` ⇒ compositional invocation:
-    // bind the command line to its interface, render `->{}` outputs as JSON.
-    let invokes = matches!(prog.entry(), Some(chrysalis::ast::Def::Composite(_)))
-        && prog.lookup("main").is_none();
-    if invokes {
-        let record =
-            chrysalis::runner::invoke(&prog, std_registry(), std_methods(), std_modules(), &inputs, time)
-                .unwrap_or_else(|e| die(&format!("run {path}"), e));
-        let json =
-            serde_json::to_string_pretty(&record).unwrap_or_else(|e| die("serialize outputs", e));
-        match out {
-            Some(file) => {
-                std::fs::write(&file, &json).unwrap_or_else(|e| die(&format!("write {file}"), e));
-                eprintln!("ran {path} (t={time}); outputs → {file}");
-            }
-            None => println!("{json}"),
-        }
-        return;
-    }
-
-    // Otherwise a `main`/script file: run for `time` and report (self-outputs
-    // happen during the run via `Output` steps).
-    let state = chrysalis::runner::run(&prog, std_registry(), std_methods(), std_modules(), time)
-        .unwrap_or_else(|e| die(&format!("run {path}"), e));
-    let keys: Vec<String> = state
-        .as_map()
-        .map(|m| m.keys().map(|k| k.to_string()).collect())
-        .unwrap_or_default();
-    println!("ran {path} (t={time}); final state: {keys:?}");
+    std::process::exit(chrysalis::cli::run_command(
+        args,
+        std_registry(),
+        std_methods(),
+        std_modules(),
+    ));
 }
 
 fn cmd_check(args: &[String]) {

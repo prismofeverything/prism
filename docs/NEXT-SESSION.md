@@ -68,30 +68,37 @@ chrysalis repl                                              # interactive homoic
 
 ## Next — the task tracker (durable; the harness task list is ephemeral)
 
-🔧 **#10 — the codegen path (`chrysalis run`/`compile`/`server` on NON-std
-packages).** Everything is live for **std** `.ys`. The gap: a `.ys` importing a
-non-std package (spatio-flux) can't run in the fixed `chrysalis` binary — it can't
-link HiGHS/rapier2d and must never dep spatio-flux. So `chrysalis run <non-std>.ys`
-must **codegen + cargo-build + cache** a runner crate that links the package
-(rust-script style; invisible + cached).
+✅🔧 **#10 — the codegen path (`chrysalis run` on NON-std packages) — MVP WORKING
+(2026-05-23).** A `.ys` importing a non-std package (spatio-flux) can't run in the
+fixed `chrysalis` binary (can't link HiGHS/rapier2d; must never dep spatio-flux),
+so `chrysalis run` **codegens + builds + caches** a runner crate linking the
+package. DONE + validated end-to-end:
+- `crates/chrysalis/src/codegen.rs` — `find_manifest` (walk up for `project.ys`),
+  render a runner crate (`Cargo.toml` path-deps chrysalis [baked
+  `CARGO_MANIFEST_DIR`] + the package [manifest dir]; `main` = the shared CLI),
+  build with `CARGO_TARGET_DIR` = the **workspace target** so compiled deps are
+  reused, cache by content hash, exec.
+- `crates/chrysalis/src/cli.rs` — `run_command(args, registry, methods, modules)`:
+  the ONE run path, parameterized by packages. The chrysalis bin calls it with
+  std; the generated runner calls it with the package's
+  `prelude::{registry, methods, modules}` (added to spatio-flux as the codegen
+  convention). **Single path** — std and packages run identical code.
+- `crates/spatio-flux/project.ys` (`package spatio-flux`); `ys/diffusion.ys` +
+  `ys/kinetics.ys` (fresh demos using the real `DiffusionAdvection` /
+  `MonodKinetics`). `chrysalis run ys/diffusion.ys` builds the runner once (~34s,
+  then **cached → 0.008s**); diffusion conserves mass (Σ=45), kinetics grows
+  biomass 0.1→4.1 / consumes glucose. CLI input override (`--field '…'`) flows
+  through the runner via compositional invocation. Tests: `codegen.rs` units
+  (manifest parse, render).
 
-*Slices:* **(1) `sf_core` ✓; (2) `sf_registry`/`sf_methods`/`sf_modules` + the `sf`
-bin proving the run path in-tree ✓;** (3) port spatio-flux demos to `.ys` (the
-existing `dish.ys`/`culture.ys` are stale — `extern Diffusion`, name doesn't match
-the registry's `DiffusionAdvection`); (4) THE CODEGEN.
-
-*The `project.ys` manifest* (found by walking up from the `.ys`):
-```text
-package spatio_flux        # the crate to link into the generated runner
-# convention: <crate>::prelude::{sf_registry, sf_methods, sf_modules} (+ sf_core)
-```
-`chrysalis run f.ys`: all-std imports → run in-process (today); else → walk up to
-`project.ys` → generate a runner crate (`Cargo.toml` deps the package + chrysalis;
-`main` = the `sf` bin's logic, parameterized) → `cargo build --release` (cache by
-content hash) → exec. **Single path:** `compile`/`server`/`import` reuse the same
-generated-core assembly — `server` = `run` ending in serve-over-REST instead of
-run-engine; not a separate path. `crates/spatio-flux/src/bin/sf.rs` is the literal
-template for the generated `main`. *Medium-large.*
+*REMAINING:* (a) **dogfood the report** — port the ~18 `report.rs` sims
+(`CANONICAL_ORDER`: dFBA family [HiGHS], particles [rapier2d], comets, newtonian)
+to `.ys` and run each via the tool, validating every process family; (b) the
+stale `culture.ys`/`dish.ys` (still `extern Diffusion`) → align to the package or
+delete; (c) wire `compile`/`server`/`import` through the same codegen (`server` =
+`run` ending in serve-over-REST — the runner gets a `server` subcommand);
+(d) published-crate path deps (today path-deps assume the dev workspace).
+*The hard part is done; the rest is breadth.*
 
 ⏳ **#6 — SBML→CRN importer / repressilator (the original goal).** Native subset
 SBML/MathML reader (roxmltree + ~6-operator evaluator + one-time assignment-rule

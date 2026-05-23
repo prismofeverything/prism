@@ -46,6 +46,26 @@ pub fn sf_core() -> Core {
     core
 }
 
+// ── Codegen convention ──────────────────────────────────────────────────
+//
+// The generated runner crate (chrysalis::codegen) imports a package's run-path
+// packages under the standard names `<crate>::prelude::{registry, methods,
+// modules}`. These delegate to the `sf_*` originals so spatio-flux satisfies the
+// convention without the codegen having to know package-specific names.
+
+/// Codegen convention alias for [`sf_registry`].
+pub fn registry() -> ProcessRegistry {
+    sf_registry()
+}
+/// Codegen convention alias for [`sf_methods`].
+pub fn methods() -> MethodRegistry {
+    sf_methods()
+}
+/// Codegen convention alias for [`sf_modules`].
+pub fn modules() -> ModuleRegistry {
+    sf_modules()
+}
+
 /// Process factories for the *run/compile* path (`chrysalis::runner::run`):
 /// spatio-flux's natives + the std `RunProcess`. (The generic `Composite` factory
 /// is added by `compile_with_modules` itself, which merges these with the `.ys`'s
