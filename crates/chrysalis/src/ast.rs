@@ -206,6 +206,12 @@ pub struct PortDecl {
     /// is `refines` over the lowered contract schemas (see
     /// docs/process-contracts.md). `None` = no contract constraint.
     pub contract: Option<ContractRef>,
+    /// `port :: Type @ internal.path` — the composite **bridge** target: the
+    /// internal state path this interface port maps to (as dotted segments,
+    /// e.g. `["fields", "values"]`). `None` = name-inferred (the port maps to
+    /// the same-named top-level field), the backward-compatible default. See
+    /// `eval::build_composite_outer`.
+    pub bridge: Option<Vec<Name>>,
 }
 
 impl PortDecl {
@@ -214,6 +220,7 @@ impl PortDecl {
             schema,
             default: None,
             contract: None,
+            bridge: None,
         }
     }
     pub fn with_default(schema: SchemaExpr, default: Expr) -> Self {
@@ -221,11 +228,17 @@ impl PortDecl {
             schema,
             default: Some(default),
             contract: None,
+            bridge: None,
         }
     }
     /// Attach a contract constraint (`port :: Contract`).
     pub fn with_contract(mut self, contract: ContractRef) -> Self {
         self.contract = Some(contract);
+        self
+    }
+    /// Attach an explicit bridge target (`port :: Type @ internal.path`).
+    pub fn with_bridge(mut self, path: Vec<Name>) -> Self {
+        self.bridge = Some(path);
         self
     }
 }

@@ -30,7 +30,7 @@ reaction translocate_perk_out (
   (outer: Compartment (kind: Cytoplasm | inner: Compartment (kind: Nucleus | substrate: pERK[name: ?n] ~{out: !} | inner_rest: ?inner_rest) | outer_rest: ?outer_rest)) => (outer: Compartment (kind: Cytoplasm | inner: Compartment (kind: Nucleus | inner_rest: ?inner_rest) | substrate: pERK[name: ?n] | outer_rest: ?outer_rest))
 )
 
-composite Mapk[cell: map[any]] ->{cell: map[any]} (
+composite Mapk[cell: map[any]] ->{cell :: map[any]} (
   cell: cell |
   brs: BRS[rules: [phosphorylate, dissociate, dephosphorylate, translocate_erk_in, translocate_erk_out, translocate_perk_in, translocate_perk_out], mode: 'gillespie', seed: 7, max_per_tick: 10000] ~{state: cell} ->{state: cell}
 )

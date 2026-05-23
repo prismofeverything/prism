@@ -239,7 +239,7 @@ fn unparse_fn_params(params: &[crate::ast::Param]) -> String {
             if matches!(p.schema, SchemaExpr::Any) {
                 p.name.clone()
             } else {
-                format!("{}: {}", p.name, unparse_schema(&p.schema))
+                format!("{} :: {}", p.name, unparse_schema(&p.schema))
             }
         })
         .collect::<Vec<_>>()
@@ -250,18 +250,25 @@ fn unparse_interface(iface: &Interface) -> String {
     unparse_interface_inner(iface, None)
 }
 
-/// Render `~{…} ->{…}`. A port's contract is emitted as `:: C` unless it equals
-/// `hoisted` (already raised to a `fulfills C` clause by the caller).
+/// Render `~{…} ->{…}`. Port types use `::` (`name :: Schema`); a port's contract
+/// is emitted as `fulfills C` unless it equals `hoisted` (already raised to a
+/// `fulfills C` clause on the header by the caller).
 fn unparse_interface_inner(iface: &Interface, hoisted: Option<&ContractRef>) -> String {
+    // Emit in the order the parser reads: schema, `@ bridge`, `fulfills C`,
+    // `= default`. (Contract before default matters — `fulfills` is not a valid
+    // expr continuation, so `= d fulfills C` would not re-parse.)
     let port = |(name, decl): (&String, &PortDecl)| {
-        let mut s = format!("{name}: {}", unparse_schema(&decl.schema));
-        if let Some(d) = &decl.default {
-            s.push_str(&format!(" = {}", unparse_expr(d)));
+        let mut s = format!("{name} :: {}", unparse_schema(&decl.schema));
+        if let Some(b) = &decl.bridge {
+            s.push_str(&format!(" @ {}", b.join(".")));
         }
         if let Some(c) = &decl.contract {
             if hoisted != Some(c) {
-                s.push_str(&format!(" :: {}", unparse_contract_ref(c)));
+                s.push_str(&format!(" fulfills {}", unparse_contract_ref(c)));
             }
+        }
+        if let Some(d) = &decl.default {
+            s.push_str(&format!(" = {}", unparse_expr(d)));
         }
         s
     };
@@ -459,7 +466,7 @@ fn unparse_arg(e: &Expr) -> String {
 
 fn unparse_path(p: &PlacePath) -> String {
     let mut s = match &p.root {
-        PathRoot::Here => "@".to_string(),
+        PathRoot::Here => "%".to_string(),
         PathRoot::Parent => "^".to_string(),
         PathRoot::Local(n) => n.clone(),
     };
@@ -548,7 +555,7 @@ fn unparse_schema(s: &SchemaExpr) -> String {
                 format!("{name}[{}]", ps.join(", "))
             }
         }
-        SchemaExpr::SelfType => "@".into(),
+        SchemaExpr::SelfType => "%".into(),
         SchemaExpr::Quantity { unit, extensive, affine } => {
             let mut s = format!("Quantity[unit: {}", unparse_unit_expr(unit));
             if *extensive {

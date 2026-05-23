@@ -71,7 +71,8 @@ pub enum Tok {
     FatArrow, // =>
     Tilde,    // ~
     Bar,      // |
-    At,       // @
+    At,       // @ (composite bridge: `port :: Type @ internal.path`)
+    Percent,  // % (self / here — the enclosing composite's own place)
     Bang,     // !
     Question, // ?
     Caret,      // ^ (unit/dimension power)
@@ -262,6 +263,7 @@ pub fn lex(src: &str) -> Result<Vec<Spanned>, ParseError> {
                             '~' => Tok::Tilde,
                             '|' => Tok::Bar,
                             '@' => Tok::At,
+                            '%' => Tok::Percent,
                             '!' => Tok::Bang,
                             '?' => Tok::Question,
                             '^' => Tok::Caret,
@@ -351,9 +353,10 @@ mod lex_tests {
 
     #[test]
     fn lexes_bigraph_punctuation() {
-        let t = toks("~{a} ->{b} | x ++ y => @");
+        let t = toks("~{a} ->{b} | x ++ y => @ %");
         assert!(t.contains(&Tok::Tilde) && t.contains(&Tok::Arrow) && t.contains(&Tok::Bar)
-            && t.contains(&Tok::PlusPlus) && t.contains(&Tok::FatArrow) && t.contains(&Tok::At));
+            && t.contains(&Tok::PlusPlus) && t.contains(&Tok::FatArrow) && t.contains(&Tok::At)
+            && t.contains(&Tok::Percent));
     }
 }
 
@@ -412,6 +415,23 @@ impl Parser {
     }
     fn err(&self, message: &str) -> ParseError {
         ParseError { message: message.to_string(), line: self.line() }
+    }
+    /// A TYPE-ascription separator: `::` (canonical) or legacy `:` (accepted
+    /// during the migration to `::`=type / `:`=value). Errors if neither.
+    fn expect_type_sep(&mut self) -> Result<(), ParseError> {
+        if self.accept(&Tok::ColonColon) {
+            Ok(())
+        } else {
+            self.expect(&Tok::Colon)
+        }
+    }
+    /// Optional type-ascription separator (`::`, or legacy `:`).
+    fn accept_type_sep(&mut self) -> bool {
+        self.accept(&Tok::ColonColon) || self.accept(&Tok::Colon)
+    }
+    /// A port's contract separator: `fulfills` (canonical) or legacy `::`.
+    fn accept_contract_sep(&mut self) -> bool {
+        self.accept(&Tok::Fulfills) || self.accept(&Tok::ColonColon)
     }
     fn ident(&mut self) -> Result<String, ParseError> {
         match self.bump() {
@@ -582,7 +602,7 @@ impl Parser {
             let mut params = Vec::new();
             while !self.check(&Tok::RParen) {
                 let pname = self.ident()?;
-                let schema = if self.accept(&Tok::Colon) {
+                let schema = if self.accept_type_sep() {
                     self.parse_schema()?
                 } else {
                     SchemaExpr::Any
@@ -731,7 +751,7 @@ impl Parser {
         }
         loop {
             let name = self.ident()?;
-            self.expect(&Tok::Colon)?;
+            self.expect_type_sep()?;
             let schema = self.parse_schema()?;
             let param = if self.accept(&Tok::Eq) {
                 Param::with_default(name, schema, self.parse_expr()?)
@@ -1064,9 +1084,10 @@ impl Parser {
                 self.bump();
                 Ok(Expr::Str(self.parse_string_lit(&s)?))
             }
-            // `@` — the enclosing composite's own location (a place-graph
-            // self-reference; used in output targets like `->{env: @}`).
-            Tok::At => {
+            // `%` — the enclosing composite's own location (a place-graph
+            // self-reference; used in output targets like `->{env: %}` and
+            // self field access like `%.volume`). (`@` is now the bridge op.)
+            Tok::Percent => {
                 self.bump();
                 Ok(Expr::Path(PlacePath::here()))
             }
@@ -1303,7 +1324,7 @@ fn lower_first(s: &str) -> String {
 //     + the bigraph surface (`~{}->{}` interfaces, `|` bodies, term calls)
 // ─────────────────────────────────────────────────────────────────────
 
-use crate::ast::{ExternDef, Interface, PortDecl, ProcessDef, ReactionDef, StepDef};
+use crate::ast::{ExternDef, Interface, Name, PortDecl, ProcessDef, ReactionDef, StepDef};
 
 impl Parser {
     fn peek2(&self) -> &Tok {
@@ -1318,7 +1339,7 @@ impl Parser {
         let mut params = Vec::new();
         while !self.check(&Tok::RBrack) {
             let name = self.ident()?;
-            self.expect(&Tok::Colon)?;
+            self.expect_type_sep()?;
             let schema = self.parse_schema()?;
             let param = if self.accept(&Tok::Eq) {
                 Param::with_default(name, schema, self.parse_expr()?)
@@ -1357,14 +1378,22 @@ impl Parser {
         while !self.check(&Tok::RBrace) {
             let name = self.ident()?;
             // `name` alone (no schema) → an untyped port (Any).
-            let schema = if self.accept(&Tok::Colon) {
+            let schema = if self.accept_type_sep() {
                 self.parse_schema()?
             } else {
                 SchemaExpr::Any
             };
-            // Optional `:: Contract` — the process-contract this port carries
-            // (output) or demands (input). See docs/process-contracts.md.
-            let contract = if self.accept(&Tok::ColonColon) {
+            // Optional `@ internal.path` — the composite bridge target: the
+            // inner state path this port maps to (absent ⇒ name-inferred).
+            let bridge = if self.accept(&Tok::At) {
+                Some(self.parse_dotted_path()?)
+            } else {
+                None
+            };
+            // Optional `fulfills Contract` (legacy `:: Contract`) — the
+            // process-contract this port carries (output) or demands (input).
+            // See docs/process-contracts.md.
+            let contract = if self.accept_contract_sep() {
                 Some(self.parse_contract_ref()?)
             } else {
                 None
@@ -1377,6 +1406,9 @@ impl Parser {
             if let Some(c) = contract {
                 decl = decl.with_contract(c);
             }
+            if let Some(b) = bridge {
+                decl = decl.with_bridge(b);
+            }
             ports.push((name, decl));
             if !self.accept(&Tok::Comma) {
                 break;
@@ -1384,6 +1416,16 @@ impl Parser {
         }
         self.expect(&Tok::RBrace)?;
         Ok(ports)
+    }
+
+    /// `ident ("." ident)*` — a dotted internal-state path (e.g. the bridge
+    /// target `fields.values`), returned as its segments.
+    fn parse_dotted_path(&mut self) -> Result<Vec<Name>, ParseError> {
+        let mut segs = vec![self.ident()?];
+        while self.accept(&Tok::Dot) {
+            segs.push(self.ident()?);
+        }
+        Ok(segs)
     }
 
     /// A term call: `Control ( "[" args "]" )? ( "~{" inputs "}" )? ( "->{" outputs "}" )?`.
@@ -1756,7 +1798,7 @@ impl Parser {
         let mut params = Vec::new();
         while !self.check(&Tok::RParen) {
             let name = self.ident()?;
-            self.expect(&Tok::Colon)?;
+            self.expect_type_sep()?;
             let schema = self.parse_schema()?;
             let param = if self.accept(&Tok::Eq) {
                 Param::with_default(name, schema, self.parse_expr()?)

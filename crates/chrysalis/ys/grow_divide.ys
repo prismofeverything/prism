@@ -5,7 +5,7 @@
 # parent `cells` map through the cell's passthrough bridge.
 #
 # Exercises the full M3 surface: Block process bodies, `if/then/else`,
-# `replace … with`, string interpolation (`'{id}_0'`), `@` (self), term calls
+# `replace … with`, string interpolation (`'{id}_0'`), `%` (self), term calls
 # with `[args]` + `~{}->{}` wiring, and map literals with computed keys.
 
 process Grow[rate: float = 0.02]
@@ -23,8 +23,8 @@ step Divide[id: string, threshold: float = 2.0]
   { environment:
       if trigger > threshold
         then replace id with {
-               '{id}_0': Cell[id: '{id}_0', mass: trigger / 2, threshold: threshold] ->{environment: @},
-               '{id}_1': Cell[id: '{id}_1', mass: trigger / 2, threshold: threshold] ->{environment: @}
+               '{id}_0': Cell[id: '{id}_0', mass: trigger / 2, threshold: threshold] ->{environment: %},
+               '{id}_1': Cell[id: '{id}_1', mass: trigger / 2, threshold: threshold] ->{environment: %}
              }
         else {} }
 )

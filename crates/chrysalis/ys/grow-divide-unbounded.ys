@@ -60,8 +60,8 @@ step Divide[id: String, threshold: Mass = 2.0]
 (
   { environment:
       if trigger > threshold
-        then replace id with { '{id}_0': Cell[id: '{id}_0', mass: trigger / 2] ->{environment: @},
-                               '{id}_1': Cell[id: '{id}_1', mass: trigger / 2] ->{environment: @} }
+        then replace id with { '{id}_0': Cell[id: '{id}_0', mass: trigger / 2] ->{environment: %},
+                               '{id}_1': Cell[id: '{id}_1', mass: trigger / 2] ->{environment: %} }
         else {} }
 )
 
@@ -87,8 +87,8 @@ composite Environment[cells: Map[Cell]]
 )
 
 
-# `@` is the empty wire `[]`, which the (container-relative) engine resolves
+# `%` is the empty wire `[]`, which the (container-relative) engine resolves
 # to the process's own container — here, the `cells` map the cell lives in.
 # (`^` → `[".."]` would pop one level too high.)
-def env = Environment[cells: {'0': Cell[id: '0', mass: 1.2] ->{environment: @}}]
+def env = Environment[cells: {'0': Cell[id: '0', mass: 1.2] ->{environment: %}}]
 env.run(50.0)

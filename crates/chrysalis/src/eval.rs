@@ -627,19 +627,22 @@ impl Evaluator {
         // subengine grow/divide pattern.
         let resolved = self.resolve_args_against_params(&def.name, args, &def.params, env)?;
         let inner_state = self.eval_value(&def.body, &resolved)?;
+        // Each port's bridge wire: the explicit `@ internal.path` if declared,
+        // else name-inference (the same-named top-level field).
+        let wire_of = |name: &str, decl: &crate::ast::PortDecl| -> Value {
+            let segs = decl
+                .bridge
+                .clone()
+                .unwrap_or_else(|| vec![name.to_string()]);
+            Value::List(segs.into_iter().map(Value::String).collect())
+        };
         let mut bridge_in: IndexMap<Key, Value> = IndexMap::new();
-        for p in def.interface.inputs.keys() {
-            bridge_in.insert(
-                Key::from(p.as_str()),
-                Value::List(vec![Value::String(p.clone())]),
-            );
+        for (p, decl) in def.interface.inputs.iter() {
+            bridge_in.insert(Key::from(p.as_str()), wire_of(p, decl));
         }
         let mut bridge_out: IndexMap<Key, Value> = IndexMap::new();
-        for p in def.interface.outputs.keys() {
-            bridge_out.insert(
-                Key::from(p.as_str()),
-                Value::List(vec![Value::String(p.clone())]),
-            );
+        for (p, decl) in def.interface.outputs.iter() {
+            bridge_out.insert(Key::from(p.as_str()), wire_of(p, decl));
         }
         let bridge = Value::Map(IndexMap::from([
             (Key::from("inputs"), Value::Map(bridge_in)),
