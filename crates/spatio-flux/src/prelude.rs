@@ -8,6 +8,7 @@
 
 use std::sync::{Arc, OnceLock};
 
+use chrysalis::compile::ModuleRegistry;
 use prism_bigraph::composite::Composite;
 use prism_bigraph::{Core, ProcessNode, ProcessRegistry};
 use prism_schema::MethodRegistry;
@@ -43,6 +44,40 @@ pub fn sf_core() -> Core {
         .with_methods(Arc::new(methods));
     let _ = handle.set(core.clone());
     core
+}
+
+/// Process factories for the *run/compile* path (`chrysalis::runner::run`):
+/// spatio-flux's natives + the std `RunProcess`. (The generic `Composite` factory
+/// is added by `compile_with_modules` itself, which merges these with the `.ys`'s
+/// own user defs — so unlike [`sf_core`], no Composite here.)
+pub fn sf_registry() -> ProcessRegistry {
+    let mut registry = crate::from_config::build_registry();
+    prism_std::register_processes(&mut registry);
+    registry
+}
+
+/// Value-methods for the run path (std `TimeSeries`/`Figure`/`Map`/… methods).
+pub fn sf_methods() -> MethodRegistry {
+    let mut methods = MethodRegistry::new();
+    prism_std::register_methods(&mut methods);
+    methods
+}
+
+/// Importable modules a spatio-flux `.ys` can `from … import`: the std modules
+/// (`core`/`integrators`/`chem`/`io`) plus spatio-flux's native processes grouped
+/// by domain (`kinetics`/`diffusion`/`particles`/`fba`).
+pub fn sf_modules() -> ModuleRegistry {
+    chrysalis::prelude::std_modules()
+        .process("kinetics", "MonodKinetics")
+        .process("diffusion", "DiffusionAdvection")
+        .process("particles", "BrownianMovement")
+        .process("particles", "ParticleExchange")
+        .process("particles", "ParticleDivision")
+        .process("particles", "ManageBoundaries")
+        .process("particles", "ParticleTotalMass")
+        .process("particles", "PymunkParticleMovement")
+        .process("fba", "DynamicFBA")
+        .process("fba", "SpatialDFBA")
 }
 
 #[cfg(test)]

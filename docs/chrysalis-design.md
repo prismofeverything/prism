@@ -51,13 +51,18 @@ is cached and fresh, *forced* per-step (`chrysalis run f.ys --steps a,b`), with
 staleness cascading down the step DAG — the basis for "the report is one
 workflow, each section a step you can selectively expire."
 
-**3. The build tool — `run`/`check`/`bigraph` live; `compile` next.** The
-`chrysalis` binary runs `.ys` over the bundled std library in-process. Programs
-importing *non-std* native packages (e.g. spatio-flux's FBA/particles) need the
-codegen path (`chrysalis compile` — generate a runner crate, `cargo build`,
-cache, run; a `project.ys` manifest mapping modules → crates). That is the
-packages milestone, and the consumer that proves it is rewriting the spatio-flux
-demo suite as `.ys`.
+**3. The build tool — a real toolchain.** `chrysalis run | check | bigraph |
+bigraph export/import | server | repl` are all live over the bundled std library:
+`export`/`import` make the process-bigraph document a runnable artifact
+(`import(export(f)) ≡ run(f)`); `server` exposes a `Core` over REST; `repl` is an
+interactive homoiconic prompt (eval, `:type`/`:env`, live syntax highlighting,
+completion, multi-line). The one remaining piece is **`compile`** — programs
+importing *non-std* native packages (spatio-flux's FBA/particles) need the codegen
+path (generate a runner crate, `cargo build`, cache, run; a `project.ys` manifest
+mapping modules → crates). `run`/`server`/`import` all share that one
+package-resolution + `Core`-assembly path. The consumer that proves it is
+rewriting the spatio-flux demo suite as `.ys` (`sf_core`/`sf_*` + the `sf` bin are
+the in-tree prototype of the generated runner).
 
 **4. The boundary, made real.** A process or composite is a black box reachable
 through **protocols** (`local` in-process; `rest` / `parallel` remote) — the
@@ -1102,6 +1107,24 @@ is the full target.
     This is the seed of the diagnostics goal: chrysalis errors must be
     comprehensible *within chrysalis* (surface terms), located, and educational —
     a first-class subsystem to build out (NEXT-SESSION #16).
+22. **`::` = type, `:` = value, `fulfills` = contract** (decided 2026-05-23). One
+    operator per concept, applied everywhere:
+    - **`::`** ascribes a TYPE — `def x :: T`, function params `f(x :: T)` and
+      return `(…) :: Ret`, port types `~{state :: map[float]}`, config params
+      `composite C[out :: Path = …]`, pattern-var sorts `?c :: Cell`.
+    - **`:`** binds a VALUE — map/record entries `{a: 1.0}`, keyed call args
+      `RunProcess[proc: Rk4]`, port wirings `~{a: r.trajectory}`.
+    - **`fulfills`** is the contract relation, the same word on both sides: a
+      process *declares* `process Rk4 fulfills Det[…]`; a port *demands* it
+      `~{a :: TimeSeries fulfills Det}`. (Replaces the old `a: T :: Contract`,
+      where `:` meant "type" and `::` meant "contract" — both retired.)
+    Rationale: the prior rule was *positionally* consistent but used `:`/`::` both
+    for "has type" depending on bracket depth. The Haskell-style `::`=type is the
+    recognizable convention; freeing the contract onto its own keyword keeps type
+    and contract visually distinct. **Enforcement is a migration** (parser flips
+    type-position `:`→`::`; the port contract `:: C`→`fulfills C`; unparser emits
+    the new forms; regenerate every `.ys` + the docs/GUIDE; update parse tests) —
+    NEXT-SESSION task. Do it while the syntax is young.
 
 ## Open design decisions
 

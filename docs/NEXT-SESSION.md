@@ -1,62 +1,97 @@
 # Next session — launch prompt & plan
 
-## Where we are (2026-05-22, post language-foundation session)
+## Where we are (2026-05-22 — post runtime + toolchain session)
 
-The chrysalis **language foundation + the `chrysalis` build tool** are in, and the
-architecture is realigned to **prism-std → chrysalis → spatio-flux**. Full
-workspace green. The process-contract integrator-comparison demo runs end to end:
+The language foundation (import model, `def` + first-class functions, process
+contracts, units, prism-std as the std library) is in. THIS session built out the
+**unified runtime core, the distribution boundary, and the `chrysalis`
+toolchain**. Full workspace green. The CLI is now a real toolchain:
 
 ```sh
-cargo run -p chrysalis --bin chrysalis -- run crates/chrysalis/ys/integrator-comparison.ys
-# → outputs/integrator-comparison/{Rk4,ForwardEuler,mse}.csv + overlay.svg
+chrysalis run | check | bigraph  <file.ys>                  # compile+run / check / emit doc
+chrysalis bigraph export f.ys out.json | import out.json    # import(export(f)) ≡ run(f)
+chrysalis server [--port P]                                 # serve a Core over REST
+chrysalis repl                                              # interactive homoiconic prompt
+# `chrysalis compile` (codegen for NON-std packages) is the remaining piece — #10
 ```
 
 ### Landed this session
-- **Import model** — `from <module> import <names>` (replaces `extern`): a
-  `ModuleRegistry` the host populates; whole processes (`from core import
-  RunProcess`), objects (`from integrators import rk4` → `rk4.method(…)`), and
-  types (`from chem import CRN`) importable. Entry: `compile_with_modules`.
-- **`def` (required) + first-class functions** — `def name :: Type = expr`,
-  `def f(args) = body`; functions are values (pass/return/store) via `Expr::Call`.
-  Bare `name = …` is now an error.
-- **Process contracts** — `contract` / `fulfills` / `::`; substitutability =
-  `algebra::refines` (no new op). The demo enforces it at compile time.
-- **Self-outputting workflows** — effectful `Output` step (`->{}`), `Path` type,
-  `/` path-join, `.name`, `.csv`/`.svg` writer methods; the `.ys` emits its own
-  artifacts (no Rust harness).
-- **Canonical formatting** — `fulfills` parses either side of the interface; the
-  unparser emits canonical multi-line and no longer drops contracts.
-- **`prism-std`** — prism's native standard library (`RunProcess`, the
-  mass-action integrators, `CRN`, `TimeSeries` + methods); the SVG plotter →
-  `prism-viz`. chrysalis bundles it via `chrysalis::prelude::std_{registry,
-  methods,modules}`.
-- **The `chrysalis` build tool** (`crates/chrysalis/src/bin/chrysalis.rs`) —
-  `run` / `check` / `bigraph` live (std path, in-process via the prelude +
-  `chrysalis::runner::run`).
-- **Docs** — top-level `README.md`; `crates/chrysalis/ys/{README,GUIDE}.md`
-  (GUIDE = how to write `.ys`); refreshed emacs README.
+- **Unified `Core`** (`prism_bigraph::Core` = types + processes + methods +
+  protocols) — replaces the engine's four separate registry fields; threaded
+  through the engine AND every subengine (`Composite::from_config(&Core)`), so a
+  `Custom`-typed / method-using / `rest:`-addressed process works inside a
+  composite. `from_state(…, impl Into<Core>)` keeps registry-only callers
+  compiling. (memory `project_core_unification`.)
+- **Incremental steps** (`prism_bigraph::StepCache`) — a workflow's steps skip when
+  their on-disk output is fresh; `--steps a,b` forces; staleness cascades the step
+  DAG. Per-composite via `config.cache` (config-as-data, not a Rust handle). The
+  substrate for the report-as-expirable-DAG.
+- **The protocol boundary, made real** — `RestProcessServer` serves a `Core` over
+  the rest-process wire protocol with full lifecycle cleanup (`end` deletes, no
+  leaks); discovery now resolves `rest:` addresses in state (`address_class`), so a
+  `rest:` process/composite is discovered + driven over HTTP indistinguishably from
+  local (tests: `grow_divide_over_rest`).
+- **Missing-reference validation** — a doc referencing a process the core can't
+  build is rejected (`Core::missing_process_refs` / `Engine::check_references` /
+  server 400), not silently run partial. The seed of the diagnostics goal.
+- **CLI build-out** — `chrysalis server` (serves `std_core`); `chrysalis bigraph
+  export/import` (the document is a runnable artifact; `runner::{document_of,
+  run_document}`; `import(export(f)) ≡ run(f)`); `chrysalis repl` (Session eval,
+  `:type`/`:env`/`:reset`, **rustyline with live syntax highlighting + completion +
+  history hints + multi-line continuation**, redefinition overwrites).
+- **spatio-flux as a package (slices 1–2)** — dep chain completed (spatio-flux now
+  deps chrysalis + prism-std normally); `spatio_flux::prelude::{sf_core,
+  sf_registry, sf_methods, sf_modules}` expose its natives as a Core / run-path
+  packages; the `sf` bin proves the run path in-tree (the hand-written twin of what
+  the codegen will emit).
+- **Defaults** — confirmed `algebra::default` is ported + faithful; config/port
+  defaults already parse; completing the surface is a task.
 
 ### Architecture orientation (read first)
-- **Layering is prism-std → chrysalis → spatio-flux.** chrysalis bundles prism-std
-  as its std library and **never deps spatio-flux**. spatio-flux is a downstream
-  demo package (FBA/diffusion/particles). See memory `feedback_ys_layering`.
-- **The run command is `chrysalis::runner::run(program, registry, methods,
-  modules, time)`** — parameterized by the host's packages; never reimplemented.
-- **`chrysalis` IS the build tool.** std `.ys` run in-process; non-std need the
-  codegen path (#10).
-- The schema layer is a closed algebra (`prism_schema::algebra`, single door,
-  laws + closure-guard green) and the engine run-loop correctness arc is done
-  (both historical now — see bottom).
+- **Layering: prism-std → chrysalis → spatio-flux.** chrysalis NEVER deps
+  spatio-flux; spatio-flux now deps chrysalis (the package half). memory
+  `feedback_ys_layering`.
+- **One `Core` threads everywhere** (engine + every subengine) — the root-cause fix
+  for subengines losing types/methods/protocols. The schema layer is a closed
+  algebra. The composite boundary is real + **protocol-mediated** (local / rest /
+  parallel); cross-boundary config travels as DATA, never a Rust handle.
+- **Single run path.** `chrysalis::runner::run(program, registry, methods, modules,
+  time)` (compile+run) and `runner::run_document(doc, core, time)` (import).
+  `run`, `server`, and `import` MUST share package resolution + `Core` assembly —
+  the server is not a separate code path; the codegen (#10) builds that one path.
+- **The remaining gap is the codegen (#10).** chrysalis (one binary) can't link a
+  package's natives (HiGHS/rapier2d) and must never dep spatio-flux, so
+  `chrysalis run <non-std>.ys` must **generate + cargo-build + cache a runner
+  crate** that links the package, then run it (invisible to the user). The `sf` bin
+  is the hand-written prototype; `sf_*`/`sf_core` are what the generated runner
+  calls. See the codegen entry below for the `project.ys` manifest design.
 
 ## Next — the task tracker (durable; the harness task list is ephemeral)
 
-🔧 **#10 — finish the `chrysalis` build tool's codegen path.** `run`/`check`/
-`bigraph` are live for std `.ys`. Remaining: `chrysalis compile` + running `.ys`
-that import **non-std** packages (e.g. spatio-flux). Model (rust-script style):
-parse → resolve `from X import Y` to crates via a **module→crate manifest** →
-generate a runner crate (deps = those crates; main = assemble registry + run) →
-`cargo build` (cache by content hash) → run. This is also the **packages**
-milestone. *Medium-large.*
+🔧 **#10 — the codegen path (`chrysalis run`/`compile`/`server` on NON-std
+packages).** Everything is live for **std** `.ys`. The gap: a `.ys` importing a
+non-std package (spatio-flux) can't run in the fixed `chrysalis` binary — it can't
+link HiGHS/rapier2d and must never dep spatio-flux. So `chrysalis run <non-std>.ys`
+must **codegen + cargo-build + cache** a runner crate that links the package
+(rust-script style; invisible + cached).
+
+*Slices:* **(1) `sf_core` ✓; (2) `sf_registry`/`sf_methods`/`sf_modules` + the `sf`
+bin proving the run path in-tree ✓;** (3) port spatio-flux demos to `.ys` (the
+existing `dish.ys`/`culture.ys` are stale — `extern Diffusion`, name doesn't match
+the registry's `DiffusionAdvection`); (4) THE CODEGEN.
+
+*The `project.ys` manifest* (found by walking up from the `.ys`):
+```text
+package spatio_flux        # the crate to link into the generated runner
+# convention: <crate>::prelude::{sf_registry, sf_methods, sf_modules} (+ sf_core)
+```
+`chrysalis run f.ys`: all-std imports → run in-process (today); else → walk up to
+`project.ys` → generate a runner crate (`Cargo.toml` deps the package + chrysalis;
+`main` = the `sf` bin's logic, parameterized) → `cargo build --release` (cache by
+content hash) → exec. **Single path:** `compile`/`server`/`import` reuse the same
+generated-core assembly — `server` = `run` ending in serve-over-REST instead of
+run-engine; not a separate path. `crates/spatio-flux/src/bin/sf.rs` is the literal
+template for the generated `main`. *Medium-large.*
 
 ⏳ **#6 — SBML→CRN importer / repressilator (the original goal).** Native subset
 SBML/MathML reader (roxmltree + ~6-operator evaluator + one-time assignment-rule
@@ -105,23 +140,14 @@ real capability: a contract a process carries must survive a generic wrapper. Fi
 in prism (`RunProcess` forwards its inner process's output contract) + a test that
 a wrong-target inner process is rejected at the demanding port. *Medium.*
 
-📦 **#15 — convert spatio-flux to a `.ys` project (the downstream-package
-endgame).** spatio-flux is Rust today; the goal is `chrysalis run
-spatio-flux/ys/*.ys` over its native solvers (FBA/HiGHS, diffusion,
-particles/rapier2d). This is the *consumer* that proves #10's codegen path and
-forces the **project manifest**:
-- a `project.ys` (uv-style) at the package root declaring the package's native
-  crate(s) and the module→crate map (`from fba import …` → spatio-flux's FBA), so
-  `chrysalis run` from a project root pulls the local package in as importable
-  modules;
-- `chrysalis compile` generates a runner crate (deps = those crates), builds it
-  (cached by content hash), and runs — #10's rust-script model;
-- port spatio-flux's processes to importable native modules + thin `.ys` wrappers
-  (mirrors how prism-std exposes `core`/`integrators`/`chem`/`io`);
-- move the spatio-flux demos to `spatio-flux/ys/*.ys`, run via `chrysalis`.
-Layering stays prism-std → chrysalis → spatio-flux; the flip is that spatio-flux's
-*demos* become `.ys` driven by the tool, not Rust examples. *Large; gated on #10 —
-the marquee proof that build tool + import model + packages all compose.*
+📦 **#15 — spatio-flux as a `.ys` project (slices 1–2 DONE; this arc IS #10's
+slices).** `spatio_flux::prelude::{sf_core, sf_registry, sf_methods, sf_modules}`
+expose its natives (FBA/diffusion/particles) as a Core / run-path packages — slices
+1–2 ✓, the `sf` bin proves the run path in-tree. Remaining = **#10's slices 3–4**:
+port the demos to `.ys` (the stale `dish.ys`/`culture.ys` first — they use
+`extern Diffusion`/wrong names) and the codegen so `chrysalis run spatio-flux/ys/*`
+works with no per-package bin. Layering: spatio-flux → chrysalis (the package half);
+chrysalis never deps spatio-flux. *Large; gated on #10's codegen.*
 
 🩺 **#16 — chrysalis diagnostics: comprehensible `.ys` error messages.** A
 first-class diagnostics subsystem so EVERY way a `.ys` program can go wrong gives a
@@ -161,15 +187,15 @@ discovered + driven). Remaining polish: a named-package core (needs #10), gracef
 shutdown. → **distributed simulation**: a `.ys` with `rest:` nodes pointing at
 `chrysalis server`s.
 
-🟢 **#19 — `chrysalis repl`: interactive homoiconic prompt.** Read a line of
-`.ys`, evaluate, print with inferred type, accumulate a session env. The
-homoiconic payoff: build a process / reaction / pattern / composite as a VALUE at
-the prompt, inspect its schema, modify it, install/run it live; step a workflow
-tick-by-tick over the incremental-step cache; `:load` a file, `:export` the
-session as a bigraph document (#17). Builds on parser + evaluator + schema +
-`runner`; line editing via rustyline or hand-rolled. Also the front-end for
-exploring a remote (`chrysalis server`) simulation. CLI surface →
-`run / check / bigraph / compile / server / repl`. *Medium.*
+✅ **#19 — `chrysalis repl` (DONE).** Session eval (defs/functions accumulate;
+bindings + bare exprs print with inferred type), `:type`/`:env`/`:reset`/`:help`/
+`:quit`, error-resilient, **redefinition overwrites** (a corrected `process`/`def`
+wins, no dead duplicate). **rustyline** editor with **live syntax highlighting**
+(ys tokenizer → ANSI by kind), **completion** (session names + keywords),
+**history hints**, and **multi-line continuation** (write a multi-line `process` at
+the prompt). `crates/chrysalis/src/repl.rs` (5 unit tests). *Follow-ons:*
+`:load`/`:export`, stepping a workflow tick-by-tick over the step cache, completion
+of methods/imported names, `reedline` if we want richer interaction.
 
 🧬 **#20 — schema-as-state: a meta-schema; operate on the schema, reconcile state
 to match.** Make the schema itself first-class operable STATE (a `Value`;
@@ -186,10 +212,34 @@ self-modifying simulations (a process that evolves its own type, illegal states
 unrepresentable throughout). *Deep/foundational; a new named algebra op + laws,
 not ad-hoc munging.*
 
-**Suggested order:** **#13 (quick cleanup) → #7 (quick win) → #14 (flagship teeth)
-→ #6 (the headline) → #10 codegen → #15 (spatio-flux `.ys`, gated on #10) → #8 →
-#12** — #6 is the science marquee, #15 the architecture marquee; both move whenever
-there's appetite.
+🧩 **#21 — complete surface-language defaults.** `algebra::default` is ported +
+faithful; config params + port decls already parse `name: T = default`. Extend:
+type-field defaults (`type Cell = {mass: float = 1.0}`); schema-driven fill-in at
+construction (a partial record/term gets its missing fields from the schema's
+`default`); defaults through composite config / contract pins / the REPL; a
+value-method to ask a schema for its default. Where a default exists, missing →
+filled (not an error; coordinate with diagnostics #16 for genuinely-required
+fields). The op is ported — this surfaces it through parse→eval→compile. *Medium.*
+
+✍️ **#22 — enforce `::`=type / `:`=value / `fulfills`-contract** (decided
+2026-05-23; chrysalis-design.md resolved decision #22). `::` ascribes a TYPE
+everywhere (def + return, params `f(x :: T)`, ports `~{state :: map[float]}`,
+config `[out :: Path]`, pattern sorts `?c :: Cell`); `:` binds a VALUE (map
+entries, call args, wirings); the contract is the keyword **`fulfills`** on both
+sides (`process Rk4 fulfills Det` / port `~{a :: TimeSeries fulfills Det}`,
+replacing `a: T :: Contract`). Migration: parser flips type-position `:`→`::` +
+port `:: C`→`fulfills C` (consider a lenient phase then tighten); unparser emits
+the new forms; regenerate every `.ys` + GUIDE/design examples; update parse tests.
+*Medium; do while the syntax is young.*
+
+**Suggested order:** **#10 codegen** is the architecture marquee — it unblocks #15
+(spatio-flux as `.ys`), full export/import self-containment, and `server`/`import`
+on packages (the single path). Then **#16 diagnostics → #21 defaults → #6 SBML
+(the science headline) → #20 schema-as-state**. Quick wins anytime: **#7** dt-sweep,
+**#13** retire-extern, **#8** comment retention, **#12** prism-svg, **#14** flagship
+real-enforcement-through-RunProcess. (Done this session: Core unification, StepCache,
+rest server + discovery, per-composite cache, missing-ref, **#17/#18/#19** CLI +
+REPL.)
 
 ## Long-run milestones (beyond the tracker)
 - **First-class `Custom` types** — `type Name = <repr> with { op = …,
