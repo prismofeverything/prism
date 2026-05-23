@@ -1,0 +1,159 @@
+{
+  "init": {
+    "A": 1.0,
+    "B": 0.0
+  },
+  "rk4": {
+    "address": "local:RunProcess",
+    "config": {
+      "proc": {
+        "address": "local:Rk4",
+        "config": {
+          "network": {
+            "species": [
+              "A",
+              "B"
+            ],
+            "reactions": [
+              {
+                "reactants": {
+                  "A": 1.0
+                },
+                "products": {
+                  "B": 1.0
+                },
+                "k": 0.7
+              }
+            ]
+          }
+        },
+        "inputs": {
+          "state": [
+            "state"
+          ]
+        },
+        "outputs": {
+          "state": [
+            "state"
+          ]
+        }
+      },
+      "runtime": 5.0,
+      "timestep": 0.2
+    },
+    "inputs": {
+      "state": [
+        "init"
+      ]
+    },
+    "outputs": {
+      "timeseries": [
+        "rk4_traj"
+      ]
+    }
+  },
+  "euler": {
+    "address": "local:RunProcess",
+    "config": {
+      "proc": {
+        "address": "local:ForwardEuler",
+        "config": {
+          "network": {
+            "species": [
+              "A",
+              "B"
+            ],
+            "reactions": [
+              {
+                "reactants": {
+                  "A": 1.0
+                },
+                "products": {
+                  "B": 1.0
+                },
+                "k": 0.7
+              }
+            ]
+          }
+        },
+        "inputs": {
+          "state": [
+            "state"
+          ]
+        },
+        "outputs": {
+          "state": [
+            "state"
+          ]
+        }
+      },
+      "runtime": 5.0,
+      "timestep": 0.2
+    },
+    "inputs": {
+      "state": [
+        "init"
+      ]
+    },
+    "outputs": {
+      "timeseries": [
+        "euler_traj"
+      ]
+    }
+  },
+  "compare": {
+    "address": "local:Compare",
+    "config": {},
+    "inputs": {
+      "a": [
+        "rk4_traj"
+      ],
+      "b": [
+        "euler_traj"
+      ]
+    },
+    "outputs": {
+      "mse": [
+        "mse"
+      ]
+    }
+  },
+  "plot": {
+    "address": "local:Plot",
+    "config": {},
+    "inputs": {
+      "a": [
+        "rk4_traj"
+      ],
+      "b": [
+        "euler_traj"
+      ]
+    },
+    "outputs": {
+      "figure": [
+        "figure"
+      ]
+    }
+  },
+  "output": {
+    "address": "local:Output",
+    "config": {
+      "path": "outputs/integrator-comparison"
+    },
+    "inputs": {
+      "a": [
+        "rk4_traj"
+      ],
+      "b": [
+        "euler_traj"
+      ],
+      "mse": [
+        "mse"
+      ],
+      "figure": [
+        "figure"
+      ]
+    },
+    "outputs": {}
+  }
+}

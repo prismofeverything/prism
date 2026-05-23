@@ -4,16 +4,18 @@ Syntax highlighting + light indentation for chrysalis source.
 
 ## What it highlights
 
-- **Definer keywords** (lowercase): `process`, `step`, `composite`,
-  `reaction`, `pattern`, `let`, `if`, `then`, `else`, `where`, `in`,
-  `replace`, `with`, `expr`
+- **Definer keywords** (lowercase): `def`, `type`, `process`, `step`,
+  `composite`, `reaction`, `pattern`, `extern`, `unit`, `context`,
+  `contract`
+- **Modifier keywords**: `from`, `import`, `using`, `fulfills`, `with`,
+  `where`, `replace`; **control/logic**: `let`, `in`, `if`, `then`,
+  `else`, `for`, `not`, `and`, `or`; **constants**: `true`, `false`
 - **Declared names** — `Grow` in `process Grow`, `Cell` in
-  `composite Cell`, etc. — own face (`ys-declaration-face`),
-  distinct from references to those names later in the file
-- **Built-in types**: `Float`, `Int`, `Bool`, `String`, `Map`,
-  `List`, `Tree`, `Maybe`, `Tuple`, `Array`, `Any`
-- **Built-in controls**: `BRS`, `Reaction`, `Pattern`, `Bridge`,
-  `Interface`
+  `composite Cell`, the name after `def`, etc. — own face
+  (`ys-declaration-face`), distinct from later references
+- **Built-in types** (lowercase schema leaves): `float`, `int`,
+  `string`, `bool`, `map`, `list`, `tree`, `any`, `array`, `maybe`
+- **Built-in controls**: `BRS`, `RunProcess`
 - **Pattern variables**: `?name` (bold variable-name face)
 - **Link variables**: `~name` (builtin face)
 - **Port-binding blocks** — `~{ … }` and `->{ … }` —
@@ -86,7 +88,7 @@ Five custom faces are defined for theming:
 
 ## Status
 
-Tier-1 quick mode — covers the kernel forms from
-`docs/chrysalis-design.md` enough to make source files legible.
-Indentation is paren-depth-based, not semantic; will get smarter when
-the chrysalis parser lands.
+Covers the current kernel forms from `docs/chrysalis-design.md`
+(definers incl. `def` / `contract`, native `from … import …`, contracts)
+enough to make source files legible. Indentation is paren-depth-based,
+not semantic.
