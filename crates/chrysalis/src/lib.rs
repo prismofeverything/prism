@@ -31,6 +31,7 @@ pub mod eval;
 pub mod fixtures;
 pub mod parse;
 pub mod prelude;
+pub mod repl;
 pub mod runner;
 pub mod unparse;
 pub mod runtime;

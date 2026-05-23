@@ -16,3 +16,4 @@ indexmap = { workspace = true }
 ordered-float = { workspace = true }
 compact_str = { workspace = true }
 rand = { workspace = true }
+rustyline = "14"

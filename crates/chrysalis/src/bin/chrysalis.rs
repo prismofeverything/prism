@@ -29,6 +29,7 @@ fn main() {
         "bigraph" => cmd_bigraph(rest),
         "check" => cmd_check(rest),
         "server" => cmd_server(rest),
+        "repl" => chrysalis::repl::run().unwrap_or_else(|e| die("repl", e)),
         "compile" => {
             eprintln!(
                 "`chrysalis compile` (codegen for non-std packages) is not implemented yet; \
@@ -46,8 +47,10 @@ fn main() {
 
 fn usage() {
     eprintln!(
-        "usage:\n  chrysalis run|bigraph|check <file.ys> [--time T]\n  \
-         chrysalis server [--port P]"
+        "usage:\n  chrysalis run|check <file.ys> [--time T]\n  \
+         chrysalis bigraph <file.ys> | export <file.ys> <out.json> | import <doc.json>\n  \
+         chrysalis server [--port P]\n  \
+         chrysalis repl"
     );
 }
 
