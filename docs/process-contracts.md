@@ -94,7 +94,7 @@ a PDE. Same interface, incomparable outputs.
 
 Port signatures are *interfaces* (Milner's outer face); they're
 necessary but underspecified for substitutability. A `ProcessContract`
-is the layer SED-ML is missing — and in prism it falls out of
+is the layer SED-ML is missing — and in chrysalis it falls out of
 homoiconicity for free (contracts are values, just like processes
 themselves).
 
@@ -118,13 +118,13 @@ The payoff:
   and reject incompatible plugins at composition time.
 - **KISAO becomes an export target, not the source of truth**: a
   contract → KISAO mapping for interop with COPASI / Tellurium / etc.,
-  but internally prism has the target/method layering KISAO lacks.
+  but internally chrysalis has the target/method layering KISAO lacks.
 - Chrysalis can make contracts first-class values — the tier-2
   dividend in [`chrysalis-design.md`](chrysalis-design.md): schemas
   that make illegal substitutions unrepresentable, rather than "caught
   at runtime."
 
-This also reframes the question prism can pose externally: "tell us
+This also reframes the question chrysalis can pose externally: "tell us
 your *target semantics*, and we'll tell you which KISAO methods are
 admissible realizations." A contribution back, not just consumption of
 the standard.
@@ -134,7 +134,7 @@ the standard.
 Chrysalis is a programming language that compiles to process-bigraph
 composites. See the chrysalis [GUIDE.md](../crates/chrysalis/ys/GUIDE.md).
 
-**A contract is to an interface what a schema is to a value.** prism's
+**A contract is to an interface what a schema is to a value.** bigraph-schema's
 core principle is "schema is always present, inseparable from state."
 The contract is that principle one level up: a port's *meaning* — which
 mathematical object flows through it, and the sense in which two
