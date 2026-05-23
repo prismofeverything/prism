@@ -1392,6 +1392,7 @@ dependencies = [
  "plotters",
  "prism-bigraph",
  "prism-schema",
+ "prism-std",
  "prism-viz",
  "rand 0.8.5",
  "rapier2d",

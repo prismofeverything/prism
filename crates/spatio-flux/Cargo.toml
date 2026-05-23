@@ -8,7 +8,9 @@ license.workspace = true
 [dependencies]
 prism-schema = { workspace = true }
 prism-bigraph = { workspace = true }
+prism-std = { workspace = true }
 prism-viz = { workspace = true }
+chrysalis = { workspace = true }
 indexmap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -22,4 +24,3 @@ rapier2d = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }
-chrysalis = { workspace = true }

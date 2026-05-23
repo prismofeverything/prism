@@ -17,6 +17,14 @@ use crate::ast::{def_name, Def, Expr, Name, Program};
 use crate::eval::Evaluator;
 use crate::parse::parse_program;
 
+/// chrysalis keywords + definers + modifiers — highlighted, and offered for
+/// completion. (Mirrors the emacs `ys-mode` face taxonomy.)
+const KEYWORDS: &[&str] = &[
+    "def", "type", "process", "step", "composite", "reaction", "pattern", "contract", "unit",
+    "context", "extern", "from", "import", "fulfills", "using", "with", "where", "replace", "let",
+    "in", "if", "then", "else", "for", "not", "and", "or", "true", "false",
+];
+
 /// A REPL session: accumulated non-binding defs (the program the evaluator sees)
 /// + the bound values (`def name = …`).
 struct Session {
@@ -34,6 +42,16 @@ impl Session {
     /// from `defs`; vars from the `env` passed at eval time).
     fn evaluator(&self) -> Evaluator {
         Evaluator::new(Arc::new(Program { defs: self.defs.clone() }), Arc::clone(&self.methods))
+    }
+
+    /// Completable names: language keywords + the session's bindings and defs.
+    fn names(&self) -> Vec<String> {
+        let mut names: Vec<String> = KEYWORDS.iter().map(|s| s.to_string()).collect();
+        names.extend(self.env.keys().map(|k| k.to_string()));
+        names.extend(self.defs.iter().map(|d| def_name(d).to_string()));
+        names.sort();
+        names.dedup();
+        names
     }
 
     /// Evaluate one `.ys` line, returning the output lines: definers accumulate,
@@ -57,6 +75,11 @@ impl Session {
                 other => {
                     let kind = def_kind(&other);
                     let name = def_name(&other).to_string();
+                    // Redefinition OVERWRITES: drop any prior def (and any shadowed
+                    // binding) of the same name, rather than appending a dead one
+                    // that `lookup` (first-wins) would keep using.
+                    self.defs.retain(|d| def_name(d) != name.as_str());
+                    self.env.shift_remove(name.as_str());
                     self.defs.push(other);
                     out.push(format!("{kind} {name} defined"));
                 }
@@ -68,6 +91,9 @@ impl Session {
             match evaluator.eval_value(&value, &self.env) {
                 Ok(v) => {
                     out.push(format!("{name} : {} = {}", type_name(&v), render(&v)));
+                    // A binding shadows any prior definer of the same name; the
+                    // env insert overwrites a prior binding.
+                    self.defs.retain(|d| def_name(d) != name.as_str());
                     self.env.insert(name, v);
                 }
                 Err(e) => out.push(format!("error: {e}")),
@@ -141,13 +167,22 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut session = Session::new();
     println!("chrysalis repl — `:help` for commands, `:quit` to exit");
 
-    let mut rl = rustyline::DefaultEditor::new()?;
+    let mut rl: rustyline::Editor<ChrysalisHelper, rustyline::history::FileHistory> =
+        rustyline::Editor::new()?;
+    rl.set_helper(Some(ChrysalisHelper {
+        names: session.names(),
+        hinter: rustyline::hint::HistoryHinter::new(),
+    }));
     let history = history_path();
     if let Some(path) = &history {
         let _ = rl.load_history(path); // best-effort
     }
 
     loop {
+        // Refresh completion names from the live session.
+        if let Some(h) = rl.helper_mut() {
+            h.names = session.names();
+        }
         match rl.readline("ys> ") {
             Ok(line) => {
                 let input = line.trim();
@@ -185,6 +220,183 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 /// `$HOME/.chrysalis_history` for cross-session command history (best-effort).
 fn history_path() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".chrysalis_history"))
+}
+
+// ── Rich line editing (#18): highlighting, completion, hints, multi-line. ──
+
+use std::borrow::Cow;
+
+use rustyline::completion::{Completer, Pair};
+use rustyline::highlight::Highlighter;
+use rustyline::hint::{Hinter, HistoryHinter};
+use rustyline::validate::{ValidationContext, ValidationResult, Validator};
+use rustyline::{Context, Helper};
+
+/// rustyline helper providing live syntax highlighting, name completion (session
+/// bindings/defs + keywords), history hints, and multi-line continuation when a
+/// line has unbalanced brackets (so a `process` body can span lines).
+struct ChrysalisHelper {
+    names: Vec<String>,
+    hinter: HistoryHinter,
+}
+
+impl Completer for ChrysalisHelper {
+    type Candidate = Pair;
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        _ctx: &Context<'_>,
+    ) -> rustyline::Result<(usize, Vec<Pair>)> {
+        let start = line[..pos]
+            .rfind(|c: char| !c.is_alphanumeric() && c != '_')
+            .map_or(0, |i| i + 1);
+        let word = &line[start..pos];
+        if word.is_empty() {
+            return Ok((start, Vec::new()));
+        }
+        let candidates = self
+            .names
+            .iter()
+            .filter(|n| n.starts_with(word))
+            .map(|n| Pair { display: n.clone(), replacement: n.clone() })
+            .collect();
+        Ok((start, candidates))
+    }
+}
+
+impl Hinter for ChrysalisHelper {
+    type Hint = String;
+    fn hint(&self, line: &str, pos: usize, ctx: &Context<'_>) -> Option<String> {
+        self.hinter.hint(line, pos, ctx)
+    }
+}
+
+impl Highlighter for ChrysalisHelper {
+    fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
+        Cow::Owned(highlight_ys(line))
+    }
+    fn highlight_char(&self, _line: &str, _pos: usize, _forced: bool) -> bool {
+        true // re-highlight on every keystroke → live coloring
+    }
+    fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
+        Cow::Owned(format!("\x1b[90m{hint}\x1b[0m")) // dim ghost text
+    }
+}
+
+impl Validator for ChrysalisHelper {
+    fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
+        if unbalanced(ctx.input()) {
+            Ok(ValidationResult::Incomplete) // open bracket — keep reading
+        } else {
+            Ok(ValidationResult::Valid(None))
+        }
+    }
+}
+
+impl Helper for ChrysalisHelper {}
+
+/// Color a `.ys` line with ANSI escapes by token kind: keywords (magenta),
+/// Capitalised controls/types (cyan), strings (green), numbers (yellow),
+/// comments (grey), `?`/`~` variables (red).
+fn highlight_ys(line: &str) -> String {
+    const RESET: &str = "\x1b[0m";
+    const KW: &str = "\x1b[35m";
+    const CTRL: &str = "\x1b[36m";
+    const STR: &str = "\x1b[32m";
+    const NUM: &str = "\x1b[33m";
+    const COMMENT: &str = "\x1b[90m";
+    const VAR: &str = "\x1b[31m";
+
+    let chars: Vec<char> = line.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '#' {
+            out.push_str(COMMENT);
+            out.extend(&chars[i..]);
+            out.push_str(RESET);
+            break;
+        } else if c == '\'' {
+            out.push_str(STR);
+            out.push(c);
+            i += 1;
+            while i < chars.len() {
+                out.push(chars[i]);
+                let closed = chars[i] == '\'';
+                i += 1;
+                if closed {
+                    break;
+                }
+            }
+            out.push_str(RESET);
+        } else if (c == '?' || c == '~')
+            && chars.get(i + 1).is_some_and(|n| n.is_alphabetic() || *n == '_')
+        {
+            out.push_str(VAR);
+            out.push(c);
+            i += 1;
+            while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                out.push(chars[i]);
+                i += 1;
+            }
+            out.push_str(RESET);
+        } else if c.is_ascii_digit() {
+            out.push_str(NUM);
+            while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                out.push(chars[i]);
+                i += 1;
+            }
+            out.push_str(RESET);
+        } else if c.is_alphabetic() || c == '_' {
+            let start = i;
+            while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            let word: String = chars[start..i].iter().collect();
+            if KEYWORDS.contains(&word.as_str()) {
+                out.push_str(KW);
+                out.push_str(&word);
+                out.push_str(RESET);
+            } else if word.chars().next().is_some_and(char::is_uppercase) {
+                out.push_str(CTRL);
+                out.push_str(&word);
+                out.push_str(RESET);
+            } else {
+                out.push_str(&word);
+            }
+        } else {
+            out.push(c);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Are brackets unbalanced (more opens than closes, ignoring strings/comments)?
+/// Drives multi-line continuation for definitions that span lines.
+fn unbalanced(input: &str) -> bool {
+    let mut depth: i32 = 0;
+    for line in input.lines() {
+        let mut in_str = false;
+        for c in line.chars() {
+            if in_str {
+                if c == '\'' {
+                    in_str = false;
+                }
+                continue;
+            }
+            match c {
+                '\'' => in_str = true,
+                '#' => break,
+                '(' | '{' | '[' => depth += 1,
+                ')' | '}' | ']' => depth -= 1,
+                _ => {}
+            }
+        }
+    }
+    depth > 0
 }
 
 fn help_lines() -> Vec<String> {
@@ -293,5 +505,43 @@ mod tests {
         assert!(out[0].starts_with("parse error"), "got {out:?}");
         // Session still usable after an error.
         assert_eq!(s.eval_line("2 + 2"), vec!["=> 4 : int"]);
+    }
+
+    #[test]
+    fn highlights_keywords_controls_and_strings() {
+        let h = highlight_ys("def x = Cell['a']");
+        assert!(h.contains("\x1b[35mdef\x1b[0m"), "keyword magenta: {h:?}");
+        assert!(h.contains("\x1b[36mCell\x1b[0m"), "control cyan: {h:?}");
+        assert!(h.contains("\x1b[32m'a'\x1b[0m"), "string green: {h:?}");
+    }
+
+    #[test]
+    fn redefinition_overwrites_instead_of_shadowing() {
+        let mut s = Session::new();
+        assert_eq!(s.eval_line("def f(x) = x + 1"), vec!["function f defined"]);
+        assert_eq!(s.eval_line("f(10)"), vec!["=> 11 : int"]);
+
+        // Correct a mistake: the redefinition must WIN, not be dropped.
+        assert_eq!(s.eval_line("def f(x) = x * 100"), vec!["function f defined"]);
+        assert_eq!(
+            s.eval_line("f(10)"),
+            vec!["=> 1000 : int"],
+            "the redefinition overwrites the old one"
+        );
+        assert_eq!(
+            s.defs.iter().filter(|d| def_name(d) == "f").count(),
+            1,
+            "only one `f` definition remains (no dead duplicate)"
+        );
+    }
+
+    #[test]
+    fn multiline_continues_only_on_open_brackets() {
+        assert!(unbalanced("process Foo ("), "open paren → keep reading");
+        assert!(unbalanced("a = {b: ["), "nested opens");
+        assert!(!unbalanced("def x = 5"), "balanced");
+        assert!(!unbalanced("f(5)"), "balanced call");
+        assert!(!unbalanced("s = 'a ( in a string'"), "paren in string ignored");
+        assert!(!unbalanced("x = 1 # ( in a comment"), "paren in comment ignored");
     }
 }
