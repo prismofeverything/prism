@@ -294,23 +294,34 @@ operation** (dispatches on schema like the algebra's `serialize`/`apply`/`divide
   `apply` — change-only), so structure is *not special* — it's another type
   whose trace is plotted.
 
-DONE: `crates/prism-viz/src/plot.rs` — `plot(schema, trace, title) -> svg` +
-`characteristic(schema) -> View{Lines,Field,Snapshot}`, dispatching over the
-existing prism-viz renderers (`render_timeseries_svg`; snapshot for field/tree as
-a placeholder). Tested (schema→view; scalar trace→line SVG; nested scalars
-flatten to `substrates.glucose`).
+**THE FULL SYNTHESIS → [`docs/delta-traces.md`](delta-traces.md)** (co-designed
+2026-05-23): the entire system is a **procession of schema-deltas in time**
+(event sourcing); `apply` = replay, `diff` = compute-delta; the **brutality
+lattice** (additive → overwrite → `_remove`/`_add` structural); a fixed-shape
+trace **is a tensor** `[time × dims]` (Arrow-friendly) that **structural deltas
+reshape** → a *piecewise tensor*; value-deltas vs structural-deltas = the
+bigraph's **two graphs** (state/tensor vs place/topology). Read that doc first.
 
-REMAINING (ordered): (1) **trace capture** — extend `RunProcess` (today: flat
-`map[float]`→scalar columns only) to emit the **full state trace** ("arbitrary
-outputs"); store as diffs. (2) a real **field heatmap/animation** renderer
-(port report.rs's plotters heatmap into prism-viz) + the **4D structural** plot
-(bigraph-viz at change-points). (3) **expose** `plot` + a bigraph-viz writer to
-`.ys` (method/step). (4) the **`Section` template** — a composite param'd by
-`(sim, title, description, out)` that runs the sim, calls `plot(output_schema,
-trace)` per output port (schema-driven), and self-outputs to `outputs/<name>/`.
-(5) apply down `CANONICAL_ORDER`, validating each family via the codegen tool.
-*The abstraction (`plot(schema,trace)`) is settled + seeded; the rest is the
-trace plumbing + the per-type renderers + the template.*
+DONE: `prism_viz::plot(schema, trace, title) -> Value` returns a **place-graph
+SVG** (not a string): scalars → line chart, field → **animated** heatmap (SMIL
+`<animate>` — the animation is place-graph data), else → note. `prism_viz::svg`
+(SVG-as-place-graph + `to_svg` + `el/rect/line/text/polyline/animate`).
+`RunProcess` emits the full `trace` carrying its element schema `Trace[T]` (no
+infer). `Trace.plot` uses the carried `T`. `Figure` carries the place-graph under
+`root`; `figure.svg` serializes via `to_svg`. `report-section.ys` — the reusable
+`Section[sim, …]` template (run → trace → plot → self-output) renders a real line
+chart end-to-end. Tested across prism-viz/prism-std/chrysalis.
+
+REMAINING (ordered): (1) **`Simulate`** — the engine-faithful **event-source
+runner** (vs `RunProcess`, matched to full-output integrators): feed the inner
+its full state, `apply` its update via the state schema (kinetics deltas add,
+diffusion fields replace — schema decides), capture `Trace[T]`. Storage: frames →
+**delta-log + replay** → **hybrid keyframes + Arrow**. (2) **4D structural** plot
+(bigraph-viz per `_add`/`_remove`) + expose a bigraph-viz writer to `.ys`.
+(3) the `Section` template uses `Simulate` so **spatio-flux sections** run via the
+codegen tool. (4) apply down `CANONICAL_ORDER`, validating each family.
+*The abstraction is settled (see delta-traces.md); the rest is the runner + the
+per-type renderers + the template + serialization.*
 
 **Suggested order:** **#10 codegen** is the architecture marquee — it unblocks #15
 (spatio-flux as `.ys`), full export/import self-containment, and `server`/`import`
