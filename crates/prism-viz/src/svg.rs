@@ -60,6 +60,36 @@ pub fn text(x: f64, y: f64, content: &str) -> Value {
     el("text", vec![("x", v(x)), ("y", v(y))], vec![Value::from(content)])
 }
 
+/// A SMIL `<animate>` — animates `attr` through `values` over `dur` seconds,
+/// looping. SVG animation is itself just place-graph data (a child node), so a
+/// trace can animate as a child of the element it drives.
+pub fn animate(attr: &str, values: &[String], dur: f64) -> Value {
+    el(
+        "animate",
+        vec![
+            ("attributeName", s(attr)),
+            ("values", s(&values.join(";"))),
+            ("dur", s(&format!("{dur}s"))),
+            ("repeatCount", s("indefinite")),
+        ],
+        vec![],
+    )
+}
+
+/// A `<polyline>` through `points`, stroked (no fill) — the data line of a chart.
+pub fn polyline(points: &[(f64, f64)], stroke: &str, width: f64) -> Value {
+    let pts = points
+        .iter()
+        .map(|(x, y)| format!("{x},{y}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    el(
+        "polyline",
+        vec![("points", s(&pts)), ("fill", s("none")), ("stroke", s(stroke)), ("stroke-width", v(width))],
+        vec![],
+    )
+}
+
 fn v(n: f64) -> Value {
     Value::float(n)
 }

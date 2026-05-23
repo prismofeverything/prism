@@ -121,9 +121,15 @@ impl Step for RunProcess {
         // the type to its characteristic view. (A future optimization stores
         // this as `initial + diffs` via `prism_schema::diff`/`apply` — change-
         // only — but full frames are the simplest plot-ready form.)
+        // The trace's element type — `Trace[T]` where `T` is the inner process's
+        // `state` output schema. We KNOW it (no inference): it's carried as the
+        // trace's type parameter (materialized here as `element`), so `plot`
+        // dispatches on the real schema rather than guessing from the data.
+        let element = inner.outputs().get("state").cloned().unwrap_or(Schema::Any);
         let trace = Value::tree([
             ("_type", Value::from("Trace")),
             ("name", Value::from(self.address.as_str())),
+            ("element", prism_schema::schema_to_value(&element)),
             ("times", Value::List(times.clone())),
             ("frames", Value::List(history.clone())),
         ]);

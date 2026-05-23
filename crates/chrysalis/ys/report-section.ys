@@ -1,0 +1,50 @@
+# report-section.ys — a REUSABLE report-section template parameterized by the
+# SIMULATION (decision #25). `Section[sim, init, …]` runs the sim, captures its
+# full `trace` (the state extended through time), plots the trace BY ITS TYPE
+# (schema-driven `traj.plot`), and self-outputs the figure. The same template
+# applies to any `~{state}` simulation; spatial sections add a heatmap once the
+# trace carries fields.
+
+from core import RunProcess
+from integrators import rk4
+from chem import CRN
+from io import Path
+
+type TimeSeries = { times: list[float], columns: map[list[float]] }
+type Trace = { times: list[float], frames: list[map[float]] }
+type Figure = { svg: string }
+
+# Schema-driven plot: `traj.plot(title)` infers the single-item schema from the
+# trace and renders the characteristic view (scalars → line plot).
+step Plot[title: string = 'section'] ~{traj: Trace} ->{figure: Figure} (
+  {figure: traj.plot(title)}
+)
+
+# Self-output: the figure writes its own SVG (`.svg` is a native effect).
+step Output[path: Path] ~{figure: Figure} (
+  figure.svg(path)
+)
+
+# THE TEMPLATE — parameterized by the simulation `sim` and its `init`ial state.
+# run → trace → schema-driven plot → self-output. Higher-order: `sim` is a value.
+composite Section[
+  sim :: any,
+  init :: map[float],
+  title :: string = 'section',
+  runtime :: Float = 5.0,
+  timestep :: Float = 0.2,
+  out :: Path = 'outputs/section'
+] ->{figure: Figure} (
+  run: RunProcess[proc: sim, runtime: runtime, timestep: timestep] ~{state: init} ->{trace: traj} |
+  plot: Plot[title: title] ~{traj: traj} ->{figure: figure} |
+  output: Output[path: out] ~{figure: figure}
+)
+
+# Apply the template to a concrete simulation: an RK4 integrator over A → B.
+# Any `~{state}` process slots in unchanged.
+def network :: CRN = {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}
+process Decay[network: CRN] ~{state: map[float]} ->{state: map[float]} (
+  rk4.integrate(network, state, interval)
+)
+
+Section[sim: Decay[network: network], init: {A: 1.0, B: 0.0}, title: 'A to B (rk4)', out: 'outputs/section/ab']

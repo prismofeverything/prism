@@ -341,6 +341,29 @@ pub fn register_methods(reg: &mut MethodRegistry) {
         ]))
     });
 
+    // `trace.plot(title)` — the schema-driven plot (decision #25): a `Trace`
+    // (from `RunProcess`) is a single-item state extended through time; infer
+    // that single-item schema from the frames and let `prism_viz::plot` dispatch
+    // to the characteristic view (scalars → line plot; field → heatmap; …).
+    // Returns a `Figure`. This is the type-general plot; `overlay` is the
+    // two-series special case.
+    reg.register("Trace", "plot", |recv, args| {
+        let frames = recv.get_field("frames").and_then(|v| v.as_list()).unwrap_or(&[]);
+        let title = args.first().and_then(|v| v.as_str()).unwrap_or("trace");
+        // The element schema is carried WITH the trace (its type parameter `T`,
+        // set by `RunProcess` from the inner's output type). We KNOW it — read
+        // it; don't re-infer from the data.
+        let schema = recv
+            .get_field("element")
+            .and_then(prism_schema::value_to_schema)
+            .unwrap_or(prism_schema::Schema::Any);
+        // `plot` returns the viz AS DATA — an SVG place-graph value. The Figure
+        // carries it under `root` (so the plot is itself inspectable state);
+        // `figure.svg(path)` serializes it with `to_svg`.
+        let root = prism_viz::plot(&schema, frames, title);
+        Ok(Value::tree([("_type", Value::from("Figure")), ("root", root)]))
+    });
+
     // ── Effectful writers (the self-outputting Output step) ─────────────
     // `a.csv(path)` / `mse.csv(path)` / `figure.svg(path)` write a file to
     // `<path>.<ext>` and return None. The `.ys` workflow emits its own artifacts.
@@ -365,8 +388,13 @@ pub fn register_methods(reg: &mut MethodRegistry) {
 
     reg.register("Figure", "svg", |recv, args| {
         let path = arg_path(args, "svg")?;
-        let svg = recv.get_field("svg").and_then(|v| v.as_str()).unwrap_or("");
-        write_file(&format!("{path}.svg"), svg, "svg")
+        // A Figure carries either a place-graph svg under `root` (serialize via
+        // `to_svg` — the plot-as-data path) or a legacy `svg` string (overlay).
+        let svg_text = match recv.get_field("root") {
+            Some(root) => prism_viz::svg::to_svg(root),
+            None => recv.get_field("svg").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        };
+        write_file(&format!("{path}.svg"), &svg_text, "svg")
     });
 }
 
