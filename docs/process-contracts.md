@@ -1,9 +1,5 @@
 # Process Contracts
 
-*Motivation: what SED-ML reproducibility actually delivers, where it
-falls short, and how a typed `ProcessContract` in prism is the lever
-to do better.*
-
 ## What SED-ML and KISAO are actually doing
 
 SED-ML is a workflow description format: which model, what task (time
