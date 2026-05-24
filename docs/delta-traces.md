@@ -110,20 +110,59 @@ traces to disk = a sequence of columnar blocks + structural-event markers. This
 is the "interesting challenge" — but the structure above tells you the answer:
 store dense where the shape is fixed, segment where it reshapes.
 
+## The boundary streams the log (invocation, pipes, REST)
+
+The delta-log is not only an on-disk trace — it is the **wire form of a process's
+interface**. A composite invoked from the shell, piped into another, or reached
+over REST is the morphism `Trace[In] → Trace[Out]`: its input face a delta-stream
+fed *in*, its output face a delta-stream emitted *out*, the same currency both
+directions (chrysalis-design.md decision #24).
+
+- **stdin / stdout (a pipe)** carry the input / output delta-log; `A.ys | B.ys` is
+  morphism composition `B ∘ A` over the OS pipe.
+- **`[config]`** is the t=0 seed (the fold's `initial`); the **stream** is the t>0
+  deltas (the fold's events). Batch ("set a config and run") is the one-frame
+  collapse — keep the last frame, drop the time axis.
+- **A mandatory schema header** leads each stream (as `document_of` already ships
+  `schema` alongside `state`), so a consumer checks `refines` at connect time and
+  a polymorphic consumer adapts to the shape that arrived.
+- **Arrow-IPC** is the carrier: dense record-batches between structural events,
+  segmented at `_add`/`_remove` — the same piecewise-tensor split as on disk. The
+  local pipe and the distributed REST/Flight wire are the *same* log at different
+  transports (the Kafka-vs-local-file call above is exactly this seam).
+
+This is why "everything is a procession of deltas" reaches past storage into
+*composition*: piping simulations is folding one's output log into another's
+input, and the protocol seam (`local`/`rest`) changes only the transport, never
+the currency.
+
 ## What exists / what's next
 
-- **Exists**: `prism_schema::diff`/`algebra::apply`/`serialize` (the delta
-  algebra); `RunProcess` captures a `Trace[T]` (frames + carried `T`);
-  `prism_viz::plot` (place-graph line chart + animated heatmap) and
-  `prism_viz::svg` (SVG as place-graph data + `to_svg`).
-- **Next**: `Simulate` — the **engine-faithful event-source runner**: feed the
-  inner its full state, `apply` its update via the state schema (so kinetics
-  deltas add and diffusion fields replace — the schema decides), capture the
-  trace. Storage starts as frames, moves to the **delta-log + replay**, then the
-  **hybrid + Arrow** blocks. (`RunProcess` stays the matched runner for
-  full-output integrators; `Simulate` is the general one.)
+- **Exists**: the delta algebra (`prism_schema::diff`/`algebra::apply`/
+  `serialize`); **`prism-trace`** — the delta-log `Trace[T]` (`initial` +
+  `deltas` + carried `T`) with `trace_of` (capture via `diff`), `frames`/
+  `state_at` (replay via `apply`); **`Simulate`** (prism-std) — the
+  engine-faithful event-source runner that folds each update via the state schema
+  (kinetics deltas add, fields replace) and captures a delta-log trace.
+  `RunProcess` now produces the **same** delta-log shape via `trace_of` (frames
+  are *derived*, not stored), and `prism_viz::plot` consumes it via
+  `prism_trace::frames` — proven end to end (a `Simulate` run → `Trace.plot` →
+  SVG line chart). `prism_viz::svg` (SVG as place-graph + `to_svg`).
+  **`prism-trace::codec`** — the Arrow-IPC wire (`serialize_trace`/
+  `deserialize_trace` + streaming `TraceWriter`/`TraceReader`) with a *mandatory
+  schema-metadata header*; payloads are JSON `Value` cells today (typed `Float64`
+  columns are a contained follow-on — same framing/header/streaming). **chrysalis
+  `invoke_trace` + `chrysalis run --trace`** capture a composite's per-tick
+  `->{outputs}` as a delta-log trace and emit it on the Arrow wire
+  (**output→trace**).
+- **Next**: **input→trace** — read an Arrow trace from stdin and feed its frames
+  at successive ticks (flags the t=0 seed), with the **`refines` check** at connect
+  (the header makes it mechanical), then the full pipe round-trip
+  (`A.ys --trace | B.ys`). Then **dense `Float64` payload columns** and **hybrid
+  keyframes** for bounded random access.
 - **Then**: the `Section` template runs any sim through `Simulate` → `plot` →
-  self-output, dogfooded down `CANONICAL_ORDER`.
+  self-output, dogfooded down `CANONICAL_ORDER`; the **4D structural** plot
+  (bigraph-viz per `_add`/`_remove`).
 
 ## Tooling survey: what aligns
 

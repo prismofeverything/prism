@@ -14,7 +14,7 @@ use indexmap::IndexMap;
 use prism_bigraph::{Core, Document, Engine, ProcessRegistry};
 use prism_schema::{algebra, schema_to_value, value_to_schema, Key, MethodRegistry, Schema, Value};
 
-use crate::ast::{Def, Expr, Name, Program, SchemaExpr};
+use crate::ast::{CompositeDef, Def, Expr, Name, PortDecl, Program, SchemaExpr};
 use crate::compile::{
     collect_top_level_bindings, compile_with_modules, CompileError, CompileResult, ModuleRegistry,
 };
@@ -147,22 +147,17 @@ fn bind_arg(
     Ok(())
 }
 
-/// **Compositional invocation** — run a `.ys` file as its entry composite, with
-/// the command line bound to that composite's interface (decision #24). Each
-/// `[config]` param and `~{input}` port is filled from `args` (flag name →
-/// SOURCE spec, decoded via the schema codec) or its default; the body is
-/// evaluated with them as the root state; after running `duration`, each
-/// `->{output}` port is read back through its `@` bridge and `serialize`d into
-/// the returned record. Because input/output share the algebra codec
-/// (`realize`/`serialize`), a run's output round-trips as another run's input.
-pub fn invoke(
+/// Shared setup for both invocation paths: resolve the entry composite, bind its
+/// `[config]` params and `~{inputs}` from `args` (the t=0 seed), evaluate the
+/// body to the root state, and return a discovered engine ready to run plus the
+/// entry (for output extraction).
+fn engine_for(
     program: &Program,
     registry: ProcessRegistry,
     methods: MethodRegistry,
     modules: ModuleRegistry,
     args: &BTreeMap<String, String>,
-    duration: f64,
-) -> Result<Value, RunError> {
+) -> Result<(Engine, CompositeDef), RunError> {
     let entry = match program.entry() {
         Some(Def::Composite(d)) => d.clone(),
         Some(other) => {
@@ -183,6 +178,7 @@ pub fn invoke(
     let ev = &result.evaluator;
 
     // Seed env with top-level bindings, then bind config params + input ports.
+    // Flags are the t=0 seed; per-tick input streams (stdin) are a later slice.
     let mut env = collect_top_level_bindings(program, ev)?;
     for p in &entry.params {
         bind_arg(&mut env, ev, program, args, &p.name, &p.schema, &p.default, "config")?;
@@ -197,24 +193,103 @@ pub fn invoke(
     let mut engine =
         Engine::from_state(schema, root, result.core.clone()).map_err(RunError::Engine)?;
     engine.discover_all_processes();
-    engine.run(duration);
-    let final_state = engine.state();
+    Ok((engine, entry))
+}
 
-    // Pull each output back through its `@` bridge path and serialize.
+/// **Compositional invocation** — run a `.ys` file as its entry composite, with
+/// the command line bound to that composite's interface (decision #24): each
+/// `[config]` param and `~{input}` is filled from `args` (or its default), the
+/// body becomes the root state, and after running `duration` each `->{output}`
+/// is read back through its `@` bridge and `serialize`d into the returned record.
+/// This is the **batch final frame** of the run; [`invoke_trace`] keeps the whole
+/// time axis. Because input/output share the algebra codec, a run's output
+/// round-trips as another run's input.
+pub fn invoke(
+    program: &Program,
+    registry: ProcessRegistry,
+    methods: MethodRegistry,
+    modules: ModuleRegistry,
+    args: &BTreeMap<String, String>,
+    duration: f64,
+) -> Result<Value, RunError> {
+    let (mut engine, entry) = engine_for(program, registry, methods, modules, args)?;
+    engine.run(duration);
+    Ok(output_record(engine.state(), &entry, program))
+}
+
+/// **Compositional invocation as a trace** (decision #24, output→trace) — like
+/// [`invoke`], but instead of keeping only the final frame it samples the entry's
+/// `->{outputs}` every `sample_dt` over `duration` and returns the run as a
+/// delta-log `Trace[T]` (`prism_trace`). The element `T` is the record of
+/// output-port schemas (carried from the interface, never inferred). Serialize it
+/// to the Arrow wire with `prism_trace::serialize_trace`; batch [`invoke`] is
+/// exactly this trace's final frame.
+pub fn invoke_trace(
+    program: &Program,
+    registry: ProcessRegistry,
+    methods: MethodRegistry,
+    modules: ModuleRegistry,
+    args: &BTreeMap<String, String>,
+    duration: f64,
+    sample_dt: f64,
+) -> Result<Value, RunError> {
+    let (mut engine, entry) = engine_for(program, registry, methods, modules, args)?;
+    let element = output_schema(&entry, program);
+
+    let mut samples: Vec<(f64, Value)> = vec![(0.0, output_raw(engine.state(), &entry))];
+    let steps = if sample_dt > 0.0 { (duration / sample_dt).round().max(0.0) as usize } else { 0 };
+    for k in 1..=steps {
+        engine.run(sample_dt);
+        samples.push((k as f64 * sample_dt, output_raw(engine.state(), &entry)));
+    }
+    Ok(prism_trace::trace_of(&entry.name, &element, samples))
+}
+
+/// The inner-state bridge path for an output port (`@ inner.path`, else `[name]`).
+fn output_path(name: &Name, port: &PortDecl) -> Vec<Key> {
+    port.bridge
+        .clone()
+        .unwrap_or_else(|| vec![name.clone()])
+        .into_iter()
+        .map(|s| Key::from(s.as_str()))
+        .collect()
+}
+
+/// The entry's `->{outputs}` pulled through their bridges and `serialize`d into
+/// one record — the batch final frame.
+fn output_record(state: &Value, entry: &CompositeDef, program: &Program) -> Value {
     let mut record: IndexMap<Key, Value> = IndexMap::new();
     for (name, port) in &entry.interface.outputs {
-        let path: Vec<Key> = port
-            .bridge
-            .clone()
-            .unwrap_or_else(|| vec![name.clone()])
-            .into_iter()
-            .map(|s| Key::from(s.as_str()))
-            .collect();
-        let val = final_state.get_path(&path).cloned().unwrap_or(Value::None);
+        let val = state.get_path(&output_path(name, port)).cloned().unwrap_or(Value::None);
         let schema = lower_schema_in_program(&port.schema, program);
         record.insert(Key::from(name.as_str()), algebra::serialize(&schema, &val));
     }
-    Ok(Value::Map(record))
+    Value::Map(record)
+}
+
+/// The entry's `->{outputs}` pulled through their bridges as RAW values — the
+/// per-frame element of the trace (the codec serializes them on the wire).
+fn output_raw(state: &Value, entry: &CompositeDef) -> Value {
+    let mut record: IndexMap<Key, Value> = IndexMap::new();
+    for (name, port) in &entry.interface.outputs {
+        let val = state.get_path(&output_path(name, port)).cloned().unwrap_or(Value::None);
+        record.insert(Key::from(name.as_str()), val);
+    }
+    Value::Map(record)
+}
+
+/// The carried element schema of the output trace: a `Tree` of the output ports'
+/// schemas (known from the interface — never inferred from data).
+fn output_schema(entry: &CompositeDef, program: &Program) -> Schema {
+    let branches: IndexMap<Key, Schema> = entry
+        .interface
+        .outputs
+        .iter()
+        .map(|(name, port)| {
+            (Key::from(name.as_str()), lower_schema_in_program(&port.schema, program))
+        })
+        .collect();
+    Schema::Tree { branches }
 }
 
 fn entry_kind(def: &Def) -> &'static str {

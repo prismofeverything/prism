@@ -116,23 +116,19 @@ impl Step for RunProcess {
             local = Value::tree([("state", next)]);
         }
 
-        // The full state trace: every frame, as the single-item state extended
-        // through time. `prism_viz::plot(output_schema, frames)` dispatches on
-        // the type to its characteristic view. (A future optimization stores
-        // this as `initial + diffs` via `prism_schema::diff`/`apply` — change-
-        // only — but full frames are the simplest plot-ready form.)
-        // The trace's element type — `Trace[T]` where `T` is the inner process's
-        // `state` output schema. We KNOW it (no inference): it's carried as the
-        // trace's type parameter (materialized here as `element`), so `plot`
-        // dispatches on the real schema rather than guessing from the data.
+        // The state trace as a **delta-log** (`initial` + `deltas`), unified with
+        // `Simulate` through `prism_trace::trace_of`. The observable frames are
+        // unchanged (`prism_trace::frames` replays them), but storage is change-
+        // only — the "future optimization" is now the default. The element type
+        // `Trace[T]` is the inner's `state` output schema: KNOWN, carried as the
+        // trace's parameter, never re-inferred — so `plot` dispatches on the real
+        // schema. (`times`/`history` are reused for the `timeseries` below.)
         let element = inner.outputs().get("state").cloned().unwrap_or(Schema::Any);
-        let trace = Value::tree([
-            ("_type", Value::from("Trace")),
-            ("name", Value::from(self.address.as_str())),
-            ("element", prism_schema::schema_to_value(&element)),
-            ("times", Value::List(times.clone())),
-            ("frames", Value::List(history.clone())),
-        ]);
+        let trace = prism_trace::trace_of(
+            &self.address,
+            &element,
+            times.iter().filter_map(|t| t.as_f64()).zip(history.iter().cloned()),
+        );
 
         // Transpose the history (list of `{species: float}`) into columns
         // `{species: [float]}`, then assemble the TimeSeries Value.

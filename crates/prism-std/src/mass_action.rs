@@ -348,10 +348,13 @@ pub fn register_methods(reg: &mut MethodRegistry) {
     // Returns a `Figure`. This is the type-general plot; `overlay` is the
     // two-series special case.
     reg.register("Trace", "plot", |recv, args| {
-        let frames = recv.get_field("frames").and_then(|v| v.as_list()).unwrap_or(&[]);
+        // A `Trace` is a delta-log (`initial` + `deltas`); replay it to frames via
+        // `prism_trace::frames` (capture→replay→render). Works for both `Simulate`
+        // and `RunProcess` traces — they share the one delta-log shape.
+        let frames = prism_trace::frames(recv);
         let title = args.first().and_then(|v| v.as_str()).unwrap_or("trace");
         // The element schema is carried WITH the trace (its type parameter `T`,
-        // set by `RunProcess` from the inner's output type). We KNOW it — read
+        // set by the producer from the inner's output type). We KNOW it — read
         // it; don't re-infer from the data.
         let schema = recv
             .get_field("element")
@@ -360,7 +363,7 @@ pub fn register_methods(reg: &mut MethodRegistry) {
         // `plot` returns the viz AS DATA — an SVG place-graph value. The Figure
         // carries it under `root` (so the plot is itself inspectable state);
         // `figure.svg(path)` serializes it with `to_svg`.
-        let root = prism_viz::plot(&schema, frames, title);
+        let root = prism_viz::plot(&schema, &frames, title);
         Ok(Value::tree([("_type", Value::from("Figure")), ("root", root)]))
     });
 

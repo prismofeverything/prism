@@ -10,4 +10,5 @@ publish = false
 prism-schema = { workspace = true }
 prism-bigraph = { workspace = true }
 prism-viz = { workspace = true }
+prism-trace = { workspace = true }
 indexmap = { workspace = true }

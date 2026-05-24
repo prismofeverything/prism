@@ -151,62 +151,156 @@ a body block, whose value is its last `|`-less line. From this one rule both
   optional sugar; identical to the named form. So the keyword is never required
   but always available.
 
-### The command IS the interface
+### Invocation is `Trace[In] → Trace[Out]`, seeded by config
 
-```
-chrysalis run things.ys --threshold 2.0 --seed cell.ys   >  population.ys
-```
+The naïve reading of "run a file" collapses two axes to a point: input bound as
+one constant value, output read as one final value. The faithful object keeps the
+**time axis** the rest of the system is built on
+([`delta-traces.md`](delta-traces.md)):
 
-The entry's `[config]` params **and** `~{inputs}` are both bound from the
-command line; `->{outputs}` are rendered back. The **source is explicit** — the
-schema only ever drives `realize`, never *where the bytes come from*. Each
-`--name SOURCE`:
+> **A `.ys` invocation is the morphism `Trace[In] → Trace[Out]`, seeded by
+> config.** It consumes an input *trace* (a procession of frames, one per tick)
+> and emits an output *trace*; `[config]` is the **t=0 seed** that picks which
+> morphism.
 
-- bare text → a **literal** (the serialized value itself): `--threshold 2.0`
-- `file:PATH` → a **file** (bash process-substitution `file:<(gen)` works, so
-  "pipe a huge generated value" needs no special support)
-- `-` / `stdin:` → **stdin** (the one pipe)
-- `stream:…` → reserved for the streaming layer
-- `lit:…` → force a literal that would otherwise look like a scheme
+|         | construction (t=0)            | stream (t>0)                        |
+|---------|-------------------------------|-------------------------------------|
+| **in**  | `config` — set once, the seed | `inputs` — a trace fed in, 1/tick   |
+| **out** | (schema header)               | `outputs` — a trace emitted, 1/tick |
 
-Multiple inputs are multiple flags (unix-style). The reserved flags are `--time`
-(run duration — *not* `--interval`, which is the engine's per-step dt) and
-`--out FILE`. The decoded value flows through the port's `@` bridge into inner
-state; after the run each output is pulled back through its bridge and serialized
-out, as one record, to stdout (or `--out FILE`).
+**Batch — "set a config and run" — is the degenerate case**: a constant (or
+absent) input trace, keeping only the *last* output frame. That `t=0 → t=final`
+collapse is what shipped first (`runner::invoke`); it is *correct*, it is just the
+point-projection of the trace transform, and growing the time axis is additive —
+nothing built is wrong.
 
-### I/O is the codec, which already exists
+### One model, three transports
 
-Port I/O is exactly the schema algebra's **codec** — no new operation:
+A composite is a **morphism** reached only through its port interface, over a
+**protocol** (decisions #18/#20: `local` / `rest` / `parallel`). The CLI is just
+*another transport* of that one boundary, and a shell pipe is the same s-category
+composition the engine does internally with `~{} ->{}`:
 
-- **input** = `realize`/`deserialize(port_schema, encoded)` — external
-  (file/literal) → typed `Value`.
-- **output** = `serialize(port_schema, value)` — typed `Value` → external.
-- Law: `deserialize(s, serialize(s, v)) ≡ v` (`prism_schema::algebra`).
+| role                        | internal (`local`) | `rest`               | **CLI**                       |
+|-----------------------------|--------------------|----------------------|-------------------------------|
+| config (pick the morphism)  | `[...]`            | construction body    | **argv flags**                |
+| input (domain, per tick)    | `~{}` wires        | per-step input state | **stdin stream** (+ flag t=0) |
+| output (codomain, per tick) | `->{}` wires       | per-step update      | **stdout stream**             |
+
+So **invocation, piping, and REST are three transports of one thing** — composing
+a composite's port interface with an outside context. The pipe `A.ys | B.ys` *is*
+`B ∘ A`, with the OS pipe as transport exactly as `rest:` is the network one.
+
+### Config vs input: seed vs stream
+
+Config and input are genuinely distinct — `Grow : Rate → (Mass → Mass)`, config
+the first arrow (partial-applied once at construction, picking the experiment),
+input the second (applied every tick). They only *look* identical in batch
+because a constant function and a point coincide when sampled once.
+
+You do **not** need two kinds of input. The cut falls out of the channel:
+
+> **Config can only be *seeded* (flags). Input can be *seeded* (flag = t=0) or
+> *driven* (stdin = stream).** The defining property of config is
+> time-invariance — the moment a value varies in time it *is* an input.
+
+This keeps the flag namespace flat and ergonomic (you just set named things) while
+staying principled: a flag is a *construction* binding, the stream a *runtime*
+binding, and config cannot appear on the stream. A stream frame naming a config
+param is a located diagnostic (#16): *"`rate` is config (construction-time); it
+can't be driven per-frame — pass `--rate`."* The distinction teaches itself where
+it bites.
+
+### The command surface
+
+There are not two input *mechanisms* (flags vs stdin); there is **one input
+record** `{port: value, …}`, and:
+
+- **flags are a record-builder** — the shell spreading a record literal across
+  argv (`--mass 1.2` sets one field), each value a **seed source**: a literal,
+  `file:PATH` (process-substitution `file:<(gen)` covers big values), or `lit:…`
+  to force a literal that looks like a scheme.
+- **the input stream** is stdin (or `--in FILE`) — the whole interface's trace.
+- **the output stream** is stdout (or `--out FILE`) — the identical codec.
+
+Reserved: `--time` (run duration — *not* `--interval`, the engine's per-step dt).
+**Precedence:** a flag sets a port's **t=0** value; a stream frame naming the same
+port overrides it from that frame onward. (This supersedes the batch-only
+connector list's per-port `-`/`stdin:` source and reserved `stream:` — the stream
+is now one interface-wide channel, not a per-port byte source.)
+
+### I/O is the codec (no new operation)
+
+Port I/O is exactly the schema algebra's **codec**, applied *per frame* over the
+stream (and to the whole interface record at the seam):
+
+- **input** = `realize`/`deserialize(port_schema, encoded)` — external → `Value`.
+- **output** = `serialize(port_schema, value)` — `Value` → external.
+- Law: `deserialize(s, serialize(s, v)) ≡ v` (`prism_schema::algebra`) — which is
+  why a run's output round-trips as another run's input.
 
 **Rich types carry their own codec** (per-type `serialize`/`realize` in the
-`TypeRegistry`): a `CRN` ↔ SBML, a `Figure` ↔ SVG, a `TimeSeries` ↔ CSV — no
-CLI special-casing; the type owns its external form. The input path finishes
-with `realize`'s sibling, process **realization** (`discover_processes`), so a
-deserialized process-bearing value becomes runnable.
+`TypeRegistry`): a `CRN` ↔ SBML, a `Figure` ↔ SVG, a `TimeSeries` ↔ CSV — no CLI
+special-casing; the type owns its external form. The input path finishes with
+process **realization** (`discover_processes`), so a deserialized process-bearing
+value becomes runnable.
 
-### Streaming is a typed layer, not a new mechanism
+### Pipes are morphism composition
 
-Batch (one-shot) I/O is the foundation; **multiplex = just several named ports**,
-each its own channel/flag/file. A port whose *type* is a stream / time-series is
-a **channel** the engine fills incrementally over sim time — and prism already
-streams output (the effectful `Output` step + `Emitter`/`RAMEmitter` write
-during the run); streaming input is the dual reader. Each frame is the same
-`realize`/`serialize` codec applied per step. So "channels with properties based
-on type" needs no new primitive — a stream type bound to the emitter substrate.
-Land batch first; layer streaming when a live channel is required.
+`gen.ys | sim.ys | plot.ys` composes iff each stage's output record **refines
+into** the next's input record — `algebra::refines`, the *same* structural check
+the engine uses for internal wiring, with the same width tolerance as the
+name-aligned matcher (extra fields dropped; required-and-defaulted fields
+covered). "Match on a subset" is exactly `B.required_inputs ⊆ A.outputs`.
 
-*Status:* built for `composite` entries — `Program::entry`, the `compile`
-no-`main` fallback, `runner::invoke` (explicit-connector config/input binding via
-`realize`, output record via `serialize`), and the `chrysalis run f.ys --<port>
-SOURCE [--out F]` CLI. Tests: `tests/file_entry.rs`, `tests/invoke.rs`. Follow-on
-slices: `process`/`def`-function entries (a file that *is* a process or a pure
-function), the headless top-level form (parser), and streaming.
+Two rules keep this honest, not magic:
+
+1. **Names are the wires.** In the s-category, `B ∘ A` *shares names* — port names
+   *are* the contract. Mismatches take an **explicit adapter**: `--map out=in`
+   (sugar desugaring to a one-wire adapter morphism) for renames, and a
+   `--adapt adapter.ys` (a real adapter composite) when the reshaping is richer
+   than a rename. Never silent positional guessing.
+2. **A mandatory schema header.** Every stream **leads with its port-record
+   schema** (mirroring `document_of`, which already ships `schema` alongside
+   `state`). So `refines` is checked **at connect time, before any data flows** —
+   the "do they match?" question answered mechanically, with a clear error (#16)
+   on mismatch — and a polymorphic consumer (a generic `plot.ys`) adapts to
+   whatever shape arrived.
+
+### The wire: the delta-log
+
+The stream is the **delta-log** of [`delta-traces.md`](delta-traces.md): the
+schema header, then a procession of `apply`-able schema-deltas (`diff` produces,
+`apply` replays), **not** fat full-state frames. Dense fixed-shape segments are
+**Arrow-IPC** record-batches (a batch *is* a tensor-block); structural deltas
+(`_add`/`_remove`) are the segment boundaries (the keyframes that reshape the
+index set). We go **straight to delta-log/Arrow** rather than landing JSON-first —
+the streaming and distributed (`rest`/Flight) cases need it regardless; a
+human-readable JSONL projection exists for eyeballing. Batch is the one-frame
+collapse of this same log.
+
+### In practice
+
+| use case           | shape                                                      | exercises                                                       |
+|--------------------|------------------------------------------------------------|----------------------------------------------------------------|
+| parameter sweep    | `for r in …; do run grow.ys --rate $r; done`               | config flags, batch out — the `t=0→t=final` collapse           |
+| pipeline           | `sbml.ys --file m.xml \| integrate.ys \| plot.ys --out f`  | composition by shared name; rich-type codecs on the wire       |
+| forcing a sim      | `sensor.arrow \| run cell.ys --rate 0.2`                   | stdin = time-varying input — *requires* streaming; proves config≠input |
+| replay / re-render | `run sim.ys > t.arrow; plot.ys < t.arrow`                  | output is a durable delta-log — re-render without re-simulating |
+| distributed step   | `local`→`rest`                                             | same codec over the network — pipe and REST wire are one composition |
+
+*Status & slices.* Batch shipped (`Program::entry`; the `compile` no-`main`
+fallback; `runner::invoke` binding config/inputs from flags via `realize` and
+serializing the final-frame record; `chrysalis run f.ys --<port> SOURCE
+[--out F]`). Tests: `tests/file_entry.rs`, `tests/invoke.rs`. Toward the full
+`Trace[In] → Trace[Out]` (each slice additive, the batch case preserved):
+(1) **output → trace** — emit the per-tick output delta-log (Arrow), schema
+header first; keep last-frame for a TTY (hooks `Simulate`/`Trace[T]`, #25);
+(2) **input → trace** — feed stdin's frames at successive ticks, flags the t=0
+seed; (3) **schema header + `refines`** check at connect; (4) **`--map`** rename,
+then **`--adapt`**; (5) **process/def entries** — the boundary is uniform
+(composite-as-process), so this is mechanical, and `def` is the pure-function,
+zero-time (length-1 trace) collapse.
 
 ## Homoiconicity goal
 

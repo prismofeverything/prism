@@ -254,28 +254,39 @@ unparser emits `@ path` (and `%` self), in parser order (bridge, `fulfills`,
 emacs `ys-mode` sigils updated. Tests: `crates/chrysalis/tests/composite_bridge.rs`
 (parse, name-infer fallback, unparse-fixpoint, **eval lands in `config.bridge`**).
 
-🚧 **#24 — a file IS a composite (compositional invocation)** (in progress
-2026-05-23; chrysalis-design.md resolved decision #24; harness task #21). The
-rule: **a file's value is its last top-level term** (like a body block's last
-`|`-less line). Defs are importable vocabulary; the *last* `composite`/`process`/
-`def` is the file's runnable interface; a trailing headless `[config] ~{} ->{}
-( body )` is anonymous-composite sugar; no interfaced term ⇒ pure package. DONE
-(composite entries): `Program::entry`; `compile` no-`main` fallback inlines a
-*bare-runnable* composite; `runner::invoke` binds `[config]`+`~{inputs}` from the
-command line with **explicit connectors** (bare=literal, `file:PATH`, `-`/stdin,
-`stream:` reserved, `lit:` force) — the schema only drives `realize`, never the
-source (the type-based file/literal guess was rejected); `->{outputs}`
-`serialize`d to one JSON record on stdout / `--out FILE`; `chrysalis run f.ys
---<port> SOURCE` wired. Run duration is `--time` (the engine's `interval` is the
-per-step dt). Round-trips (a run's output is another run's input). Tests:
-`tests/file_entry.rs`, `tests/invoke.rs` + manual CLI (literal/file/stdin/--out/
-error). NEXT SLICES: `process` + `def`-function entries (function = pure CLI
-transform); the headless top-level form (parser). The codec already existed
-(`serialize`/`realize`/`deserialize`, law `deserialize∘serialize≡id`); rich types
-carry their own (`CRN`↔SBML, `Figure`↔SVG). LATER: streaming ports = a channel on
-the `Emitter`/`Output` substrate (batch first). NOTE: legacy `.ys` ending in
-`env.run(t)` (e.g. grow-divide-unbounded) never ran via the bin (`run` isn't a
-method); migrate them to end in the composite + `--time`.
+🚧 **#24 — a file IS a composite (invocation = `Trace[In] → Trace[Out]`)** (batch
+shipped + streaming DESIGNED 2026-05-23; chrysalis-design.md decision #24; harness
+task #21). The rule: **a file's value is its last top-level term**; defs are
+importable vocabulary; the *last* `composite`/`process`/`def` is the runnable
+interface; a trailing headless `[config] ~{} ->{} ( body )` is anonymous-composite
+sugar; no interfaced term ⇒ pure package. **THE MODEL** (designed this session): an
+invocation is the morphism **`Trace[In] → Trace[Out]` seeded by config** — the CLI
+is one *transport* of the same port boundary as `~{}`/`->{}` internally and `rest:`
+over the network; a pipe `A.ys | B.ys` *is* `B ∘ A`. Config = the **t=0 seed** (set
+once, picks the morphism); input = the **t>0 stream**. You don't need two kinds of
+input: **config can only be seeded (flags); input can be seeded (flag=t=0) OR
+driven (stdin=stream)** — time-invariance is what makes a value config. **Batch
+("set a config and run") is the degenerate t=0→t=final collapse.**
+DONE (the batch collapse): `Program::entry`; `compile` no-`main` fallback inlines a
+bare-runnable composite; `runner::invoke` binds `[config]`+`~{inputs}` from flags
+via `realize`, serializes the final-frame `->{outputs}` record to stdout /
+`--out FILE`; `chrysalis run f.ys --<port> SOURCE`; `--time` = duration (engine
+`interval` = per-step dt). Tests: `tests/file_entry.rs`, `tests/invoke.rs`.
+**OPEN DECISIONS — RESOLVED:** wire = **delta-log/Arrow straight off** (not
+JSON-first — streaming/distributed needs it regardless; JSONL stays a
+human-readable projection); name mismatch = **`--map out=in`** rename sugar now,
+**`--adapt adapter.ys`** (a real adapter composite) later; the stream **schema
+header is MANDATORY** (check `refines` at connect, before data flows; mirrors
+`document_of`); flag↔stdin = **flag is t=0**, a stream frame overrides from that
+frame on (a stream frame naming a config param ⇒ diagnostic #16).
+SLICES (each additive; batch preserved): (1) **output→trace** — per-tick output
+delta-log (Arrow, schema header first), keep last-frame for a TTY (hooks
+`Simulate`/`Trace[T]`, #25); (2) **input→trace** — feed stdin frames per tick,
+flags the t=0 seed; (3) **schema header + `refines`** at connect; (4) **`--map`**
+then **`--adapt`**; (5) **process/def entries** (uniform boundary; `def` = the
+zero-time pure-function collapse). NOTE: legacy `.ys` ending in `env.run(t)`
+(grow-divide-unbounded) never ran via the bin (`run` isn't a method); migrate to
+end in the composite + `--time`.
 
 🎨 **#25 — type-driven canonical outputs: `plot(schema, trace)` + report sections
 as self-outputting workflows** (STARTED 2026-05-23). The crystallized vision (co-
@@ -338,14 +349,21 @@ barrier of 2); builds on the REST server we shipped. Protocols are a **ladder**
 The parallelize-vs-synchronize lines are schema-derived (commutative deltas →
 async; non-commutative → barrier). Far horizon; the linchpin is small.
 
-**Suggested order:** **#10 codegen** is the architecture marquee — it unblocks #15
+**Suggested order.** **Immediate — the delta-traces kernel** (`Simulate` +
+delta-log/Arrow codec, prism-side): the linchpin just designed — the start of #25
+AND the prerequisite for #24 streaming (we chose straight-to-Arrow, no JSON
+half-measure; see chrysalis-design.md decision #24 + docs/delta-traces.md). Once it
+lands the work **forks in parallel**: **#24 streaming** (output→trace, input→trace,
+schema-header/`refines`) ∥ **#25 viz** (plot per-type, 4D structural, the `Section`
+template). **#24's surface** (`--map`/`--adapt`, process/def entries) needs nothing
+from the kernel — anytime. The other marquee is **#10 codegen** — it unblocks #15
 (spatio-flux as `.ys`), full export/import self-containment, and `server`/`import`
-on packages (the single path). Then **#16 diagnostics → #21 defaults → #6 SBML
-(the science headline) → #20 schema-as-state**. Quick wins anytime: **#7** dt-sweep,
-**#13** retire-extern, **#8** comment retention, **#12** prism-svg, **#14** flagship
-real-enforcement-through-RunProcess. (Done this session: Core unification, StepCache,
-rest server + discovery, per-composite cache, missing-ref, **#17/#18/#19** CLI +
-REPL.)
+on packages (the single path). Then **#16 diagnostics → #21 defaults → #6 SBML (the
+science headline) → #20 schema-as-state**. Quick wins anytime: **#7** dt-sweep,
+**#13** retire-extern, **#8** comment retention, **#12** prism-svg (folds into the
+kernel's svg-as-place-graph), **#14** real-enforcement-through-RunProcess. (Done
+this session: Core unification, StepCache, rest server + discovery, per-composite
+cache, missing-ref, **#17/#18/#19** CLI + REPL.)
 
 ## Long-run milestones (beyond the tracker)
 - **First-class `Custom` types** — `type Name = <repr> with { op = …,

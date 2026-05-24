@@ -1,0 +1,12 @@
+[package]
+name = "prism-trace"
+description = "Delta-log traces (event-sourced state histories) and their Arrow-IPC wire codec"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+arrow = { version = "58.3.0", default-features = false, features = ["ipc"] }
+prism-schema = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

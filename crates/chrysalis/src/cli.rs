@@ -13,7 +13,7 @@ use prism_schema::MethodRegistry;
 use crate::ast::Def;
 use crate::compile::ModuleRegistry;
 use crate::parse::parse_file;
-use crate::runner::{invoke, run};
+use crate::runner::{invoke, invoke_trace, run};
 
 /// `run <file.ys> [--time T] [--<port> SOURCE ...] [--out FILE]` over the given
 /// packages. Returns a process exit code (0 ok, non-zero on error); prints the
@@ -31,6 +31,8 @@ pub fn run_command(
     let mut path: Option<String> = None;
     let mut time = 2.0_f64;
     let mut out: Option<String> = None;
+    let mut trace = false;
+    let mut sample_dt = 1.0_f64;
     let mut inputs: BTreeMap<String, String> = BTreeMap::new();
     let mut i = 0;
     while i < args.len() {
@@ -43,6 +45,11 @@ pub fn run_command(
                 i += 1;
                 out = args.get(i).cloned();
             }
+            "--trace" => trace = true,
+            "--sample-dt" => {
+                i += 1;
+                sample_dt = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(sample_dt);
+            }
             flag if flag.starts_with("--") => {
                 i += 1;
                 inputs.insert(flag[2..].to_string(), args.get(i).cloned().unwrap_or_default());
@@ -52,7 +59,7 @@ pub fn run_command(
         i += 1;
     }
     let Some(path) = path else {
-        eprintln!("usage: run <file.ys> [--time T] [--<port> SOURCE ...] [--out FILE]");
+        eprintln!("usage: run <file.ys> [--time T] [--<port> SOURCE ...] [--out FILE] [--trace [--sample-dt DT]]");
         return 2;
     };
     let prog = match parse_file(&path) {
@@ -67,6 +74,43 @@ pub fn run_command(
     let invokes =
         matches!(prog.entry(), Some(Def::Composite(_))) && prog.lookup("main").is_none();
     if invokes {
+        if trace {
+            // output→trace: capture the per-tick output delta-log and emit it on
+            // the Arrow wire (binary) to stdout or `--out FILE`.
+            let captured =
+                match invoke_trace(&prog, registry, methods, modules, &inputs, time, sample_dt) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("run {path}: {e}");
+                        return 1;
+                    }
+                };
+            let bytes = match prism_trace::serialize_trace(&captured) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("serialize trace: {e}");
+                    return 1;
+                }
+            };
+            let frames = prism_trace::len(&captured);
+            match out {
+                Some(file) => match std::fs::write(&file, &bytes) {
+                    Ok(()) => eprintln!("ran {path} (t={time}, dt={sample_dt}); trace → {file} ({frames} frames)"),
+                    Err(e) => {
+                        eprintln!("write {file}: {e}");
+                        return 1;
+                    }
+                },
+                None => {
+                    use std::io::Write;
+                    if let Err(e) = std::io::stdout().write_all(&bytes) {
+                        eprintln!("write stdout: {e}");
+                        return 1;
+                    }
+                }
+            }
+            return 0;
+        }
         let record = match invoke(&prog, registry, methods, modules, &inputs, time) {
             Ok(r) => r,
             Err(e) => {
