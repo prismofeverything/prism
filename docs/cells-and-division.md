@@ -127,7 +127,10 @@ addressed composites with the same address, re-realized per `inner_schema`.
    daughters still cross correctly, the boundary is genuinely respected and division
    works on any machine. This is *the* test that makes "the composite is remote"
    impossible to forget; it must pass with the cell's protocol set to `stream`
-   *unchanged*.
+   *unchanged*. It also **doubles as the distribution proof that real parallelism
+   (#27) builds on** — so finish this design (#9) **before** resuming #27, then
+   #27's `rest`/`stream` concurrent dispatch is validated by the same
+   grow-divide-over-`stream`.
 
 ---
 

@@ -3,22 +3,30 @@
 ## ⏯️ NEXT-SESSION PROMPT (2026-05-24 part 2)
 
 > Continue prism (Rust process-bigraphs + the `.ys` language). Workspace is green
-> (530/0); read this section + the task list first. The thread I most want back is
-> **real parallelism (#27)** — the original goal that got pushed down the stack.
-> Steps 1–2 are done (the engine runs invoke→Defer→flush→collect; `ParallelPool` +
-> blocking `Defer::slot`; pool wall-clock test green). Pick up at **step 2.5**:
-> register the pool as a `ProtocolRuntime` (add `Protocol::runtime()`), add an
-> engine-level wall-clock integration test (build via `Topology`/instances, NOT
-> `Schema::Any`), then **step 3** (`rest`/`stream` concurrent dispatch) and **step
-> 4** (batched `ray`). See `docs/execution-model.md`.
+> (530/0); read this section + the task list first.
 >
-> Also fresh + ready: `docs/cells-and-division.md` — cells-as-composites +
-> boundary-respecting, distributable division-through-reaction (#9); implement §6 in
-> order (the **division-over-`stream`** test is the boundary proof — top priority).
-> And #28 (Schema::Any: static done, cells part = #9), #29 (core unification, before
-> perf #20). Keep the composite-boundary principle front of mind (memory
+> **FIRST: finish the cells/division work (#9).** It's the prerequisite for
+> distributed/parallel execution AND it's currently *incorrect*:
+> `divide_by_schema(CompositeLink)` divides the exported outputs, but must divide
+> `inner_schema` (the whole body). Implement `docs/cells-and-division.md` §6 in
+> order; the **grow-divide-over-`stream`** test is the boundary proof and a top
+> priority — getting it green validates the composite boundary (a cell divides
+> itself and exports daughters across the bridge, working unchanged over a real
+> wire).
+>
+> **THEN: real parallelism (#27)** — the original goal. Steps 1–2 are done (the
+> engine runs invoke→Defer→flush→collect; `ParallelPool` + blocking `Defer::slot`;
+> pool wall-clock test green). Pick up at **step 2.5** (register the pool as a
+> `ProtocolRuntime` via `Protocol::runtime()`), an engine-level wall-clock test
+> (build via `Topology`/instances, NOT `Schema::Any`), then **step 3** (`rest`/
+> `stream` concurrent dispatch) and **step 4** (batched `ray`) — and **test it with
+> the working grow-divide-over-`stream`** (same boundary seam). See
+> `docs/execution-model.md`.
+>
+> Also: #28 (Schema::Any: static done, cells part = #9), #29 (core unification,
+> before perf #20). Keep the composite-boundary principle front of mind (memory
 > `feedback_composite_boundary`): a composite may be remote; never reach into its
-> internals; all I/O via the bridge. Start with #27 unless I say otherwise.
+> internals; all I/O via the bridge.
 
 ## This session (2026-05-24 part 2 — parallelism + extern + schema-threading + cells/division design)
 
@@ -26,7 +34,7 @@ Started as "real parallelism (#27)"; the no-half-measures/dogfooding loop pulled
 extern retirement, `Schema::Any` threading, and a foundational cells/division
 redesign. **Workspace green: 530/0.** Changes uncommitted (user commits).
 
-- **#27 real parallelism — steps 1+2 DONE (resume here).** Engine runs
+- **#27 real parallelism — steps 1+2 DONE (resume AFTER #9).** Engine runs
   invoke→Defer→flush→collect (`ProcessFront.pending: Option<Defer<Update>>`; invoke
   pass calls `p.invoke()`; `flush_protocol_runtimes()` between invoke+collect;
   collect resolves `.get()` — byte-identical for local `Defer::immediate`).
@@ -48,8 +56,12 @@ redesign. **Workspace green: 530/0.** Changes uncommitted (user commits).
   lowering (`composite_link` + `building` stack); `extract_processes` infer-keys
   deleted; `scan_for_processes` schema-first-primary (address fallback only for
   dynamic/homoiconic). Test `native_node_found_by_address_…`. Dynamic (cells) → #9.
-- **#9 cells & division — DESIGN WRITTEN: `docs/cells-and-division.md`.** A cell is
-  just a composite that EXPORTS its `mass` across the bridge (`cells.N.mass`,
+- **#9 cells & division — DESIGN WRITTEN (`docs/cells-and-division.md`); DO FIRST.**
+  Currently INCORRECT: `divide_by_schema(CompositeLink)` divides the exported
+  outputs — it must divide `inner_schema` (the whole body; §6 step 1). It's also
+  the prerequisite for testing distributed/parallel execution (grow-divide-over-
+  `stream`). A cell is just a composite that EXPORTS its `mass` across the bridge
+  (`cells.N.mass`,
   populated from the bridge — the matchable/divisible face). Division-through-a-
   reaction is a STRUCTURAL BRIDGE UPDATE the composite emits itself
   (`{cells:{_remove:[self], _add:{daughters}}}` out `->{environment}`), carried by
