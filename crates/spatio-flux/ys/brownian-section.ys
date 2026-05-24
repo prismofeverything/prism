@@ -1,0 +1,36 @@
+# brownian-section.ys — Brownian particles AS A REPORT SECTION, via the codegen
+# path. Runs BrownianMovement over time (engine-faithful Simulate), captures the
+# particle trace, and plots it BY ITS SCHEMA — a map of position-records → an
+# animated SCATTER (View::Particles). The spatial-particle counterpart to the
+# kinetics line + diffusion heatmap sections. It exercises the DELTA-motion model:
+# each tick emits Δposition (Brownian jitter + advection drift), apply SUMS them
+# onto position (an additive Array), so the particles visibly drift + diffuse.
+from core import Simulate
+from io import Path
+from particles import BrownianMovement
+
+type Trace = { times: list[float], frames: list[map[float]] }
+type Figure = { svg: string }
+
+step Plot[title: string = 'particles'] ~{traj: Trace} ->{figure: Figure} (
+  {figure: traj.plot(title)}
+)
+
+step Output[path: Path] ~{figure: Figure} (
+  figure.svg(path)
+)
+
+composite BrownianSection ->{figure: Figure} (
+  state: { particles: {
+    a: { position: [10.0, 10.0], mass: 0.2 },
+    b: { position: [40.0, 40.0], mass: 0.5 },
+    c: { position: [70.0, 20.0], mass: 0.3 },
+    d: { position: [25.0, 65.0], mass: 0.4 }
+  } } |
+  run: Simulate[
+    proc: BrownianMovement[diffusion_rate: 1.5, advection_rate: [1.0, 0.5], bounds: [80.0, 80.0]],
+    runtime: 20.0, timestep: 1.0
+  ] ~{state: state} ->{trace: traj} |
+  plot: Plot[title: 'Brownian particles (drift + diffusion)'] ~{traj: traj} ->{figure: figure} |
+  output: Output[path: 'outputs/particles/brownian'] ~{figure: figure}
+)

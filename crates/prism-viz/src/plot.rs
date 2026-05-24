@@ -24,6 +24,8 @@ use crate::svg::{el, line, polyline, rect, svg, text};
 pub enum View {
     Lines,
     Field,
+    /// Spatial particles (a map of records with a `position`) → an animated scatter.
+    Particles,
     Snapshot,
 }
 
@@ -34,12 +36,16 @@ pub fn characteristic(schema: &Schema) -> View {
         Schema::Array { .. } => View::Field,
         Schema::Map { value } => match value.as_ref() {
             Schema::Array { .. } | Schema::List { .. } => View::Field,
+            // A map of records carrying a `position` → spatial particles.
+            Schema::Tree { branches } if branches.contains_key("position") => View::Particles,
             v if is_scalar(v) => View::Lines,
             _ => View::Snapshot,
         },
         Schema::Tree { branches } => {
             if branches.values().any(has_field) {
                 View::Field
+            } else if branches.values().any(has_particles) {
+                View::Particles
             } else if branches.values().any(is_scalar_ish) {
                 View::Lines
             } else {
@@ -65,6 +71,11 @@ fn has_field(s: &Schema) -> bool {
         _ => false,
     }
 }
+/// A schema branch that is a map of `position`-bearing records (particles).
+fn has_particles(s: &Schema) -> bool {
+    matches!(s, Schema::Map { value }
+        if matches!(value.as_ref(), Schema::Tree { branches } if branches.contains_key("position")))
+}
 
 /// Render `trace` as the characteristic SVG **place-graph value** for its
 /// `schema`. Serialize with [`crate::svg::to_svg`].
@@ -72,6 +83,7 @@ pub fn plot(schema: &Schema, trace: &[Value], title: &str) -> Value {
     match characteristic(schema) {
         View::Lines => line_chart(trace, title),
         View::Field => heatmap(trace, title),
+        View::Particles => scatter(trace, title),
         View::Snapshot => svg(
             420.0,
             60.0,
@@ -179,6 +191,109 @@ fn heatmap(trace: &[Value], title: &str) -> Value {
         }
     }
     svg(w, h, kids)
+}
+
+/// A scatter of particle positions over time, as an SVG place-graph: one circle
+/// per particle, its cx/cy animating through the trajectory (SMIL `<animate>`),
+/// radius scaled by mass. The whole trace drives it; a single frame is static.
+fn scatter(trace: &[Value], title: &str) -> Value {
+    let frames: Vec<IndexMap<String, (f64, f64, f64)>> = trace.iter().map(particle_dots).collect();
+    let (mut xlo, mut xhi, mut ylo, mut yhi, mut mmax) =
+        (f64::MAX, f64::MIN, f64::MAX, f64::MIN, 1e-9_f64);
+    for f in &frames {
+        for &(x, y, m) in f.values() {
+            xlo = xlo.min(x);
+            xhi = xhi.max(x);
+            ylo = ylo.min(y);
+            yhi = yhi.max(y);
+            mmax = mmax.max(m);
+        }
+    }
+    if !xlo.is_finite() {
+        return svg(220.0, 60.0, vec![legend_text(12.0, 34.0, &format!("{title} (no particles)"))]);
+    }
+    let (w, h, pad) = (360.0, 360.0, 30.0);
+    let sx = |x: f64| pad + (if xhi > xlo { (x - xlo) / (xhi - xlo) } else { 0.5 }) * (w - 2.0 * pad);
+    let sy = |y: f64| h - pad - (if yhi > ylo { (y - ylo) / (yhi - ylo) } else { 0.5 }) * (h - 2.0 * pad);
+    let dur = (frames.len() as f64 * 0.4).max(0.4);
+
+    // Union of particle ids (first-appearance order) → one animated circle each.
+    let mut pids: Vec<String> = Vec::new();
+    for f in &frames {
+        for pid in f.keys() {
+            if !pids.iter().any(|p| p == pid) {
+                pids.push(pid.clone());
+            }
+        }
+    }
+
+    let mut kids = vec![rect(0.0, 0.0, w, h, "#ffffff"), legend_text(pad, 18.0, title)];
+    for pid in &pids {
+        // The particle's trajectory (carry the last-seen position forward across
+        // frames where it is absent), and a radius from its mass.
+        let mut traj: Vec<(f64, f64)> = Vec::with_capacity(frames.len());
+        let (mut cx, mut cy, mut r) = (xlo, ylo, 3.0);
+        for f in &frames {
+            if let Some(&(x, y, m)) = f.get(pid) {
+                cx = x;
+                cy = y;
+                r = (3.0 + 6.0 * (m / mmax)).max(2.0);
+            }
+            traj.push((sx(cx), sy(cy)));
+        }
+        let (x0, y0) = traj[0];
+        let attrs = vec![
+            ("cx", fl(x0)),
+            ("cy", fl(y0)),
+            ("r", fl(r)),
+            ("fill", st("#1f77b4")),
+            ("fill-opacity", st("0.7")),
+        ];
+        let children = if frames.len() > 1 {
+            let xs: Vec<String> = traj.iter().map(|(x, _)| fmt(*x)).collect();
+            let ys: Vec<String> = traj.iter().map(|(_, y)| fmt(*y)).collect();
+            vec![crate::svg::animate("cx", &xs, dur), crate::svg::animate("cy", &ys, dur)]
+        } else {
+            vec![]
+        };
+        kids.push(el("circle", attrs, children));
+    }
+    svg(w, h, kids)
+}
+
+/// Per-frame particle dots: `pid -> (x, y, mass)`, digging to the particles map.
+fn particle_dots(frame: &Value) -> IndexMap<String, (f64, f64, f64)> {
+    let mut out = IndexMap::new();
+    collect_particles(frame, &mut out);
+    out
+}
+
+/// Find the particles map (values carry a `position`), digging through named
+/// ports, and fill `out` with each particle's `(x, y, mass)`. Returns whether a
+/// particles map was found at this node.
+fn collect_particles(frame: &Value, out: &mut IndexMap<String, (f64, f64, f64)>) -> bool {
+    let Some(m) = frame.as_map() else { return false };
+    if m.iter().any(|(_k, v)| v.get_field("position").is_some()) {
+        for (pid, p) in m {
+            if let Some((x, y)) = position_xy(p) {
+                let mass = p.get_field("mass").and_then(|v| v.as_f64()).unwrap_or(1.0);
+                out.insert(pid.to_string(), (x, y, mass));
+            }
+        }
+        return true;
+    }
+    for (_k, v) in m {
+        if collect_particles(v, out) {
+            return true;
+        }
+    }
+    false
+}
+
+/// A particle's `[x, y]` position, if present.
+fn position_xy(p: &Value) -> Option<(f64, f64)> {
+    let pos = p.get_field("position")?.as_list()?;
+    Some((pos.first()?.as_f64()?, pos.get(1)?.as_f64()?))
 }
 
 /// Transpose a scalar trace into named series (flattening nested maps to dotted
@@ -359,5 +474,45 @@ mod tests {
             .filter(|k| k.get_field("_type").and_then(|t| t.as_str()) == Some("rect"))
             .count();
         assert!(cells >= 9, "3x3 grid (+bg); got {cells}");
+    }
+
+    #[test]
+    fn particles_plot_as_an_animated_scatter() {
+        // A map of `position`-bearing records → View::Particles → a scatter of
+        // circles, each animating cx/cy over the trace (the delta-motion section).
+        let elem = Schema::Tree {
+            branches: IM::from([(
+                "particles".into(),
+                Schema::Map {
+                    value: Box::new(Schema::Tree {
+                        branches: IM::from([(
+                            "position".into(),
+                            Schema::Array { shape: vec![2], element: Box::new(Schema::float()) },
+                        )]),
+                    }),
+                },
+            )]),
+        };
+        assert_eq!(characteristic(&elem), View::Particles, "a map of position-records is particles");
+        let frame = |x: f64, y: f64| {
+            Value::Map(IM::from([(
+                "particles".into(),
+                Value::Map(IM::from([(
+                    "p1".into(),
+                    Value::tree([
+                        ("position", Value::List(vec![Value::float(x), Value::float(y)])),
+                        ("mass", Value::float(0.5)),
+                    ]),
+                )])),
+            )]))
+        };
+        let doc = plot(&elem, &[frame(10.0, 10.0), frame(20.0, 30.0)], "particles");
+        let s = to_svg(&doc);
+        assert!(!s.contains("no particles"), "the particle is found:\n{s}");
+        assert!(s.contains("<circle"), "a circle per particle");
+        assert!(
+            s.contains("<animate attributeName=\"cx\"") && s.contains("attributeName=\"cy\""),
+            "cx/cy animate over the trace:\n{s}"
+        );
     }
 }

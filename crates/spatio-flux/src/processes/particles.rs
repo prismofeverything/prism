@@ -91,13 +91,31 @@ pub struct BrownianMovement {
     pub interval: f64,
 }
 
+/// A particle's motion type: `position` is an additive 2-vector, so motion updates
+/// are DELTAS that `apply` SUMS — a Brownian step, advection drift, pairwise
+/// interactions, and boundary corrections all superpose onto one position. Other
+/// particle fields (mass, …) are preserved by `apply` (the Tree arm clones the
+/// current value and applies only the update's keys). This retires the `Map[Any]`
+/// dodge: particles now fit the fold-via-apply algebra like everything else, and a
+/// concrete output type means the engine folds additively too (not the `Any`
+/// state-schema fallback).
+fn motion_schema() -> Schema {
+    Schema::map(Schema::Tree {
+        branches: IndexMap::from([(
+            "position".into(),
+            Schema::Array { shape: vec![2], element: Box::new(Schema::float()) },
+        )]),
+    })
+}
+
 impl Process for BrownianMovement {
     fn inputs(&self) -> IndexMap<String, Schema> {
         IndexMap::from([("particles".into(), Schema::map(Schema::Any))])
     }
 
     fn outputs(&self) -> IndexMap<String, Schema> {
-        IndexMap::from([("particles".into(), Schema::map(Schema::Any))])
+        // Additive position: updates are Δposition (displacements), summed by apply.
+        IndexMap::from([("particles".into(), motion_schema())])
     }
 
     fn interval(&self) -> f64 {
@@ -118,23 +136,22 @@ impl Process for BrownianMovement {
         let mut result: IndexMap<Key, Value> = IndexMap::new();
 
         for (pid, particle) in particles {
-            let (x, y) = match get_position(particle) {
-                Some(p) => p,
-                None => continue,
-            };
+            // Only move particles that have a position.
+            if get_position(particle).is_none() {
+                continue;
+            }
 
-            // Brownian step + advection
-            let nx = (x + normal(&mut rng, sigma) + self.advection_rate.0 * interval)
-                .clamp(0.0, self.bounds.0);
-            let ny = (y + normal(&mut rng, sigma) + self.advection_rate.1 * interval)
-                .clamp(0.0, self.bounds.1);
-
-            // Output ONLY the changed field (position). Map merge leaves other fields unchanged.
-            // Position is a List, so apply_update replaces it (not additive).
-            let update = Value::tree([
-                ("position", Value::List(vec![Value::float(nx), Value::float(ny)])),
-            ]);
-            result.insert(pid.clone(), update);
+            // Emit a DISPLACEMENT (Brownian step + advection) — a DELTA, not the
+            // absolute position. `apply` SUMS it onto position (an additive
+            // Array[[2]]), so this composes with other motions (drift, pairwise
+            // interactions) and the boundary-correction step. No clamp here:
+            // bounds are enforced by ManageBoundaries (a separate corrective step).
+            let dx = normal(&mut rng, sigma) + self.advection_rate.0 * interval;
+            let dy = normal(&mut rng, sigma) + self.advection_rate.1 * interval;
+            result.insert(
+                pid.clone(),
+                Value::tree([("position", Value::List(vec![Value::float(dx), Value::float(dy)]))]),
+            );
         }
 
         Update::value(Value::tree([("particles", Value::Map(result))]))
@@ -432,7 +449,8 @@ impl Step for ManageBoundaries {
     }
 
     fn outputs(&self) -> IndexMap<String, Schema> {
-        IndexMap::from([("particles".into(), Schema::map(Schema::Any))])
+        // Additive position: the boundary correction is a Δposition, summed by apply.
+        IndexMap::from([("particles".into(), motion_schema())])
     }
 
     fn update(&self, state: &Value) -> Update {
@@ -484,8 +502,10 @@ impl Step for ManageBoundaries {
 
             if (clamped_x - x).abs() > 1e-10 || (clamped_y - y).abs() > 1e-10 {
                 any_changed = true;
+                // A CORRECTION delta (not absolute): apply SUMS it onto position,
+                // so x + (clamped_x − x) = clamped_x. Composes with the movers.
                 updates.insert(pid.clone(), Value::tree([
-                    ("position", Value::List(vec![Value::float(clamped_x), Value::float(clamped_y)])),
+                    ("position", Value::List(vec![Value::float(clamped_x - x), Value::float(clamped_y - y)])),
                 ]));
             }
         }
@@ -648,4 +668,48 @@ fn normal(rng: &mut impl Rng, sigma: f64) -> f64 {
     let u1: f64 = rng.r#gen::<f64>().max(1e-10);
     let u2: f64 = rng.r#gen::<f64>();
     sigma * (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+}
+
+#[cfg(test)]
+mod motion_tests {
+    use super::*;
+    use prism_bigraph::prism_schema::algebra;
+
+    #[test]
+    fn motion_deltas_superpose_and_preserve_fields() {
+        // The delta model (the whole point): two displacements on one particle SUM
+        // — position is an additive Array, so apply ADDS. Absolute-replace would
+        // clobber the first. And apply PRESERVES undeclared particle fields (mass)
+        // via the Tree merge (clone current, apply only the update's keys) — so a
+        // partial motion type is honest, not lossy.
+        let schema = motion_schema();
+        let state0 = Value::tree([(
+            "p1",
+            Value::tree([
+                ("position", Value::List(vec![Value::float(10.0), Value::float(20.0)])),
+                ("mass", Value::float(0.5)),
+            ]),
+        )]);
+        let delta = |dx: f64, dy: f64| {
+            Value::tree([(
+                "p1",
+                Value::tree([("position", Value::List(vec![Value::float(dx), Value::float(dy)]))]),
+            )])
+        };
+        // A drift, then a Brownian-style step — they superpose onto one position.
+        let s1 = algebra::apply(&schema, &state0, &delta(1.0, 2.0));
+        let s2 = algebra::apply(&schema, &s1, &delta(0.5, -0.5));
+
+        let pos = s2
+            .get_path(&["p1".into(), "position".into()])
+            .and_then(|v| v.as_list())
+            .expect("position");
+        assert_eq!(pos[0].as_f64(), Some(11.5), "x superposed: 10 + 1 + 0.5");
+        assert_eq!(pos[1].as_f64(), Some(21.5), "y superposed: 20 + 2 - 0.5");
+        assert_eq!(
+            s2.get_path(&["p1".into(), "mass".into()]).and_then(|v| v.as_f64()),
+            Some(0.5),
+            "undeclared `mass` preserved across motion deltas"
+        );
+    }
 }
