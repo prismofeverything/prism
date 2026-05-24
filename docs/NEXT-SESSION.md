@@ -364,6 +364,17 @@ codegen tool. (4) apply down `CANONICAL_ORDER`, validating each family.
 *The abstraction is settled (see delta-traces.md); the rest is the runner + the
 per-type renderers + the template + serialization.*
 
+⚡ **#26 — performance sweep (do LAST, after the feature set).** The user will use
+`.ys` as their primary language for ~everything, so the runtime must be performant
++ direct. Once features are in: establish benchmarks, profile the hot paths — eval
+(ExprProcess body interpretation per tick; consider compiling bodies vs re-walking
+the AST), the engine step loop (`advance_to_next_event`), `algebra`
+apply/diff/reconcile + `Value` cloning, the delta-log/Arrow codec + streaming +
+stream-protocol overhead, discovery — then optimize **without** sacrificing the
+principled design (closed algebra, no half-measures). Honor the zero-cost
+principle (check once, erase, run raw). Gated on features; not started. See memory
+`project_ys_primary_language`.
+
 🌐 **HORIZON — distributed bigraphs across HPC → [`docs/distributed-bigraphs.md`](distributed-bigraphs.md)**
 (vision, 2026-05-23). prism IS already a distributed actor system (place graph =
 partition, link graph = channels, composite = actor, delta = message, algebra =

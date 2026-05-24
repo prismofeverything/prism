@@ -407,7 +407,8 @@ pub fn compile_with_modules(
     let core = Core::new()
         .with_types(Arc::clone(&type_registry))
         .with_processes(Arc::clone(&registry))
-        .with_methods(Arc::clone(&methods));
+        .with_methods(Arc::clone(&methods))
+        .with_protocols(Arc::new(crate::stream::stream_protocols()));
     let _ = core_handle.set(core.clone());
 
     // Evaluate `main`. If main is a call to a user-defined composite,

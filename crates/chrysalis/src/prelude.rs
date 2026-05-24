@@ -50,7 +50,8 @@ pub fn std_core() -> Core {
     prism_std::register_methods(&mut methods);
     let core = Core::new()
         .with_processes(Arc::new(registry))
-        .with_methods(Arc::new(methods));
+        .with_methods(Arc::new(methods))
+        .with_protocols(Arc::new(crate::stream::stream_protocols()));
     let _ = handle.set(core.clone());
     core
 }

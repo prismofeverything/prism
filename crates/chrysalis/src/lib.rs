@@ -38,4 +38,5 @@ pub mod runner;
 pub mod unparse;
 pub mod runtime;
 pub mod schema;
+pub mod stream;
 pub mod units;
