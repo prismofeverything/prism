@@ -154,12 +154,20 @@ the currency.
   columns are a contained follow-on — same framing/header/streaming). **chrysalis
   `invoke_trace` + `chrysalis run --trace`** capture a composite's per-tick
   `->{outputs}` as a delta-log trace and emit it on the Arrow wire
-  (**output→trace**).
-- **Next**: **input→trace** — read an Arrow trace from stdin and feed its frames
-  at successive ticks (flags the t=0 seed), with the **`refines` check** at connect
-  (the header makes it mechanical), then the full pipe round-trip
-  (`A.ys --trace | B.ys`). Then **dense `Float64` payload columns** and **hybrid
-  keyframes** for bounded random access.
+  (**output→trace**); **`invoke_driven` + `chrysalis run --in TRACE`** drive a
+  composite's `~{inputs}` from an Arrow trace (frames injected per tick, the
+  stream's first frame the t=0 seed) with a **connect-time `refines` check**
+  (**input→trace**) — so the shell pipe `A.ys --trace | B.ys --in -` is the
+  composition `B ∘ A`.
+- **Next**: **native Arrow column types** — map the element `Schema` to native
+  `DataType`s (`Float64`/`Struct`/`Map`/`List`/`FixedSizeList`) so the payload is
+  a typed tensor block, not a JSON cell. The structural story: content-structural
+  change (a `Map`'s keys, a `List`'s length) lives *inside* `Map`/`List` columns
+  within one Arrow schema; only a *type* change (schema-as-state retype) starts a
+  new IPC segment/keyframe. The full prism `Schema` stays in field metadata
+  (extension-type pattern) for units/`extensive`/`Custom`/delta-semantics Arrow
+  can't type. Then **hybrid keyframes** for bounded random access, and
+  `--map`/`--adapt` for name-mismatched pipes (#24 surface).
 - **Then**: the `Section` template runs any sim through `Simulate` → `plot` →
   self-output, dogfooded down `CANONICAL_ORDER`; the **4D structural** plot
   (bigraph-viz per `_add`/`_remove`).

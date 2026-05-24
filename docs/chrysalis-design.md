@@ -289,18 +289,22 @@ collapse of this same log.
 | replay / re-render | `run sim.ys > t.arrow; plot.ys < t.arrow`                  | output is a durable delta-log — re-render without re-simulating |
 | distributed step   | `local`→`rest`                                             | same codec over the network — pipe and REST wire are one composition |
 
-*Status & slices.* Batch shipped (`Program::entry`; the `compile` no-`main`
-fallback; `runner::invoke` binding config/inputs from flags via `realize` and
-serializing the final-frame record; `chrysalis run f.ys --<port> SOURCE
-[--out F]`). Tests: `tests/file_entry.rs`, `tests/invoke.rs`. Toward the full
-`Trace[In] → Trace[Out]` (each slice additive, the batch case preserved):
-(1) **output → trace** — emit the per-tick output delta-log (Arrow), schema
-header first; keep last-frame for a TTY (hooks `Simulate`/`Trace[T]`, #25);
-(2) **input → trace** — feed stdin's frames at successive ticks, flags the t=0
-seed; (3) **schema header + `refines`** check at connect; (4) **`--map`** rename,
-then **`--adapt`**; (5) **process/def entries** — the boundary is uniform
-(composite-as-process), so this is mechanical, and `def` is the pure-function,
-zero-time (length-1 trace) collapse.
+*Status & slices.* Batch **and** streaming shipped. Batch: `Program::entry`; the
+`compile` no-`main` fallback; `runner::invoke` (config/inputs from flags via
+`realize`, final-frame record). **Streaming — the full `Trace[In] → Trace[Out]`:**
+✅ (1) **output→trace** — `runner::invoke_trace` + `chrysalis run --trace
+[--sample-dt]` sample the `->{outputs}` into a delta-log trace on the Arrow wire;
+✅ (2) **input→trace** — `runner::invoke_driven` + `--in TRACE` inject each Arrow
+frame into the input bridge paths per tick (first frame the t=0 seed, flags win;
+`queue_changes` so change-triggered steps fire too); ✅ (3) **schema header +
+`refines`** checked at connect — so the shell pipe `A.ys --trace | B.ys --in -`
+*is* `B ∘ A` (a round-trip test + the real pipe → `{out: 5.0}`). The wire is
+`prism-trace::codec` (Arrow-IPC streaming + a mandatory schema-metadata header;
+JSON payload cells today → native typed columns next). REMAINING: (4) **`--map`** /
+**`--adapt`** for name-mismatched pipes; (5) **process/def entries** — the boundary
+is uniform (composite-as-process), so this is mechanical, and `def` is the
+pure-function, zero-time (length-1 trace) collapse. Tests: `tests/file_entry.rs`,
+`tests/invoke.rs`, `tests/invoke_trace.rs`.
 
 ## Homoiconicity goal
 

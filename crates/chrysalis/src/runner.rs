@@ -147,6 +147,21 @@ fn bind_arg(
     Ok(())
 }
 
+/// Resolve a program's entry as a `composite` (the only invokable kind so far).
+fn resolve_entry(program: &Program) -> Result<CompositeDef, RunError> {
+    match program.entry() {
+        Some(Def::Composite(d)) => Ok(d.clone()),
+        Some(other) => Err(RunError::Invoke(format!(
+            "entry `{}` is a {}; only `composite` entries are invokable so far",
+            crate::ast::def_name(other),
+            entry_kind(other),
+        ))),
+        None => Err(RunError::Invoke(
+            "no entry point: this file declares no composite/process/def to run".into(),
+        )),
+    }
+}
+
 /// Shared setup for both invocation paths: resolve the entry composite, bind its
 /// `[config]` params and `~{inputs}` from `args` (the t=0 seed), evaluate the
 /// body to the root state, and return a discovered engine ready to run plus the
@@ -158,22 +173,7 @@ fn engine_for(
     modules: ModuleRegistry,
     args: &BTreeMap<String, String>,
 ) -> Result<(Engine, CompositeDef), RunError> {
-    let entry = match program.entry() {
-        Some(Def::Composite(d)) => d.clone(),
-        Some(other) => {
-            return Err(RunError::Invoke(format!(
-                "entry `{}` is a {}; only `composite` entries are invokable so far",
-                crate::ast::def_name(other),
-                entry_kind(other),
-            )))
-        }
-        None => {
-            return Err(RunError::Invoke(
-                "no entry point: this file declares no composite/process/def to run".into(),
-            ))
-        }
-    };
-
+    let entry = resolve_entry(program)?;
     let result = compile_with_modules(program, registry, methods, modules)?;
     let ev = &result.evaluator;
 
@@ -243,6 +243,84 @@ pub fn invoke_trace(
         samples.push((k as f64 * sample_dt, output_raw(engine.state(), &entry)));
     }
     Ok(prism_trace::trace_of(&entry.name, &element, samples))
+}
+
+/// **Driven invocation** (decision #24, input→trace) — run the entry composite
+/// with its `~{inputs}` *driven* by `input_trace` (an Arrow-decoded `Trace`):
+/// each frame is injected into the input ports' bridge paths at successive ticks
+/// (the stream's first frame is the t=0 seed; explicit `args` flags still win),
+/// and the entry's `->{outputs}` are captured as the returned output `Trace[T]`.
+/// At connect, the input trace's element must `refines` the entry's input
+/// interface — the schema header makes this check mechanical. This closes the
+/// pipe: `A.ys --trace | B.ys` is the composition `B ∘ A`.
+pub fn invoke_driven(
+    program: &Program,
+    registry: ProcessRegistry,
+    methods: MethodRegistry,
+    modules: ModuleRegistry,
+    args: &BTreeMap<String, String>,
+    input_trace: &Value,
+    sample_dt: f64,
+) -> Result<Value, RunError> {
+    let entry = resolve_entry(program)?;
+
+    // Connect-time type check: the producer's element must refine our inputs.
+    let in_elem = prism_trace::element(input_trace);
+    let want = input_schema(&entry, program);
+    if !algebra::refines(&in_elem, &want) {
+        return Err(RunError::Invoke(format!(
+            "input stream does not fit this file's inputs: {in_elem:?} does not refine {want:?}"
+        )));
+    }
+
+    // Seed the t=0 inputs from the stream's first frame (explicit flags win).
+    let in_frames = prism_trace::frames(input_trace);
+    let mut seed = args.clone();
+    if let Some(f0) = in_frames.first() {
+        for (name, _) in &entry.interface.inputs {
+            if let Some(v) = f0.get_field(name) {
+                seed.entry(name.clone())
+                    .or_insert_with(|| serde_json::to_string(v).unwrap_or_default());
+            }
+        }
+    }
+
+    let (mut engine, entry) = engine_for(program, registry, methods, modules, &seed)?;
+    let element = output_schema(&entry, program);
+
+    // Drive: inject each input frame at its bridge path, advance, capture output.
+    let mut out_samples: Vec<(f64, Value)> = Vec::with_capacity(in_frames.len());
+    for (k, frame) in in_frames.iter().enumerate() {
+        let mut changed: Vec<Vec<Key>> = Vec::new();
+        for (name, port) in &entry.interface.inputs {
+            if let Some(v) = frame.get_field(name) {
+                let path = output_path(name, port);
+                let schema = lower_schema_in_program(&port.schema, program);
+                engine.state_mut().set_path(&path, algebra::realize(&schema, v));
+                changed.push(path);
+            }
+        }
+        engine.queue_changes(changed); // so change-triggered steps also see the input
+        if k > 0 {
+            engine.run(sample_dt);
+        }
+        out_samples.push((k as f64 * sample_dt, output_raw(engine.state(), &entry)));
+    }
+    Ok(prism_trace::trace_of(&entry.name, &element, out_samples))
+}
+
+/// The carried element schema of the *input* interface: a `Tree` of the input
+/// ports' schemas — the connect-time `refines` target.
+fn input_schema(entry: &CompositeDef, program: &Program) -> Schema {
+    let branches: IndexMap<Key, Schema> = entry
+        .interface
+        .inputs
+        .iter()
+        .map(|(name, port)| {
+            (Key::from(name.as_str()), lower_schema_in_program(&port.schema, program))
+        })
+        .collect();
+    Schema::Tree { branches }
 }
 
 /// The inner-state bridge path for an output port (`@ inner.path`, else `[name]`).
