@@ -26,6 +26,8 @@ pub enum View {
     Field,
     /// Spatial particles (a map of records with a `position`) → an animated scatter.
     Particles,
+    /// Both a field AND particles (a comet) → field heatmap with particles overlaid.
+    Spatial,
     Snapshot,
 }
 
@@ -42,9 +44,13 @@ pub fn characteristic(schema: &Schema) -> View {
             _ => View::Snapshot,
         },
         Schema::Tree { branches } => {
-            if branches.values().any(has_field) {
+            let field = branches.values().any(has_field);
+            let particles = branches.values().any(has_particles);
+            if field && particles {
+                View::Spatial
+            } else if field {
                 View::Field
-            } else if branches.values().any(has_particles) {
+            } else if particles {
                 View::Particles
             } else if branches.values().any(is_scalar_ish) {
                 View::Lines
@@ -84,6 +90,7 @@ pub fn plot(schema: &Schema, trace: &[Value], title: &str) -> Value {
         View::Lines => line_chart(trace, title),
         View::Field => heatmap(trace, title),
         View::Particles => scatter(trace, title),
+        View::Spatial => spatial(trace, title),
         View::Snapshot => svg(
             420.0,
             60.0,
@@ -257,6 +264,111 @@ fn scatter(trace: &[Value], title: &str) -> Value {
             vec![]
         };
         kids.push(el("circle", attrs, children));
+    }
+    svg(w, h, kids)
+}
+
+/// A COMET view: the field heatmap with the particle scatter overlaid (agents in
+/// a diffusing field). Field cells animate (blue ramp); particles are red dots
+/// scaled to the grid area, animating their cx/cy. The two spatial layers in one
+/// place-graph. Falls back to a plain scatter if there is no field.
+fn spatial(trace: &[Value], title: &str) -> Value {
+    let grids: Vec<Vec<f64>> = trace.iter().filter_map(first_field).collect();
+    let Some(first) = grids.first() else {
+        return scatter(trace, title);
+    };
+    let side = (first.len() as f64).sqrt().round().max(1.0) as usize;
+    let (cell, pad) = (48.0, 30.0);
+    let gw = side as f64 * cell;
+    let (w, h) = (pad * 2.0 + gw, 24.0 + pad + gw);
+
+    // Field color scale across all frames.
+    let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+    for g in &grids {
+        for &v in g {
+            lo = lo.min(v);
+            hi = hi.max(v);
+        }
+    }
+    let span = (hi - lo).abs().max(1e-9);
+    let shade = |v: f64| {
+        let t = ((v - lo) / span).clamp(0.0, 1.0);
+        let c = (255.0 * (1.0 - t)) as u8;
+        format!("#{c:02x}{c:02x}ff")
+    };
+    let dur = (grids.len() as f64 * 0.4).max(0.4);
+
+    let mut kids = vec![rect(0.0, 0.0, w, h, "#ffffff"), legend_text(pad, 18.0, title)];
+    // Field heatmap (animated cells).
+    for idx in 0..first.len() {
+        let (r, c) = (idx / side, idx % side);
+        let (x, y) = (pad + c as f64 * cell, 24.0 + r as f64 * cell);
+        let f0 = shade(first[idx]);
+        if grids.len() > 1 {
+            let vals: Vec<String> = grids.iter().map(|g| shade(*g.get(idx).unwrap_or(&lo))).collect();
+            kids.push(el(
+                "rect",
+                vec![("x", fl(x)), ("y", fl(y)), ("width", fl(cell)), ("height", fl(cell)), ("fill", st(&f0))],
+                vec![crate::svg::animate("fill", &vals, dur)],
+            ));
+        } else {
+            kids.push(rect(x, y, cell, cell, &f0));
+        }
+    }
+
+    // Particle overlay: positions scaled to the grid area (red dots over the field).
+    let pframes: Vec<IndexMap<String, (f64, f64, f64)>> = trace.iter().map(particle_dots).collect();
+    let (mut xlo, mut xhi, mut ylo, mut yhi, mut mmax) =
+        (f64::MAX, f64::MIN, f64::MAX, f64::MIN, 1e-9_f64);
+    for f in &pframes {
+        for &(x, y, m) in f.values() {
+            xlo = xlo.min(x);
+            xhi = xhi.max(x);
+            ylo = ylo.min(y);
+            yhi = yhi.max(y);
+            mmax = mmax.max(m);
+        }
+    }
+    if xlo.is_finite() {
+        let sx = |x: f64| pad + (if xhi > xlo { (x - xlo) / (xhi - xlo) } else { 0.5 }) * gw;
+        let sy = |y: f64| 24.0 + (if yhi > ylo { 1.0 - (y - ylo) / (yhi - ylo) } else { 0.5 }) * gw;
+        let mut pids: Vec<String> = Vec::new();
+        for f in &pframes {
+            for pid in f.keys() {
+                if !pids.iter().any(|p| p == pid) {
+                    pids.push(pid.clone());
+                }
+            }
+        }
+        for pid in &pids {
+            let mut traj: Vec<(f64, f64)> = Vec::with_capacity(pframes.len());
+            let (mut cx, mut cy, mut r) = (xlo, ylo, 4.0);
+            for f in &pframes {
+                if let Some(&(x, y, m)) = f.get(pid) {
+                    cx = x;
+                    cy = y;
+                    r = (4.0 + 6.0 * (m / mmax)).max(2.0);
+                }
+                traj.push((sx(cx), sy(cy)));
+            }
+            let (x0, y0) = traj[0];
+            let attrs = vec![
+                ("cx", fl(x0)),
+                ("cy", fl(y0)),
+                ("r", fl(r)),
+                ("fill", st("#d62728")),
+                ("stroke", st("#ffffff")),
+                ("stroke-width", fl(1.0)),
+            ];
+            let children = if pframes.len() > 1 {
+                let xs: Vec<String> = traj.iter().map(|(x, _)| fmt(*x)).collect();
+                let ys: Vec<String> = traj.iter().map(|(_, y)| fmt(*y)).collect();
+                vec![crate::svg::animate("cx", &xs, dur), crate::svg::animate("cy", &ys, dur)]
+            } else {
+                vec![]
+            };
+            kids.push(el("circle", attrs, children));
+        }
     }
     svg(w, h, kids)
 }
@@ -514,5 +626,52 @@ mod tests {
             s.contains("<animate attributeName=\"cx\"") && s.contains("attributeName=\"cy\""),
             "cx/cy animate over the trace:\n{s}"
         );
+    }
+
+    #[test]
+    fn comet_plots_field_and_particles_overlaid() {
+        // A {fields, particles} element → View::Spatial → field heatmap (rects) WITH
+        // the particle scatter (red circles) overlaid in one place-graph.
+        let vec2 = || Schema::Array { shape: vec![2], element: Box::new(Schema::float()) };
+        let elem = Schema::Tree {
+            branches: IM::from([
+                (
+                    "fields".into(),
+                    Schema::Map {
+                        value: Box::new(Schema::Array { shape: vec![2, 2], element: Box::new(Schema::float()) }),
+                    },
+                ),
+                (
+                    "particles".into(),
+                    Schema::Map {
+                        value: Box::new(Schema::Tree { branches: IM::from([("position".into(), vec2())]) }),
+                    },
+                ),
+            ]),
+        };
+        assert_eq!(characteristic(&elem), View::Spatial, "field + particles is a comet");
+        let frame = |base: f64| {
+            Value::Map(IM::from([
+                (
+                    "fields".into(),
+                    Value::Map(IM::from([(
+                        "glucose".into(),
+                        Value::List((0..4).map(|i| Value::float(base + i as f64)).collect()),
+                    )])),
+                ),
+                (
+                    "particles".into(),
+                    Value::Map(IM::from([(
+                        "p1".into(),
+                        Value::tree([("position", Value::List(vec![Value::float(base), Value::float(1.0)]))]),
+                    )])),
+                ),
+            ]))
+        };
+        let doc = plot(&elem, &[frame(0.0), frame(2.0)], "comet");
+        let s = to_svg(&doc);
+        assert!(s.contains("<rect"), "field heatmap cells");
+        assert!(s.contains("<circle"), "particles overlaid");
+        assert!(s.contains("#d62728"), "particles are red dots over the field");
     }
 }

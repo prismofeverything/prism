@@ -281,7 +281,18 @@ impl Process for NewtonianParticles {
     }
 
     fn outputs(&self) -> IndexMap<String, Schema> {
-        IndexMap::from([("particles".into(), Schema::map(Schema::Any))])
+        // Additive position + velocity (Δ each step, summed by apply) — Newtonian
+        // motion in the same delta model as Brownian. (radius is already a Δ.)
+        let vec2 = || Schema::Array { shape: vec![2], element: Box::new(Schema::float()) };
+        IndexMap::from([(
+            "particles".into(),
+            Schema::map(Schema::Tree {
+                branches: IndexMap::from([
+                    ("position".into(), vec2()),
+                    ("velocity".into(), vec2()),
+                ]),
+            }),
+        )])
     }
 
     fn interval(&self) -> f64 {
@@ -381,19 +392,24 @@ impl Process for NewtonianParticles {
                 .unwrap_or(new_radius);
             let radius_delta = new_radius - old_radius;
 
+            // Emit DELTAS (new − old) for position + velocity — apply SUMS them
+            // (additive Array), so Newtonian motion composes like Brownian and the
+            // boundary correction.
+            let (ox, oy) = particle_pos(particle);
+            let (ovx, ovy) = particle_vel(particle);
             let mut update: IndexMap<prism_schema::Key, Value> = IndexMap::new();
             update.insert(
                 prism_schema::Key::from("position"),
                 Value::List(vec![
-                    Value::float(pos.x as f64),
-                    Value::float(pos.y as f64),
+                    Value::float((pos.x - ox) as f64),
+                    Value::float((pos.y - oy) as f64),
                 ]),
             );
             update.insert(
                 prism_schema::Key::from("velocity"),
                 Value::List(vec![
-                    Value::float(vel.x as f64),
-                    Value::float(vel.y as f64),
+                    Value::float((vel.x - ovx) as f64),
+                    Value::float((vel.y - ovy) as f64),
                 ]),
             );
             if radius_delta.abs() > 1e-12 {

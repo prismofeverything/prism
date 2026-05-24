@@ -278,6 +278,11 @@ pub fn build_registry() -> ProcessRegistry {
     reg.register("PymunkParticleMovement", |config| {
         ProcessNode::Process(Box::new(newtonian::newtonian_from_config(&config)))
     });
+    // Clearer alias for the Rust rapier2d Newtonian mover (`PymunkParticleMovement`
+    // is the upstream Python-compat name the fixtures use).
+    reg.register("NewtonianParticles", |config| {
+        ProcessNode::Process(Box::new(newtonian::newtonian_from_config(&config)))
+    });
 
     reg.register("ParticleTotalMass", |_config| {
         ProcessNode::Step(Box::new(ParticleTotalMass))

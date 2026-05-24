@@ -96,6 +96,7 @@ pub fn sf_modules() -> ModuleRegistry {
         .process("particles", "ManageBoundaries")
         .process("particles", "ParticleTotalMass")
         .process("particles", "PymunkParticleMovement")
+        .process("particles", "NewtonianParticles")
         .process("fba", "DynamicFBA")
         .process("fba", "SpatialDFBA")
 }

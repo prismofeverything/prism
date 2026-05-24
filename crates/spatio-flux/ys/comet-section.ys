@@ -1,0 +1,52 @@
+# comet-section.ys — a COMET: brownian particles drifting through a diffusing
+# nutrient field, as a report section, via the codegen path. The COMBINATION
+# family — multiple processes (DiffusionAdvection + BrownianMovement) over a
+# SHARED spatial state {fields, particles}, assembled as ONE composite (`Comet`)
+# that Simulate runs like any single process. Plots the combined spatial view:
+# the field heatmap with the particles overlaid (View::Spatial).
+from core import Simulate
+from io import Path
+from diffusion import DiffusionAdvection
+from particles import BrownianMovement
+
+type Trace = { times: list[float], frames: list[map[float]] }
+type Figure = { svg: string }
+
+step Plot[title: string = 'comet'] ~{traj: Trace} ->{figure: Figure} (
+  {figure: traj.plot(title)}
+)
+
+step Output[path: Path] ~{figure: Figure} (
+  figure.svg(path)
+)
+
+# The comet: diffusion (fields) + brownian (particles) over a shared state. One
+# composite — Simulate steps both each tick, folding their Δ updates.
+composite Comet[diffusion_coeff :: float = 0.25]
+  ~{fields :: map[array[[5, 5], float]], particles :: map[{position: array[[2], float]}]}
+  ->{fields :: map[array[[5, 5], float]], particles :: map[{position: array[[2], float]}]} (
+  diffusion: DiffusionAdvection[n_bins: [5, 5], bounds: [5.0, 5.0], diffusion_coeffs: {glucose: diffusion_coeff}]
+    ~{fields: fields} ->{fields: fields} |
+  brownian: BrownianMovement[diffusion_rate: 0.2, advection_rate: [0.3, 0.2], bounds: [5.0, 5.0]]
+    ~{particles: particles} ->{particles: particles}
+)
+
+composite CometSection ->{figure: Figure} (
+  state: {
+    fields: { glucose: [
+      0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 5.0, 5.0, 5.0, 0.0,
+      0.0, 5.0, 10.0, 5.0, 0.0,
+      0.0, 5.0, 5.0, 5.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0
+    ] },
+    particles: {
+      a: { position: [1.0, 1.0], mass: 0.3 },
+      b: { position: [4.0, 2.0], mass: 0.4 },
+      c: { position: [2.0, 4.0], mass: 0.5 }
+    }
+  } |
+  run: Simulate[proc: Comet[diffusion_coeff: 0.25], runtime: 5.0, timestep: 0.5] ~{state: state} ->{trace: traj} |
+  plot: Plot[title: 'Comet: particles in a diffusing field'] ~{traj: traj} ->{figure: figure} |
+  output: Output[path: 'outputs/comet/comet'] ~{figure: figure}
+)

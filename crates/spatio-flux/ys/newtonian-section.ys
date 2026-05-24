@@ -1,0 +1,33 @@
+# newtonian-section.ys — Newtonian particles (rapier2d physics) AS A REPORT
+# SECTION, via the codegen path. Runs NewtonianParticles over time (Simulate),
+# captures the particle trace, plots the animated SCATTER. SAME delta model as
+# Brownian: each tick emits Δposition + Δvelocity, apply SUMS them (additive
+# Array). Gravity + elasticity → particles arc, fall, and bounce within bounds.
+from core import Simulate
+from io import Path
+from particles import NewtonianParticles
+
+type Trace = { times: list[float], frames: list[map[float]] }
+type Figure = { svg: string }
+
+step Plot[title: string = 'particles'] ~{traj: Trace} ->{figure: Figure} (
+  {figure: traj.plot(title)}
+)
+
+step Output[path: Path] ~{figure: Figure} (
+  figure.svg(path)
+)
+
+composite NewtonianSection ->{figure: Figure} (
+  state: { particles: {
+    a: { position: [20.0, 70.0], velocity: [5.0, 0.0], mass: 0.3 },
+    b: { position: [40.0, 60.0], velocity: [-3.0, 2.0], mass: 0.5 },
+    c: { position: [60.0, 75.0], velocity: [0.0, 0.0], mass: 0.4 }
+  } } |
+  run: Simulate[
+    proc: NewtonianParticles[gravity: [0.0, -9.8], bounds: [80.0, 80.0], elasticity: 0.7],
+    runtime: 8.0, timestep: 0.25
+  ] ~{state: state} ->{trace: traj} |
+  plot: Plot[title: 'Newtonian particles (gravity + bounce)'] ~{traj: traj} ->{figure: figure} |
+  output: Output[path: 'outputs/particles/newtonian'] ~{figure: figure}
+)

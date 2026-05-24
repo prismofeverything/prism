@@ -230,7 +230,34 @@ pub fn composite_inner_schema(def: &CompositeDef, program: &Program) -> Schema {
 
     let mut branches: IndexMap<Key, Schema> = IndexMap::new();
     collect_branches(&def.body, program, &known, &mut branches);
+    // The interface PORTS are inner-state slots too — the body's wires read/write
+    // them — typed by their declarations, at their bridge paths. The body's keyed
+    // nodes alone MISS them (a port isn't a keyed entry), which left a composite
+    // run via Simulate carrying `Any` at its port paths (`Composite.outputs()` →
+    // Any → no schema-driven plot). Fill them (without clobbering a body branch) so
+    // the composite's output schema is honest.
+    for (n, d) in def.interface.inputs.iter().chain(def.interface.outputs.iter()) {
+        let ty = lower_schema_in_program(&d.schema, program);
+        let path = d.bridge.clone().unwrap_or_else(|| vec![n.clone()]);
+        insert_at_path(&mut branches, &path, ty);
+    }
     Schema::Tree { branches }
+}
+
+/// Insert `schema` at `path` in `branches`, building nested `Tree`s; never
+/// clobbers an existing (body-derived) branch — ports only DEFAULT a slot type.
+fn insert_at_path(branches: &mut IndexMap<Key, Schema>, path: &[String], schema: Schema) {
+    let Some((head, rest)) = path.split_first() else { return };
+    let key = Key::from(head.as_str());
+    if rest.is_empty() {
+        branches.entry(key).or_insert(schema);
+    } else {
+        let child =
+            branches.entry(key).or_insert_with(|| Schema::Tree { branches: IndexMap::new() });
+        if let Schema::Tree { branches: inner } = child {
+            insert_at_path(inner, rest, schema);
+        }
+    }
 }
 
 fn collect_branches(
