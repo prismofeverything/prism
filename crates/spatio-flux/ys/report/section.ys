@@ -1,0 +1,20 @@
+# report/section.ys — the shared SECTION vocabulary every report section uses:
+# the Trace/Figure types + the Plot/Output steps. Imported via
+# `from spatio-flux.report.section import Plot, Output` (the Trace/Figure types
+# come along as the module's vocabulary). Plot renders a trace BY ITS SCHEMA
+# (scalars→line, field→heatmap, particles→scatter, comet→overlay); Output
+# self-writes the figure's SVG. This is the DRY core of the spatio-flux report.
+from io import Path
+
+type Trace = { times: list[float], frames: list[map[float]] }
+type Figure = { svg: string }
+
+# Schema-driven plot: infers the single-item view from the trace's carried element.
+step Plot[title: string = 'section'] ~{traj: Trace} ->{figure: Figure} (
+  {figure: traj.plot(title)}
+)
+
+# Self-output: the figure writes its own SVG (`.svg` is a native effect).
+step Output[path: Path] ~{figure: Figure} (
+  figure.svg(path)
+)

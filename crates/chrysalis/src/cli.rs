@@ -42,7 +42,10 @@ fn resolve_file_modules(
                 resolve_file_modules(&mut imported, ys_root)?;
                 for d in imported.defs {
                     let keep = match &d {
-                        Def::Use { .. } => true, // the module's own (host) imports
+                        // The module's host imports + its TYPE vocabulary always come
+                        // along (a named def's interface may reference those types);
+                        // value defs come only when explicitly imported by name.
+                        Def::Use { .. } | Def::Type(_) => true,
                         other => names.iter().any(|n| crate::ast::def_name(other) == n.as_str()),
                     };
                     if keep {

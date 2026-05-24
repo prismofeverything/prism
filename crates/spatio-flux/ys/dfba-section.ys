@@ -1,23 +1,8 @@
-# dfba-section.ys — the E. coli core dynamic-FBA sim AS A REPORT SECTION, via the
-# codegen path. Runs DynamicFBA (HiGHS LP over the BiGG 'textbook' model) over
-# time, captures the {biomass, substrates} trace, and plots it as lines (biomass
-# growth + substrate depletion). The FBA family — 8 of the 18 report sims — as a
-# .ys section, the SAME Simulate template as kinetics (its ports are kinetics-
-# shaped: ~{substrates, biomass}). Config mirrors fixtures/ecoli_core_dfba.json.
+# dfba-section.ys — E. coli core dynamic FBA (HiGHS LP), as a report section
+# (→ line plot of biomass + substrates). Shared section vocabulary via report.section.
 from core import Simulate
-from io import Path
 from fba import DynamicFBA
-
-type Trace = { times: list[float], frames: list[map[float]] }
-type Figure = { svg: string }
-
-step Plot[title: string = 'dfba'] ~{traj: Trace} ->{figure: Figure} (
-  {figure: traj.plot(title)}
-)
-
-step Output[path: Path] ~{figure: Figure} (
-  figure.svg(path)
-)
+from spatio-flux.report.section import Plot, Output
 
 composite DFBASection ->{figure: Figure} (
   state: { substrates: { glucose: 10.0, acetate: 0.0 }, biomass: 0.1 } |

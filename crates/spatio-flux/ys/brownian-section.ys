@@ -1,24 +1,8 @@
-# brownian-section.ys — Brownian particles AS A REPORT SECTION, via the codegen
-# path. Runs BrownianMovement over time (engine-faithful Simulate), captures the
-# particle trace, and plots it BY ITS SCHEMA — a map of position-records → an
-# animated SCATTER (View::Particles). The spatial-particle counterpart to the
-# kinetics line + diffusion heatmap sections. It exercises the DELTA-motion model:
-# each tick emits Δposition (Brownian jitter + advection drift), apply SUMS them
-# onto position (an additive Array), so the particles visibly drift + diffuse.
+# brownian-section.ys — Brownian particles (drift + diffusion), as a report
+# section (→ animated scatter). Delta-motion model; shared vocabulary via report.section.
 from core import Simulate
-from io import Path
 from particles import BrownianMovement
-
-type Trace = { times: list[float], frames: list[map[float]] }
-type Figure = { svg: string }
-
-step Plot[title: string = 'particles'] ~{traj: Trace} ->{figure: Figure} (
-  {figure: traj.plot(title)}
-)
-
-step Output[path: Path] ~{figure: Figure} (
-  figure.svg(path)
-)
+from spatio-flux.report.section import Plot, Output
 
 composite BrownianSection ->{figure: Figure} (
   state: { particles: {

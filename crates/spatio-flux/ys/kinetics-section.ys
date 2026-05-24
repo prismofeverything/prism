@@ -1,28 +1,9 @@
-# kinetics-section.ys — the Monod-growth sim AS A REPORT SECTION (#25), via the
-# codegen path. Imports the spatio-flux `MonodKinetics` process + the std section
-# machinery (Simulate + schema-driven plot + self-output), runs the sim over
-# time, captures the full `trace`, plots it BY ITS SCHEMA (scalars → line), and
-# self-outputs the SVG. The "spatio-flux report, with sections, as a .ys
-# workflow" challenge — applied to the kinetics family, through the cached runner.
+# kinetics-section.ys — Monod growth on glucose, as a report section (→ line plot).
+# The Plot/Output/Trace/Figure vocabulary is shared via the report.section module.
 from core import Simulate
-from io import Path
 from kinetics import MonodKinetics
+from spatio-flux.report.section import Plot, Output
 
-type Trace = { times: list[float], frames: list[map[float]] }
-type Figure = { svg: string }
-
-# Schema-driven plot: infers the single-item schema from the trace and renders
-# the characteristic view (scalars → line plot).
-step Plot[title: string = 'kinetics'] ~{traj: Trace} ->{figure: Figure} (
-  {figure: traj.plot(title)}
-)
-
-# Self-output: the figure writes its own SVG (`.svg` is a native effect).
-step Output[path: Path] ~{figure: Figure} (
-  figure.svg(path)
-)
-
-# Run MonodKinetics over time → trace → schema-plot → self-output SVG.
 composite KineticsSection ->{figure: Figure} (
   state: { biomass: 0.1, substrates: { glucose: 10.0 } } |
   run: Simulate[

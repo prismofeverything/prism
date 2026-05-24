@@ -1,21 +1,9 @@
-# comet-section.ys — a COMET as a report section, via the codegen path. The Comet
-# composite now lives in its OWN file (composites/comets.ys, a system of its own)
-# and is pulled in by a `.ys`-FILE import — the section just runs it via Simulate
-# and plots the combined spatial view (field heatmap + particle overlay).
+# comet-section.ys — a COMET as a report section: particles in a diffusing field
+# (→ combined heatmap + scatter). Comet is its own module (composites/comets.ys);
+# the section vocabulary is shared via report.section. Two file imports, no boilerplate.
 from core import Simulate
-from io import Path
 from spatio-flux.composites.comets import Comet
-
-type Trace = { times: list[float], frames: list[map[float]] }
-type Figure = { svg: string }
-
-step Plot[title: string = 'comet'] ~{traj: Trace} ->{figure: Figure} (
-  {figure: traj.plot(title)}
-)
-
-step Output[path: Path] ~{figure: Figure} (
-  figure.svg(path)
-)
+from spatio-flux.report.section import Plot, Output
 
 composite CometSection ->{figure: Figure} (
   state: {
