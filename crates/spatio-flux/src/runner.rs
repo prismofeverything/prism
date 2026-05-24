@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use prism_bigraph::{Document, Engine, ProcessRegistry, Value};
-use prism_viz::{render_dot, DotOptions};
+use prism_viz::{DotOptions, render_dot};
 
 /// Results from a simulation run: time series of state snapshots.
 #[derive(Clone, Debug)]
@@ -50,11 +50,7 @@ pub fn run_document(
     std::fs::write(&dot_path, &dot).map_err(|e| e.to_string())?;
 
     // Try to render to PNG (silently skip if graphviz not installed)
-    let _ = prism_viz::render_to_file(
-        &dot,
-        out_dir.join(format!("{name}.png")),
-        "png",
-    );
+    let _ = prism_viz::render_to_file(&dot, out_dir.join(format!("{name}.png")), "png");
 
     // Build topology and instantiate processes
     let topology = doc.to_topology();

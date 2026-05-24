@@ -96,11 +96,23 @@ fn run_engine(protocol: &str, duration: f64) -> f64 {
                 ),
                 (
                     Key::from("inputs"),
-                    Value::tree([("mass", Value::List(vec![Value::String("..".into()), Value::String("mass".into())]))]),
+                    Value::tree([(
+                        "mass",
+                        Value::List(vec![
+                            Value::String("..".into()),
+                            Value::String("mass".into()),
+                        ]),
+                    )]),
                 ),
                 (
                     Key::from("outputs"),
-                    Value::tree([("mass", Value::List(vec![Value::String("..".into()), Value::String("mass".into())]))]),
+                    Value::tree([(
+                        "mass",
+                        Value::List(vec![
+                            Value::String("..".into()),
+                            Value::String("mass".into()),
+                        ]),
+                    )]),
                 ),
             ])),
         ),
@@ -108,13 +120,9 @@ fn run_engine(protocol: &str, duration: f64) -> f64 {
 
     let mut protocols = prism_bigraph::protocol::ProtocolRegistry::new();
     protocols.register(Arc::new(ParallelProtocol::default()));
-    let mut engine = Engine::from_state_with_protocols(
-        schema,
-        state,
-        registry,
-        Arc::new(protocols),
-    )
-    .expect("init");
+    let mut engine =
+        Engine::from_state_with_protocols(schema, state, registry, Arc::new(protocols))
+            .expect("init");
     engine.discover_all_processes();
     engine.run(duration);
 

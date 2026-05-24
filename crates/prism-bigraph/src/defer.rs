@@ -31,7 +31,7 @@
 //! captures the result; `get()` returns it; flush_pending() is a
 //! no-op.
 
-use std::sync::Mutex;
+use std::sync::mpsc::{SyncSender, sync_channel};
 
 /// A deferred computation that resolves to a `T`. For synchronous
 /// protocols, the value is captured at `invoke()` time and `.get()`
@@ -49,14 +49,11 @@ pub struct Defer<T: Send + 'static> {
 enum DeferInner<T: Send + 'static> {
     /// Result is already known. Sync protocols + tests use this.
     Immediate(T),
-    /// Result is fetched by calling a closure. Async protocols use this
-    /// to capture a reference to their runtime's result table; the
-    /// closure pulls the result by id once flush has populated it.
+    /// Result is produced by a closure on `.get()`. Async transports use
+    /// this to await a worker — the closure receives on a one-shot
+    /// channel the worker fills (see [`Defer::slot`]); [`Defer::lazy`]
+    /// uses it for a plain deferred computation. Runs at most once.
     Lazy(Box<dyn FnOnce() -> T + Send>),
-    /// A slot whose value is written externally (by flush_pending);
-    /// `.get()` reads it under the Mutex. Used when the runtime
-    /// holds the Defer and needs to write into it.
-    Slot(Mutex<Option<T>>),
 }
 
 impl<T: Send + 'static> Defer<T> {
@@ -78,41 +75,34 @@ impl<T: Send + 'static> Defer<T> {
         }
     }
 
-    /// Build a defer paired with a fill handle. The handle's
-    /// `[DeferSlot::fill]` method writes the value into the slot;
-    /// `.get()` blocks until then (it doesn't actually block — if no
-    /// value has been written and the slot is read, returns the
-    /// default-or-panic via the caller's choice). For batching
-    /// protocols.
+    /// Build a defer paired with a one-shot fill handle. The handle's
+    /// [`DeferSlot::fill`] writes the value; `.get()` **blocks** until
+    /// then. This is the primitive async transports build on: a pool /
+    /// REST / stream worker runs off-thread and fills the slot when it
+    /// finishes, while the orchestrator's collect phase awaits via
+    /// `.get()`. (A batching runtime may instead fill every slot eagerly
+    /// in `flush_pending`, in which case `.get()` returns immediately.)
     pub fn slot() -> (Self, DeferSlot<T>) {
-        use std::sync::Arc;
-        let cell = Arc::new(Mutex::new(None));
-        let cell_for_slot = Arc::clone(&cell);
-        // The Defer takes ownership of the Mutex through an inner
-        // closure-stored handle. Use Lazy to consume the cell.
+        // A one-shot channel is exactly a fillable, awaitable cell:
+        // `fill` sends (buffer of 1 → never blocks); `.get()` receives.
+        let (tx, rx) = sync_channel::<T>(1);
         let defer = Self {
             inner: DeferInner::Lazy(Box::new(move || {
-                let mut guard = cell.lock().unwrap();
-                guard.take().expect(
-                    "Defer::get() called before the slot was filled \
-                     — did you forget to call flush_pending() on the \
-                     owning protocol runtime?",
+                rx.recv().expect(
+                    "Defer::get(): slot sender was dropped without fill \
+                     — the worker/runtime never produced a result",
                 )
             })),
         };
-        (defer, DeferSlot { cell: cell_for_slot })
+        (defer, DeferSlot { tx })
     }
 
-    /// Resolve the deferred value. Consumes `self`.
+    /// Resolve the deferred value. Consumes `self`. Blocks if backed by
+    /// an unfilled [`Defer::slot`] (until its `DeferSlot::fill`).
     pub fn get(self) -> T {
         match self.inner {
             DeferInner::Immediate(v) => v,
             DeferInner::Lazy(f) => f(),
-            DeferInner::Slot(m) => m
-                .lock()
-                .unwrap()
-                .take()
-                .expect("Defer::Slot read with no value written"),
         }
     }
 }
@@ -126,7 +116,7 @@ impl<T: Send + 'static + std::fmt::Debug> std::fmt::Debug for Defer<T> {
 /// Companion to `Defer::slot()` — the handle a protocol runtime uses
 /// to write the result of a batched call back into the Defer.
 pub struct DeferSlot<T: Send + 'static> {
-    cell: std::sync::Arc<Mutex<Option<T>>>,
+    tx: SyncSender<T>,
 }
 
 impl<T: Send + 'static> std::fmt::Debug for DeferSlot<T> {
@@ -136,10 +126,13 @@ impl<T: Send + 'static> std::fmt::Debug for DeferSlot<T> {
 }
 
 impl<T: Send + 'static> DeferSlot<T> {
-    /// Fill the slot with `value`. Called once per Defer by the
-    /// protocol's flush_pending after the batched call returns.
+    /// Fill the slot with `value`, unblocking the paired `Defer::get()`.
+    /// Called once, from whatever thread produced the result (a pool
+    /// worker, a REST/stream reader, or a batching runtime's flush).
     pub fn fill(self, value: T) {
-        *self.cell.lock().unwrap() = Some(value);
+        // Buffer of 1 → never blocks; ignore error if the Defer (and its
+        // receiver) was already dropped — the result is no longer wanted.
+        let _ = self.tx.send(value);
     }
 }
 
@@ -175,9 +168,22 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Defer::get() called before the slot was filled")]
-    fn slot_get_before_fill_panics() {
-        let (defer, _slot): (Defer<i32>, _) = Defer::slot();
+    fn slot_get_blocks_until_filled_from_another_thread() {
+        let (defer, slot): (Defer<i32>, DeferSlot<i32>) = Defer::slot();
+        let h = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            slot.fill(99);
+        });
+        // .get() must wait for the worker thread to fill — no panic.
+        assert_eq!(defer.get(), 99);
+        h.join().unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "slot sender was dropped without fill")]
+    fn slot_get_panics_if_sender_dropped_without_fill() {
+        let (defer, slot): (Defer<i32>, _) = Defer::slot();
+        drop(slot); // dropped without fill → get() can't receive
         let _ = defer.get();
     }
 }

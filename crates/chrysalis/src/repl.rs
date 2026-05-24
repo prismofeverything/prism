@@ -11,18 +11,43 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use prism_schema::{schema_to_value, MethodRegistry, Schema, Value};
+use prism_schema::{MethodRegistry, Schema, Value, schema_to_value};
 
-use crate::ast::{def_name, Def, Expr, Name, Program};
+use crate::ast::{Def, Expr, Name, Program, def_name};
 use crate::eval::Evaluator;
 use crate::parse::parse_program;
 
 /// chrysalis keywords + definers + modifiers — highlighted, and offered for
 /// completion. (Mirrors the emacs `ys-mode` face taxonomy.)
 const KEYWORDS: &[&str] = &[
-    "def", "type", "process", "step", "composite", "reaction", "pattern", "contract", "unit",
-    "context", "extern", "from", "import", "fulfills", "using", "with", "where", "replace", "let",
-    "in", "if", "then", "else", "for", "not", "and", "or", "true", "false",
+    "def",
+    "type",
+    "process",
+    "step",
+    "composite",
+    "reaction",
+    "pattern",
+    "contract",
+    "unit",
+    "context",
+    "from",
+    "import",
+    "fulfills",
+    "using",
+    "with",
+    "where",
+    "replace",
+    "let",
+    "in",
+    "if",
+    "then",
+    "else",
+    "for",
+    "not",
+    "and",
+    "or",
+    "true",
+    "false",
 ];
 
 /// A REPL session: accumulated non-binding defs (the program the evaluator sees)
@@ -35,13 +60,22 @@ struct Session {
 
 impl Session {
     fn new() -> Self {
-        Self { defs: Vec::new(), env: IndexMap::new(), methods: Arc::new(crate::prelude::std_methods()) }
+        Self {
+            defs: Vec::new(),
+            env: IndexMap::new(),
+            methods: Arc::new(crate::prelude::std_methods()),
+        }
     }
 
     /// An evaluator over the current session program (functions / types resolve
     /// from `defs`; vars from the `env` passed at eval time).
     fn evaluator(&self) -> Evaluator {
-        Evaluator::new(Arc::new(Program { defs: self.defs.clone() }), Arc::clone(&self.methods))
+        Evaluator::new(
+            Arc::new(Program {
+                defs: self.defs.clone(),
+            }),
+            Arc::clone(&self.methods),
+        )
     }
 
     /// Completable names: language keywords + the session's bindings and defs.
@@ -155,7 +189,9 @@ impl Session {
             Some(Def::Binding { value, .. }) => value.clone(),
             _ => return Err("not an expression".to_string()),
         };
-        self.evaluator().eval_value(&expr, &self.env).map_err(|e| e.to_string())
+        self.evaluator()
+            .eval_value(&expr, &self.env)
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -259,7 +295,10 @@ impl Completer for ChrysalisHelper {
             .names
             .iter()
             .filter(|n| n.starts_with(word))
-            .map(|n| Pair { display: n.clone(), replacement: n.clone() })
+            .map(|n| Pair {
+                display: n.clone(),
+                replacement: n.clone(),
+            })
             .collect();
         Ok((start, candidates))
     }
@@ -332,7 +371,9 @@ fn highlight_ys(line: &str) -> String {
             }
             out.push_str(RESET);
         } else if (c == '?' || c == '~')
-            && chars.get(i + 1).is_some_and(|n| n.is_alphabetic() || *n == '_')
+            && chars
+                .get(i + 1)
+                .is_some_and(|n| n.is_alphabetic() || *n == '_')
         {
             out.push_str(VAR);
             out.push(c);
@@ -429,10 +470,16 @@ fn render(v: &Value) -> String {
             }
         }
         Value::String(s) => format!("'{s}'"),
-        Value::List(items) => format!("[{}]", items.iter().map(render).collect::<Vec<_>>().join(", ")),
+        Value::List(items) => format!(
+            "[{}]",
+            items.iter().map(render).collect::<Vec<_>>().join(", ")
+        ),
         Value::Map(m) => format!(
             "{{{}}}",
-            m.iter().map(|(k, v)| format!("{k}: {}", render(v))).collect::<Vec<_>>().join(", ")
+            m.iter()
+                .map(|(k, v)| format!("{k}: {}", render(v)))
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
         other => format!("{other:?}"),
     }
@@ -466,7 +513,6 @@ fn def_kind(d: &Def) -> &'static str {
         Def::Context(_) => "context",
         Def::Function(_) => "function",
         Def::Binding { .. } => "def",
-        Def::Extern(_) => "extern",
         Def::Use { .. } | Def::Import { .. } => "import",
     }
 }
@@ -479,11 +525,17 @@ mod tests {
     fn evaluates_binds_calls_and_inspects() {
         let mut s = Session::new();
         assert_eq!(s.eval_line("1 + 2"), vec!["=> 3 : int"]);
-        assert_eq!(s.eval_line("def x = {a: 1.0, b: 2.0}"), vec!["x : map = {a: 1.0, b: 2.0}"]);
+        assert_eq!(
+            s.eval_line("def x = {a: 1.0, b: 2.0}"),
+            vec!["x : map = {a: 1.0, b: 2.0}"]
+        );
         assert_eq!(s.eval_line("x"), vec!["=> {a: 1.0, b: 2.0} : map"]);
 
         // First-class functions: define, then call.
-        assert_eq!(s.eval_line("def double(n) = n * 2"), vec!["function double defined"]);
+        assert_eq!(
+            s.eval_line("def double(n) = n * 2"),
+            vec!["function double defined"]
+        );
         assert_eq!(s.eval_line("double(21)"), vec!["=> 42 : int"]);
 
         // `:type` renders the inferred schema (homoiconic — the type is a value).
@@ -493,7 +545,10 @@ mod tests {
         // `:env` lists the binding + the function.
         let (env, _) = s.command("env");
         assert!(env.iter().any(|l| l.contains("x : map")), "env: {env:?}");
-        assert!(env.iter().any(|l| l.contains("function double")), "env: {env:?}");
+        assert!(
+            env.iter().any(|l| l.contains("function double")),
+            "env: {env:?}"
+        );
 
         assert!(s.command("quit").1, ":quit signals exit");
     }
@@ -522,7 +577,10 @@ mod tests {
         assert_eq!(s.eval_line("f(10)"), vec!["=> 11 : int"]);
 
         // Correct a mistake: the redefinition must WIN, not be dropped.
-        assert_eq!(s.eval_line("def f(x) = x * 100"), vec!["function f defined"]);
+        assert_eq!(
+            s.eval_line("def f(x) = x * 100"),
+            vec!["function f defined"]
+        );
         assert_eq!(
             s.eval_line("f(10)"),
             vec!["=> 1000 : int"],
@@ -541,7 +599,13 @@ mod tests {
         assert!(unbalanced("a = {b: ["), "nested opens");
         assert!(!unbalanced("def x = 5"), "balanced");
         assert!(!unbalanced("f(5)"), "balanced call");
-        assert!(!unbalanced("s = 'a ( in a string'"), "paren in string ignored");
-        assert!(!unbalanced("x = 1 # ( in a comment"), "paren in comment ignored");
+        assert!(
+            !unbalanced("s = 'a ( in a string'"),
+            "paren in string ignored"
+        );
+        assert!(
+            !unbalanced("x = 1 # ( in a comment"),
+            "paren in comment ignored"
+        );
     }
 }

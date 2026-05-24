@@ -33,8 +33,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 use prism_schema::reaction::{
-    ControlStatus, Match, ReactionRule, apply_fire, find_matches,
-    fire_rule_at,
+    ControlStatus, Match, ReactionRule, apply_fire, find_matches, fire_rule_at,
 };
 use prism_schema::{Key, Schema, StateMap, Value};
 
@@ -151,10 +150,7 @@ impl BigraphicalReactiveSystem {
 
     /// Enumerate every candidate (rule_index, match, rate) over the
     /// current subtree. Rates default to 1.0 if `rule.rate` is None.
-    fn enumerate_candidates(
-        &self,
-        subtree: &Value,
-    ) -> Vec<(usize, Match, f64)> {
+    fn enumerate_candidates(&self, subtree: &Value) -> Vec<(usize, Match, f64)> {
         let mut out = Vec::new();
         let status = self.control_status.as_ref();
         for (i, rule) in self.rules.iter().enumerate() {
@@ -305,10 +301,7 @@ impl Process for BigraphicalReactiveSystem {
 
     fn update(&self, state: &Value, interval: f64) -> Update {
         // Pull the wired subtree off the "state" input port.
-        let subtree = state
-            .get_field("state")
-            .cloned()
-            .unwrap_or(Value::None);
+        let subtree = state.get_field("state").cloned().unwrap_or(Value::None);
 
         let initial = subtree.clone();
 
@@ -443,7 +436,10 @@ mod tests {
                 Pattern::sort(
                     "Compartment",
                     [
-                        ("substrate", Pattern::sort("ERK", Vec::<(&str, Pattern)>::new())),
+                        (
+                            "substrate",
+                            Pattern::sort("ERK", Vec::<(&str, Pattern)>::new()),
+                        ),
                         ("rest", Pattern::site()),
                     ],
                 ),
@@ -453,7 +449,10 @@ mod tests {
                 Pattern::sort(
                     "Compartment",
                     [
-                        ("substrate", Pattern::sort("pERK", Vec::<(&str, Pattern)>::new())),
+                        (
+                            "substrate",
+                            Pattern::sort("pERK", Vec::<(&str, Pattern)>::new()),
+                        ),
                         ("rest", Pattern::site()),
                     ],
                 ),
@@ -618,10 +617,7 @@ mod tests {
         use prism_schema::reaction::{Bindings, GuardFn, ReactionRule, ReactumFn};
         use std::sync::Arc;
 
-        let redex = Pattern::map([(
-            "cell",
-            Pattern::sort("Cell", [("mass", Pattern::site())]),
-        )]);
+        let redex = Pattern::map([("cell", Pattern::sort("Cell", [("mass", Pattern::site())]))]);
         let guard: GuardFn = Arc::new(|b: &Bindings| {
             b.sites
                 .get("mass")
@@ -663,7 +659,10 @@ mod tests {
         let after = apply_delta(&big, value.get_field("state").unwrap());
         let am = after.as_map().unwrap();
         assert!(!am.contains_key("0"), "mother removed");
-        assert!(am.contains_key("0_0") && am.contains_key("0_1"), "two daughters");
+        assert!(
+            am.contains_key("0_0") && am.contains_key("0_1"),
+            "two daughters"
+        );
 
         // mass 1 < 2 → guard blocks → Noop.
         let small = Value::tree([(

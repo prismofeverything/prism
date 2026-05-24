@@ -14,7 +14,8 @@ use prism_bigraph::Engine;
 use prism_schema::Value;
 
 use chrysalis::ast::{
-    CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, ReactionDef, SchemaExpr, StringLit,
+    CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, ReactionDef, SchemaExpr,
+    StringLit,
 };
 
 /// `Compartment(substrate: <sub> | rest: ?rest)` as a reaction-side term.
@@ -50,8 +51,10 @@ fn program() -> Program {
             "compartments",
             SchemaExpr::map_of(SchemaExpr::Any),
         )],
-        interface: Interface::new()
-            .with_output("compartments", PortDecl::required(SchemaExpr::map_of(SchemaExpr::Any))),
+        interface: Interface::new().with_output(
+            "compartments",
+            PortDecl::required(SchemaExpr::map_of(SchemaExpr::Any)),
+        ),
         using: vec![],
         body: Expr::parallel(vec![
             Expr::entry("compartments", Expr::var("compartments")),
@@ -99,8 +102,7 @@ fn count_type(state: &Value, ty: &str) -> usize {
         .map(|m| {
             m.iter()
                 .filter(|(k, v)| {
-                    !k.starts_with('_')
-                        && v.get_field("_type").and_then(|t| t.as_str()) == Some(ty)
+                    !k.starts_with('_') && v.get_field("_type").and_then(|t| t.as_str()) == Some(ty)
                 })
                 .count()
         })
@@ -113,7 +115,11 @@ fn structural_reaction_phosphorylates_through_prism_brs() {
     let result = chrysalis::compile::compile(&program).expect("compile");
 
     // Sanity: two free ERKs, one MEK, before running.
-    assert_eq!(count_type(&result.initial_state, "ERK"), 2, "two ERKs initially");
+    assert_eq!(
+        count_type(&result.initial_state, "ERK"),
+        2,
+        "two ERKs initially"
+    );
     assert_eq!(count_type(&result.initial_state, "MEK"), 1);
     assert_eq!(count_type(&result.initial_state, "pERK"), 0);
 
@@ -135,11 +141,7 @@ fn structural_reaction_phosphorylates_through_prism_brs() {
         2,
         "both ERKs structurally rewritten to pERK"
     );
-    assert_eq!(
-        count_type(final_state, "ERK"),
-        0,
-        "no free ERK remains"
-    );
+    assert_eq!(count_type(final_state, "ERK"), 0, "no free ERK remains");
     assert_eq!(
         count_type(final_state, "MEK"),
         1,
@@ -190,15 +192,20 @@ fn phospho_program() -> Program {
             "compartments",
             SchemaExpr::map_of(SchemaExpr::Any),
         )],
-        interface: Interface::new()
-            .with_output("compartments", PortDecl::required(SchemaExpr::map_of(SchemaExpr::Any))),
+        interface: Interface::new().with_output(
+            "compartments",
+            PortDecl::required(SchemaExpr::map_of(SchemaExpr::Any)),
+        ),
         using: vec![],
         body: Expr::parallel(vec![
             Expr::entry("compartments", Expr::var("compartments")),
             Expr::entry(
                 "brs",
                 Expr::term("BRS")
-                    .arg_named("rules", Expr::List(vec![Expr::term("Phosphorylate").build()]))
+                    .arg_named(
+                        "rules",
+                        Expr::List(vec![Expr::term("Phosphorylate").build()]),
+                    )
                     .input("state", Expr::var("compartments"))
                     .output("state", Expr::var("compartments"))
                     .build(),
@@ -251,7 +258,10 @@ fn link_bond_forms_through_prism_brs() {
     let result = chrysalis::compile::compile(&program).expect("compile");
 
     // Free MEK + free ERK have no `inputs.out` link initially.
-    assert!(link_of(&result.initial_state, "MEK").is_none(), "MEK starts free");
+    assert!(
+        link_of(&result.initial_state, "MEK").is_none(),
+        "MEK starts free"
+    );
 
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),

@@ -4,7 +4,7 @@
 //! fallback). This pins the `extern` replacement at the compile boundary.
 
 use chrysalis::ast::Def;
-use chrysalis::compile::{compile_with_modules, ModuleRegistry};
+use chrysalis::compile::{ModuleRegistry, compile_with_modules};
 use chrysalis::parse::parse_program;
 use prism_bigraph::ProcessRegistry;
 use prism_schema::{MethodRegistry, Value};
@@ -32,8 +32,7 @@ fn rk4_object() -> Value {
     ])
 }
 
-const CRN_REPR: &str =
-    "{species: list[string], reactions: list[{reactants: map[float], products: map[float], k: float}]}";
+const CRN_REPR: &str = "{species: list[string], reactions: list[{reactants: map[float], products: map[float], k: float}]}";
 
 #[test]
 fn resolves_object_and_type_imports() {
@@ -41,8 +40,12 @@ fn resolves_object_and_type_imports() {
     let modules = ModuleRegistry::new()
         .object("integrators", "rk4", rk4_object())
         .type_("chem", "CRN", CRN_REPR);
-    let result =
-        compile_with_modules(&prog, ProcessRegistry::new(), MethodRegistry::new(), modules);
+    let result = compile_with_modules(
+        &prog,
+        ProcessRegistry::new(),
+        MethodRegistry::new(),
+        modules,
+    );
     assert!(
         result.is_ok(),
         "should compile with rk4 (object) + CRN (type) declared: {:?}",
@@ -66,8 +69,12 @@ composite W ->{out: map[any]} (
 W[]
 "#;
     let prog = parse_program(src).expect("parse");
-    let result =
-        compile_with_modules(&prog, ProcessRegistry::new(), MethodRegistry::new(), ModuleRegistry::new());
+    let result = compile_with_modules(
+        &prog,
+        ProcessRegistry::new(),
+        MethodRegistry::new(),
+        ModuleRegistry::new(),
+    );
     assert!(
         result.is_ok(),
         "a top-level binding must resolve inside the composite body: {:?}",
@@ -90,11 +97,17 @@ W[]
 "#;
     let prog = parse_program(src).expect("parse");
     assert!(
-        prog.defs.iter().any(|d| matches!(d, Def::Binding { name, schema: Some(_), .. } if name == "net")),
+        prog.defs
+            .iter()
+            .any(|d| matches!(d, Def::Binding { name, schema: Some(_), .. } if name == "net")),
         "`def net :: CRN` should parse as a typed binding"
     );
-    let result =
-        compile_with_modules(&prog, ProcessRegistry::new(), MethodRegistry::new(), ModuleRegistry::new());
+    let result = compile_with_modules(
+        &prog,
+        ProcessRegistry::new(),
+        MethodRegistry::new(),
+        ModuleRegistry::new(),
+    );
     assert!(
         result.is_ok(),
         "the def binding should resolve inside the composite body: {:?}",
@@ -107,9 +120,14 @@ fn undeclared_import_is_a_compile_error() {
     let prog = parse_program(SRC).expect("parse");
     // Omit the `chem::CRN` declaration: `from chem import CRN` is now unresolved.
     let modules = ModuleRegistry::new().object("integrators", "rk4", rk4_object());
-    let err = compile_with_modules(&prog, ProcessRegistry::new(), MethodRegistry::new(), modules)
-        .err()
-        .expect("compile should fail when an imported name isn't declared");
+    let err = compile_with_modules(
+        &prog,
+        ProcessRegistry::new(),
+        MethodRegistry::new(),
+        modules,
+    )
+    .err()
+    .expect("compile should fail when an imported name isn't declared");
     assert!(
         format!("{err}").contains("CRN"),
         "error should name the unresolved import `CRN`, got: {err}"

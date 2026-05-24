@@ -3,10 +3,10 @@
 //! These tests load the actual JSON documents from the Python spatio-flux
 //! test suite and run them through the Rust engine, verifying compatibility.
 
-use std::sync::Arc;
+use prism_bigraph::Document;
 use spatio_flux::from_config::build_registry;
 use spatio_flux::vivarium_loader::load_vivarium;
-use prism_bigraph::Document;
+use std::sync::Arc;
 
 const OUT_DIR: &str = "out/vivarium";
 
@@ -24,7 +24,10 @@ fn run_vivarium_doc(name: &str, json_str: &str, duration: f64) {
 
     println!("{name}: loaded {} processes", vdoc.processes.len());
     for (pname, proc) in &vdoc.processes {
-        println!("  {pname}: {} (interval={:?})", proc.class_name, proc.interval);
+        println!(
+            "  {pname}: {} (interval={:?})",
+            proc.class_name, proc.interval
+        );
     }
 
     // Save as prism document
@@ -39,7 +42,10 @@ fn run_vivarium_doc(name: &str, json_str: &str, duration: f64) {
     println!(
         "{name}: ran to t={:.1}, state keys: {:?}",
         engine.time(),
-        engine.state().as_map().map(|m| m.keys().collect::<Vec<_>>()),
+        engine
+            .state()
+            .as_map()
+            .map(|m| m.keys().collect::<Vec<_>>()),
     );
 }
 

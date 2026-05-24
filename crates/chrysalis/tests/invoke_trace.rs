@@ -10,7 +10,10 @@ use chrysalis::runner::{invoke_driven, invoke_trace};
 use prism_schema::{Schema, Value};
 
 fn args(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 fn field(frame: &Value, key: &str) -> Option<f64> {
@@ -49,7 +52,11 @@ fn constant_composite_trace_round_trips_through_arrow() {
     )
     .expect("invoke_trace");
 
-    assert_eq!(prism_trace::len(&trace), 4, "one frame per sample, incl. t=0");
+    assert_eq!(
+        prism_trace::len(&trace),
+        4,
+        "one frame per sample, incl. t=0"
+    );
 
     // The Arrow wire round-trips the trace exactly.
     let bytes = prism_trace::serialize_trace(&trace).expect("serialize");
@@ -77,12 +84,19 @@ fn evolving_composite_trace_captures_dynamics() {
     )
     .expect("invoke_trace");
 
-    let ns: Vec<f64> =
-        prism_trace::frames(&trace).iter().map(|f| field(f, "n").unwrap_or(f64::NAN)).collect();
-    assert_eq!(ns, vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0], "the trace captures per-tick growth");
+    let ns: Vec<f64> = prism_trace::frames(&trace)
+        .iter()
+        .map(|f| field(f, "n").unwrap_or(f64::NAN))
+        .collect();
+    assert_eq!(
+        ns,
+        vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0],
+        "the trace captures per-tick growth"
+    );
 
     // …and that captured evolution round-trips on the Arrow wire.
-    let back = prism_trace::deserialize_trace(&prism_trace::serialize_trace(&trace).unwrap()).unwrap();
+    let back =
+        prism_trace::deserialize_trace(&prism_trace::serialize_trace(&trace).unwrap()).unwrap();
     assert_eq!(back, trace);
 }
 
@@ -99,7 +113,13 @@ fn pipe_round_trip_drives_b_from_a_over_arrow() {
     // A: produce an output trace n = [0,1,2,3,4,5].
     let a = chrysalis::parse::parse_program(COUNTER).expect("parse A");
     let a_trace = invoke_trace(
-        &a, std_registry(), std_methods(), std_modules(), &args(&[("start", "0.0")]), 5.0, 1.0,
+        &a,
+        std_registry(),
+        std_methods(),
+        std_modules(),
+        &args(&[("start", "0.0")]),
+        5.0,
+        1.0,
     )
     .expect("A trace");
 
@@ -109,12 +129,20 @@ fn pipe_round_trip_drives_b_from_a_over_arrow() {
 
     // B: driven by A's trace, echoes n→out each tick.
     let b = chrysalis::parse::parse_program(ECHO).expect("parse B");
-    let b_trace =
-        invoke_driven(&b, std_registry(), std_methods(), std_modules(), &args(&[]), &b_input)
-            .expect("B driven");
+    let b_trace = invoke_driven(
+        &b,
+        std_registry(),
+        std_methods(),
+        std_modules(),
+        &args(&[]),
+        &b_input,
+    )
+    .expect("B driven");
 
-    let outs: Vec<f64> =
-        prism_trace::frames(&b_trace).iter().map(|f| field(f, "out").unwrap_or(f64::NAN)).collect();
+    let outs: Vec<f64> = prism_trace::frames(&b_trace)
+        .iter()
+        .map(|f| field(f, "out").unwrap_or(f64::NAN))
+        .collect();
     assert_eq!(
         outs,
         vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0],
@@ -127,10 +155,20 @@ fn mismatched_input_stream_is_rejected_at_connect() {
     // A trace of bare Floats cannot drive a composite wanting ~{n :: Float}.
     let bad = prism_trace::trace_of("bad", &Schema::float(), vec![(0.0, Value::float(1.0))]);
     let b = chrysalis::parse::parse_program(ECHO).expect("parse");
-    let err = invoke_driven(&b, std_registry(), std_methods(), std_modules(), &args(&[]), &bad)
-        .expect_err("a non-refining input stream should be rejected");
+    let err = invoke_driven(
+        &b,
+        std_registry(),
+        std_methods(),
+        std_modules(),
+        &args(&[]),
+        &bad,
+    )
+    .expect_err("a non-refining input stream should be rejected");
     let msg = err.to_string().to_lowercase();
-    assert!(msg.contains("refine") || msg.contains("input"), "clear connect-time error; got: {err}");
+    assert!(
+        msg.contains("refine") || msg.contains("input"),
+        "clear connect-time error; got: {err}"
+    );
 }
 
 // An accumulator: `Bump` adds 1.0 to `total` every interval (1.0), so `total`
@@ -151,7 +189,9 @@ fn driven_advances_by_irregular_frame_times() {
     // advances by each frame's actual time-delta, `total` = cumulative sim time:
     // [0, 0+2, 2+3] = [0, 2, 5] — NOT [0,1,2] as a fixed dt=1 would give.
     let elem = Schema::Tree {
-        branches: [(prism_schema::Key::from("tick"), Schema::float())].into_iter().collect(),
+        branches: [(prism_schema::Key::from("tick"), Schema::float())]
+            .into_iter()
+            .collect(),
     };
     let rec = |t: f64| Value::tree([("tick", Value::float(t))]);
     let input = prism_trace::trace_of(
@@ -161,12 +201,27 @@ fn driven_advances_by_irregular_frame_times() {
     );
 
     let acc = chrysalis::parse::parse_program(ACC).expect("parse acc");
-    let out = invoke_driven(&acc, std_registry(), std_methods(), std_modules(), &args(&[]), &input)
-        .expect("driven");
+    let out = invoke_driven(
+        &acc,
+        std_registry(),
+        std_methods(),
+        std_modules(),
+        &args(&[]),
+        &input,
+    )
+    .expect("driven");
 
     let totals: Vec<f64> = prism_trace::frames(&out)
         .iter()
-        .map(|f| f.get_field("total").and_then(|v| v.as_f64()).unwrap_or(f64::NAN))
+        .map(|f| {
+            f.get_field("total")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(f64::NAN)
+        })
         .collect();
-    assert_eq!(totals, vec![0.0, 2.0, 5.0], "the consumer advances by each frame's real dt");
+    assert_eq!(
+        totals,
+        vec![0.0, 2.0, 5.0],
+        "the consumer advances by each frame's real dt"
+    );
 }

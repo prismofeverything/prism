@@ -38,9 +38,7 @@ impl MockServer {
         let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let shutdown_clone = Arc::clone(&shutdown);
 
-        listener
-            .set_nonblocking(true)
-            .expect("set_nonblocking");
+        listener.set_nonblocking(true).expect("set_nonblocking");
 
         let thread = thread::spawn(move || {
             while !shutdown_clone.load(std::sync::atomic::Ordering::SeqCst) {
@@ -137,9 +135,7 @@ fn route(method: &str, path: &str, body: &str) -> (&'static str, String) {
             ("200 OK", "\"proc-001\"".to_string())
         }
         // GET /process/{class}/inputs/{id}
-        ("GET", ["process", _class, "inputs", _id]) => {
-            ("200 OK", "{\"x\": \"float\"}".to_string())
-        }
+        ("GET", ["process", _class, "inputs", _id]) => ("200 OK", "{\"x\": \"float\"}".to_string()),
         // GET /process/{class}/outputs/{id}
         ("GET", ["process", _class, "outputs", _id]) => {
             ("200 OK", "{\"x\": \"float\"}".to_string())
@@ -150,7 +146,10 @@ fn route(method: &str, path: &str, body: &str) -> (&'static str, String) {
         ("POST", ["process", _class, "update", _id]) => {
             let parsed: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
             let state = parsed.get("state");
-            let interval = parsed.get("interval").and_then(|v| v.as_f64()).unwrap_or(1.0);
+            let interval = parsed
+                .get("interval")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1.0);
             let x = state
                 .and_then(|s| s.get("x"))
                 .and_then(|v| v.as_f64())

@@ -35,8 +35,16 @@ fn function_def_and_call_runs() {
     .expect("engine init");
     engine.discover_all_processes();
     engine.run(1.0);
-    let y = engine.state().get_path(&["y".into()]).and_then(|v| v.as_f64());
-    assert_eq!(y, Some(42.0), "double(21.0) should be 42; state: {:?}", engine.state());
+    let y = engine
+        .state()
+        .get_path(&["y".into()])
+        .and_then(|v| v.as_f64());
+    assert_eq!(
+        y,
+        Some(42.0),
+        "double(21.0) should be 42; state: {:?}",
+        engine.state()
+    );
 }
 
 /// First-class: a function passed as an argument to another function.
@@ -67,7 +75,10 @@ fn functions_are_first_class_arguments() {
     .expect("engine init");
     engine.discover_all_processes();
     engine.run(1.0);
-    let y = engine.state().get_path(&["y".into()]).and_then(|v| v.as_f64());
+    let y = engine
+        .state()
+        .get_path(&["y".into()])
+        .and_then(|v| v.as_f64());
     assert_eq!(
         y,
         Some(42.0),

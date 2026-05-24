@@ -164,7 +164,10 @@ impl DiffusionAdvection {
 
 impl Process for DiffusionAdvection {
     fn inputs(&self) -> IndexMap<String, Schema> {
-        IndexMap::from([("fields".to_string(), Schema::map(Schema::list(Schema::float())))])
+        IndexMap::from([(
+            "fields".to_string(),
+            Schema::map(Schema::list(Schema::float())),
+        )])
     }
 
     fn outputs(&self) -> IndexMap<String, Schema> {
@@ -191,10 +194,7 @@ impl Process for DiffusionAdvection {
     }
 
     fn update(&self, state: &Value, interval: f64) -> Update {
-        let fields = match state
-            .get_field("fields")
-            .and_then(|v| v.as_map())
-        {
+        let fields = match state.get_field("fields").and_then(|v| v.as_map()) {
             Some(f) => f,
             None => return Update::Noop,
         };
@@ -242,7 +242,9 @@ impl Process for DiffusionAdvection {
 
             // Output DELTA (cur - original), matching Python's diffusion process.
             // Applied element-wise via Array schema.
-            let delta: Vec<f64> = current.iter().zip(original.iter())
+            let delta: Vec<f64> = current
+                .iter()
+                .zip(original.iter())
                 .map(|(c, o)| c - o)
                 .collect();
             result_fields.insert(
@@ -343,7 +345,9 @@ mod tests {
             .collect();
 
         // The process outputs deltas, so apply them to get the final field
-        let final_field: Vec<f64> = field.iter().zip(delta_field.iter())
+        let final_field: Vec<f64> = field
+            .iter()
+            .zip(delta_field.iter())
             .map(|(orig, delta)| orig + delta)
             .collect();
         let final_mass: f64 = final_field.iter().sum();

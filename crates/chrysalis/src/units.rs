@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use indexmap::IndexMap;
 
 use prism_schema::units::{
-    resolve_conversion, Bridge, Context, ContextRule, Conversion, Dimension, StateOp, Unit,
+    Bridge, Context, ContextRule, Conversion, Dimension, StateOp, Unit, resolve_conversion,
 };
 
 use crate::ast::{self, BinOp, Block, Def, Expr, Program, SchemaExpr, UnaryOp, UnitExpr};
@@ -407,11 +407,11 @@ mod tests {
     #[test]
     fn resolves_units_and_contexts() {
         let env = UnitEnv::from_program(&program()).unwrap();
-        assert_eq!(env.units["molecule"].dimension, Dimension::base("substance"));
         assert_eq!(
-            env.units["fL"].dimension,
-            Dimension::base("length").pow(3)
+            env.units["molecule"].dimension,
+            Dimension::base("substance")
         );
+        assert_eq!(env.units["fL"].dimension, Dimension::base("length").pow(3));
         assert!(env.contexts.contains_key("concentration"));
     }
 
@@ -469,8 +469,14 @@ mod tests {
     fn unbridgeable_dimensions_are_rejected() {
         let env = UnitEnv::from_program(&program()).unwrap();
         let mut vars = HashMap::new();
-        vars.insert("m".into(), Unit::multiplicative(Dimension::base("mass"), 1.0));
-        vars.insert("t".into(), Unit::multiplicative(Dimension::base("time"), 1.0));
+        vars.insert(
+            "m".into(),
+            Unit::multiplicative(Dimension::base("mass"), 1.0),
+        );
+        vars.insert(
+            "t".into(),
+            Unit::multiplicative(Dimension::base("time"), 1.0),
+        );
         let e = Expr::add(Expr::var("m"), Expr::var("t"));
         assert!(matches!(
             env.infer(&e, &vars, &[]),

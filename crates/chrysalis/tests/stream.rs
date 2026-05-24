@@ -28,13 +28,20 @@ composite Echo ~{n :: Float @ v} ->{out :: Float @ v} (
 ";
 
 fn args(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
 }
 
 fn outs(trace: &Value, key: &str) -> Vec<f64> {
     prism_trace::frames(trace)
         .iter()
-        .map(|f| f.get_field(key).and_then(|v| v.as_f64()).unwrap_or(f64::NAN))
+        .map(|f| {
+            f.get_field(key)
+                .and_then(|v| v.as_f64())
+                .unwrap_or(f64::NAN)
+        })
         .collect()
 }
 
@@ -42,7 +49,13 @@ fn outs(trace: &Value, key: &str) -> Vec<f64> {
 fn drive_trace(top: f64) -> Value {
     let counter = chrysalis::parse::parse_program(COUNTER).expect("parse counter");
     invoke_trace(
-        &counter, std_registry(), std_methods(), std_modules(), &args(&[("start", "0.0")]), top, 1.0,
+        &counter,
+        std_registry(),
+        std_methods(),
+        std_modules(),
+        &args(&[("start", "0.0")]),
+        top,
+        1.0,
     )
     .expect("counter trace")
 }
@@ -94,10 +107,20 @@ fn ys_program_proxies_as_a_streaming_process_over_pipes() {
 
     // Drive it with n = [0,1,2] (small — fits the pipe buffer without lock-step).
     let in_bytes = prism_trace::serialize_trace(&drive_trace(2.0)).expect("serialize");
-    child.stdin.take().unwrap().write_all(&in_bytes).expect("write child stdin"); // drop ⇒ EOF
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&in_bytes)
+        .expect("write child stdin"); // drop ⇒ EOF
 
     let mut out_bytes = Vec::new();
-    child.stdout.take().unwrap().read_to_end(&mut out_bytes).expect("read child stdout");
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_end(&mut out_bytes)
+        .expect("read child stdout");
     child.wait().expect("reap child");
     std::fs::remove_file(&echo_path).ok();
 

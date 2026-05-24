@@ -18,7 +18,10 @@ fn parses_units_and_runs() {
 
     // The parser produced a `unit pg` declaration + a Quantity-typed process.
     assert!(
-        program.defs.iter().any(|d| matches!(d, Def::Unit(u) if u.name == "pg")),
+        program
+            .defs
+            .iter()
+            .any(|d| matches!(d, Def::Unit(u) if u.name == "pg")),
         "parsed the `unit pg : [mass] = 1e-12 kg` declaration"
     );
 
@@ -33,8 +36,19 @@ fn parses_units_and_runs() {
     .expect("engine init");
     engine.discover_all_processes();
 
-    let m0 = engine.state().get_field("mass").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let m0 = engine
+        .state()
+        .get_field("mass")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
     engine.run(5.0);
-    let m1 = engine.state().get_field("mass").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    assert!(m1 > m0, "Grow grew the dimensioned mass (checked + erased): {m0} -> {m1}");
+    let m1 = engine
+        .state()
+        .get_field("mass")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    assert!(
+        m1 > m0,
+        "Grow grew the dimensioned mass (checked + erased): {m0} -> {m1}"
+    );
 }

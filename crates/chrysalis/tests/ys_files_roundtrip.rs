@@ -25,8 +25,9 @@ fn all_ys_examples_parse_and_roundtrip() {
         let src = fs::read_to_string(&path).unwrap();
         let prog = parse_program(&src).unwrap_or_else(|e| panic!("{name}: parse failed: {e}"));
         let text1 = unparse(&prog);
-        let reparsed = parse_program(&text1)
-            .unwrap_or_else(|e| panic!("{name}: re-parse of unparse failed: {e}\n--- text ---\n{text1}"));
+        let reparsed = parse_program(&text1).unwrap_or_else(|e| {
+            panic!("{name}: re-parse of unparse failed: {e}\n--- text ---\n{text1}")
+        });
         let text2 = unparse(&reparsed);
         assert_eq!(text1, text2, "{name}: not a round-trip fixpoint");
         checked.push(name);

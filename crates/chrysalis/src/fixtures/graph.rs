@@ -34,15 +34,27 @@ fn path(base: &str, field: &str) -> Expr {
 }
 
 fn binop(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
-    Expr::BinOp { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+    Expr::BinOp {
+        op,
+        lhs: Box::new(lhs),
+        rhs: Box::new(rhs),
+    }
 }
 
 fn not_(e: Expr) -> Expr {
-    Expr::UnaryOp { op: UnaryOp::Not, operand: Box::new(e) }
+    Expr::UnaryOp {
+        op: UnaryOp::Not,
+        operand: Box::new(e),
+    }
 }
 
 fn record(fields: Vec<(&str, Expr)>) -> Expr {
-    Expr::Record(fields.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+    Expr::Record(
+        fields
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+    )
 }
 
 /// A structural collection delta `{ field: {op: items} }` — the *data
@@ -50,7 +62,10 @@ fn record(fields: Vec<(&str, Expr)>) -> Expr {
 /// delta basis (`_add` / `_remove`). A write-method returns this (pure);
 /// `apply` installs it via the representation.
 fn coll(field: &str, op: &str, items: Expr) -> Expr {
-    record(vec![(field, Expr::Map(vec![(StringLit::plain(op), items)]))])
+    record(vec![(
+        field,
+        Expr::Map(vec![(StringLit::plain(op), items)]),
+    )])
 }
 
 /// `[ body for var in src if filter ]`.
@@ -75,9 +90,8 @@ pub fn program() -> Program {
         ("edges".to_string(), SchemaExpr::list_of(edge_schema)),
     ]));
 
-    let edge = |from: &str, to: &str| {
-        record(vec![("from", Expr::var(from)), ("to", Expr::var(to))])
-    };
+    let edge =
+        |from: &str, to: &str| record(vec![("from", Expr::var(from)), ("to", Expr::var(to))]);
 
     let methods = vec![
         // ── write methods: pure delta-constructors over the complete basis ──
@@ -104,7 +118,13 @@ pub fn program() -> Program {
             name: "remove_node".into(),
             params: vec![Param::required("id", SchemaExpr::String)],
             body: record(vec![
-                ("nodes", Expr::Map(vec![(StringLit::plain("_remove"), Expr::List(vec![Expr::var("id")]))])),
+                (
+                    "nodes",
+                    Expr::Map(vec![(
+                        StringLit::plain("_remove"),
+                        Expr::List(vec![Expr::var("id")]),
+                    )]),
+                ),
                 (
                     "edges",
                     Expr::Map(vec![(

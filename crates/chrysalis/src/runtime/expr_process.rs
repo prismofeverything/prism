@@ -90,10 +90,7 @@ impl Process for ExprProcess {
         match self.evaluator.eval_value(&self.body, &env) {
             Ok(value) => Update::value(value),
             Err(err) => {
-                eprintln!(
-                    "chrysalis ExprProcess `{}` eval error: {err}",
-                    self.label
-                );
+                eprintln!("chrysalis ExprProcess `{}` eval error: {err}", self.label);
                 Update::Noop
             }
         }

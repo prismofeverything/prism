@@ -193,7 +193,10 @@ fn translocate_erk_in() -> ReactionDef {
             comp(vec![
                 ("kind", plain("Cytoplasm")),
                 ("substrate", named("ERK")),
-                ("inner", comp(vec![("inner_rest", Expr::site("?inner_rest"))])),
+                (
+                    "inner",
+                    comp(vec![("inner_rest", Expr::site("?inner_rest"))]),
+                ),
                 ("outer_rest", Expr::site("?outer_rest")),
             ]),
         ),
@@ -237,7 +240,10 @@ fn translocate_erk_out() -> ReactionDef {
             "outer",
             comp(vec![
                 ("kind", plain("Cytoplasm")),
-                ("inner", comp(vec![("inner_rest", Expr::site("?inner_rest"))])),
+                (
+                    "inner",
+                    comp(vec![("inner_rest", Expr::site("?inner_rest"))]),
+                ),
                 ("substrate", named("ERK")),
                 ("outer_rest", Expr::site("?outer_rest")),
             ]),
@@ -399,8 +405,10 @@ fn mapk_composite() -> CompositeDef {
     CompositeDef {
         name: "Mapk".into(),
         params: vec![Param::required("cell", SchemaExpr::map_of(SchemaExpr::Any))],
-        interface: Interface::new()
-            .with_output("cell", PortDecl::required(SchemaExpr::map_of(SchemaExpr::Any))),
+        interface: Interface::new().with_output(
+            "cell",
+            PortDecl::required(SchemaExpr::map_of(SchemaExpr::Any)),
+        ),
         using: vec![],
         body: Expr::parallel(vec![
             Expr::entry("cell", Expr::var("cell")),

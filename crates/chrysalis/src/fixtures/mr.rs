@@ -78,11 +78,7 @@ fn make_b() -> ReactionDef {
         None,
         Expr::parallel(vec![
             product("F", blueprint_of("?f"), vec![]),
-            product(
-                "B",
-                blueprint_of("?f"),
-                vec![("source", Expr::var("?a"))],
-            ),
+            product("B", blueprint_of("?f"), vec![("source", Expr::var("?a"))]),
         ]),
         1.0,
     )

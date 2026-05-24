@@ -20,7 +20,9 @@ use prism_bigraph::process::{Process, ProcessNode, Step};
 use prism_bigraph::{Core, Engine, Schema, Update, Value};
 
 fn overwrite_float() -> Schema {
-    Schema::Overwrite { inner: Box::new(Schema::float()) }
+    Schema::Overwrite {
+        inner: Box::new(Schema::float()),
+    }
 }
 
 fn wire(segs: &[&str]) -> Value {
@@ -83,7 +85,9 @@ impl Step for GillespieInterval {
 #[test]
 fn step_drives_a_dynamic_process_interval() {
     let mut reg = ProcessRegistry::new();
-    reg.register("GillespieEvent", |_| ProcessNode::Process(Box::new(GillespieEvent)));
+    reg.register("GillespieEvent", |_| {
+        ProcessNode::Process(Box::new(GillespieEvent))
+    });
     reg.register("GillespieInterval", |c| {
         let k = c.get_field("k").and_then(|v| v.as_f64()).unwrap_or(1.0);
         ProcessNode::Step(Box::new(GillespieInterval { k }))
@@ -102,9 +106,16 @@ fn step_drives_a_dynamic_process_interval() {
         ("address", Value::from("local:GillespieInterval")),
         ("config", Value::tree([("k", Value::float(1.0))])),
         ("inputs", Value::tree([("a", wire(&["a"]))])),
-        ("outputs", Value::tree([("interval", wire(&["event", "interval"]))])),
+        (
+            "outputs",
+            Value::tree([("interval", wire(&["event", "interval"]))]),
+        ),
     ]);
-    let state = Value::tree([("a", Value::float(5.0)), ("event", event), ("ticker", ticker)]);
+    let state = Value::tree([
+        ("a", Value::float(5.0)),
+        ("event", event),
+        ("ticker", ticker),
+    ]);
 
     let mut engine = Engine::from_state(Schema::Any, state, core).expect("engine");
     engine.discover_all_processes();
@@ -125,7 +136,11 @@ fn step_drives_a_dynamic_process_interval() {
         intervals.push(round3(t - prev));
         prev = t;
     }
-    let a_left = engine.state().get_field("a").and_then(|v| v.as_f64()).unwrap_or(-1.0);
+    let a_left = engine
+        .state()
+        .get_field("a")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(-1.0);
     eprintln!("event times: {times:?}\ndynamic intervals used: {intervals:?}\na left: {a_left}");
 
     // The DECISIVE check: the engine scheduled each event by τ = 1/(k·a) for

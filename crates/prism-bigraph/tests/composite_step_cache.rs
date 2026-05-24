@@ -35,17 +35,30 @@ impl Step for Recording {
         }
     }
     fn outputs(&self) -> IndexMap<String, Schema> {
-        IndexMap::from([(self.out_port.clone(), Schema::Overwrite { inner: Box::new(Schema::float()) })])
+        IndexMap::from([(
+            self.out_port.clone(),
+            Schema::Overwrite {
+                inner: Box::new(Schema::float()),
+            },
+        )])
     }
     fn update(&self, state: &Value) -> Update {
-        *self.counters.lock().unwrap().entry(self.tag.clone()).or_insert(0) += 1;
+        *self
+            .counters
+            .lock()
+            .unwrap()
+            .entry(self.tag.clone())
+            .or_insert(0) += 1;
         let input = self
             .in_port
             .as_ref()
             .and_then(|p| state.get_field(p))
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
-        Update::value(Value::tree([(self.out_port.as_str(), Value::float(input + self.add))]))
+        Update::value(Value::tree([(
+            self.out_port.as_str(),
+            Value::float(input + self.add),
+        )]))
     }
     fn as_any(&self) -> &dyn Any {
         self
@@ -61,12 +74,20 @@ fn recording_core(counters: &Counters) -> Core {
     let mut registry = ProcessRegistry::new();
     let counters = Arc::clone(counters);
     registry.register("Recording", move |config| {
-        let s = |k: &str| config.get_field(k).and_then(|v| v.as_str()).map(String::from);
+        let s = |k: &str| {
+            config
+                .get_field(k)
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        };
         ProcessNode::Step(Box::new(Recording {
             tag: s("tag").unwrap_or_default(),
             in_port: s("in_port"),
             out_port: s("out_port").unwrap_or_else(|| "out".to_string()),
-            add: config.get_field("add").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            add: config
+                .get_field("add")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0),
             counters: Arc::clone(&counters),
         }))
     });
@@ -93,7 +114,10 @@ fn step(tag: &str, in_seg: Option<&str>, out_seg: &str, add: f64) -> Value {
     };
     Value::tree([
         ("address", Value::String("local:Recording".into())),
-        ("config", Value::Map(config.into_iter().map(|(k, v)| (k.into(), v)).collect())),
+        (
+            "config",
+            Value::Map(config.into_iter().map(|(k, v)| (k.into(), v)).collect()),
+        ),
         ("inputs", inputs),
         ("outputs", Value::tree([("out", wire(out_seg))])),
     ])
@@ -119,7 +143,10 @@ fn composite_config(cache_dir: &std::path::Path, forced: &[&str]) -> Value {
     ]);
     Value::tree([
         ("state", state),
-        ("bridge", Value::tree([("inputs", Value::map()), ("outputs", Value::map())])),
+        (
+            "bridge",
+            Value::tree([("inputs", Value::map()), ("outputs", Value::map())]),
+        ),
         ("cache", cache),
     ])
 }
@@ -146,11 +173,19 @@ fn composite_caches_its_own_inner_steps_via_config() {
 
     // Build 2: same cache dir, nothing forced ⇒ inner steps SKIP (reloaded).
     let _c2 = Composite::from_config(&composite_config(&dir, &[]), &core).expect("from_config");
-    assert_eq!(fires(&counters), (1, 1, 1), "build 2: inner steps skip (cached)");
+    assert_eq!(
+        fires(&counters),
+        (1, 1, 1),
+        "build 2: inner steps skip (cached)"
+    );
 
     // Build 3: force `b` ⇒ b re-runs, c cascades, a stays cached.
     let _c3 = Composite::from_config(&composite_config(&dir, &["b"]), &core).expect("from_config");
-    assert_eq!(fires(&counters), (1, 2, 2), "build 3: forcing b re-runs b + dependent c");
+    assert_eq!(
+        fires(&counters),
+        (1, 2, 2),
+        "build 3: forcing b re-runs b + dependent c"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

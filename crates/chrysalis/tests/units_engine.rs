@@ -189,7 +189,10 @@ fn using_injection_handles_factor_name_differing_from_slot() {
          using-path injection (got {below})"
     );
     let above = run_excess(60.0, "cell_vol");
-    assert!(above > 0.0, "above threshold should be positive (got {above})");
+    assert!(
+        above > 0.0,
+        "above threshold should be positive (got {above})"
+    );
 }
 
 // ── Cross-boundary: a context activated by an ANCESTOR composite,
@@ -226,7 +229,11 @@ fn tissue_program(n0: f64) -> Program {
     //   ~{} ->{volume, cell}  ( volume: volume | cell: Cell[n: n0] )
     p.push(Def::Composite(CompositeDef {
         name: "Tissue".into(),
-        params: vec![Param::with_default("volume", volume_t(), Expr::float(100.0))],
+        params: vec![Param::with_default(
+            "volume",
+            volume_t(),
+            Expr::float(100.0),
+        )],
         interface: Interface::new()
             .with_output("volume", PortDecl::required(volume_t()))
             .with_output("cell", PortDecl::required(SchemaExpr::custom("Cell"))),
@@ -289,5 +296,8 @@ fn context_factor_crosses_composite_boundary() {
          (got {below}; 0.0 means it never arrived, +39.5 that units were ignored)"
     );
     let above = run_tissue_excess(60.0);
-    assert!(above > 0.0, "above threshold should be positive (got {above})");
+    assert!(
+        above > 0.0,
+        "above threshold should be positive (got {above})"
+    );
 }

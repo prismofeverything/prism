@@ -15,7 +15,8 @@ fn main() {
             None => break,
         };
 
-        let vel = engine.state()
+        let vel = engine
+            .state()
             .get_path(&["particles".into(), pid.into(), "velocity".into()])
             .and_then(|v| v.as_list())
             .map(|l| l.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0))
@@ -27,6 +28,8 @@ fn main() {
         }
         prev_vy = vel;
 
-        if time > 2.5 { break; }
+        if time > 2.5 {
+            break;
+        }
     }
 }

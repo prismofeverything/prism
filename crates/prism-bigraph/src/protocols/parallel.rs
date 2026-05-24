@@ -1,155 +1,238 @@
-//! `parallel` protocol — each process runs on its own worker thread.
+//! `parallel` protocol — process `update()`s run on a shared CPU pool.
 //!
 //! Upstream's `process_bigraph.protocols.parallel` uses Python's
-//! `multiprocessing` to put each process in a separate OS process for
-//! true parallelism (Python's GIL means threads don't parallelize CPU
-//! work). Rust threads *do* parallelize — they're independent
-//! schedulable units sharing the same address space — so the Rust
-//! analogue ships work to **worker threads** instead.
+//! `multiprocessing` to put each process in its own OS process for true
+//! parallelism (the GIL means threads don't parallelize CPU work). Rust
+//! threads *do* parallelize, so the Rust analogue ships each `update()`
+//! to a **shared worker pool** — no per-process thread, no GIL caveat.
 //!
-//! Semantically the API is identical to the local protocol: a
-//! `parallel:Cell` process exposes the same `Process` trait surface
-//! as a `local:Cell`. The difference is where its `update()` body
-//! runs.
+//! ## How it parallelizes (the seam, see docs/execution-model.md)
 //!
-//! ## Today
+//! A `ParallelProcess` overrides [`Process::invoke`]: instead of running
+//! `update()` inline, it clones the input, submits `update()` to the
+//! shared [`ParallelPool`], and returns a slot-[`Defer`] immediately.
+//! The engine's run loop invokes **every** due process first (so all
+//! their tasks are now in flight on the pool), then collects each
+//! `Defer` — whose `.get()` blocks until that task fills its slot. So a
+//! tick's `parallel:` processes run concurrently; the wall-clock is the
+//! slowest, not the sum.
 //!
-//! Each [`ParallelProcess`] owns a single worker thread. `update()`
-//! sends the input state over a sync channel, waits for the worker to
-//! finish, returns the result. Sequential calls serialize on the
-//! channel; parallelism gain shows up when multiple `ParallelProcess`
-//! instances are invoked from different orchestrator threads.
-//!
-//! ## Future
-//!
-//! When the Composite / Engine orchestrator gets the invoke → flush →
-//! collect refactor (#22 fully wired), `parallel`'s `Process::invoke`
-//! can return a [`crate::defer::Defer`] backed by a `DeferSlot` and
-//! enqueue work on a shared thread pool — that's where the
-//! parallelism gain becomes visible.
+//! Because `Process: Send + Sync`, the inner process is shared into a
+//! pool task by `Arc`. The pool is created once per `ParallelProtocol`
+//! and shared (`Arc`) into every process it instantiates; it also
+//! implements [`ProtocolRuntime`], so the engine can flush it as an
+//! explicit invoke→collect barrier (and the same registration path
+//! serves a future batched `ray:` protocol).
 
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 
 use prism_schema::Value;
 
+use crate::defer::Defer;
+use crate::factory::ProcessRegistry;
 use crate::process::{Process, ProcessNode};
 use crate::protocol::{Protocol, ProtocolError};
-use crate::factory::ProcessRegistry;
+use crate::protocol_runtime::ProtocolRuntime;
+use crate::update::Update;
 
-// ── Worker protocol ─────────────────────────────────────────────────
+// ── ParallelPool: a shared worker pool + invoke→collect barrier ──────
 
-enum WorkerRequest {
-    Update { state: Value, interval: f64 },
-    Shutdown,
+type Job = Box<dyn FnOnce() + Send + 'static>;
+
+/// Outstanding-task counter with a wait-for-zero barrier. `flush_pending`
+/// blocks on this until every task submitted in the current tick is done.
+#[derive(Default)]
+struct Pending {
+    count: Mutex<usize>,
+    empty: Condvar,
 }
 
-enum WorkerResponse {
-    Update(crate::update::Update),
+impl Pending {
+    fn add(&self) {
+        *self.count.lock().unwrap() += 1;
+    }
+    fn done(&self) {
+        let mut c = self.count.lock().unwrap();
+        *c -= 1;
+        if *c == 0 {
+            self.empty.notify_all();
+        }
+    }
+    fn wait_empty(&self) {
+        let mut c = self.count.lock().unwrap();
+        while *c > 0 {
+            c = self.empty.wait(c).unwrap();
+        }
+    }
 }
 
-// ── ParallelProcess: a Process that proxies to a worker thread ─────
+/// Shared CPU thread pool backing the `parallel` protocol. Process
+/// `invoke`s submit their `update()` here; the pool runs them
+/// concurrently and fills each task's slot. Created once per
+/// [`ParallelProtocol`] and shared (`Arc`) into every process it makes.
+pub struct ParallelPool {
+    /// `Option` so `Drop` can drop the sender (closing the queue) before
+    /// joining workers. `None` only during teardown.
+    job_tx: Option<Sender<Job>>,
+    pending: Arc<Pending>,
+    workers: Vec<JoinHandle<()>>,
+}
 
+impl ParallelPool {
+    /// Spawn a pool with `workers` threads (clamped to ≥ 1).
+    pub fn new(workers: usize) -> Self {
+        let workers = workers.max(1);
+        let (job_tx, job_rx) = channel::<Job>();
+        let job_rx = Arc::new(Mutex::new(job_rx));
+        let pending = Arc::new(Pending::default());
+
+        let handles = (0..workers)
+            .map(|i| Self::spawn_worker(i, Arc::clone(&job_rx)))
+            .collect();
+
+        Self {
+            job_tx: Some(job_tx),
+            pending,
+            workers: handles,
+        }
+    }
+
+    /// A pool sized to the machine's parallelism (fallback 4).
+    pub fn default_sized() -> Self {
+        let n = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+        Self::new(n)
+    }
+
+    fn spawn_worker(i: usize, job_rx: Arc<Mutex<Receiver<Job>>>) -> JoinHandle<()> {
+        std::thread::Builder::new()
+            .name(format!("parallel-pool-{i}"))
+            .spawn(move || {
+                loop {
+                    // Hold the lock only for the dequeue; the guard is a
+                    // temporary dropped at the `;`, so the job runs UNLOCKED
+                    // and workers execute concurrently.
+                    let job = job_rx.lock().unwrap().recv();
+                    match job {
+                        Ok(job) => job(),
+                        Err(_) => break, // all senders dropped → shut down
+                    }
+                }
+            })
+            .expect("spawn parallel-pool worker")
+    }
+
+    /// Submit `f` to run on a worker thread. Returns immediately; the
+    /// caller awaits the result through the slot it filled.
+    fn submit<F: FnOnce() + Send + 'static>(&self, f: F) {
+        self.pending.add();
+        let pending = Arc::clone(&self.pending);
+        let job: Job = Box::new(move || {
+            f();
+            pending.done();
+        });
+        if let Some(tx) = &self.job_tx {
+            // Workers outlive every submit (dropped only in our `Drop`),
+            // so this fails only if the pool is already torn down.
+            let _ = tx.send(job);
+        }
+    }
+}
+
+impl ProtocolRuntime for ParallelPool {
+    /// Wait for the current tick's submitted tasks to finish — the
+    /// explicit invoke→collect barrier. (Slot `Defer`s also block on
+    /// `.get()`, so concurrency is correct with or without this flush;
+    /// the barrier just makes "all done" explicit before collect.)
+    fn flush_pending(&self) {
+        self.pending.wait_empty();
+    }
+    fn label(&self) -> &str {
+        "parallel"
+    }
+}
+
+impl std::fmt::Debug for ParallelPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ParallelPool")
+            .field("workers", &self.workers.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for ParallelPool {
+    fn drop(&mut self) {
+        // Drop the sender so workers' recv() returns Err and they exit,
+        // then join them for a clean, deterministic shutdown.
+        self.job_tx.take();
+        for h in self.workers.drain(..) {
+            let _ = h.join();
+        }
+    }
+}
+
+// ── ParallelProcess: a Process that runs its update() on the pool ────
+
+/// A [`Process`] that runs its inner process's `update()` on a shared
+/// [`ParallelPool`]. `invoke` enqueues + returns a slot-`Defer`; the
+/// engine collects all such Defers after the invoke pass, so every
+/// `parallel:` process in a tick runs concurrently.
 pub struct ParallelProcess {
     class_name: String,
-    cached_inputs: crate::ports::PortSchema,
-    cached_outputs: crate::ports::PortSchema,
-    cached_interval: f64,
-    request_tx: SyncSender<WorkerRequest>,
-    response_rx: Mutex<Receiver<WorkerResponse>>,
-    worker: Mutex<Option<JoinHandle<()>>>,
+    inner: Arc<dyn Process>,
+    pool: Arc<ParallelPool>,
 }
 
 impl std::fmt::Debug for ParallelProcess {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ParallelProcess")
             .field("class", &self.class_name)
-            .field("interval", &self.cached_interval)
             .finish_non_exhaustive()
     }
 }
 
 impl ParallelProcess {
-    /// Spawn a worker thread hosting `process`. The worker owns the
-    /// process for its lifetime; `Drop` shuts the worker down cleanly.
-    pub fn spawn(process: Box<dyn Process>, class_name: String) -> Self {
-        let cached_inputs = process.inputs();
-        let cached_outputs = process.outputs();
-        let cached_interval = process.interval();
-
-        // 0-buffer sync channels: send blocks until receiver is ready,
-        // so the parent's `update()` and the worker's loop step in
-        // lockstep — no queue buildup.
-        let (request_tx, request_rx) = sync_channel::<WorkerRequest>(0);
-        let (response_tx, response_rx) = sync_channel::<WorkerResponse>(0);
-
-        let worker_class = class_name.clone();
-        let worker = std::thread::Builder::new()
-            .name(format!("parallel-{}", worker_class))
-            .spawn(move || {
-                while let Ok(req) = request_rx.recv() {
-                    match req {
-                        WorkerRequest::Update { state, interval } => {
-                            let upd = process.update(&state, interval);
-                            if response_tx.send(WorkerResponse::Update(upd)).is_err() {
-                                break;
-                            }
-                        }
-                        WorkerRequest::Shutdown => break,
-                    }
-                }
-            })
-            .expect("spawn worker thread");
-
+    pub fn new(inner: Arc<dyn Process>, pool: Arc<ParallelPool>, class_name: String) -> Self {
         Self {
             class_name,
-            cached_inputs,
-            cached_outputs,
-            cached_interval,
-            request_tx,
-            response_rx: Mutex::new(response_rx),
-            worker: Mutex::new(Some(worker)),
-        }
-    }
-}
-
-impl Drop for ParallelProcess {
-    fn drop(&mut self) {
-        // Signal shutdown; ignore error (worker may have died already).
-        let _ = self.request_tx.send(WorkerRequest::Shutdown);
-        if let Some(handle) = self.worker.lock().unwrap().take() {
-            let _ = handle.join();
+            inner,
+            pool,
         }
     }
 }
 
 impl Process for ParallelProcess {
     fn inputs(&self) -> crate::ports::PortSchema {
-        self.cached_inputs.clone()
+        self.inner.inputs()
     }
     fn outputs(&self) -> crate::ports::PortSchema {
-        self.cached_outputs.clone()
+        self.inner.outputs()
     }
     fn interval(&self) -> f64 {
-        self.cached_interval
+        self.inner.interval()
     }
 
-    fn update(&self, state: &Value, interval: f64) -> crate::update::Update {
-        if self
-            .request_tx
-            .send(WorkerRequest::Update {
-                state: state.clone(),
-                interval,
-            })
-            .is_err()
-        {
-            return crate::update::Update::Noop;
-        }
-        match self.response_rx.lock().unwrap().recv() {
-            Ok(WorkerResponse::Update(u)) => u,
-            Err(_) => crate::update::Update::Noop,
-        }
+    /// Enqueue the inner `update()` on the shared pool and return a
+    /// slot-`Defer`; the pool fills it when the task finishes. The
+    /// engine resolves it in the collect pass (`.get()` blocks until
+    /// then) — which is where parallelism becomes visible.
+    fn invoke(&self, state: &Value, interval: f64) -> Defer<Update> {
+        let (defer, slot) = Defer::slot();
+        let inner = Arc::clone(&self.inner);
+        let state = state.clone();
+        self.pool.submit(move || {
+            slot.fill(inner.update(&state, interval));
+        });
+        defer
+    }
+
+    /// Blocking convenience — submit and await. The engine uses `invoke`
+    /// for concurrency; a direct `update()` caller still gets the result.
+    fn update(&self, state: &Value, interval: f64) -> Update {
+        self.invoke(state, interval).get()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -162,14 +245,45 @@ impl Process for ParallelProcess {
 
 // ── ParallelProtocol: dispatches addresses with protocol == "parallel" ──
 
-/// The `parallel` protocol. Looks up the underlying class in the
-/// local process registry, instantiates it, then wraps the result in
-/// a [`ParallelProcess`].
+/// The `parallel` protocol. Looks up the underlying class in the local
+/// process registry, instantiates it, and wraps it in a
+/// [`ParallelProcess`] bound to this protocol's shared [`ParallelPool`].
 ///
-/// For now Steps are returned unchanged (they're reactive — no
-/// inherent benefit to threading the trigger).
-#[derive(Debug, Default)]
-pub struct ParallelProtocol;
+/// Steps are returned unchanged (they're reactive — no inherent benefit
+/// to threading the trigger).
+pub struct ParallelProtocol {
+    pool: Arc<ParallelPool>,
+}
+
+impl Default for ParallelProtocol {
+    fn default() -> Self {
+        Self {
+            pool: Arc::new(ParallelPool::default_sized()),
+        }
+    }
+}
+
+impl std::fmt::Debug for ParallelProtocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ParallelProtocol").finish_non_exhaustive()
+    }
+}
+
+impl ParallelProtocol {
+    /// A protocol whose pool has exactly `workers` threads.
+    pub fn new(workers: usize) -> Self {
+        Self {
+            pool: Arc::new(ParallelPool::new(workers)),
+        }
+    }
+
+    /// The shared pool — register this with the engine
+    /// (`register_protocol_runtime`) so it is flushed between the invoke
+    /// and collect passes (the explicit barrier).
+    pub fn pool(&self) -> Arc<ParallelPool> {
+        Arc::clone(&self.pool)
+    }
+}
 
 impl Protocol for ParallelProtocol {
     fn name(&self) -> &str {
@@ -192,12 +306,12 @@ impl Protocol for ParallelProtocol {
         })?;
         match node {
             ProcessNode::Process(p) => {
-                let parallel = ParallelProcess::spawn(p, class_name.to_string());
-                Ok(ProcessNode::Process(Box::new(parallel)))
+                let inner: Arc<dyn Process> = Arc::from(p);
+                let wrapped = ParallelProcess::new(inner, self.pool(), class_name.to_string());
+                Ok(ProcessNode::Process(Box::new(wrapped)))
             }
-            // Steps are state-change-triggered and lightweight — leave
-            // on the orchestrator thread for now. A future
-            // `ParallelStep` wrapper could be added symmetrically.
+            // Steps are state-change-triggered and lightweight — leave on
+            // the orchestrator thread for now.
             ProcessNode::Step(s) => Ok(ProcessNode::Step(s)),
         }
     }
@@ -208,9 +322,9 @@ mod tests {
     use super::*;
     use crate::ports::PortSchema;
     use crate::protocol::{ParsedAddress, ProtocolRegistry};
-    use crate::update::Update;
     use indexmap::IndexMap;
     use prism_schema::Schema;
+    use std::time::{Duration, Instant};
 
     #[derive(Debug)]
     struct DoubleProcess;
@@ -246,17 +360,20 @@ mod tests {
         Arc::new(r)
     }
 
+    fn parallel_registry() -> ProtocolRegistry {
+        let mut p = ProtocolRegistry::new();
+        p.register(Arc::new(ParallelProtocol::default()));
+        p
+    }
+
     #[test]
     fn parallel_protocol_round_trip() {
         let registry = make_registry();
-        let protocols = {
-            let mut p = ProtocolRegistry::new();
-            p.register(Arc::new(ParallelProtocol::default()));
-            p
-        };
-        let addr =
-            ParsedAddress::parse(&Value::String("parallel:Double".into())).unwrap();
-        let node = protocols.instantiate(&addr, Value::None, &registry).unwrap();
+        let protocols = parallel_registry();
+        let addr = ParsedAddress::parse(&Value::String("parallel:Double".into())).unwrap();
+        let node = protocols
+            .instantiate(&addr, Value::None, &registry)
+            .unwrap();
         let proc = match node {
             ProcessNode::Process(p) => p,
             _ => panic!("expected Process"),
@@ -269,48 +386,22 @@ mod tests {
     }
 
     #[test]
-    fn parallel_protocol_concurrent_updates() {
-        // Two ParallelProcess instances run on independent worker
-        // threads — their updates can happen concurrently from
-        // different driver threads.
+    fn parallel_invoke_returns_a_defer_resolved_later() {
+        // invoke() must not block — it returns a Defer the pool fills.
         let registry = make_registry();
-        let protocols = {
-            let mut p = ProtocolRegistry::new();
-            p.register(Arc::new(ParallelProtocol::default()));
-            p
-        };
-        let addr =
-            ParsedAddress::parse(&Value::String("parallel:Double".into())).unwrap();
-        let a = protocols
+        let protocols = parallel_registry();
+        let addr = ParsedAddress::parse(&Value::String("parallel:Double".into())).unwrap();
+        let node = protocols
             .instantiate(&addr, Value::None, &registry)
             .unwrap();
-        let b = protocols
-            .instantiate(&addr, Value::None, &registry)
-            .unwrap();
-
-        let a = match a {
-            ProcessNode::Process(p) => Arc::new(p),
-            _ => panic!(),
-        };
-        let b = match b {
-            ProcessNode::Process(p) => Arc::new(p),
-            _ => panic!(),
+        let proc = match node {
+            ProcessNode::Process(p) => p,
+            _ => panic!("expected Process"),
         };
 
-        let a_clone = Arc::clone(&a);
-        let b_clone = Arc::clone(&b);
-        let h1 = std::thread::spawn(move || {
-            let s = Value::tree([("x", Value::float(2.0))]);
-            a_clone.update(&s, 1.0)
-        });
-        let h2 = std::thread::spawn(move || {
-            let s = Value::tree([("x", Value::float(5.0))]);
-            b_clone.update(&s, 1.0)
-        });
-
-        let r1 = h1
-            .join()
-            .unwrap()
+        let defer = proc.invoke(&Value::tree([("x", Value::float(4.0))]), 1.0);
+        let x = defer
+            .get()
             .into_value()
             .unwrap()
             .as_map()
@@ -319,34 +410,64 @@ mod tests {
             .unwrap()
             .as_f64()
             .unwrap();
-        let r2 = h2
-            .join()
-            .unwrap()
-            .into_value()
-            .unwrap()
-            .as_map()
-            .unwrap()
-            .get("x")
-            .unwrap()
-            .as_f64()
-            .unwrap();
-        assert!((r1 - 4.0).abs() < 1e-9);
-        assert!((r2 - 10.0).abs() < 1e-9);
+        assert!((x - 8.0).abs() < 1e-9);
     }
 
     #[test]
-    fn parallel_drop_shuts_down_worker() {
+    fn pool_runs_submitted_tasks_concurrently() {
+        // The core wall-clock proof: 4 tasks × 50ms on a 4-thread pool
+        // finish in ~50ms (concurrent), not ~200ms (sequential). Sleeping
+        // tasks parallelize even on a 1-core box (no CPU contention).
+        let pool = ParallelPool::new(4);
+        let start = Instant::now();
+        let mut defers = Vec::new();
+        for i in 0..4u32 {
+            let (defer, slot) = Defer::<u32>::slot();
+            pool.submit(move || {
+                std::thread::sleep(Duration::from_millis(50));
+                slot.fill(i * 10);
+            });
+            defers.push(defer);
+        }
+        pool.flush_pending(); // barrier: every task done, every slot filled
+        let elapsed = start.elapsed();
+
+        let mut got: Vec<u32> = defers.into_iter().map(|d| d.get()).collect();
+        got.sort();
+        assert_eq!(got, vec![0, 10, 20, 30]);
+        assert!(
+            elapsed < Duration::from_millis(150),
+            "expected concurrency, but took {elapsed:?} (sequential would be ~200ms)"
+        );
+    }
+
+    #[test]
+    fn flush_pending_waits_for_all_tasks() {
+        // After flush_pending returns, every slot must have been filled.
+        let pool = ParallelPool::new(2);
+        let done = Arc::new(Mutex::new(0u32));
+        for _ in 0..6 {
+            let done = Arc::clone(&done);
+            pool.submit(move || {
+                std::thread::sleep(Duration::from_millis(10));
+                *done.lock().unwrap() += 1;
+            });
+        }
+        pool.flush_pending();
+        assert_eq!(*done.lock().unwrap(), 6);
+    }
+
+    #[test]
+    fn parallel_drop_shuts_down_cleanly() {
+        // Dropping the protocol (last pool owner) joins the workers; if
+        // shutdown were broken this would hang or panic on drop.
         let registry = make_registry();
-        let protocols = {
-            let mut p = ProtocolRegistry::new();
-            p.register(Arc::new(ParallelProtocol::default()));
-            p
-        };
-        let addr =
-            ParsedAddress::parse(&Value::String("parallel:Double".into())).unwrap();
-        let node = protocols.instantiate(&addr, Value::None, &registry).unwrap();
-        drop(node); // Drop should send Shutdown and join cleanly.
-                    // If the worker hadn't been shut down properly the test
-                    // would either hang or panic on drop.
+        let protocols = parallel_registry();
+        let addr = ParsedAddress::parse(&Value::String("parallel:Double".into())).unwrap();
+        let node = protocols
+            .instantiate(&addr, Value::None, &registry)
+            .unwrap();
+        drop(node);
+        drop(protocols); // last Arc<ParallelPool> → Drop joins workers
     }
 }

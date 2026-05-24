@@ -29,7 +29,10 @@ fn star_wire_parses_roundtrips_and_fans_out() {
 
     // The unparser preserves `*` segments, and the wire round-trips.
     let text = unparse(&program);
-    assert!(text.contains("agents.*.mass"), "unparse preserves the * wire:\n{text}");
+    assert!(
+        text.contains("agents.*.mass"),
+        "unparse preserves the * wire:\n{text}"
+    );
     let reparsed = unparse(&parse_program(&text).expect("re-parse"));
     assert_eq!(text, reparsed, "the * wire round-trips");
 

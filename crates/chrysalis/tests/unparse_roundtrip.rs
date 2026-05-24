@@ -13,7 +13,10 @@ use chrysalis::unparse::unparse;
 #[test]
 fn generate_mapk_and_mr_ys() {
     let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ys");
-    for (name, prog) in [("mr", fixtures::mr::program()), ("mapk", fixtures::mapk::program())] {
+    for (name, prog) in [
+        ("mr", fixtures::mr::program()),
+        ("mapk", fixtures::mapk::program()),
+    ] {
         let header = format!(
             "# GENERATED from `fixtures::{name}::program()` by the unparser\n\
              # (chrysalis::unparse). Round-trip-verified: parse(this) re-unparses\n\

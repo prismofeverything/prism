@@ -31,7 +31,11 @@ pub struct MonodKinetics {
 
 impl MonodKinetics {
     pub fn new(reactions: Vec<Reaction>, interval: f64) -> Self {
-        Self { reactions, interval, yield_scale: 1.0 }
+        Self {
+            reactions,
+            interval,
+            yield_scale: 1.0,
+        }
     }
 
     /// Get all substrate molecule IDs referenced by reactions.
@@ -87,10 +91,7 @@ impl Process for MonodKinetics {
         }
 
         for rxn in &self.reactions {
-            let concentration = substrate_values
-                .get(&rxn.reactant)
-                .copied()
-                .unwrap_or(0.0);
+            let concentration = substrate_values.get(&rxn.reactant).copied().unwrap_or(0.0);
 
             // Monod rate: vmax * [S] / (km + [S])
             let rate = if concentration > 0.0 {
@@ -132,8 +133,14 @@ impl Process for MonodKinetics {
         let substrate_deltas: prism_schema::StateMap = substrate_values
             .iter()
             .map(|(k, &final_val)| {
-                let initial = substrates.get(k.as_str()).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                (prism_schema::Key::from(k.as_str()), Value::float(final_val - initial))
+                let initial = substrates
+                    .get(k.as_str())
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                (
+                    prism_schema::Key::from(k.as_str()),
+                    Value::float(final_val - initial),
+                )
             })
             .collect();
 

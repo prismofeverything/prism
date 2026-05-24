@@ -24,8 +24,8 @@ fn run_workflow(tag: &str) -> (Value, PathBuf) {
         &format!("IntegratorComparison[out: '{}']", out.display()),
     );
     let prog = parse_program(&src).expect("parse");
-    let state =
-        chrysalis::runner::run(&prog, std_registry(), std_methods(), std_modules(), 2.0).expect("run");
+    let state = chrysalis::runner::run(&prog, std_registry(), std_methods(), std_modules(), 2.0)
+        .expect("run");
     (state, out)
 }
 

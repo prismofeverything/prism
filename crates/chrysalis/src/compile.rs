@@ -29,23 +29,22 @@ use indexmap::IndexMap;
 
 use prism_bigraph::composite::Composite;
 use prism_bigraph::{BigraphicalReactiveSystem, Core, ProcessNode, ProcessRegistry, Topology};
-use prism_schema::units::Context;
 use prism_schema::algebra;
 use prism_schema::registry::TypeMethods;
+use prism_schema::units::Context;
 use prism_schema::{
-    divide_by_schema, DivideContext, Key, MethodError, MethodRegistry, Schema, StateMap,
-    TypeRegistry, Value,
+    DivideContext, Key, MethodError, MethodRegistry, Schema, StateMap, TypeRegistry, Value,
+    divide_by_schema,
 };
 
 use crate::ast::{
-    ContextUse, Def, Expr, Name, Param, PortDecl, ProcessDef, Program, SchemaExpr,
-    StepDef, TermArg,
+    ContextUse, Def, Expr, Name, Param, PortDecl, ProcessDef, Program, SchemaExpr, StepDef, TermArg,
 };
-use crate::units::UnitEnv;
 use crate::eval::{EvalError, Evaluator};
 use crate::runtime::expr_process::ExprProcess;
 use crate::runtime::expr_step::ExprStep;
 use crate::runtime::rule::{extract_rules, to_prism_rule};
+use crate::units::UnitEnv;
 
 /// Output of compiling a chrysalis [`Program`].
 pub struct CompileResult {
@@ -171,7 +170,9 @@ impl ModuleRegistry {
         } else if let Some(src) = m.types.get(name) {
             Some(Export::Type(src.clone()))
         } else {
-            m.functions.get(name).map(|f| Export::Function(Arc::clone(f)))
+            m.functions
+                .get(name)
+                .map(|f| Export::Function(Arc::clone(f)))
         }
     }
 }
@@ -239,11 +240,11 @@ pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
 }
 
 /// Like [`compile`], but starts from a caller-provided `registry` — e.g. one
-/// pre-populated with NATIVE process factories that the program's
-/// `extern process` declarations reference (spatio-flux's numerical
+/// pre-populated with NATIVE process factories that the program's native
+/// imports (`from <module> import Name`) reference (spatio-flux's numerical
 /// processes: diffusion, FBA, kinetics, particles). chrysalis registers its
-/// own factories on top, so an `extern process Name` resolves `local:Name`
-/// to the native factory the caller supplied under `Name`.
+/// own factories on top, so a native `Name` resolves `local:Name` to the
+/// factory the caller supplied under `Name`.
 pub fn compile_with_registry(
     program: &Program,
     registry: ProcessRegistry,
@@ -356,9 +357,6 @@ pub fn compile_with_modules(
             Def::Step(step_def) => {
                 register_step_factory(&mut registry, step_def, Arc::clone(&evaluator));
             }
-            // Extern processes are backed by NATIVE factories the caller
-            // merged into `registry` — chrysalis registers nothing for them.
-            Def::Extern(_) => {}
             // Reactions and Patterns are values constructed at call sites,
             // not separate process types. Bindings (including `main`) are
             // top-level values evaluated at compile time.
@@ -429,9 +427,7 @@ pub fn compile_with_modules(
         // run via the `invoke` path (CLI-bound), not as a bare root — so it is
         // left out here (empty root) rather than failing on missing args.
         _ => match program.entry() {
-            Some(Def::Composite(d)) if bare_runnable(d) => {
-                Some(Expr::term(d.name.clone()).build())
-            }
+            Some(Def::Composite(d)) if bare_runnable(d) => Some(Expr::term(d.name.clone()).build()),
             _ => None,
         },
     };
@@ -554,16 +550,12 @@ fn register_process_factory(
     });
 }
 
-fn register_step_factory(
-    registry: &mut ProcessRegistry,
-    def: &StepDef,
-    evaluator: Arc<Evaluator>,
-) {
+fn register_step_factory(registry: &mut ProcessRegistry, def: &StepDef, evaluator: Arc<Evaluator>) {
     let def = def.clone();
     let label = def.name.clone();
     registry.register(label.clone(), move |config| {
-        let resolved = resolve_params(&def.params, &config, &evaluator)
-            .expect("step param resolution failed");
+        let resolved =
+            resolve_params(&def.params, &config, &evaluator).expect("step param resolution failed");
         let priority = config
             .as_map()
             .and_then(|m| m.get("priority"))
@@ -635,11 +627,12 @@ fn register_user_type_methods(methods: &mut MethodRegistry, program: &Arc<Progra
                 // value — never a mutated state. The framework applies the
                 // delta (via the representation), so nothing is tagged/mutated
                 // here.
-                ev.eval_method_body(&body, recv, &params, args).map_err(|e| MethodError::Failed {
-                    type_name: tn.clone(),
-                    method: mn.clone(),
-                    message: e.to_string(),
-                })
+                ev.eval_method_body(&body, recv, &params, args)
+                    .map_err(|e| MethodError::Failed {
+                        type_name: tn.clone(),
+                        method: mn.clone(),
+                        message: e.to_string(),
+                    })
             });
         }
     }
@@ -652,7 +645,13 @@ fn register_user_types(types: &mut TypeRegistry, program: &Arc<Program>) {
     for def in &program.defs {
         let Def::Type(td) = def else { continue };
         let repr = crate::schema::lower_schema_in_program(&td.representation, program);
-        types.register_full(td.name.clone(), repr, None, Some(Arc::new(RepresentationType)), Vec::new());
+        types.register_full(
+            td.name.clone(),
+            repr,
+            None,
+            Some(Arc::new(RepresentationType)),
+            Vec::new(),
+        );
     }
 }
 
@@ -812,7 +811,10 @@ fn inject_using_factors(
 ) {
     match e {
         Expr::Term {
-            control, ports, body, ..
+            control,
+            ports,
+            body,
+            ..
         } => {
             if let Some(inputs) = proc_inputs.get(control) {
                 for cu in using {

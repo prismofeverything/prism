@@ -31,8 +31,14 @@ impl Process for Grow {
         IndexMap::from([("mass".to_string(), Schema::float())])
     }
     fn update(&self, state: &Value, interval: f64) -> Update {
-        let mass = state.get_field("mass").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        Update::value(Value::tree([("mass", Value::float(mass * self.rate * interval))]))
+        let mass = state
+            .get_field("mass")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        Update::value(Value::tree([(
+            "mass",
+            Value::float(mass * self.rate * interval),
+        )]))
     }
     fn as_any(&self) -> &dyn Any {
         self
@@ -57,7 +63,10 @@ impl Step for Divide {
         IndexMap::from([("environment".to_string(), Schema::map(Schema::Any))])
     }
     fn update(&self, state: &Value) -> Update {
-        let trigger = state.get_field("trigger").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let trigger = state
+            .get_field("trigger")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
         if trigger <= self.threshold {
             return Update::Noop;
         }
@@ -113,7 +122,10 @@ fn cell_spec(mass: f64, id: &str) -> Value {
             ]),
         ),
         ("inputs", Value::tree([("trigger", wire(&["mass"]))])),
-        ("outputs", Value::tree([("environment", wire(&["environment"]))])),
+        (
+            "outputs",
+            Value::tree([("environment", wire(&["environment"]))]),
+        ),
     ]);
     let state = Value::tree([
         ("mass", Value::float(mass)),
@@ -124,11 +136,17 @@ fn cell_spec(mass: f64, id: &str) -> Value {
     let bridge = Value::tree([
         ("inputs", Value::map()),
         // expose the inner `environment` slot as the composite's port
-        ("outputs", Value::tree([("environment", wire(&["environment"]))])),
+        (
+            "outputs",
+            Value::tree([("environment", wire(&["environment"]))]),
+        ),
     ]);
     Value::tree([
         ("address", Value::String("local:Composite".to_string())),
-        ("config", Value::tree([("state", state), ("bridge", bridge)])),
+        (
+            "config",
+            Value::tree([("state", state), ("bridge", bridge)]),
+        ),
         ("inputs", Value::map()),
         // The composite's `environment` output lands on its PARENT store
         // (the map holding the cells). prism is parent-relative, so the
@@ -141,16 +159,25 @@ fn cell_spec(mass: f64, id: &str) -> Value {
 fn subengine_cell_grows_and_divides_via_bridge() {
     let mut registry = ProcessRegistry::new();
     registry.register("Grow", |config| {
-        let rate = config.get_field("rate").and_then(|v| v.as_f64()).unwrap_or(0.1);
+        let rate = config
+            .get_field("rate")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.1);
         ProcessNode::Process(Box::new(Grow { rate }))
     });
     registry.register("Divide", |config| {
-        let threshold = config.get_field("threshold").and_then(|v| v.as_f64()).unwrap_or(2.0);
+        let threshold = config
+            .get_field("threshold")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(2.0);
         let agent_id = config
             .get_field("agent_id")
             .and_then(|v| v.as_str().map(|s| s.to_string()))
             .unwrap_or_default();
-        ProcessNode::Step(Box::new(Divide { threshold, agent_id }))
+        ProcessNode::Step(Box::new(Divide {
+            threshold,
+            agent_id,
+        }))
     });
     // The cell composite is discovered/instantiated through from_config too —
     // it captures the whole Core (set once everything is built).
@@ -176,14 +203,17 @@ fn subengine_cell_grows_and_divides_via_bridge() {
         "environment",
         Value::tree([("cell", cell_spec(1.6, "cell"))]),
     )]);
-    let mut engine = Engine::from_state(Schema::Any, topo.initial_state.clone(), core)
-        .expect("engine");
+    let mut engine =
+        Engine::from_state(Schema::Any, topo.initial_state.clone(), core).expect("engine");
     engine.discover_all_processes();
 
     let count = |e: &Engine| {
         e.state()
             .get_field("environment")
-            .and_then(|v| v.as_map().map(|m| m.keys().filter(|k| !k.starts_with('_')).count()))
+            .and_then(|v| {
+                v.as_map()
+                    .map(|m| m.keys().filter(|k| !k.starts_with('_')).count())
+            })
             .unwrap_or(0)
     };
     eprintln!("cells before: {}", count(&engine));
@@ -191,7 +221,10 @@ fn subengine_cell_grows_and_divides_via_bridge() {
     let after = count(&engine);
     eprintln!(
         "cells after run(8.0): {after}\n  root keys: {:?}\n  env keys: {:?}",
-        engine.state().as_map().map(|m| m.keys().collect::<Vec<_>>()),
+        engine
+            .state()
+            .as_map()
+            .map(|m| m.keys().collect::<Vec<_>>()),
         engine
             .state()
             .get_field("environment")

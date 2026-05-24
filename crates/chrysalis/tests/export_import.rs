@@ -43,7 +43,10 @@ fn import_export_equals_run() {
     let result =
         compile_with_modules(&prog, std_registry(), std_methods(), std_modules()).expect("compile");
     let doc = document_of(&result);
-    assert!(doc.schema.is_some(), "the document renders the schema alongside the state");
+    assert!(
+        doc.schema.is_some(),
+        "the document renders the schema alongside the state"
+    );
 
     let json = serde_json::to_string(&doc).expect("serialize document");
     let doc2: Document = serde_json::from_str(&json).expect("deserialize document");
@@ -55,7 +58,10 @@ fn import_export_equals_run() {
         mse(&imported),
         "import(export(f)) ≡ run(f): the round-tripped document re-runs identically"
     );
-    assert!(mse(&direct).is_some(), "sanity: the workflow produced an mse");
+    assert!(
+        mse(&direct).is_some(),
+        "sanity: the workflow produced an mse"
+    );
 
     let _ = std::fs::remove_dir_all(&out);
 }

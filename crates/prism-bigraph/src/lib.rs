@@ -23,10 +23,9 @@ pub use protocol::{LocalProtocol, ParsedAddress, Protocol, ProtocolError, Protoc
 pub use protocol_runtime::{ProtocolRuntime, ProtocolRuntimes};
 pub use protocols::{ParallelProtocol, RestProtocol};
 
-pub use document::Document;
-pub use vivarium::VivariumDocument;
 pub use composite::Composite;
 pub use core::Core;
+pub use document::Document;
 pub use engine::Engine;
 pub use factory::ProcessRegistry;
 pub use ports::{Interface, PortSchema, Wires};
@@ -34,6 +33,7 @@ pub use process::{Process, ProcessNode, Step};
 pub use step_cache::StepCache;
 pub use topology::{ProcessSpec, Topology};
 pub use update::Update;
+pub use vivarium::VivariumDocument;
 
 // Re-export schema types for convenience
 pub use prism_schema::value::Foreign;

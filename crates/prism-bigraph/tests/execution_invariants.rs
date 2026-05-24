@@ -13,7 +13,9 @@ use prism_bigraph::topology::{ProcessSpec, Topology};
 use prism_bigraph::{Engine, Key, Schema, Update, Value};
 
 fn overwrite_float() -> Schema {
-    Schema::Overwrite { inner: Box::new(Schema::float()) }
+    Schema::Overwrite {
+        inner: Box::new(Schema::float()),
+    }
 }
 
 /// Copies input port `in` onto output port `out` (overwrite).
@@ -27,7 +29,10 @@ impl Process for Copy {
         IndexMap::from([("out".to_string(), overwrite_float())])
     }
     fn update(&self, state: &Value, _interval: f64) -> Update {
-        let v = state.get_field("in").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let v = state
+            .get_field("in")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
         Update::value(Value::tree([("out", Value::float(v))]))
     }
     fn as_any(&self) -> &dyn Any {
@@ -121,10 +126,14 @@ fn processes_in_a_tick_share_one_pre_tick_snapshot() {
     let mut topo = Topology::new();
     topo.initial_state = Value::tree([("a", Value::float(1.0)), ("b", Value::float(2.0))]);
     topo.state_schema = Schema::tree([("a", overwrite_float()), ("b", overwrite_float())]);
-    topo.processes
-        .insert("pa".into(), spec("Copy", &[("in", "b")], &[("out", "a")], Some(1.0)));
-    topo.processes
-        .insert("pb".into(), spec("Copy", &[("in", "a")], &[("out", "b")], Some(1.0)));
+    topo.processes.insert(
+        "pa".into(),
+        spec("Copy", &[("in", "b")], &[("out", "a")], Some(1.0)),
+    );
+    topo.processes.insert(
+        "pb".into(),
+        spec("Copy", &[("in", "a")], &[("out", "b")], Some(1.0)),
+    );
     let mut instances: HashMap<String, ProcessNode> = HashMap::new();
     instances.insert("pa".into(), ProcessNode::Process(Box::new(Copy)));
     instances.insert("pb".into(), ProcessNode::Process(Box::new(Copy)));
@@ -148,10 +157,14 @@ fn concurrent_deltas_to_one_store_reconcile_by_sum() {
     let mut topo = Topology::new();
     topo.initial_state = Value::tree([("x", Value::float(0.0))]);
     topo.state_schema = Schema::tree([("x", Schema::float())]);
-    topo.processes
-        .insert("p1".into(), spec("AddDelta", &[], &[("out", "x")], Some(1.0)));
-    topo.processes
-        .insert("p2".into(), spec("AddDelta", &[], &[("out", "x")], Some(1.0)));
+    topo.processes.insert(
+        "p1".into(),
+        spec("AddDelta", &[], &[("out", "x")], Some(1.0)),
+    );
+    topo.processes.insert(
+        "p2".into(),
+        spec("AddDelta", &[], &[("out", "x")], Some(1.0)),
+    );
     let mut instances: HashMap<String, ProcessNode> = HashMap::new();
     instances.insert("p1".into(), ProcessNode::Process(Box::new(AddDelta(1.0))));
     instances.insert("p2".into(), ProcessNode::Process(Box::new(AddDelta(2.0))));
@@ -185,10 +198,14 @@ fn step_consumer_runs_in_a_later_layer_than_its_producer() {
         ("c", overwrite_float()),
         ("d", overwrite_float()),
     ]);
-    topo.processes
-        .insert("s1".into(), spec("Op", &[("x", "a"), ("y", "b")], &[("out", "c")], None));
-    topo.processes
-        .insert("s2".into(), spec("Op", &[("x", "b"), ("y", "c")], &[("out", "d")], None));
+    topo.processes.insert(
+        "s1".into(),
+        spec("Op", &[("x", "a"), ("y", "b")], &[("out", "c")], None),
+    );
+    topo.processes.insert(
+        "s2".into(),
+        spec("Op", &[("x", "b"), ("y", "c")], &[("out", "d")], None),
+    );
     let mut instances: HashMap<String, ProcessNode> = HashMap::new();
     instances.insert("s1".into(), ProcessNode::Step(Box::new(Op("+"))));
     instances.insert("s2".into(), ProcessNode::Step(Box::new(Op("*"))));
@@ -235,7 +252,10 @@ impl Step for Emit {
 
 fn one_cell_map() -> (Value, Schema) {
     (
-        Value::tree([("m", Value::tree([("a0", Value::tree([("v", Value::float(1.0))]))]))]),
+        Value::tree([(
+            "m",
+            Value::tree([("a0", Value::tree([("v", Value::float(1.0))]))]),
+        )]),
         Schema::tree([("m", Schema::map(Schema::tree([("v", Schema::float())])))]),
     )
 }
@@ -276,7 +296,10 @@ fn remove_wins_over_a_concurrent_write() {
         .get_field("m")
         .and_then(|m| m.get_field("a0"))
         .is_some();
-    assert!(!has_a0, "_remove wins over a concurrent value-update (a0 is gone, not re-created)");
+    assert!(
+        !has_a0,
+        "_remove wins over a concurrent value-update (a0 is gone, not re-created)"
+    );
 }
 
 /// **`_add`-compose.** In one reconciled layer, re-adding a key (`_add`, absolute)
@@ -317,7 +340,11 @@ fn add_composes_with_a_concurrent_write() {
         .and_then(|m| m.get_field("a0"))
         .and_then(|a| a.get_field("v"))
         .and_then(|v| v.as_f64());
-    assert_eq!(v, Some(15.0), "_add(v=10) composes with concurrent +5 ⇒ 15, not 6");
+    assert_eq!(
+        v,
+        Some(15.0),
+        "_add(v=10) composes with concurrent +5 ⇒ 15, not 6"
+    );
 }
 
 /// **`_remove` + `_add` of the same key = replace.** When one tick both removes

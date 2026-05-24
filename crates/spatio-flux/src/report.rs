@@ -15,10 +15,10 @@ use indexmap::IndexMap;
 use std::sync::Arc;
 
 use prism_bigraph::{Document, ProcessRegistry, Value, VivariumDocument};
-use prism_viz::{render_dot, DotOptions};
+use prism_viz::{DotOptions, render_dot};
 
 use crate::processes::fields::flatten_field;
-use crate::processes::particles::{radius_from_mass, DEFAULT_DENSITY};
+use crate::processes::particles::{DEFAULT_DENSITY, radius_from_mass};
 use crate::vivarium_loader::instantiate_vivarium;
 
 /// A single simulation run result for the report.
@@ -55,7 +55,7 @@ pub enum ReportScale {
 impl ReportScale {
     fn duration_multiplier(self) -> f64 {
         match self {
-            Self::Debug => 0.05,    // 3 steps for a 60s sim
+            Self::Debug => 0.05, // 3 steps for a 60s sim
             Self::Standard => 1.0,
             Self::Max => 10.0,
         }
@@ -105,14 +105,16 @@ pub fn run_single_sim(
     std::fs::create_dir_all(output_dir).map_err(|e| e.to_string())?;
 
     let path = fixture_dir.join(format!("{name}.json"));
-    let json = std::fs::read_to_string(&path)
-        .map_err(|e| format!("{name}: {e}"))?;
+    let json = std::fs::read_to_string(&path).map_err(|e| format!("{name}: {e}"))?;
 
-    let vdoc = VivariumDocument::from_json(&json)
-        .map_err(|e| format!("{name}: parse error: {e}"))?;
+    let vdoc =
+        VivariumDocument::from_json(&json).map_err(|e| format!("{name}: parse error: {e}"))?;
 
-    let process_types: Vec<String> = vdoc.processes.values()
-        .map(|p| p.class_name.clone()).collect();
+    let process_types: Vec<String> = vdoc
+        .processes
+        .values()
+        .map(|p| p.class_name.clone())
+        .collect();
     let n_processes = vdoc.processes.len();
 
     // Copy source JSON
@@ -138,9 +140,9 @@ pub fn run_single_sim(
             let mut states = vec![engine.state().clone()];
 
             for _ in 0..n_steps {
-                let result = std::panic::catch_unwind(
-                    std::panic::AssertUnwindSafe(|| engine.run(emit_interval))
-                );
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    engine.run(emit_interval)
+                }));
                 if result.is_err() {
                     eprintln!("  {name}: panicked at t={:.0}", engine.time());
                     break;
@@ -225,58 +227,125 @@ fn run_grow_divide_benchmark(output_dir: &Path) {
     use std::collections::HashMap;
 
     #[derive(Clone, Debug)]
-    struct Grow { rate: f64 }
+    struct Grow {
+        rate: f64,
+    }
     impl Process for Grow {
-        fn inputs(&self) -> IndexMap<String, Schema> { IndexMap::from([("mass".into(), Schema::float())]) }
-        fn outputs(&self) -> IndexMap<String, Schema> { IndexMap::from([("mass".into(), Schema::float())]) }
-        fn interval(&self) -> f64 { 1.0 }
-        fn update(&self, state: &Value, interval: f64) -> Update {
-            let mass = state.as_map().and_then(|m| m.get("mass")).and_then(|v| v.as_f64()).unwrap_or(0.0);
-            Update::value(Value::tree([("mass", Value::float(self.rate * mass * interval))]))
+        fn inputs(&self) -> IndexMap<String, Schema> {
+            IndexMap::from([("mass".into(), Schema::float())])
         }
-        fn as_any(&self) -> &dyn std::any::Any { self }
-        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+        fn outputs(&self) -> IndexMap<String, Schema> {
+            IndexMap::from([("mass".into(), Schema::float())])
+        }
+        fn interval(&self) -> f64 {
+            1.0
+        }
+        fn update(&self, state: &Value, interval: f64) -> Update {
+            let mass = state
+                .as_map()
+                .and_then(|m| m.get("mass"))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            Update::value(Value::tree([(
+                "mass",
+                Value::float(self.rate * mass * interval),
+            )]))
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            self
+        }
     }
 
     #[derive(Clone, Debug)]
-    struct Divide { threshold: f64, agent_id: String }
+    struct Divide {
+        threshold: f64,
+        agent_id: String,
+    }
     impl Step for Divide {
-        fn inputs(&self) -> IndexMap<String, Schema> { IndexMap::from([("trigger".into(), Schema::float())]) }
+        fn inputs(&self) -> IndexMap<String, Schema> {
+            IndexMap::from([("trigger".into(), Schema::float())])
+        }
         fn outputs(&self) -> IndexMap<String, Schema> {
-            IndexMap::from([("environment".into(), Schema::Overwrite { inner: Box::new(Schema::map(Schema::Any)) })])
+            IndexMap::from([(
+                "environment".into(),
+                Schema::Overwrite {
+                    inner: Box::new(Schema::map(Schema::Any)),
+                },
+            )])
         }
         fn update(&self, state: &Value) -> Update {
-            let mass = state.get_field("trigger").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            if mass < self.threshold { return Update::Noop; }
+            let mass = state
+                .get_field("trigger")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            if mass < self.threshold {
+                return Update::Noop;
+            }
             let half = mass / 2.0;
             let id_a = format!("{}_0", self.agent_id);
             let id_b = format!("{}_1", self.agent_id);
             let make_daughter = |id: &str| -> Value {
                 Value::tree([
                     ("mass", Value::float(half)),
-                    ("grow_divide", Value::Map(IndexMap::from([
-                        ("address".into(), Value::String("local:GrowDivideAgent".into())),
-                        ("config".into(), Value::tree([("agent_id", Value::String(id.into()))])),
-                        ("inputs".into(), Value::tree([("mass", Value::List(vec![Value::String("mass".into())]))])),
-                        ("outputs".into(), Value::tree([
-                            ("mass", Value::List(vec![Value::String("mass".into())])),
-                            ("environment", Value::List(vec![
-                                Value::String("..".into()), Value::String("..".into()), Value::String("environment".into()),
-                            ])),
+                    (
+                        "grow_divide",
+                        Value::Map(IndexMap::from([
+                            (
+                                "address".into(),
+                                Value::String("local:GrowDivideAgent".into()),
+                            ),
+                            (
+                                "config".into(),
+                                Value::tree([("agent_id", Value::String(id.into()))]),
+                            ),
+                            (
+                                "inputs".into(),
+                                Value::tree([(
+                                    "mass",
+                                    Value::List(vec![Value::String("mass".into())]),
+                                )]),
+                            ),
+                            (
+                                "outputs".into(),
+                                Value::tree([
+                                    ("mass", Value::List(vec![Value::String("mass".into())])),
+                                    (
+                                        "environment",
+                                        Value::List(vec![
+                                            Value::String("..".into()),
+                                            Value::String("..".into()),
+                                            Value::String("environment".into()),
+                                        ]),
+                                    ),
+                                ]),
+                            ),
                         ])),
-                    ]))),
+                    ),
                 ])
             };
             let mut env_update = IndexMap::new();
-            env_update.insert("_remove".into(), Value::List(vec![Value::String(self.agent_id.clone())]));
-            env_update.insert("_add".into(), Value::Map(IndexMap::from([
-                (prism_schema::Key::from(id_a.as_str()), make_daughter(&id_a)),
-                (prism_schema::Key::from(id_b.as_str()), make_daughter(&id_b)),
-            ])));
+            env_update.insert(
+                "_remove".into(),
+                Value::List(vec![Value::String(self.agent_id.clone())]),
+            );
+            env_update.insert(
+                "_add".into(),
+                Value::Map(IndexMap::from([
+                    (prism_schema::Key::from(id_a.as_str()), make_daughter(&id_a)),
+                    (prism_schema::Key::from(id_b.as_str()), make_daughter(&id_b)),
+                ])),
+            );
             Update::value(Value::tree([("environment", Value::Map(env_update))]))
         }
-        fn as_any(&self) -> &dyn std::any::Any { self }
-        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            self
+        }
     }
 
     let growth_rate = 0.1;
@@ -285,30 +354,59 @@ fn run_grow_divide_benchmark(output_dir: &Path) {
     let make_composite = |agent_id: &str| -> Composite {
         let mut topo = Topology::new();
         topo.initial_state = Value::tree([("mass", Value::float(0.0))]);
-        topo.state_schema = Schema::Tree { branches: IndexMap::from([("mass".into(), Schema::float())]) };
-        topo.processes.insert("grow".into(), ProcessSpec {
-            process_type: "Grow".into(), config: Value::tree([("rate", Value::float(growth_rate))]),
-            inputs: IndexMap::from([("mass".into(), vec!["mass".into()])]),
-            outputs: IndexMap::from([("mass".into(), vec!["mass".into()])]),
-            interval: Some(1.0), priority: 0.0,
-        });
-        topo.processes.insert("divide".into(), ProcessSpec {
-            process_type: "Divide".into(), config: Value::None,
-            inputs: IndexMap::from([("trigger".into(), vec!["mass".into()])]),
-            outputs: IndexMap::from([("environment".into(), vec!["environment".into()])]),
-            interval: None, priority: 0.0,
-        });
+        topo.state_schema = Schema::Tree {
+            branches: IndexMap::from([("mass".into(), Schema::float())]),
+        };
+        topo.processes.insert(
+            "grow".into(),
+            ProcessSpec {
+                process_type: "Grow".into(),
+                config: Value::tree([("rate", Value::float(growth_rate))]),
+                inputs: IndexMap::from([("mass".into(), vec!["mass".into()])]),
+                outputs: IndexMap::from([("mass".into(), vec!["mass".into()])]),
+                interval: Some(1.0),
+                priority: 0.0,
+            },
+        );
+        topo.processes.insert(
+            "divide".into(),
+            ProcessSpec {
+                process_type: "Divide".into(),
+                config: Value::None,
+                inputs: IndexMap::from([("trigger".into(), vec!["mass".into()])]),
+                outputs: IndexMap::from([("environment".into(), vec!["environment".into()])]),
+                interval: None,
+                priority: 0.0,
+            },
+        );
         let mut inst = HashMap::new();
-        inst.insert("grow".into(), ProcessNode::Process(Box::new(Grow { rate: growth_rate })));
-        inst.insert("divide".into(), ProcessNode::Step(Box::new(Divide { threshold, agent_id: agent_id.into() })));
-        Composite::new(Engine::new(topo, inst),
-            Bridge { mappings: IndexMap::from([("mass".into(), vec!["mass".into()])]) },
-            Bridge { mappings: IndexMap::from([
-                ("mass".into(), vec!["mass".into()]),
-                ("environment".into(), vec!["environment".into()]),
-            ]) },
+        inst.insert(
+            "grow".into(),
+            ProcessNode::Process(Box::new(Grow { rate: growth_rate })),
+        );
+        inst.insert(
+            "divide".into(),
+            ProcessNode::Step(Box::new(Divide {
+                threshold,
+                agent_id: agent_id.into(),
+            })),
+        );
+        Composite::new(
+            Engine::new(topo, inst),
+            Bridge {
+                mappings: IndexMap::from([("mass".into(), vec!["mass".into()])]),
+            },
+            Bridge {
+                mappings: IndexMap::from([
+                    ("mass".into(), vec!["mass".into()]),
+                    ("environment".into(), vec!["environment".into()]),
+                ]),
+            },
             IndexMap::from([("mass".into(), Schema::float())]),
-            IndexMap::from([("mass".into(), Schema::float()), ("environment".into(), Schema::map(Schema::Any))]),
+            IndexMap::from([
+                ("mass".into(), Schema::float()),
+                ("environment".into(), Schema::map(Schema::Any)),
+            ]),
             1.0,
         )
     };
@@ -317,90 +415,163 @@ fn run_grow_divide_benchmark(output_dir: &Path) {
     let th = threshold;
     let mut reg = PR::new();
     reg.register("GrowDivideAgent", move |config| {
-        let agent_id = config.as_map().and_then(|m| m.get("agent_id"))
-            .and_then(|v| v.as_str()).unwrap_or("0").to_string();
+        let agent_id = config
+            .as_map()
+            .and_then(|m| m.get("agent_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("0")
+            .to_string();
 
         // Inline composite construction (same as make_composite but captures gr/th)
         let mut topo = Topology::new();
         topo.initial_state = Value::tree([("mass", Value::float(0.0))]);
-        topo.state_schema = Schema::Tree { branches: IndexMap::from([("mass".into(), Schema::float())]) };
-        topo.processes.insert("grow".into(), ProcessSpec {
-            process_type: "Grow".into(), config: Value::tree([("rate", Value::float(gr))]),
-            inputs: IndexMap::from([("mass".into(), vec!["mass".into()])]),
-            outputs: IndexMap::from([("mass".into(), vec!["mass".into()])]),
-            interval: Some(1.0), priority: 0.0,
-        });
-        topo.processes.insert("divide".into(), ProcessSpec {
-            process_type: "Divide".into(), config: Value::None,
-            inputs: IndexMap::from([("trigger".into(), vec!["mass".into()])]),
-            outputs: IndexMap::from([("environment".into(), vec!["environment".into()])]),
-            interval: None, priority: 0.0,
-        });
+        topo.state_schema = Schema::Tree {
+            branches: IndexMap::from([("mass".into(), Schema::float())]),
+        };
+        topo.processes.insert(
+            "grow".into(),
+            ProcessSpec {
+                process_type: "Grow".into(),
+                config: Value::tree([("rate", Value::float(gr))]),
+                inputs: IndexMap::from([("mass".into(), vec!["mass".into()])]),
+                outputs: IndexMap::from([("mass".into(), vec!["mass".into()])]),
+                interval: Some(1.0),
+                priority: 0.0,
+            },
+        );
+        topo.processes.insert(
+            "divide".into(),
+            ProcessSpec {
+                process_type: "Divide".into(),
+                config: Value::None,
+                inputs: IndexMap::from([("trigger".into(), vec!["mass".into()])]),
+                outputs: IndexMap::from([("environment".into(), vec!["environment".into()])]),
+                interval: None,
+                priority: 0.0,
+            },
+        );
         let mut inst = HashMap::new();
-        inst.insert("grow".into(), ProcessNode::Process(Box::new(Grow { rate: gr })));
-        inst.insert("divide".into(), ProcessNode::Step(Box::new(Divide { threshold: th, agent_id: agent_id.clone() })));
-        ProcessNode::Process(Box::new(Composite::new(Engine::new(topo, inst),
-            Bridge { mappings: IndexMap::from([("mass".into(), vec!["mass".into()])]) },
-            Bridge { mappings: IndexMap::from([
-                ("mass".into(), vec!["mass".into()]),
-                ("environment".into(), vec!["environment".into()]),
-            ]) },
+        inst.insert(
+            "grow".into(),
+            ProcessNode::Process(Box::new(Grow { rate: gr })),
+        );
+        inst.insert(
+            "divide".into(),
+            ProcessNode::Step(Box::new(Divide {
+                threshold: th,
+                agent_id: agent_id.clone(),
+            })),
+        );
+        ProcessNode::Process(Box::new(Composite::new(
+            Engine::new(topo, inst),
+            Bridge {
+                mappings: IndexMap::from([("mass".into(), vec!["mass".into()])]),
+            },
+            Bridge {
+                mappings: IndexMap::from([
+                    ("mass".into(), vec!["mass".into()]),
+                    ("environment".into(), vec!["environment".into()]),
+                ]),
+            },
             IndexMap::from([("mass".into(), Schema::float())]),
-            IndexMap::from([("mass".into(), Schema::float()), ("environment".into(), Schema::map(Schema::Any))]),
+            IndexMap::from([
+                ("mass".into(), Schema::float()),
+                ("environment".into(), Schema::map(Schema::Any)),
+            ]),
             1.0,
         )))
     });
     let registry = Arc::new(reg);
 
     let schema = Schema::Tree {
-        branches: IndexMap::from([
-            ("environment".into(), Schema::map(Schema::Tree {
+        branches: IndexMap::from([(
+            "environment".into(),
+            Schema::map(Schema::Tree {
                 branches: IndexMap::from([
                     ("mass".into(), Schema::float()),
-                    ("grow_divide".into(), Schema::process(
-                        IndexMap::from([("mass".into(), Schema::float())]),
-                        IndexMap::from([("mass".into(), Schema::float()), ("environment".into(), Schema::map(Schema::Any))]),
-                    )),
+                    (
+                        "grow_divide".into(),
+                        Schema::process(
+                            IndexMap::from([("mass".into(), Schema::float())]),
+                            IndexMap::from([
+                                ("mass".into(), Schema::float()),
+                                ("environment".into(), Schema::map(Schema::Any)),
+                            ]),
+                        ),
+                    ),
                 ]),
-            })),
-        ]),
+            }),
+        )]),
     };
-    let state = Value::tree([
-        ("environment", Value::tree([
-            ("0", Value::tree([
+    let state = Value::tree([(
+        "environment",
+        Value::tree([(
+            "0",
+            Value::tree([
                 ("mass", Value::float(1.0)),
-                ("grow_divide", Value::Map(IndexMap::from([
-                    ("address".into(), Value::String("local:GrowDivideAgent".into())),
-                    ("config".into(), Value::tree([("agent_id", Value::String("0".into()))])),
-                    ("inputs".into(), Value::tree([("mass", Value::List(vec![Value::String("mass".into())]))])),
-                    ("outputs".into(), Value::tree([
-                        ("mass", Value::List(vec![Value::String("mass".into())])),
-                        ("environment", Value::List(vec![
-                            Value::String("..".into()), Value::String("..".into()), Value::String("environment".into()),
-                        ])),
+                (
+                    "grow_divide",
+                    Value::Map(IndexMap::from([
+                        (
+                            "address".into(),
+                            Value::String("local:GrowDivideAgent".into()),
+                        ),
+                        (
+                            "config".into(),
+                            Value::tree([("agent_id", Value::String("0".into()))]),
+                        ),
+                        (
+                            "inputs".into(),
+                            Value::tree([(
+                                "mass",
+                                Value::List(vec![Value::String("mass".into())]),
+                            )]),
+                        ),
+                        (
+                            "outputs".into(),
+                            Value::tree([
+                                ("mass", Value::List(vec![Value::String("mass".into())])),
+                                (
+                                    "environment",
+                                    Value::List(vec![
+                                        Value::String("..".into()),
+                                        Value::String("..".into()),
+                                        Value::String("environment".into()),
+                                    ]),
+                                ),
+                            ]),
+                        ),
                     ])),
-                ]))),
-            ])),
-        ])),
-    ]);
+                ),
+            ]),
+        )]),
+    )]);
 
     // Run at increasing durations, record (duration, n_agents, wall_ms)
-    let durations = [5.0, 10.0, 20.0, 30.0, 40.0, 50.0, 55.0, 60.0, 65.0, 70.0, 75.0];
+    let durations = [
+        5.0, 10.0, 20.0, 30.0, 40.0, 50.0, 55.0, 60.0, 65.0, 70.0, 75.0,
+    ];
     let mut bench_results: Vec<(f64, usize, f64)> = Vec::new();
 
     for &dur in &durations {
         let start = Instant::now();
-        let mut engine = Engine::from_state(schema.clone(), state.clone(), Arc::clone(&registry)).unwrap();
+        let mut engine =
+            Engine::from_state(schema.clone(), state.clone(), Arc::clone(&registry)).unwrap();
         engine.run(dur);
         let ms = start.elapsed().as_secs_f64() * 1000.0;
-        let n_agents = engine.state().get_path(&["environment".into()])
-            .and_then(|v| v.as_map()).map(|m| m.len()).unwrap_or(0);
+        let n_agents = engine
+            .state()
+            .get_path(&["environment".into()])
+            .and_then(|v| v.as_map())
+            .map(|m| m.len())
+            .unwrap_or(0);
         bench_results.push((dur, n_agents, ms));
         eprintln!("  grow_divide t={dur}: {n_agents} agents, {ms:.0}ms");
     }
 
     // Save results as JSON
-    let json_results: Vec<serde_json::Value> = bench_results.iter()
+    let json_results: Vec<serde_json::Value> = bench_results
+        .iter()
         .map(|(dur, n, ms)| serde_json::json!({"duration": dur, "agents": n, "wall_ms": ms}))
         .collect();
     let _ = std::fs::write(
@@ -414,18 +585,30 @@ fn run_grow_divide_benchmark(output_dir: &Path) {
 
 /// Python reference data for the benchmark (constant).
 const PYTHON_BENCH: &[(f64, usize, f64)] = &[
-    (5.0, 1, 11.0), (10.0, 2, 31.0), (20.0, 4, 90.0), (30.0, 8, 220.0),
-    (40.0, 32, 657.0), (50.0, 64, 1638.0), (55.0, 64, 2107.0),
-    (60.0, 128, 3768.0), (65.0, 256, 6477.0), (70.0, 256, 8637.0),
+    (5.0, 1, 11.0),
+    (10.0, 2, 31.0),
+    (20.0, 4, 90.0),
+    (30.0, 8, 220.0),
+    (40.0, 32, 657.0),
+    (50.0, 64, 1638.0),
+    (55.0, 64, 2107.0),
+    (60.0, 128, 3768.0),
+    (65.0, 256, 6477.0),
+    (70.0, 256, 8637.0),
     (75.0, 512, 15032.0),
 ];
 
 fn generate_benchmark_svg(rust_data: &[(f64, usize, f64)], output_dir: &Path) {
     let python_data = PYTHON_BENCH;
-    let w = 600; let h = 400; let margin = 60;
-    let pw = w - 2 * margin; let ph = h - 2 * margin;
-    let max_time = 40000.0_f64; let min_time = 0.1_f64;
-    let log_min = min_time.log10(); let log_max = max_time.log10();
+    let w = 600;
+    let h = 400;
+    let margin = 60;
+    let pw = w - 2 * margin;
+    let ph = h - 2 * margin;
+    let max_time = 40000.0_f64;
+    let min_time = 0.1_f64;
+    let log_min = min_time.log10();
+    let log_max = max_time.log10();
     let max_dur = 75.0_f64;
 
     let x_of = |dur: f64| -> i32 { margin as i32 + ((dur / max_dur) * pw as f64) as i32 };
@@ -438,48 +621,156 @@ fn generate_benchmark_svg(rust_data: &[(f64, usize, f64)], output_dir: &Path) {
         "<svg width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\" xmlns=\"http://www.w3.org/2000/svg\">\
          <rect width=\"{w}\" height=\"{h}\" fill=\"white\"/>\
          <text x=\"{}\" y=\"20\" text-anchor=\"middle\" font-size=\"14\" font-family=\"sans-serif\" font-weight=\"bold\">\
-         Grow-Divide Benchmark: Rust vs Python</text>", w / 2);
+         Grow-Divide Benchmark: Rust vs Python</text>",
+        w / 2
+    );
 
     for &ms in &[0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0] {
         let y = y_of(ms);
-        let _ = write!(svg, "<line x1=\"{margin}\" y1=\"{y}\" x2=\"{}\" y2=\"{y}\" stroke=\"#eee\" stroke-width=\"1\"/>", margin + pw);
-        let label = if ms >= 1000.0 { format!("{}s", ms as i32 / 1000) } else if ms >= 1.0 { format!("{}ms", ms as i32) } else { "0.1ms".into() };
-        let _ = write!(svg, "<text x=\"{}\" y=\"{}\" text-anchor=\"end\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#666\">{label}</text>", margin - 5, y + 3);
+        let _ = write!(
+            svg,
+            "<line x1=\"{margin}\" y1=\"{y}\" x2=\"{}\" y2=\"{y}\" stroke=\"#eee\" stroke-width=\"1\"/>",
+            margin + pw
+        );
+        let label = if ms >= 1000.0 {
+            format!("{}s", ms as i32 / 1000)
+        } else if ms >= 1.0 {
+            format!("{}ms", ms as i32)
+        } else {
+            "0.1ms".into()
+        };
+        let _ = write!(
+            svg,
+            "<text x=\"{}\" y=\"{}\" text-anchor=\"end\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#666\">{label}</text>",
+            margin - 5,
+            y + 3
+        );
     }
     for &dur in &[0, 10, 20, 30, 40, 50, 60, 70] {
-        let _ = write!(svg, "<text x=\"{}\" y=\"{}\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#666\">{dur}</text>", x_of(dur as f64), h - 10);
+        let _ = write!(
+            svg,
+            "<text x=\"{}\" y=\"{}\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#666\">{dur}</text>",
+            x_of(dur as f64),
+            h - 10
+        );
     }
-    let _ = write!(svg, "<line x1=\"{margin}\" y1=\"{margin}\" x2=\"{margin}\" y2=\"{}\" stroke=\"#333\"/>", margin + ph);
-    let _ = write!(svg, "<line x1=\"{margin}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#333\"/>", margin + ph, margin + pw, margin + ph);
-    let _ = write!(svg, "<text x=\"{}\" y=\"{}\" text-anchor=\"middle\" font-size=\"11\" font-family=\"sans-serif\">Simulation Duration (s)</text>", w / 2, h - 2);
-    let _ = write!(svg, "<text x=\"12\" y=\"{}\" text-anchor=\"middle\" font-size=\"11\" font-family=\"sans-serif\" transform=\"rotate(-90 12 {})\">Wall Time (log scale)</text>", h / 2, h / 2);
+    let _ = write!(
+        svg,
+        "<line x1=\"{margin}\" y1=\"{margin}\" x2=\"{margin}\" y2=\"{}\" stroke=\"#333\"/>",
+        margin + ph
+    );
+    let _ = write!(
+        svg,
+        "<line x1=\"{margin}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#333\"/>",
+        margin + ph,
+        margin + pw,
+        margin + ph
+    );
+    let _ = write!(
+        svg,
+        "<text x=\"{}\" y=\"{}\" text-anchor=\"middle\" font-size=\"11\" font-family=\"sans-serif\">Simulation Duration (s)</text>",
+        w / 2,
+        h - 2
+    );
+    let _ = write!(
+        svg,
+        "<text x=\"12\" y=\"{}\" text-anchor=\"middle\" font-size=\"11\" font-family=\"sans-serif\" transform=\"rotate(-90 12 {})\">Wall Time (log scale)</text>",
+        h / 2,
+        h / 2
+    );
 
     // Rust line
-    let pts: String = rust_data.iter().map(|&(d, _, ms)| format!("{},{}", x_of(d), y_of(ms))).collect::<Vec<_>>().join(" ");
-    let _ = write!(svg, "<polyline points=\"{pts}\" fill=\"none\" stroke=\"#2ca02c\" stroke-width=\"2.5\"/>");
+    let pts: String = rust_data
+        .iter()
+        .map(|&(d, _, ms)| format!("{},{}", x_of(d), y_of(ms)))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let _ = write!(
+        svg,
+        "<polyline points=\"{pts}\" fill=\"none\" stroke=\"#2ca02c\" stroke-width=\"2.5\"/>"
+    );
     for &(d, n, ms) in rust_data {
         let (x, y) = (x_of(d), y_of(ms));
-        let _ = write!(svg, "<circle cx=\"{x}\" cy=\"{y}\" r=\"4\" fill=\"#2ca02c\"/>");
-        if n > 1 { let _ = write!(svg, "<text x=\"{}\" y=\"{}\" font-size=\"8\" font-family=\"sans-serif\" fill=\"#2ca02c\">{n}</text>", x+6, y-4); }
+        let _ = write!(
+            svg,
+            "<circle cx=\"{x}\" cy=\"{y}\" r=\"4\" fill=\"#2ca02c\"/>"
+        );
+        if n > 1 {
+            let _ = write!(
+                svg,
+                "<text x=\"{}\" y=\"{}\" font-size=\"8\" font-family=\"sans-serif\" fill=\"#2ca02c\">{n}</text>",
+                x + 6,
+                y - 4
+            );
+        }
     }
 
     // Python line
-    let pts: String = python_data.iter().map(|&(d, _, ms)| format!("{},{}", x_of(d), y_of(ms))).collect::<Vec<_>>().join(" ");
-    let _ = write!(svg, "<polyline points=\"{pts}\" fill=\"none\" stroke=\"#d62728\" stroke-width=\"2.5\"/>");
+    let pts: String = python_data
+        .iter()
+        .map(|&(d, _, ms)| format!("{},{}", x_of(d), y_of(ms)))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let _ = write!(
+        svg,
+        "<polyline points=\"{pts}\" fill=\"none\" stroke=\"#d62728\" stroke-width=\"2.5\"/>"
+    );
     for &(d, n, ms) in python_data {
         let (x, y) = (x_of(d), y_of(ms));
-        let _ = write!(svg, "<circle cx=\"{x}\" cy=\"{y}\" r=\"4\" fill=\"#d62728\"/>");
-        if n > 1 { let _ = write!(svg, "<text x=\"{}\" y=\"{}\" font-size=\"8\" font-family=\"sans-serif\" fill=\"#d62728\">{n}</text>", x+6, y-4); }
+        let _ = write!(
+            svg,
+            "<circle cx=\"{x}\" cy=\"{y}\" r=\"4\" fill=\"#d62728\"/>"
+        );
+        if n > 1 {
+            let _ = write!(
+                svg,
+                "<text x=\"{}\" y=\"{}\" font-size=\"8\" font-family=\"sans-serif\" fill=\"#d62728\">{n}</text>",
+                x + 6,
+                y - 4
+            );
+        }
     }
 
     // Legend
     let (lx, ly) = (margin + pw - 150, margin + 20);
-    let _ = write!(svg, "<rect x=\"{lx}\" y=\"{ly}\" width=\"145\" height=\"50\" fill=\"white\" stroke=\"#ccc\" rx=\"4\"/>");
-    let _ = write!(svg, "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#2ca02c\" stroke-width=\"2.5\"/>", lx+10, ly+18, lx+30, ly+18);
-    let _ = write!(svg, "<text x=\"{}\" y=\"{}\" font-size=\"11\" font-family=\"sans-serif\">Rust (release)</text>", lx+35, ly+22);
-    let _ = write!(svg, "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#d62728\" stroke-width=\"2.5\"/>", lx+10, ly+38, lx+30, ly+38);
-    let _ = write!(svg, "<text x=\"{}\" y=\"{}\" font-size=\"11\" font-family=\"sans-serif\">Python</text>", lx+35, ly+42);
-    let _ = write!(svg, "<text x=\"{}\" y=\"{}\" font-size=\"9\" font-family=\"sans-serif\" fill=\"#999\" font-style=\"italic\">Numbers show agent count at each point</text>", margin+5, margin as i32 + ph as i32 - 5);
+    let _ = write!(
+        svg,
+        "<rect x=\"{lx}\" y=\"{ly}\" width=\"145\" height=\"50\" fill=\"white\" stroke=\"#ccc\" rx=\"4\"/>"
+    );
+    let _ = write!(
+        svg,
+        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#2ca02c\" stroke-width=\"2.5\"/>",
+        lx + 10,
+        ly + 18,
+        lx + 30,
+        ly + 18
+    );
+    let _ = write!(
+        svg,
+        "<text x=\"{}\" y=\"{}\" font-size=\"11\" font-family=\"sans-serif\">Rust (release)</text>",
+        lx + 35,
+        ly + 22
+    );
+    let _ = write!(
+        svg,
+        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#d62728\" stroke-width=\"2.5\"/>",
+        lx + 10,
+        ly + 38,
+        lx + 30,
+        ly + 38
+    );
+    let _ = write!(
+        svg,
+        "<text x=\"{}\" y=\"{}\" font-size=\"11\" font-family=\"sans-serif\">Python</text>",
+        lx + 35,
+        ly + 42
+    );
+    let _ = write!(
+        svg,
+        "<text x=\"{}\" y=\"{}\" font-size=\"9\" font-family=\"sans-serif\" fill=\"#999\" font-style=\"italic\">Numbers show agent count at each point</text>",
+        margin + 5,
+        margin as i32 + ph as i32 - 5
+    );
 
     svg.push_str("</svg>");
     let _ = std::fs::write(output_dir.join("grow_divide_benchmark.svg"), &svg);
@@ -505,7 +796,11 @@ pub fn assemble_report(
         let n_processes = meta["n_processes"].as_u64().unwrap_or(0) as usize;
         let process_types: Vec<String> = meta["process_types"]
             .as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
             .unwrap_or_default();
         let runtime_ms = meta["runtime_ms"].as_u64().unwrap_or(0) as u128;
 
@@ -519,14 +814,16 @@ pub fn assemble_report(
                     has_probes: meta["has_probes"].as_bool().unwrap_or(false),
                     spatial_field_names: meta["spatial_field_names"]
                         .as_array()
-                        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
                         .unwrap_or_default(),
                     has_particles: meta["has_particles"].as_bool().unwrap_or(false),
                 }
             }
-            _ => SimStatus::Skipped(
-                meta["reason"].as_str().unwrap_or("unknown").to_string()
-            ),
+            _ => SimStatus::Skipped(meta["reason"].as_str().unwrap_or("unknown").to_string()),
         };
 
         results.push(SimResult {
@@ -541,10 +838,16 @@ pub fn assemble_report(
     let html = build_html(&results, output_dir, ReportScale::Standard);
     std::fs::write(output_dir.join("index.html"), html).map_err(|e| e.to_string())?;
 
-    let ran = results.iter().filter(|r| matches!(r.status, SimStatus::Ok { .. })).count();
+    let ran = results
+        .iter()
+        .filter(|r| matches!(r.status, SimStatus::Ok { .. }))
+        .count();
     let total_ms: u128 = results.iter().map(|r| r.runtime_ms).sum();
-    println!("Report: {ran}/{} sims, {total_ms}ms total → {}",
-        results.len(), output_dir.join("index.html").display());
+    println!(
+        "Report: {ran}/{} sims, {total_ms}ms total → {}",
+        results.len(),
+        output_dir.join("index.html").display()
+    );
 
     Ok(())
 }
@@ -628,8 +931,8 @@ pub fn generate_report_focused(
         let path = fixture_dir.join(format!("{name}.json"));
         let json = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
 
-        let vdoc = VivariumDocument::from_json(&json)
-            .map_err(|e| format!("{name}: parse error: {e}"))?;
+        let vdoc =
+            VivariumDocument::from_json(&json).map_err(|e| format!("{name}: parse error: {e}"))?;
 
         let process_types: Vec<String> = vdoc
             .processes
@@ -639,8 +942,7 @@ pub fn generate_report_focused(
         let n_processes = vdoc.processes.len();
 
         // Copy the source JSON to output
-        std::fs::copy(&path, output_dir.join(format!("{name}.json")))
-            .map_err(|e| e.to_string())?;
+        std::fs::copy(&path, output_dir.join(format!("{name}.json"))).map_err(|e| e.to_string())?;
 
         // Generate bigraph viz
         let topology = vdoc.to_topology();
@@ -648,11 +950,7 @@ pub fn generate_report_focused(
         let dot = render_dot(&doc, &DotOptions::default());
         let dot_path = output_dir.join(format!("{name}.dot"));
         std::fs::write(&dot_path, &dot).map_err(|e| e.to_string())?;
-        let _ = prism_viz::render_to_file(
-            &dot,
-            output_dir.join(format!("{name}_viz.svg")),
-            "svg",
-        );
+        let _ = prism_viz::render_to_file(&dot, output_dir.join(format!("{name}_viz.svg")), "svg");
 
         let start = Instant::now();
 
@@ -687,11 +985,14 @@ pub fn generate_report_focused(
                 let mut sim_failed = false;
 
                 for _ in 0..n_steps {
-                    let result = std::panic::catch_unwind(
-                        std::panic::AssertUnwindSafe(|| engine.run(emit_interval))
-                    );
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        engine.run(emit_interval)
+                    }));
                     if result.is_err() {
-                        eprintln!("  {name}: simulation panicked at t={:.0}, stopping", engine.time());
+                        eprintln!(
+                            "  {name}: simulation panicked at t={:.0}, stopping",
+                            engine.time()
+                        );
                         sim_failed = true;
                         break;
                     }
@@ -700,8 +1001,10 @@ pub fn generate_report_focused(
                 }
 
                 let runtime_ms = start.elapsed().as_millis();
-                println!("  {name}: {n_processes} processes, {duration:.0}s, {runtime_ms}ms{}",
-                    if sim_failed { " (FAILED)" } else { "" });
+                println!(
+                    "  {name}: {n_processes} processes, {duration:.0}s, {runtime_ms}ms{}",
+                    if sim_failed { " (FAILED)" } else { "" }
+                );
 
                 // Generate plots and determine what we have
                 let (has_scalar, has_probes, spatial_names, has_particles) =
@@ -738,7 +1041,10 @@ pub fn generate_report_focused(
     std::fs::write(output_dir.join("index.html"), html).map_err(|e| e.to_string())?;
 
     // Print summary
-    let ran = results.iter().filter(|r| matches!(r.status, SimStatus::Ok { .. })).count();
+    let ran = results
+        .iter()
+        .filter(|r| matches!(r.status, SimStatus::Ok { .. }))
+        .count();
     let skipped = results.len() - ran;
     let total_ms: u128 = results.iter().map(|r| r.runtime_ms).sum();
     println!(
@@ -845,7 +1151,11 @@ fn generate_plots(
             }
         }
         // Biomass
-        if first.get_field("biomass").and_then(|v| v.as_f64()).is_some() {
+        if first
+            .get_field("biomass")
+            .and_then(|v| v.as_f64())
+            .is_some()
+        {
             top_scalar_series.insert("biomass".to_string(), Vec::new());
         }
 
@@ -853,13 +1163,21 @@ fn generate_plots(
             for state in states {
                 if let Some(subs) = state.get_field("substrates").and_then(|v| v.as_map()) {
                     for (mol_id, series) in &mut top_scalar_series {
-                        if mol_id == "biomass" { continue; }
-                        let val = subs.get(mol_id.as_str()).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        if mol_id == "biomass" {
+                            continue;
+                        }
+                        let val = subs
+                            .get(mol_id.as_str())
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0);
                         series.push(val);
                     }
                 }
                 if let Some(series) = top_scalar_series.get_mut("biomass") {
-                    let val = state.get_field("biomass").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let val = state
+                        .get_field("biomass")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0);
                     series.push(val);
                 }
             }
@@ -867,7 +1185,12 @@ fn generate_plots(
             // Render
             if top_scalar_series.values().any(|s| !s.is_empty()) {
                 has_scalar = true;
-                let svg = prism_viz::render_timeseries_svg(name, times, &top_scalar_series, opts.force_log);
+                let svg = prism_viz::render_timeseries_svg(
+                    name,
+                    times,
+                    &top_scalar_series,
+                    opts.force_log,
+                );
                 let _ = std::fs::write(output_dir.join(format!("{name}_timeseries.svg")), svg);
             }
         }
@@ -875,191 +1198,194 @@ fn generate_plots(
 
     // Timeseries for spatial fields
     if let Some(fields_val) = first.get_field("fields") {
-      if let Some(fields_iter) = fields_val.iter_fields() {
-        let mut scalar_series: IndexMap<String, Vec<f64>> = IndexMap::new();
-        let mut is_spatial: IndexMap<String, bool> = IndexMap::new();
+        if let Some(fields_iter) = fields_val.iter_fields() {
+            let mut scalar_series: IndexMap<String, Vec<f64>> = IndexMap::new();
+            let mut is_spatial: IndexMap<String, bool> = IndexMap::new();
 
-        for (mol_id, val) in fields_iter {
-            let flat = flatten_field(val);
-            if flat.len() == 1 {
-                is_spatial.insert(mol_id.to_string(), false);
-                if !opts.exclude_fields.contains(&mol_id.as_str()) {
-                    scalar_series.insert(mol_id.to_string(), Vec::new());
-                }
-            } else {
-                is_spatial.insert(mol_id.to_string(), true);
-            }
-        }
-
-        // Collect scalar timeseries
-        for state in states {
-            if let Some(fields) = state.get_field("fields") {
-                for (mol_id, series) in &mut scalar_series {
-                    let val = fields
-                        .get_field(mol_id.as_str())
-                        .map(|v| flatten_field(v))
-                        .and_then(|v| v.first().copied())
-                        .unwrap_or(0.0);
-                    series.push(val);
-                }
-            }
-        }
-
-        // Render scalar timeseries SVG
-        if !scalar_series.is_empty() {
-            let svg = prism_viz::render_timeseries_svg(name, times, &scalar_series, opts.force_log);
-            let _ = std::fs::write(output_dir.join(format!("{name}_timeseries.svg")), svg);
-        }
-
-        // Render spatial probe timeseries (sample specific grid points over time)
-        if !opts.spatial_probes.is_empty() && !opts.probe_fields.is_empty() {
-            let mut probe_series: IndexMap<String, Vec<f64>> = IndexMap::new();
-
-            // Create a series for each (field, probe_point) combination
-            for field_name in &opts.probe_fields {
-                for (label, _, _) in &opts.spatial_probes {
-                    let key = format!("{field_name} {label}");
-                    probe_series.insert(key, Vec::new());
+            for (mol_id, val) in fields_iter {
+                let flat = flatten_field(val);
+                if flat.len() == 1 {
+                    is_spatial.insert(mol_id.to_string(), false);
+                    if !opts.exclude_fields.contains(&mol_id.as_str()) {
+                        scalar_series.insert(mol_id.to_string(), Vec::new());
+                    }
+                } else {
+                    is_spatial.insert(mol_id.to_string(), true);
                 }
             }
 
-            // Infer grid width from first frame's 2D structure
-            let probe_nx = states[0]
-                .get_field("fields")
-                .and_then(|v| v.as_map())
-                .and_then(|m| {
-                    let (_, first_field) = m.iter().next()?;
-                    let rows = first_field.as_list()?;
-                    let first_row = rows.first()?.as_list()?;
-                    Some(first_row.len())
-                })
-                .unwrap_or(1);
+            // Collect scalar timeseries
+            for state in states {
+                if let Some(fields) = state.get_field("fields") {
+                    for (mol_id, series) in &mut scalar_series {
+                        let val = fields
+                            .get_field(mol_id.as_str())
+                            .map(|v| flatten_field(v))
+                            .and_then(|v| v.first().copied())
+                            .unwrap_or(0.0);
+                        series.push(val);
+                    }
+                }
+            }
 
-            // Collect values at each timestep
-            for state in states.iter() {
-                if let Some(fields_map) = state.get_field("fields")
+            // Render scalar timeseries SVG
+            if !scalar_series.is_empty() {
+                let svg =
+                    prism_viz::render_timeseries_svg(name, times, &scalar_series, opts.force_log);
+                let _ = std::fs::write(output_dir.join(format!("{name}_timeseries.svg")), svg);
+            }
+
+            // Render spatial probe timeseries (sample specific grid points over time)
+            if !opts.spatial_probes.is_empty() && !opts.probe_fields.is_empty() {
+                let mut probe_series: IndexMap<String, Vec<f64>> = IndexMap::new();
+
+                // Create a series for each (field, probe_point) combination
+                for field_name in &opts.probe_fields {
+                    for (label, _, _) in &opts.spatial_probes {
+                        let key = format!("{field_name} {label}");
+                        probe_series.insert(key, Vec::new());
+                    }
+                }
+
+                // Infer grid width from first frame's 2D structure
+                let probe_nx = states[0]
+                    .get_field("fields")
                     .and_then(|v| v.as_map())
-                {
-                    for field_name in &opts.probe_fields {
-                        if let Some(field_val) = fields_map.get(*field_name) {
-                            for (label, row, col) in &opts.spatial_probes {
-                                let key = format!("{field_name} {label}");
-                                // Try 2D access first, then flat
-                                let val = field_val
-                                    .as_list()
-                                    .and_then(|rows| {
-                                        // 2D: rows[row] is a List
-                                        if let Some(r) = rows.get(*row) {
-                                            if let Some(cols) = r.as_list() {
-                                                return cols.get(*col).and_then(|v| v.as_f64());
+                    .and_then(|m| {
+                        let (_, first_field) = m.iter().next()?;
+                        let rows = first_field.as_list()?;
+                        let first_row = rows.first()?.as_list()?;
+                        Some(first_row.len())
+                    })
+                    .unwrap_or(1);
+
+                // Collect values at each timestep
+                for state in states.iter() {
+                    if let Some(fields_map) = state.get_field("fields").and_then(|v| v.as_map()) {
+                        for field_name in &opts.probe_fields {
+                            if let Some(field_val) = fields_map.get(*field_name) {
+                                for (label, row, col) in &opts.spatial_probes {
+                                    let key = format!("{field_name} {label}");
+                                    // Try 2D access first, then flat
+                                    let val = field_val
+                                        .as_list()
+                                        .and_then(|rows| {
+                                            // 2D: rows[row] is a List
+                                            if let Some(r) = rows.get(*row) {
+                                                if let Some(cols) = r.as_list() {
+                                                    return cols.get(*col).and_then(|v| v.as_f64());
+                                                }
                                             }
-                                        }
-                                        // Flat: index = row * nx + col
-                                        let flat_idx = row * probe_nx + col;
-                                        rows.get(flat_idx).and_then(|v| v.as_f64())
-                                    })
-                                    .unwrap_or(0.0);
-                                if let Some(series) = probe_series.get_mut(&key) {
-                                    series.push(val);
+                                            // Flat: index = row * nx + col
+                                            let flat_idx = row * probe_nx + col;
+                                            rows.get(flat_idx).and_then(|v| v.as_f64())
+                                        })
+                                        .unwrap_or(0.0);
+                                    if let Some(series) = probe_series.get_mut(&key) {
+                                        series.push(val);
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            if !probe_series.is_empty() {
-                has_scalar = true;
-                let svg = prism_viz::render_timeseries_svg(
-                    &format!("{name} (spatial probes)"), times, &probe_series, false);
-                let _ = std::fs::write(
-                    output_dir.join(format!("{name}_probes.svg")), svg);
-            }
-        }
-
-        // Render spatial field animation frames
-        for (mol_id, spatial) in &is_spatial {
-            if !spatial {
-                continue;
-            }
-
-            // Use every frame for animation
-            let n_frames = states.len();
-            let mut frames_json = Vec::new();
-            let mut snapshot_svgs = Vec::new();
-            let n_snapshots = 8;
-
-            // Infer grid dims from the first frame (which has the original 2D structure).
-            // Later frames may be flat (after engine processing), so we lock dims here.
-            let first_field_val = states[0]
-                .get_field("fields")
-                .and_then(|v| v.as_map())
-                .and_then(|m| m.get(mol_id.as_str()));
-            let first_flat = first_field_val.map(flatten_field).unwrap_or_default();
-            let (grid_nx, grid_ny) = infer_grid_dims(first_field_val, first_flat.len());
-
-            // Compute global max across ALL frames for consistent colormap
-            let global_max = states.iter()
-                .filter_map(|s| {
-                    s.get_field("fields")
-                        .and_then(|v| v.as_map())
-                        .and_then(|m| m.get(mol_id.as_str()))
-                        .map(flatten_field)
-                })
-                .flat_map(|f| f.into_iter())
-                .fold(0.0_f64, f64::max);
-
-            for frame_i in 0..n_frames {
-                let field_val = states[frame_i]
-                    .get_field("fields")
-                    .and_then(|v| v.as_map())
-                    .and_then(|m| m.get(mol_id.as_str()));
-                let field = field_val.map(flatten_field).unwrap_or_default();
-                let (nx, ny) = (grid_nx, grid_ny);
-
-                if !field.is_empty() {
-                    let mut svg = render_heatmap_svg(&field, nx, ny, Some(global_max), flip_y);
-                    // Overlay particle positions on the field
-                    overlay_particles(&mut svg, &states[frame_i], nx, ny, flip_y);
-                    let t = times.get(frame_i).unwrap_or(&0.0);
-                    frames_json.push(format!(
-                        "{{\"t\":{t:.1},\"svg\":\"{}\"}}",
-                        svg.replace('"', "\\\"").replace('\n', "")
-                    ));
-
-                    let snap_step = ((n_frames - 1) / n_snapshots.max(1)).max(1);
-                    if frame_i % snap_step == 0 || frame_i == n_frames - 1 {
-                        snapshot_svgs.push((format!("t={t:.0}"), svg));
-                    }
+                if !probe_series.is_empty() {
+                    has_scalar = true;
+                    let svg = prism_viz::render_timeseries_svg(
+                        &format!("{name} (spatial probes)"),
+                        times,
+                        &probe_series,
+                        false,
+                    );
+                    let _ = std::fs::write(output_dir.join(format!("{name}_probes.svg")), svg);
                 }
             }
 
-            // Write animation data as JSON
-            if !frames_json.is_empty() {
-                let anim_json = format!("[{}]", frames_json.join(","));
-                let _ = std::fs::write(
-                    output_dir.join(format!("{name}_{mol_id}_frames.json")),
-                    &anim_json,
-                );
+            // Render spatial field animation frames
+            for (mol_id, spatial) in &is_spatial {
+                if !spatial {
+                    continue;
+                }
+
+                // Use every frame for animation
+                let n_frames = states.len();
+                let mut frames_json = Vec::new();
+                let mut snapshot_svgs = Vec::new();
+                let n_snapshots = 8;
+
+                // Infer grid dims from the first frame (which has the original 2D structure).
+                // Later frames may be flat (after engine processing), so we lock dims here.
+                let first_field_val = states[0]
+                    .get_field("fields")
+                    .and_then(|v| v.as_map())
+                    .and_then(|m| m.get(mol_id.as_str()));
+                let first_flat = first_field_val.map(flatten_field).unwrap_or_default();
+                let (grid_nx, grid_ny) = infer_grid_dims(first_field_val, first_flat.len());
+
+                // Compute global max across ALL frames for consistent colormap
+                let global_max = states
+                    .iter()
+                    .filter_map(|s| {
+                        s.get_field("fields")
+                            .and_then(|v| v.as_map())
+                            .and_then(|m| m.get(mol_id.as_str()))
+                            .map(flatten_field)
+                    })
+                    .flat_map(|f| f.into_iter())
+                    .fold(0.0_f64, f64::max);
+
+                for frame_i in 0..n_frames {
+                    let field_val = states[frame_i]
+                        .get_field("fields")
+                        .and_then(|v| v.as_map())
+                        .and_then(|m| m.get(mol_id.as_str()));
+                    let field = field_val.map(flatten_field).unwrap_or_default();
+                    let (nx, ny) = (grid_nx, grid_ny);
+
+                    if !field.is_empty() {
+                        let mut svg = render_heatmap_svg(&field, nx, ny, Some(global_max), flip_y);
+                        // Overlay particle positions on the field
+                        overlay_particles(&mut svg, &states[frame_i], nx, ny, flip_y);
+                        let t = times.get(frame_i).unwrap_or(&0.0);
+                        frames_json.push(format!(
+                            "{{\"t\":{t:.1},\"svg\":\"{}\"}}",
+                            svg.replace('"', "\\\"").replace('\n', "")
+                        ));
+
+                        let snap_step = ((n_frames - 1) / n_snapshots.max(1)).max(1);
+                        if frame_i % snap_step == 0 || frame_i == n_frames - 1 {
+                            snapshot_svgs.push((format!("t={t:.0}"), svg));
+                        }
+                    }
+                }
+
+                // Write animation data as JSON
+                if !frames_json.is_empty() {
+                    let anim_json = format!("[{}]", frames_json.join(","));
+                    let _ = std::fs::write(
+                        output_dir.join(format!("{name}_{mol_id}_frames.json")),
+                        &anim_json,
+                    );
+                }
+
+                // Write static snapshot grid
+                if !snapshot_svgs.is_empty() {
+                    let combined = render_snapshot_grid(mol_id, &snapshot_svgs);
+                    let _ = std::fs::write(
+                        output_dir.join(format!("{name}_{mol_id}_spatial.svg")),
+                        combined,
+                    );
+                }
             }
 
-            // Write static snapshot grid
-            if !snapshot_svgs.is_empty() {
-                let combined = render_snapshot_grid(mol_id, &snapshot_svgs);
-                let _ = std::fs::write(
-                    output_dir.join(format!("{name}_{mol_id}_spatial.svg")),
-                    combined,
-                );
-            }
+            has_scalar = !scalar_series.is_empty();
+            spatial_names = is_spatial
+                .iter()
+                .filter(|(_, s)| **s)
+                .map(|(k, _)| k.clone())
+                .collect();
         }
-
-        has_scalar = !scalar_series.is_empty();
-        spatial_names = is_spatial
-            .iter()
-            .filter(|(_, s)| **s)
-            .map(|(k, _)| k.clone())
-            .collect();
-      }
     }
 
     // Particle traces
@@ -1110,11 +1436,22 @@ fn generate_plots(
     (has_scalar, has_probes, spatial_names, has_particles)
 }
 
-
 /// Render a 2D heatmap as inline SVG.
 /// `fixed_max`: if Some, use this as the colormap max (for consistent scaling across frames).
-fn render_heatmap_svg(data: &[f64], nx: usize, ny: usize, fixed_max: Option<f64>, flip_y: bool) -> String {
-    let cell_size = if nx.max(ny) <= 5 { 24 } else if nx.max(ny) <= 10 { 16 } else { 10 };
+fn render_heatmap_svg(
+    data: &[f64],
+    nx: usize,
+    ny: usize,
+    fixed_max: Option<f64>,
+    flip_y: bool,
+) -> String {
+    let cell_size = if nx.max(ny) <= 5 {
+        24
+    } else if nx.max(ny) <= 10 {
+        16
+    } else {
+        10
+    };
     let width = nx * cell_size;
     let height = ny * cell_size;
 
@@ -1153,7 +1490,11 @@ fn render_heatmap_svg(data: &[f64], nx: usize, ny: usize, fixed_max: Option<f64>
                 svg,
                 r#"<rect x="{}" y="{}" width="{cell_size}" height="{cell_size}" fill="rgb({r},{g},{b})"/>"#,
                 x * cell_size,
-                if flip_y { (ny - 1 - y) * cell_size } else { y * cell_size },
+                if flip_y {
+                    (ny - 1 - y) * cell_size
+                } else {
+                    y * cell_size
+                },
             );
         }
     }
@@ -1168,7 +1509,8 @@ fn render_snapshot_grid(_mol_id: &str, snapshots: &[(String, String)]) -> String
     let snap_width = snapshots
         .first()
         .and_then(|(_, svg)| {
-            svg.split("width=\"").nth(1)
+            svg.split("width=\"")
+                .nth(1)
                 .and_then(|s| s.split('"').next())
                 .and_then(|s| s.parse::<usize>().ok())
         })
@@ -1176,7 +1518,8 @@ fn render_snapshot_grid(_mol_id: &str, snapshots: &[(String, String)]) -> String
     let snap_height = snapshots
         .first()
         .and_then(|(_, svg)| {
-            svg.split("height=\"").nth(1)
+            svg.split("height=\"")
+                .nth(1)
                 .and_then(|s| s.split('"').next())
                 .and_then(|s| s.parse::<usize>().ok())
         })
@@ -1208,15 +1551,19 @@ fn render_snapshot_grid(_mol_id: &str, snapshots: &[(String, String)]) -> String
 /// Overlay particle positions as circles on a heatmap SVG.
 /// Inserts circles before the closing </svg> tag.
 fn overlay_particles(svg: &mut String, state: &Value, nx: usize, ny: usize, flip_y: bool) {
-    let particles = match state.get_field("particles")
-        .and_then(|v| v.as_map())
-    {
+    let particles = match state.get_field("particles").and_then(|v| v.as_map()) {
         Some(p) if !p.is_empty() => p,
         _ => return,
     };
 
     // Detect cell size from SVG width/height
-    let cell_size = if nx.max(ny) <= 5 { 24 } else if nx.max(ny) <= 10 { 16 } else { 10 };
+    let cell_size = if nx.max(ny) <= 5 {
+        24
+    } else if nx.max(ny) <= 10 {
+        16
+    } else {
+        10
+    };
     let svg_w = nx * cell_size;
     let svg_h = ny * cell_size;
 
@@ -1250,9 +1597,11 @@ fn overlay_particles(svg: &mut String, state: &Value, nx: usize, ny: usize, flip
             let radius = (phys_radius / bounds_x * svg_w as f64).max(0.5) as i32;
             let (r, g, b) = TAB20[i % TAB20.len()];
 
-            let _ = write!(svg,
+            let _ = write!(
+                svg,
                 "<circle cx=\"{px}\" cy=\"{py}\" r=\"{radius}\" fill=\"rgb({r},{g},{b})\" \
-                 stroke=\"white\" stroke-width=\"1\" opacity=\"0.9\"/>");
+                 stroke=\"white\" stroke-width=\"1\" opacity=\"0.9\"/>"
+            );
         }
     }
 
@@ -1267,7 +1616,10 @@ fn get_mass(particle: &Value) -> f64 {
             return total;
         }
     }
-    particle.get_field("mass").and_then(|v| v.as_f64()).unwrap_or(0.0)
+    particle
+        .get_field("mass")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0)
 }
 
 fn get_radius(particle: &Value) -> f64 {
@@ -1285,11 +1637,26 @@ fn get_radius(particle: &Value) -> f64 {
 
 /// Matplotlib tab20 color palette (20 distinct colors).
 const TAB20: [(u8, u8, u8); 20] = [
-    (0x1f, 0x77, 0xb4), (0xaf, 0xc7, 0xe8), (0xff, 0x7f, 0x0e), (0xff, 0xbb, 0x78),
-    (0x2c, 0xa0, 0x2c), (0x98, 0xdf, 0x8a), (0xd6, 0x27, 0x28), (0xff, 0x98, 0x96),
-    (0x94, 0x67, 0xbd), (0xc5, 0xb0, 0xd5), (0x8c, 0x56, 0x4b), (0xc4, 0x9c, 0x94),
-    (0xe3, 0x77, 0xc2), (0xf7, 0xb6, 0xd2), (0x7f, 0x7f, 0x7f), (0xc7, 0xc7, 0xc7),
-    (0xbc, 0xbd, 0x22), (0xdb, 0xdb, 0x8d), (0x17, 0xbe, 0xcf), (0x9e, 0xda, 0xe5),
+    (0x1f, 0x77, 0xb4),
+    (0xaf, 0xc7, 0xe8),
+    (0xff, 0x7f, 0x0e),
+    (0xff, 0xbb, 0x78),
+    (0x2c, 0xa0, 0x2c),
+    (0x98, 0xdf, 0x8a),
+    (0xd6, 0x27, 0x28),
+    (0xff, 0x98, 0x96),
+    (0x94, 0x67, 0xbd),
+    (0xc5, 0xb0, 0xd5),
+    (0x8c, 0x56, 0x4b),
+    (0xc4, 0x9c, 0x94),
+    (0xe3, 0x77, 0xc2),
+    (0xf7, 0xb6, 0xd2),
+    (0x7f, 0x7f, 0x7f),
+    (0xc7, 0xc7, 0xc7),
+    (0xbc, 0xbd, 0x22),
+    (0xdb, 0xdb, 0x8d),
+    (0x17, 0xbe, 0xcf),
+    (0x9e, 0xda, 0xe5),
 ];
 
 fn tab20_color(i: usize) -> plotters::style::RGBColor {
@@ -1327,14 +1694,19 @@ fn render_particle_traces(title: &str, _times: &[f64], states: &[Value]) -> Stri
     );
 
     for (i, (_, pts)) in traces.iter().enumerate() {
-        if pts.len() < 2 { continue; }
+        if pts.len() < 2 {
+            continue;
+        }
         let (r, g, b) = TAB20[i % TAB20.len()];
-        let points: String = pts.iter()
+        let points: String = pts
+            .iter()
             .map(|(x, y)| format!("{:.0},{:.0}", (x - bx0) * sx, h as f64 - (y - by0) * sy))
             .collect::<Vec<_>>()
             .join(" ");
-        let _ = write!(svg,
-            "<polyline points=\"{points}\" fill=\"none\" stroke=\"rgb({r},{g},{b})\" stroke-width=\"1\" opacity=\"0.7\"/>");
+        let _ = write!(
+            svg,
+            "<polyline points=\"{points}\" fill=\"none\" stroke=\"rgb({r},{g},{b})\" stroke-width=\"1\" opacity=\"0.7\"/>"
+        );
     }
 
     svg.push_str("</svg>");
@@ -1350,7 +1722,10 @@ fn render_particle_mass(title: &str, times: &[f64], states: &[Value]) -> String 
         if let Some(particles) = state.get_field("particles").and_then(|v| v.as_map()) {
             for (pid, particle) in particles {
                 let mass = get_mass(particle);
-                mass_series.entry(pid.to_string()).or_default().push((t, mass));
+                mass_series
+                    .entry(pid.to_string())
+                    .or_default()
+                    .push((t, mass));
             }
         }
     }
@@ -1360,7 +1735,8 @@ fn render_particle_mass(title: &str, times: &[f64], states: &[Value]) -> String 
         .values()
         .flat_map(|s| s.iter())
         .map(|(_, m)| *m)
-        .fold(0.01_f64, f64::max) * 1.1;
+        .fold(0.01_f64, f64::max)
+        * 1.1;
 
     let (w, h) = (500, 300);
     let margin = 40;
@@ -1373,13 +1749,18 @@ fn render_particle_mass(title: &str, times: &[f64], states: &[Value]) -> String 
          <text x=\"{mid}\" y=\"16\" text-anchor=\"middle\" font-size=\"14\" font-family=\"sans-serif\">{title} mass</text>\
          <text x=\"{mid}\" y=\"{bot}\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\">time</text>\
          <text x=\"10\" y=\"{ymid}\" text-anchor=\"middle\" font-size=\"10\" font-family=\"sans-serif\" transform=\"rotate(-90 10 {ymid})\">mass</text>",
-        mid = w / 2, bot = h - 5, ymid = h / 2,
+        mid = w / 2,
+        bot = h - 5,
+        ymid = h / 2,
     );
 
     for (i, (_, pts)) in mass_series.iter().enumerate() {
-        if pts.is_empty() { continue; }
+        if pts.is_empty() {
+            continue;
+        }
         let (r, g, b) = TAB20[i % TAB20.len()];
-        let points: String = pts.iter()
+        let points: String = pts
+            .iter()
             .map(|(t, m)| {
                 let x = margin as f64 + (t / t_max) * pw;
                 let y = (h - margin) as f64 - (m / y_max) * ph;
@@ -1387,8 +1768,10 @@ fn render_particle_mass(title: &str, times: &[f64], states: &[Value]) -> String 
             })
             .collect::<Vec<_>>()
             .join(" ");
-        let _ = write!(svg,
-            "<polyline points=\"{points}\" fill=\"none\" stroke=\"rgb({r},{g},{b})\" stroke-width=\"1.5\" opacity=\"0.7\"/>");
+        let _ = write!(
+            svg,
+            "<polyline points=\"{points}\" fill=\"none\" stroke=\"rgb({r},{g},{b})\" stroke-width=\"1.5\" opacity=\"0.7\"/>"
+        );
     }
 
     svg.push_str("</svg>");
@@ -1422,12 +1805,15 @@ fn infer_grid_dims(field_val: Option<&Value>, flat_len: usize) -> (usize, usize)
 /// brownian_movement, enforce_boundaries, etc.)
 fn detect_domain_bounds(state: &Value) -> (f64, f64, f64, f64) {
     let check_keys = [
-        "newtonian_particles", "brownian_movement", "enforce_boundaries",
+        "newtonian_particles",
+        "brownian_movement",
+        "enforce_boundaries",
         "particle_exchange",
     ];
     {
         for key in &check_keys {
-            if let Some(bounds) = state.get_field(*key)
+            if let Some(bounds) = state
+                .get_field(*key)
                 .and_then(|v| v.get_field("config"))
                 .and_then(|v| v.get_field("bounds"))
                 .and_then(|v| v.as_list())
@@ -1443,11 +1829,7 @@ fn detect_domain_bounds(state: &Value) -> (f64, f64, f64, f64) {
 }
 
 /// Render a single frame of particle positions as inline SVG.
-fn render_particle_frame(
-    state: &Value,
-    bounds: (f64, f64, f64, f64),
-    _frame_idx: usize,
-) -> String {
+fn render_particle_frame(state: &Value, bounds: (f64, f64, f64, f64), _frame_idx: usize) -> String {
     let (bx0, by0, bx1, by1) = bounds;
     let w = 300;
     let h = 300;
@@ -1484,16 +1866,26 @@ fn render_particle_frame(
 
 fn sanitize_html(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
 fn build_html(results: &[SimResult], output_dir: &Path, scale: ReportScale) -> String {
-    let ran = results.iter().filter(|r| matches!(r.status, SimStatus::Ok { .. })).count();
+    let ran = results
+        .iter()
+        .filter(|r| matches!(r.status, SimStatus::Ok { .. }))
+        .count();
     let skipped = results.len() - ran;
     let total_ms: u128 = results.iter().map(|r| r.runtime_ms).sum();
 
-    let mut html = format!(r#"<!DOCTYPE html>
+    let mut html = format!(
+        r#"<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -1555,7 +1947,10 @@ function startAnimInline(id, frames) {{
 
 <table>
 <tr><th>Simulation</th><th>Status</th><th>Processes</th><th>Runtime</th></tr>
-"#, results.len(), scale_label = scale.label());
+"#,
+        results.len(),
+        scale_label = scale.label()
+    );
 
     for r in results {
         let (status_class, status_text) = match &r.status {
@@ -1578,7 +1973,11 @@ function startAnimInline(id, frames) {{
 
     // Detail sections
     for r in results {
-        let skipped_class = if matches!(r.status, SimStatus::Skipped(_)) { " skipped" } else { "" };
+        let skipped_class = if matches!(r.status, SimStatus::Skipped(_)) {
+            " skipped"
+        } else {
+            ""
+        };
         let _ = write!(
             html,
             "<div class=\"sim{skipped}\" id=\"{name}\">\n<h2>{name}</h2>\n",
@@ -1651,8 +2050,10 @@ function startAnimInline(id, frames) {{
                         <div style=\"display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;justify-content:space-around;width:100%\">");
 
                     for mol_id in spatial_field_names {
-                        let anim_id = format!("anim_{}_{}", sanitize_html(&r.name), sanitize_html(mol_id));
-                        let frames_path = output_dir.join(format!("{}_{}_frames.json", r.name, mol_id));
+                        let anim_id =
+                            format!("anim_{}_{}", sanitize_html(&r.name), sanitize_html(mol_id));
+                        let frames_path =
+                            output_dir.join(format!("{}_{}_frames.json", r.name, mol_id));
 
                         let frames_data = std::fs::read_to_string(&frames_path).unwrap_or_default();
                         if !frames_data.is_empty() {
@@ -1671,9 +2072,11 @@ function startAnimInline(id, frames) {{
                     html.push_str("</div>\n");
 
                     // Snapshots as compact matrix: each row = field name + snapshot strip
-                    html.push_str("<h3>Snapshots</h3>\n\
+                    html.push_str(
+                        "<h3>Snapshots</h3>\n\
                         <div style=\"overflow-x:auto\">\
-                        <table style=\"border-collapse:collapse;font-size:11px\">");
+                        <table style=\"border-collapse:collapse;font-size:11px\">",
+                    );
                     for mol_id in spatial_field_names {
                         let static_url = format!("{}_{}_spatial.svg", r.name, mol_id);
                         let _ = write!(
@@ -1743,7 +2146,8 @@ function startAnimInline(id, frames) {{
     // Grow-divide benchmark comparison (if SVG exists)
     let benchmark_path = output_dir.join("grow_divide_benchmark.svg");
     if benchmark_path.exists() {
-        html.push_str(r#"
+        html.push_str(
+            r#"
 <div class="sim">
   <h2 id="benchmarks">Benchmarks</h2>
   <h3>Grow-Divide Scaling: Rust vs Python</h3>
@@ -1754,7 +2158,8 @@ function startAnimInline(id, frames) {{
     <object data="grow_divide_benchmark.svg" type="image/svg+xml"
             style="width:100%;max-width:700px"></object>
   </div>
-  "#);
+  "#,
+        );
         // Build table dynamically from benchmark JSON
         let bench_path = output_dir.join("grow_divide_benchmark.json");
         if let Ok(bench_str) = std::fs::read_to_string(&bench_path) {
@@ -1770,19 +2175,43 @@ function startAnimInline(id, frames) {{
                 }
                 // Python reference data
                 let python_by_agents: IndexMap<usize, f64> = IndexMap::from([
-                    (1, 11.0), (2, 31.0), (4, 90.0), (32, 657.0),
-                    (64, 1638.0), (128, 3768.0), (256, 6477.0), (512, 15032.0),
+                    (1, 11.0),
+                    (2, 31.0),
+                    (4, 90.0),
+                    (32, 657.0),
+                    (64, 1638.0),
+                    (128, 3768.0),
+                    (256, 6477.0),
+                    (512, 15032.0),
                 ]);
                 html.push_str("  <table>\n  <tr><th>Agents</th><th>Rust time</th><th>Python time</th><th>Speedup</th></tr>\n");
                 for (&agents, &rust_ms) in &rust_by_agents {
-                    let rust_str = if rust_ms < 1.0 { "&lt;1ms".into() } else { format!("{}ms", rust_ms as u64) };
+                    let rust_str = if rust_ms < 1.0 {
+                        "&lt;1ms".into()
+                    } else {
+                        format!("{}ms", rust_ms as u64)
+                    };
                     if let Some(&py_ms) = python_by_agents.get(&agents) {
                         let py_str = format!("{},{}ms", py_ms as u64 / 1000, py_ms as u64 % 1000);
-                        let py_str = if py_ms >= 1000.0 { format!("{:.1}s", py_ms / 1000.0) } else { format!("{}ms", py_ms as u64) };
-                        let speedup = if rust_ms > 0.5 { format!("Rust {:.0}\u{00d7}", py_ms / rust_ms) } else { "\u{2014}".into() };
-                        let _ = write!(html, "  <tr><td>{agents}</td><td>{rust_str}</td><td>{py_str}</td><td>{speedup}</td></tr>\n");
+                        let py_str = if py_ms >= 1000.0 {
+                            format!("{:.1}s", py_ms / 1000.0)
+                        } else {
+                            format!("{}ms", py_ms as u64)
+                        };
+                        let speedup = if rust_ms > 0.5 {
+                            format!("Rust {:.0}\u{00d7}", py_ms / rust_ms)
+                        } else {
+                            "\u{2014}".into()
+                        };
+                        let _ = write!(
+                            html,
+                            "  <tr><td>{agents}</td><td>{rust_str}</td><td>{py_str}</td><td>{speedup}</td></tr>\n"
+                        );
                     } else {
-                        let _ = write!(html, "  <tr><td>{agents}</td><td>{rust_str}</td><td>\u{2014}</td><td>\u{2014}</td></tr>\n");
+                        let _ = write!(
+                            html,
+                            "  <tr><td>{agents}</td><td>{rust_str}</td><td>\u{2014}</td><td>\u{2014}</td></tr>\n"
+                        );
                     }
                 }
                 html.push_str("  </table>\n");

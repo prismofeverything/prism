@@ -36,8 +36,16 @@ fn ys_gillespie_drives_a_dynamic_timestep() {
         intervals.push(round3(t - prev));
         prev = t;
     }
-    let a = engine.state().get_field("a").and_then(|v| v.as_f64()).unwrap_or(-1.0);
-    let b = engine.state().get_field("b").and_then(|v| v.as_f64()).unwrap_or(-1.0);
+    let a = engine
+        .state()
+        .get_field("a")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(-1.0);
+    let b = engine
+        .state()
+        .get_field("b")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(-1.0);
     eprintln!("dynamic intervals: {intervals:?}; a={a}, b={b}");
 
     // τ = 1/(k·A) for A = 5,4,3,2,1 — the step's `overwrite` lands and the engine

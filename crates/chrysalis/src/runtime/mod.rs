@@ -24,4 +24,4 @@ pub mod rule;
 
 pub use expr_process::ExprProcess;
 pub use expr_step::ExprStep;
-pub use rule::{BindingSource, Rule, RuleBindings, FOREIGN_RULE};
+pub use rule::{BindingSource, FOREIGN_RULE, Rule, RuleBindings};

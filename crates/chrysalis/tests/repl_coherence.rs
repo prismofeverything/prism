@@ -31,7 +31,8 @@ fn eval_expr(expr_src: &str) -> Result<Value, String> {
         _ => panic!("no main"),
     };
     let ev = Evaluator::new(Arc::new(prog), Arc::new(MethodRegistry::new()));
-    ev.eval_value(&main, &Default::default()).map_err(|e| e.to_string())
+    ev.eval_value(&main, &Default::default())
+        .map_err(|e| e.to_string())
 }
 
 #[test]
@@ -55,7 +56,11 @@ fn field_access_composes_on_a_term_result() {
         .and_then(|o| o.get_field("choices"))
         .and_then(|c| c.as_list())
         .map(|l| l.len());
-    assert_eq!(choices, Some(1), "bridge.outputs.choices is the wire ['choices']; got {bridge:?}");
+    assert_eq!(
+        choices,
+        Some(1),
+        "bridge.outputs.choices is the wire ['choices']; got {bridge:?}"
+    );
 }
 
 #[test]
@@ -64,14 +69,21 @@ fn bracketless_and_bracketed_navigation_agree() {
     // var resolution are unified.
     let a = eval_expr("all.config.bridge").expect("bracketless");
     let b = eval_expr("all[].config.bridge").expect("bracketed");
-    assert_eq!(a, b, "with and without `[]` should navigate to the same value");
+    assert_eq!(
+        a, b,
+        "with and without `[]` should navigate to the same value"
+    );
 }
 
 #[test]
 fn deep_value_field_access_reaches_inner_state() {
     // Navigate into the composite's inner state: field map → key.
     let v = eval_expr("all.config.state.field.what").expect("deep navigation");
-    assert_eq!(v.as_i64(), Some(5), "all.config.state.field.what == 5; got {v:?}");
+    assert_eq!(
+        v.as_i64(),
+        Some(5),
+        "all.config.state.field.what == 5; got {v:?}"
+    );
 }
 
 #[test]
@@ -86,6 +98,12 @@ fn definer_needing_args_reports_the_arg_not_unbound() {
     // `be` needs `is` — the error names the missing arg (and signals it's a
     // definer), rather than the misleading "unbound variable".
     let err = eval_expr("be").expect_err("bare `be` needs `is`");
-    assert!(err.contains("is"), "error should name the missing arg `is`; got: {err}");
-    assert!(!err.contains("unbound"), "should not be an unbound-variable error; got: {err}");
+    assert!(
+        err.contains("is"),
+        "error should name the missing arg `is`; got: {err}"
+    );
+    assert!(
+        !err.contains("unbound"),
+        "should not be an unbound-variable error; got: {err}"
+    );
 }

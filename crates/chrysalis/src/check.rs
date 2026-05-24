@@ -16,7 +16,9 @@ use std::collections::HashMap;
 
 use indexmap::IndexMap;
 
-use crate::ast::{ContractRef, Def, Expr, Interface, Name, PathRoot, PortDecl, Program, SchemaExpr};
+use crate::ast::{
+    ContractRef, Def, Expr, Interface, Name, PathRoot, PortDecl, Program, SchemaExpr,
+};
 use crate::units::UnitEnv;
 
 /// A wiring whose endpoints don't agree.
@@ -53,7 +55,13 @@ pub fn validate_connections(program: &Program) -> Vec<ConnectionError> {
             let mut slot_contracts: HashMap<String, ContractRef> = HashMap::new();
             collect_slot_contracts(&c.body, program, &mut slot_contracts);
             check_body(
-                &c.body, &c.name, program, env.as_ref(), &slots, &bindings, &slot_contracts,
+                &c.body,
+                &c.name,
+                program,
+                env.as_ref(),
+                &slots,
+                &bindings,
+                &slot_contracts,
                 &mut errors,
             );
         }
@@ -66,7 +74,6 @@ fn interface_of(def: &Def) -> Option<&Interface> {
         Def::Process(p) => Some(&p.interface),
         Def::Step(s) => Some(&s.interface),
         Def::Composite(c) => Some(&c.interface),
-        Def::Extern(e) => Some(&e.interface),
         _ => None,
     }
 }
@@ -85,30 +92,84 @@ fn check_body(
     match e {
         Expr::Parallel(items) => {
             for i in items {
-                check_body(i, composite, program, env, slots, bindings, slot_contracts, errors);
+                check_body(
+                    i,
+                    composite,
+                    program,
+                    env,
+                    slots,
+                    bindings,
+                    slot_contracts,
+                    errors,
+                );
             }
         }
-        Expr::KeyedEntry { value, .. } => {
-            check_body(value, composite, program, env, slots, bindings, slot_contracts, errors)
-        }
+        Expr::KeyedEntry { value, .. } => check_body(
+            value,
+            composite,
+            program,
+            env,
+            slots,
+            bindings,
+            slot_contracts,
+            errors,
+        ),
         Expr::Block(b) => {
             for (_, v) in &b.bindings {
-                check_body(v, composite, program, env, slots, bindings, slot_contracts, errors);
+                check_body(
+                    v,
+                    composite,
+                    program,
+                    env,
+                    slots,
+                    bindings,
+                    slot_contracts,
+                    errors,
+                );
             }
-            check_body(&b.value, composite, program, env, slots, bindings, slot_contracts, errors);
+            check_body(
+                &b.value,
+                composite,
+                program,
+                env,
+                slots,
+                bindings,
+                slot_contracts,
+                errors,
+            );
         }
         Expr::Term { control, ports, .. } => {
             if let Some(iface) = program.lookup(control).and_then(interface_of) {
                 for (port, target) in &ports.inputs {
                     check_wire(
-                        composite, control, port, &iface.inputs, target, slots, bindings,
-                        slot_contracts, program, env, true, errors,
+                        composite,
+                        control,
+                        port,
+                        &iface.inputs,
+                        target,
+                        slots,
+                        bindings,
+                        slot_contracts,
+                        program,
+                        env,
+                        true,
+                        errors,
                     );
                 }
                 for (port, target) in &ports.outputs {
                     check_wire(
-                        composite, control, port, &iface.outputs, target, slots, bindings,
-                        slot_contracts, program, env, false, errors,
+                        composite,
+                        control,
+                        port,
+                        &iface.outputs,
+                        target,
+                        slots,
+                        bindings,
+                        slot_contracts,
+                        program,
+                        env,
+                        false,
+                        errors,
                     );
                 }
             }
@@ -149,7 +210,15 @@ fn check_wire(
     if is_input {
         if let Some(demanded) = port_decl.contract.as_ref() {
             check_contract(
-                composite, child, port, demanded, target, bindings, slot_contracts, program, errors,
+                composite,
+                child,
+                port,
+                demanded,
+                target,
+                bindings,
+                slot_contracts,
+                program,
+                errors,
             );
         }
     }
@@ -242,7 +311,10 @@ fn check_contract(
         }
         None => push(
             errors,
-            format!("port demands contract `{}` but the wired source declares none", demanded.name),
+            format!(
+                "port demands contract `{}` but the wired source declares none",
+                demanded.name
+            ),
         ),
     }
 }
@@ -415,7 +487,10 @@ mod tests {
             using: vec![],
             body: Expr::parallel(vec![
                 Expr::entry("t", Expr::var("t")),
-                Expr::entry("sink", Expr::term("Sink").input("m", Expr::var("t")).build()),
+                Expr::entry(
+                    "sink",
+                    Expr::term("Sink").input("m", Expr::var("t")).build(),
+                ),
             ]),
         }));
 
@@ -438,12 +513,18 @@ mod tests {
         }));
         p.push(Def::Composite(CompositeDef {
             name: "Bad".into(),
-            params: vec![Param::required("bag", SchemaExpr::map_of(SchemaExpr::Float))],
+            params: vec![Param::required(
+                "bag",
+                SchemaExpr::map_of(SchemaExpr::Float),
+            )],
             interface: Interface::new(),
             using: vec![],
             body: Expr::parallel(vec![
                 Expr::entry("bag", Expr::var("bag")),
-                Expr::entry("sink", Expr::term("Sink").input("x", Expr::var("bag")).build()),
+                Expr::entry(
+                    "sink",
+                    Expr::term("Sink").input("x", Expr::var("bag")).build(),
+                ),
             ]),
         }));
 

@@ -11,8 +11,8 @@
 //! the chrysalis interpreter how to convert a [`prism_schema::Match`]
 //! into an environment the reactum/guard/rate can read.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use indexmap::IndexMap;
 
@@ -174,8 +174,8 @@ pub fn to_prism_rule(rule: &Rule, evaluator: Arc<Evaluator>) -> ReactionRule {
             reactum,
             instantiation,
         } => {
-            let mut pr =
-                ReactionRule::new(rule.redex.clone(), reactum.clone()).with_label(rule.label.clone());
+            let mut pr = ReactionRule::new(rule.redex.clone(), reactum.clone())
+                .with_label(rule.label.clone());
             // Empty → prism resolves identity-by-name (carries shared sites
             // like `bystanders`/`name` through unchanged).
             pr.instantiation = instantiation.clone();

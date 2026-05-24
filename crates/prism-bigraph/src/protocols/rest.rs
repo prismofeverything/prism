@@ -40,7 +40,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use indexmap::IndexMap;
-use prism_schema::{schema::{json_to_value, value_to_json}, Schema, Value};
+use prism_schema::{
+    Schema, Value,
+    schema::{json_to_value, value_to_json},
+};
 
 use crate::factory::ProcessRegistry;
 use crate::ports::PortSchema;
@@ -92,18 +95,19 @@ impl RestProcess {
 
         // 1. POST /initialize → process_id
         let init_url = format!("{base_url}/process/{process_class}/initialize");
-        let init_body = serde_json::to_value(value_to_json(&config))
-            .map_err(|e| ProtocolError::Other {
+        let init_body =
+            serde_json::to_value(value_to_json(&config)).map_err(|e| ProtocolError::Other {
                 protocol: "rest".into(),
                 message: format!("encode config: {e}"),
             })?;
-        let resp = agent
-            .post(&init_url)
-            .send_json(init_body)
-            .map_err(|e| ProtocolError::Other {
-                protocol: "rest".into(),
-                message: format!("POST initialize: {e}"),
-            })?;
+        let resp =
+            agent
+                .post(&init_url)
+                .send_json(init_body)
+                .map_err(|e| ProtocolError::Other {
+                    protocol: "rest".into(),
+                    message: format!("POST initialize: {e}"),
+                })?;
         let raw_id = resp.into_string().map_err(|e| ProtocolError::Other {
             protocol: "rest".into(),
             message: format!("read initialize body: {e}"),
@@ -198,10 +202,7 @@ impl Process for RestProcess {
 /// [`PortSchema`]. Each value is currently treated as
 /// [`Schema::Any`] — the wiring layer enforces shape; the REST
 /// process just shuttles JSON.
-fn fetch_port_schema(
-    agent: &ureq::Agent,
-    url: &str,
-) -> Result<PortSchema, ProtocolError> {
+fn fetch_port_schema(agent: &ureq::Agent, url: &str) -> Result<PortSchema, ProtocolError> {
     let resp = agent.get(url).call().map_err(|e| ProtocolError::Other {
         protocol: "rest".into(),
         message: format!("GET port schema {url}: {e}"),
@@ -248,15 +249,17 @@ impl Protocol for RestProtocol {
                 "rest protocol expects data: Map<process,host,port>, got {data:?}"
             ))
         })?;
-        let process = map.get("process").and_then(|v| v.as_str()).ok_or_else(|| {
-            ProtocolError::MalformedAddress("rest: missing `process`".into())
-        })?;
-        let host = map.get("host").and_then(|v| v.as_str()).ok_or_else(|| {
-            ProtocolError::MalformedAddress("rest: missing `host`".into())
-        })?;
-        let port_field = map.get("port").ok_or_else(|| {
-            ProtocolError::MalformedAddress("rest: missing `port`".into())
-        })?;
+        let process = map
+            .get("process")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ProtocolError::MalformedAddress("rest: missing `process`".into()))?;
+        let host = map
+            .get("host")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ProtocolError::MalformedAddress("rest: missing `host`".into()))?;
+        let port_field = map
+            .get("port")
+            .ok_or_else(|| ProtocolError::MalformedAddress("rest: missing `port`".into()))?;
         let port_str = match port_field {
             Value::String(s) => s.clone(),
             Value::Int(i) => i.to_string(),

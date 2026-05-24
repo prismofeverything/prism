@@ -1,14 +1,13 @@
 # A reusable diffusion composite — defined once, importable by other `.ys`
-# files. `Diffusion` is a native (extern) spatio-flux process; `Dish` wires it
-# over a field map (an additive `array` field).
+# files. `DiffusionAdvection` is a native spatio-flux process, imported from
+# the `diffusion` module (the `extern` replacement); `Dish` wires it over a
+# field map (an additive `array` field).
 
-extern Diffusion
-  ~{fields: map[array[[3, 3], float]]}
-  ->{fields: map[array[[3, 3], float]]}
+from diffusion import DiffusionAdvection
 
 composite Dish[fields: map[array[[3, 3], float]]]
   ->{fields: map[array[[3, 3], float]]}
 (
   fields: fields |
-  diffusion: Diffusion ~{fields: fields} ->{fields: fields}
+  diffusion: DiffusionAdvection ~{fields: fields} ->{fields: fields}
 )

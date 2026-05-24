@@ -9,18 +9,11 @@ use spatio_flux::runner::run_document;
 const OUT_DIR: &str = "out";
 
 fn run_example(name: &str) {
-    let (doc, registry, duration, emit_interval) = examples::get_example(name)
-        .unwrap_or_else(|| panic!("unknown example: {name}"));
+    let (doc, registry, duration, emit_interval) =
+        examples::get_example(name).unwrap_or_else(|| panic!("unknown example: {name}"));
 
-    let results = run_document(
-        &doc,
-        &registry,
-        name,
-        duration,
-        emit_interval,
-        OUT_DIR,
-    )
-    .unwrap_or_else(|e| panic!("{name} failed: {e}"));
+    let results = run_document(&doc, &registry, name, duration, emit_interval, OUT_DIR)
+        .unwrap_or_else(|e| panic!("{name} failed: {e}"));
 
     // Basic invariants
     assert!(
@@ -93,13 +86,16 @@ fn test_comets_br_particles_kinetics() {
 #[test]
 fn test_monod_kinetics_growth() {
     let (doc, registry, _, _) = examples::get_example("monod_kinetics").unwrap();
-    let results = run_document(&doc, &registry, "monod_kinetics_growth", 10.0, 1.0, OUT_DIR).unwrap();
+    let results =
+        run_document(&doc, &registry, "monod_kinetics_growth", 10.0, 1.0, OUT_DIR).unwrap();
 
     let initial_biomass = results.states[0]
         .get_path(&["biomass".into()])
         .and_then(|v| v.as_f64())
         .unwrap();
-    let final_biomass = results.final_state().unwrap()
+    let final_biomass = results
+        .final_state()
+        .unwrap()
         .get_path(&["biomass".into()])
         .and_then(|v| v.as_f64())
         .unwrap();
@@ -125,7 +121,9 @@ fn test_diffusion_smoothing() {
         .filter_map(|v| v.as_f64())
         .collect();
 
-    let final_field: Vec<f64> = results.final_state().unwrap()
+    let final_field: Vec<f64> = results
+        .final_state()
+        .unwrap()
         .get_path(&["fields".into(), "glucose".into()])
         .unwrap()
         .as_list()

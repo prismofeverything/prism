@@ -43,5 +43,8 @@ fn parses_grow_divide_ys_and_divides() {
     engine.run(50.0);
 
     let n = count_cells(engine.state());
-    assert!(n >= 2, "expected at least one division from the parsed .ys; got {n} cells");
+    assert!(
+        n >= 2,
+        "expected at least one division from the parsed .ys; got {n} cells"
+    );
 }

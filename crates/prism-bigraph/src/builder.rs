@@ -163,10 +163,8 @@ impl EngineBuilder {
     pub fn build(self) -> Result<Engine, String> {
         let schema = self.schema.ok_or("EngineBuilder: schema is required")?;
         let state = self.state.ok_or("EngineBuilder: state is required")?;
-        let process_registry =
-            Arc::new(self.process_registry.unwrap_or_default());
-        let protocol_registry =
-            Arc::new(self.protocol_registry.unwrap_or_default());
+        let process_registry = Arc::new(self.process_registry.unwrap_or_default());
+        let protocol_registry = Arc::new(self.protocol_registry.unwrap_or_default());
 
         let mut engine = Engine::from_state_with_protocols(
             schema,

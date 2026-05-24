@@ -45,7 +45,10 @@ fn bare_subprocess_is_auto_keyed_and_runs() {
             .collect(),
         _ => vec![],
     };
-    assert!(keys.contains(&"bump".to_string()), "bare `Bump` auto-keyed to `bump`, got {keys:?}");
+    assert!(
+        keys.contains(&"bump".to_string()),
+        "bare `Bump` auto-keyed to `bump`, got {keys:?}"
+    );
     assert!(
         !matches!(&leaf.body, Expr::Parallel(items) if items.iter().any(|e| matches!(e, Expr::Term { .. }))),
         "no bare (unkeyed) terms remain in the body"
@@ -61,6 +64,10 @@ fn bare_subprocess_is_auto_keyed_and_runs() {
     .expect("engine init");
     engine.discover_all_processes();
     engine.run(3.0);
-    let v = engine.state().get_field("v").and_then(|x| x.as_f64()).unwrap_or(0.0);
+    let v = engine
+        .state()
+        .get_field("v")
+        .and_then(|x| x.as_f64())
+        .unwrap_or(0.0);
     assert!(v > 0.0, "the auto-keyed Bump ran and grew v (got {v})");
 }

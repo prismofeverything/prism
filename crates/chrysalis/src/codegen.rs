@@ -45,7 +45,10 @@ pub fn find_manifest(ys_path: impl AsRef<Path>) -> Option<Manifest> {
         let manifest = d.join("project.ys");
         if manifest.is_file() {
             if let Some(package) = parse_manifest_package(&manifest) {
-                return Some(Manifest { package, dir: d.to_path_buf() });
+                return Some(Manifest {
+                    package,
+                    dir: d.to_path_buf(),
+                });
             }
         }
         dir = d.parent();
@@ -87,10 +90,7 @@ pub fn run(manifest: &Manifest, subcommand: &str, args: &[String]) -> i32 {
         }
     };
     // Exec the runner: `<runner> <subcommand> <args...>`, inheriting stdio.
-    let status = Command::new(&binary)
-        .arg(subcommand)
-        .args(args)
-        .status();
+    let status = Command::new(&binary).arg(subcommand).args(args).status();
     match status {
         Ok(s) => s.code().unwrap_or(1),
         Err(e) => {
@@ -121,11 +121,17 @@ impl Layout {
             .and_then(|c| c.parent())
             .ok_or("cannot locate workspace root from chrysalis crate dir")?
             .to_path_buf();
-        let target_dir =
-            std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or(workspace.join("target"));
+        let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+            .map(PathBuf::from)
+            .unwrap_or(workspace.join("target"));
         let bin_name = format!("chrysalis_runner_{}", manifest.crate_ident());
         let gen_dir = target_dir.join("chrysalis-gen").join(&manifest.package);
-        Ok(Layout { chrysalis_dir, target_dir, gen_dir, bin_name })
+        Ok(Layout {
+            chrysalis_dir,
+            target_dir,
+            gen_dir,
+            bin_name,
+        })
     }
 
     fn binary_path(&self) -> PathBuf {
@@ -212,7 +218,10 @@ fn ensure_built(manifest: &Manifest, layout: &Layout) -> Result<PathBuf, String>
     }
     let binary = layout.binary_path();
     if !binary.is_file() {
-        return Err(format!("runner built but binary missing at {}", binary.display()));
+        return Err(format!(
+            "runner built but binary missing at {}",
+            binary.display()
+        ));
     }
     Ok(binary)
 }
@@ -220,7 +229,10 @@ fn ensure_built(manifest: &Manifest, layout: &Layout) -> Result<PathBuf, String>
 /// Write `content` to `path` only if it differs (avoids touching mtimes, which
 /// would trigger needless rebuilds).
 fn write_if_changed(path: &Path, content: &str) -> Result<(), String> {
-    if std::fs::read_to_string(path).map(|c| c == content).unwrap_or(false) {
+    if std::fs::read_to_string(path)
+        .map(|c| c == content)
+        .unwrap_or(false)
+    {
         return Ok(());
     }
     std::fs::write(path, content).map_err(|e| format!("write {}: {e}", path.display()))
@@ -234,7 +246,11 @@ mod tests {
     fn parses_package_directive() {
         let dir = std::env::temp_dir().join(format!("cg-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("project.ys"), "# a manifest\npackage spatio-flux\n").unwrap();
+        std::fs::write(
+            dir.join("project.ys"),
+            "# a manifest\npackage spatio-flux\n",
+        )
+        .unwrap();
         let ys = dir.join("demo.ys");
         std::fs::write(&ys, "composite C ()\n").unwrap();
 
@@ -250,13 +266,19 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let ys = dir.join("plain.ys");
         std::fs::write(&ys, "composite C ()\n").unwrap();
-        assert!(find_manifest(&ys).is_none(), "no project.ys ⇒ std (in-process)");
+        assert!(
+            find_manifest(&ys).is_none(),
+            "no project.ys ⇒ std (in-process)"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn renders_a_buildable_looking_runner() {
-        let m = Manifest { package: "spatio-flux".into(), dir: "/pkg".into() };
+        let m = Manifest {
+            package: "spatio-flux".into(),
+            dir: "/pkg".into(),
+        };
         let layout = Layout {
             chrysalis_dir: "/cz".into(),
             target_dir: "/t".into(),

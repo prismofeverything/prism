@@ -12,11 +12,11 @@ use std::io::Read;
 
 use indexmap::IndexMap;
 use prism_bigraph::{Core, Document, Engine, ProcessRegistry};
-use prism_schema::{algebra, schema_to_value, value_to_schema, Key, MethodRegistry, Schema, Value};
+use prism_schema::{Key, MethodRegistry, Schema, Value, algebra, schema_to_value, value_to_schema};
 
 use crate::ast::{CompositeDef, Def, Expr, Name, PortDecl, Program, SchemaExpr};
 use crate::compile::{
-    collect_top_level_bindings, compile_with_modules, CompileError, CompileResult, ModuleRegistry,
+    CompileError, CompileResult, ModuleRegistry, collect_top_level_bindings, compile_with_modules,
 };
 use crate::eval::Evaluator;
 use crate::schema::{composite_inner_schema, lower_schema_in_program};
@@ -71,7 +71,9 @@ pub fn to_document(
     methods: MethodRegistry,
     modules: ModuleRegistry,
 ) -> Result<Document, RunError> {
-    Ok(document_of(&compile_with_modules(program, registry, methods, modules)?))
+    Ok(document_of(&compile_with_modules(
+        program, registry, methods, modules,
+    )?))
 }
 
 /// Run a process-bigraph [`Document`] directly against `core` (the `bigraph
@@ -79,7 +81,11 @@ pub fn to_document(
 /// factories its addressed nodes reference. Invariant:
 /// `run_document(document_of(compile(p)), p's core, t)` ≡ `run(p, …, t)`.
 pub fn run_document(doc: &Document, core: Core, time: f64) -> Result<Value, RunError> {
-    let schema = doc.schema.as_ref().and_then(value_to_schema).unwrap_or(Schema::Any);
+    let schema = doc
+        .schema
+        .as_ref()
+        .and_then(value_to_schema)
+        .unwrap_or(Schema::Any);
     let mut engine =
         Engine::from_state(schema, doc.state.clone(), core).map_err(RunError::Engine)?;
     engine.discover_all_processes();
@@ -107,7 +113,9 @@ fn read_source(spec: &str) -> Result<String, RunError> {
     } else if let Some(path) = s.strip_prefix("file:") {
         std::fs::read_to_string(path).map_err(|e| RunError::Invoke(format!("read {path}: {e}")))
     } else if s.starts_with("stream:") {
-        Err(RunError::Invoke("stream: sources not supported yet (batch I/O only)".into()))
+        Err(RunError::Invoke(
+            "stream: sources not supported yet (batch I/O only)".into(),
+        ))
     } else {
         Ok(s.strip_prefix("lit:").unwrap_or(s).to_string())
     }
@@ -141,7 +149,9 @@ fn bind_arg(
     } else if let Some(def) = default {
         ev.eval_value(def, env).map_err(CompileError::from)?
     } else {
-        return Err(RunError::Invoke(format!("missing required {kind} `--{name}`")));
+        return Err(RunError::Invoke(format!(
+            "missing required {kind} `--{name}`"
+        )));
     };
     env.insert(name.to_string(), val);
     Ok(())
@@ -181,15 +191,31 @@ fn engine_for(
     // Flags are the t=0 seed; per-tick input streams (stdin) are a later slice.
     let mut env = collect_top_level_bindings(program, ev)?;
     for p in &entry.params {
-        bind_arg(&mut env, ev, program, args, &p.name, &p.schema, &p.default, "config")?;
+        bind_arg(
+            &mut env, ev, program, args, &p.name, &p.schema, &p.default, "config",
+        )?;
     }
     for (name, port) in &entry.interface.inputs {
-        bind_arg(&mut env, ev, program, args, name, &port.schema, &port.default, "input")?;
+        bind_arg(
+            &mut env,
+            ev,
+            program,
+            args,
+            name,
+            &port.schema,
+            &port.default,
+            "input",
+        )?;
     }
 
     // Root state = the entry body evaluated with config + inputs in scope.
-    let root = ev.eval_value(&entry.body, &env).map_err(CompileError::from)?;
-    let schema = algebra::resolve(&Schema::infer(&root), &composite_inner_schema(&entry, program));
+    let root = ev
+        .eval_value(&entry.body, &env)
+        .map_err(CompileError::from)?;
+    let schema = algebra::resolve(
+        &Schema::infer(&root),
+        &composite_inner_schema(&entry, program),
+    );
     let mut engine =
         Engine::from_state(schema, root, result.core.clone()).map_err(RunError::Engine)?;
     engine.discover_all_processes();
@@ -237,7 +263,11 @@ pub fn invoke_trace(
     let element = output_schema(&entry, program);
 
     let mut samples: Vec<(f64, Value)> = vec![(0.0, output_raw(engine.state(), &entry))];
-    let steps = if sample_dt > 0.0 { (duration / sample_dt).round().max(0.0) as usize } else { 0 };
+    let steps = if sample_dt > 0.0 {
+        (duration / sample_dt).round().max(0.0) as usize
+    } else {
+        0
+    };
     for k in 1..=steps {
         engine.run(sample_dt);
         samples.push((k as f64 * sample_dt, output_raw(engine.state(), &entry)));
@@ -320,7 +350,9 @@ fn drive_step(
         if let Some(v) = frame.get_field(name) {
             let path = output_path(name, port);
             let schema = lower_schema_in_program(&port.schema, program);
-            engine.state_mut().set_path(&path, algebra::realize(&schema, v));
+            engine
+                .state_mut()
+                .set_path(&path, algebra::realize(&schema, v));
             changed.push(path);
         }
     }
@@ -369,14 +401,16 @@ pub fn serve_stream(
     let mut seed = args.clone();
     for (name, _) in &entry.interface.inputs {
         if let Some(v) = first.1.get_field(name) {
-            seed.entry(name.clone()).or_insert_with(|| serde_json::to_string(v).unwrap_or_default());
+            seed.entry(name.clone())
+                .or_insert_with(|| serde_json::to_string(v).unwrap_or_default());
         }
     }
     let (mut engine, entry) = engine_for(program, registry, methods, modules, &seed)?;
 
     let out_schema = output_schema(&entry, program);
-    let mut writer = prism_trace::TraceWriter::new(output, &entry.name, &schema_to_value(&out_schema))
-        .map_err(|e| RunError::Invoke(format!("open output stream: {e}")))?;
+    let mut writer =
+        prism_trace::TraceWriter::new(output, &entry.name, &schema_to_value(&out_schema))
+            .map_err(|e| RunError::Invoke(format!("open output stream: {e}")))?;
 
     // Each input row is folded back into a full frame (the stream is a delta-log:
     // first row absolute, the rest diffs — exactly `prism_trace::frames` done
@@ -405,17 +439,30 @@ pub fn serve_stream(
         // schedule). The first frame seeds — no advance. So the inner process
         // sees the real per-step interval, not a fixed rate.
         let dt = prev_time.map_or(0.0, |p| time - p);
-        let out = drive_step(&mut engine, &entry, program, &frame, dt, prev_time.is_some());
+        let out = drive_step(
+            &mut engine,
+            &entry,
+            program,
+            &frame,
+            dt,
+            prev_time.is_some(),
+        );
         prev_time = Some(time);
         let out_payload = match &prev_out {
             None => out.clone(),
             Some(p) => algebra::diff(&out_schema, p, &out).unwrap_or(Value::None),
         };
-        writer.push(time, &out_payload).map_err(|e| RunError::Invoke(format!("write frame: {e}")))?;
-        writer.flush().map_err(|e| RunError::Invoke(format!("flush frame: {e}")))?;
+        writer
+            .push(time, &out_payload)
+            .map_err(|e| RunError::Invoke(format!("write frame: {e}")))?;
+        writer
+            .flush()
+            .map_err(|e| RunError::Invoke(format!("flush frame: {e}")))?;
         prev_out = Some(out);
     }
-    writer.finish().map_err(|e| RunError::Invoke(format!("finish stream: {e}")))?;
+    writer
+        .finish()
+        .map_err(|e| RunError::Invoke(format!("finish stream: {e}")))?;
     Ok(())
 }
 
@@ -427,7 +474,10 @@ fn input_schema(entry: &CompositeDef, program: &Program) -> Schema {
         .inputs
         .iter()
         .map(|(name, port)| {
-            (Key::from(name.as_str()), lower_schema_in_program(&port.schema, program))
+            (
+                Key::from(name.as_str()),
+                lower_schema_in_program(&port.schema, program),
+            )
         })
         .collect();
     Schema::Tree { branches }
@@ -448,7 +498,10 @@ fn output_path(name: &Name, port: &PortDecl) -> Vec<Key> {
 fn output_record(state: &Value, entry: &CompositeDef, program: &Program) -> Value {
     let mut record: IndexMap<Key, Value> = IndexMap::new();
     for (name, port) in &entry.interface.outputs {
-        let val = state.get_path(&output_path(name, port)).cloned().unwrap_or(Value::None);
+        let val = state
+            .get_path(&output_path(name, port))
+            .cloned()
+            .unwrap_or(Value::None);
         let schema = lower_schema_in_program(&port.schema, program);
         record.insert(Key::from(name.as_str()), algebra::serialize(&schema, &val));
     }
@@ -460,7 +513,10 @@ fn output_record(state: &Value, entry: &CompositeDef, program: &Program) -> Valu
 fn output_raw(state: &Value, entry: &CompositeDef) -> Value {
     let mut record: IndexMap<Key, Value> = IndexMap::new();
     for (name, port) in &entry.interface.outputs {
-        let val = state.get_path(&output_path(name, port)).cloned().unwrap_or(Value::None);
+        let val = state
+            .get_path(&output_path(name, port))
+            .cloned()
+            .unwrap_or(Value::None);
         record.insert(Key::from(name.as_str()), val);
     }
     Value::Map(record)
@@ -474,7 +530,10 @@ fn output_schema(entry: &CompositeDef, program: &Program) -> Schema {
         .outputs
         .iter()
         .map(|(name, port)| {
-            (Key::from(name.as_str()), lower_schema_in_program(&port.schema, program))
+            (
+                Key::from(name.as_str()),
+                lower_schema_in_program(&port.schema, program),
+            )
         })
         .collect();
     Schema::Tree { branches }

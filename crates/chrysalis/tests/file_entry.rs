@@ -22,12 +22,23 @@ composite World[seed :: Float = 2.0] ->{count :: Float @ count} (
 )
 ";
     let prog = parse_program(src).expect("parse");
-    assert_eq!(def_name(prog.entry().expect("entry")), "World", "last interfaced def is the entry");
+    assert_eq!(
+        def_name(prog.entry().expect("entry")),
+        "World",
+        "last interfaced def is the entry"
+    );
 
     // Running with no `main` inlines `World`: its body (count: seed=2.0) is root.
     let state = run(&prog, std_registry(), std_methods(), std_modules(), 1.0).expect("run");
-    let count = state.as_map().and_then(|m| m.get("count")).and_then(|v| v.as_f64());
-    assert_eq!(count, Some(2.0), "World's body should become the root state; got {state:?}");
+    let count = state
+        .as_map()
+        .and_then(|m| m.get("count"))
+        .and_then(|v| v.as_f64());
+    assert_eq!(
+        count,
+        Some(2.0),
+        "World's body should become the root state; got {state:?}"
+    );
 }
 
 #[test]
@@ -36,7 +47,10 @@ fn no_interfaced_term_is_a_pure_package() {
     // not runnable on its own.
     let src = "reaction R[k :: Float] (a => b)\ntype T = Float\n";
     let prog = parse_program(src).expect("parse");
-    assert!(prog.entry().is_none(), "a defs-only file has no entry point");
+    assert!(
+        prog.entry().is_none(),
+        "a defs-only file has no entry point"
+    );
 }
 
 #[test]
@@ -45,5 +59,9 @@ fn function_def_is_an_entry_candidate() {
     // inputs, its return the output) — exercised fully by the invoke path.
     let src = "process P ~{x :: Float} ->{x :: Float} ( {x: x} )\ndef transform(x :: Float) :: Float = x * 2.0\n";
     let prog = parse_program(src).expect("parse");
-    assert_eq!(def_name(prog.entry().expect("entry")), "transform", "last term wins, even a def");
+    assert_eq!(
+        def_name(prog.entry().expect("entry")),
+        "transform",
+        "last term wins, even a def"
+    );
 }

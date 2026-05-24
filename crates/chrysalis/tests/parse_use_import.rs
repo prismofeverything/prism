@@ -41,7 +41,9 @@ fn from_is_still_a_usable_identifier() {
     // an import (guarded by peek2 != `import`).
     let prog = parse_program("def from = 3.0\n").expect("parse");
     assert!(
-        prog.defs.iter().any(|d| matches!(d, Def::Binding { name, .. } if name == "from")),
+        prog.defs
+            .iter()
+            .any(|d| matches!(d, Def::Binding { name, .. } if name == "from")),
         "`def from = 3.0` should parse as a binding named `from`, got {:?}",
         prog.defs
     );
@@ -87,7 +89,10 @@ fn parses_dotted_hyphenated_module_paths() {
     // submodules are dotted, so `from spatio-flux.composites import comets` must
     // parse as ONE module string (the lexer splits `-`/`.`; the parser reassembles).
     let src = "from spatio-flux.composites.comets import Comet\n";
-    assert_eq!(uses(src), vec![("spatio-flux.composites.comets".into(), vec!["Comet".into()])]);
+    assert_eq!(
+        uses(src),
+        vec![("spatio-flux.composites.comets".into(), vec!["Comet".into()])]
+    );
     // …and round-trips through unparse.
     let prog = parse_program(src).expect("parse");
     assert!(

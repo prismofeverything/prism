@@ -51,7 +51,11 @@ fn synth_t() -> SchemaExpr {
     )
 }
 fn clear_t() -> SchemaExpr {
-    SchemaExpr::quantity(UnitExpr::named("fL").div(UnitExpr::named("s")), false, false)
+    SchemaExpr::quantity(
+        UnitExpr::named("fL").div(UnitExpr::named("s")),
+        false,
+        false,
+    )
 }
 fn time_t() -> SchemaExpr {
     SchemaExpr::quantity(UnitExpr::named("s"), false, false)
@@ -73,7 +77,9 @@ pub fn program() -> Program {
     p.push(Def::Binding {
         name: "main".into(),
         schema: None,
-        value: Expr::term("Cell").arg_named("id", Expr::string("0")).build(),
+        value: Expr::term("Cell")
+            .arg_named("id", Expr::string("0"))
+            .build(),
     });
     p
 }
@@ -328,7 +334,10 @@ fn cell_def() -> CompositeDef {
     ];
 
     let interface = Interface::new()
-        .with_output("cytoplasm", PortDecl::required(SchemaExpr::custom("Cytoplasm")))
+        .with_output(
+            "cytoplasm",
+            PortDecl::required(SchemaExpr::custom("Cytoplasm")),
+        )
         .with_output("nucleus", PortDecl::required(SchemaExpr::custom("Nucleus")));
 
     // Cross-compartment wiring targets — nested place-graph paths.
@@ -385,7 +394,13 @@ mod tests {
         assert!(prog.lookup("fL").is_some());
         assert!(prog.lookup("concentration").is_some());
         for name in [
-            "Synthesize", "Sense", "Transport", "Cytoplasm", "Nucleus", "Cell", "main",
+            "Synthesize",
+            "Sense",
+            "Transport",
+            "Cytoplasm",
+            "Nucleus",
+            "Cell",
+            "main",
         ] {
             assert!(prog.lookup(name).is_some(), "missing {name}");
         }

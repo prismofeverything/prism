@@ -15,7 +15,7 @@ use prism_schema::{Key, ReactionRule, StateMap, Value};
 
 use chrysalis::ast::Expr;
 use chrysalis::fixtures::mapk;
-use chrysalis::runtime::rule::{to_prism_rule, Rule};
+use chrysalis::runtime::rule::{Rule, to_prism_rule};
 
 /// Total ERK + pERK nodes anywhere under the cell.
 fn total_erk_perk(state: &Value) -> usize {
@@ -177,7 +177,12 @@ fn chrysalis_mapk_runs_through_the_engine() {
     .expect("engine init");
     engine.discover_all_processes();
 
-    let before = total_erk_perk(result.initial_state.get_field("cell").unwrap_or(&result.initial_state));
+    let before = total_erk_perk(
+        result
+            .initial_state
+            .get_field("cell")
+            .unwrap_or(&result.initial_state),
+    );
     engine.run(50.0);
     let after_state = engine.state();
     let cell = after_state.get_field("cell").unwrap_or(after_state);

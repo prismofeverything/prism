@@ -12,11 +12,11 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 use prism_bigraph::{BigraphicalReactiveSystem, BrsMode, Process, Update};
-use prism_schema::{find_matches, Key, ReactionRule, StateMap, Value};
+use prism_schema::{Key, ReactionRule, StateMap, Value, find_matches};
 
 use chrysalis::ast::Expr;
 use chrysalis::fixtures::mr;
-use chrysalis::runtime::rule::{to_prism_rule, Rule};
+use chrysalis::runtime::rule::{Rule, to_prism_rule};
 
 /// Lower the chrysalis M/R reactions to prism `ReactionRule`s via the
 /// compiler's evaluator (name → the converted rule).
@@ -34,7 +34,10 @@ fn prism_rules() -> IndexMap<String, ReactionRule> {
             panic!("{name} is not a Foreign rule")
         };
         let rule = f.downcast_ref::<Rule>().expect("chrysalis Rule");
-        out.insert(name.clone(), to_prism_rule(rule, Arc::clone(&result.evaluator)));
+        out.insert(
+            name.clone(),
+            to_prism_rule(rule, Arc::clone(&result.evaluator)),
+        );
     }
     out
 }
@@ -86,8 +89,7 @@ fn count(soup: &Value, ty: &str) -> usize {
         .map(|m| {
             m.iter()
                 .filter(|(k, v)| {
-                    !k.starts_with('_')
-                        && v.get_field("_type").and_then(|t| t.as_str()) == Some(ty)
+                    !k.starts_with('_') && v.get_field("_type").and_then(|t| t.as_str()) == Some(ty)
                 })
                 .count()
         })
@@ -100,8 +102,7 @@ fn all_blueprints(soup: &Value, ty: &str, bp: &str) -> bool {
         .map(|m| {
             m.iter()
                 .filter(|(k, v)| {
-                    !k.starts_with('_')
-                        && v.get_field("_type").and_then(|t| t.as_str()) == Some(ty)
+                    !k.starts_with('_') && v.get_field("_type").and_then(|t| t.as_str()) == Some(ty)
                 })
                 .all(|(_, v)| v.get_field("blueprint").and_then(|b| b.as_str()) == Some(bp))
         })
@@ -185,5 +186,8 @@ fn mr_cycle_runs_and_carries_lineage() {
         );
     }
     // F is regenerated (the closure is self-maintaining), not exhausted.
-    assert!(count(&state, "F") >= 1, "at least one F persists/regenerates");
+    assert!(
+        count(&state, "F") >= 1,
+        "at least one F persists/regenerates"
+    );
 }

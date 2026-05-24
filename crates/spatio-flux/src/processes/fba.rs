@@ -97,15 +97,14 @@ struct CobraReaction {
 impl CobraModel {
     /// Load a COBRA model from a JSON file.
     pub fn from_json_file(path: impl AsRef<Path>) -> Result<Self, String> {
-        let json = std::fs::read_to_string(path.as_ref())
-            .map_err(|e| format!("read error: {e}"))?;
+        let json =
+            std::fs::read_to_string(path.as_ref()).map_err(|e| format!("read error: {e}"))?;
         Self::from_json_str(&json)
     }
 
     /// Parse a COBRA model from a JSON string.
     pub fn from_json_str(json: &str) -> Result<Self, String> {
-        let raw: CobraJson =
-            serde_json::from_str(json).map_err(|e| format!("parse error: {e}"))?;
+        let raw: CobraJson = serde_json::from_str(json).map_err(|e| format!("parse error: {e}"))?;
 
         let metabolites: Vec<String> = raw.metabolites.iter().map(|m| m.id.clone()).collect();
         let reactions: Vec<String> = raw.reactions.iter().map(|r| r.id.clone()).collect();
@@ -140,8 +139,7 @@ impl CobraModel {
             .reactions
             .iter()
             .position(|r| {
-                r.id.to_lowercase().contains("biomass")
-                    || r.name.to_lowercase().contains("biomass")
+                r.id.to_lowercase().contains("biomass") || r.name.to_lowercase().contains("biomass")
             })
             .ok_or_else(|| "no biomass reaction found".to_string())?;
 
@@ -224,8 +222,8 @@ pub fn model_path(model_file: &str) -> Option<String> {
 /// parsed model. Multiple dFBA processes using the same model file
 /// (e.g., one per particle after division) share the same parsed data.
 pub fn load_model_cached(model_file: &str) -> Result<Arc<CobraModel>, String> {
-    let path = model_path(model_file)
-        .ok_or_else(|| format!("model file '{model_file}' not found"))?;
+    let path =
+        model_path(model_file).ok_or_else(|| format!("model file '{model_file}' not found"))?;
 
     let mut cache = MODEL_CACHE.lock().unwrap();
     if let Some(model) = cache.get(&path) {
@@ -276,9 +274,10 @@ impl FbaSolver {
             .collect();
 
         for terms in &met_terms {
-            if terms.is_empty() { continue; }
-            let row: Vec<(highs::Col, f64)> =
-                terms.iter().map(|&(j, c)| (cols[j], c)).collect();
+            if terms.is_empty() {
+                continue;
+            }
+            let row: Vec<(highs::Col, f64)> = terms.iter().map(|&(j, c)| (cols[j], c)).collect();
             pb.add_row(0.0..=0.0, row);
         }
 
@@ -319,7 +318,10 @@ impl FbaSolver {
                 let solution = solved.get_solution();
                 let fluxes = solution.columns().to_vec();
                 let objective_value = fluxes[self.objective_idx];
-                Some(FbaSolution { fluxes, objective_value })
+                Some(FbaSolution {
+                    fluxes,
+                    objective_value,
+                })
             }
             _ => None,
         };
@@ -359,7 +361,11 @@ mod tests {
         // Default solve (unlimited glucose)
         let sol = model.solve().expect("FBA should be feasible");
         println!("Growth rate: {:.4}", sol.objective_value);
-        assert!(sol.objective_value > 0.8, "growth rate should be ~0.87: {}", sol.objective_value);
+        assert!(
+            sol.objective_value > 0.8,
+            "growth rate should be ~0.87: {}",
+            sol.objective_value
+        );
 
         // Check glucose uptake flux
         let glc_idx = model.reaction_index("EX_glc__D_e").unwrap();

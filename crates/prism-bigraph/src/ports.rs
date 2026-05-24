@@ -25,19 +25,25 @@ fn get_star_path(state: &Value, path: &[Key]) -> Value {
         let rest = &path[1..];
         match state {
             Value::Map(map) => {
-                let expanded: IndexMap<Key, Value> = map.iter()
+                let expanded: IndexMap<Key, Value> = map
+                    .iter()
                     .map(|(k, v)| (k.clone(), get_star_path(v, rest)))
                     .collect();
                 Value::Map(expanded)
             }
             Value::Struct { layout, values } => {
-                let expanded: IndexMap<Key, Value> = layout.fields.iter().zip(values.iter())
+                let expanded: IndexMap<Key, Value> = layout
+                    .fields
+                    .iter()
+                    .zip(values.iter())
                     .map(|(k, v)| (k.clone(), get_star_path(v, rest)))
                     .collect();
                 Value::Map(expanded)
             }
             Value::List(list) => {
-                let expanded: IndexMap<Key, Value> = list.iter().enumerate()
+                let expanded: IndexMap<Key, Value> = list
+                    .iter()
+                    .enumerate()
                     .map(|(i, v)| (Key::from(i.to_string()), get_star_path(v, rest)))
                     .collect();
                 Value::Map(expanded)
@@ -167,9 +173,10 @@ impl Interface {
 
     /// Pre-build the view template from the current input wiring.
     pub fn init_view_template(&mut self) {
-        let simple = self.inputs.iter().all(|(name, path)| {
-            !name.contains('.') && !path.iter().any(|s| s.as_str() == "*")
-        });
+        let simple = self
+            .inputs
+            .iter()
+            .all(|(name, path)| !name.contains('.') && !path.iter().any(|s| s.as_str() == "*"));
         self.simple_inputs = simple;
     }
 
@@ -193,13 +200,11 @@ impl Interface {
         for (port_name, path) in &self.inputs {
             if path.iter().any(|s| s.as_str() == "*") {
                 let val = get_star_path(state, path);
-                let port_path: Vec<Key> =
-                    port_name.split('.').map(Key::from).collect();
+                let port_path: Vec<Key> = port_name.split('.').map(Key::from).collect();
                 view.set_path(&port_path, val);
             } else {
                 let val = state.get_path(path).cloned().unwrap_or(Value::None);
-                let port_path: Vec<Key> =
-                    port_name.split('.').map(Key::from).collect();
+                let port_path: Vec<Key> = port_name.split('.').map(Key::from).collect();
                 view.set_path(&port_path, val);
             }
         }
@@ -226,10 +231,21 @@ impl Interface {
                         // Generate one projection per expanded key.
                         if let Value::Map(expanded) = val {
                             for (key, child_val) in expanded {
-                                let concrete_path: Path = state_path.iter()
-                                    .map(|s| if s.as_str() == "*" { key.clone() } else { s.clone() })
+                                let concrete_path: Path = state_path
+                                    .iter()
+                                    .map(|s| {
+                                        if s.as_str() == "*" {
+                                            key.clone()
+                                        } else {
+                                            s.clone()
+                                        }
+                                    })
                                     .collect();
-                                projections.push((concrete_path, child_val.clone(), schema.clone()));
+                                projections.push((
+                                    concrete_path,
+                                    child_val.clone(),
+                                    schema.clone(),
+                                ));
                             }
                         }
                     } else {
@@ -239,8 +255,7 @@ impl Interface {
                 }
 
                 // Try dot-separated nested lookup
-                let port_path: Vec<Key> =
-                    port_name.split('.').map(Key::from).collect();
+                let port_path: Vec<Key> = port_name.split('.').map(Key::from).collect();
                 if port_path.len() > 1 {
                     if let Some(val) = update.get_path(&port_path) {
                         projections.push((state_path.clone(), val.clone(), schema));
@@ -258,21 +273,31 @@ mod tests {
 
     #[test]
     fn test_view_and_project() {
-        let state = Value::tree([
-            ("cell", Value::tree([
-                ("glucose", Value::float(5.0)),
-                ("atp", Value::float(100.0)),
-            ])),
-        ]);
+        let state = Value::tree([(
+            "cell",
+            Value::tree([("glucose", Value::float(5.0)), ("atp", Value::float(100.0))]),
+        )]);
 
         let mut iface = Interface {
             inputs: IndexMap::from([
-                ("glc".to_string(), vec![Key::from("cell"), Key::from("glucose")]),
-                ("energy".to_string(), vec![Key::from("cell"), Key::from("atp")]),
+                (
+                    "glc".to_string(),
+                    vec![Key::from("cell"), Key::from("glucose")],
+                ),
+                (
+                    "energy".to_string(),
+                    vec![Key::from("cell"), Key::from("atp")],
+                ),
             ]),
             outputs: IndexMap::from([
-                ("glc".to_string(), vec![Key::from("cell"), Key::from("glucose")]),
-                ("energy".to_string(), vec![Key::from("cell"), Key::from("atp")]),
+                (
+                    "glc".to_string(),
+                    vec![Key::from("cell"), Key::from("glucose")],
+                ),
+                (
+                    "energy".to_string(),
+                    vec![Key::from("cell"), Key::from("atp")],
+                ),
             ]),
             output_schemas: IndexMap::new(),
             view_template: None,
@@ -285,12 +310,12 @@ mod tests {
         assert_eq!(map["glc"].as_f64(), Some(5.0));
         assert_eq!(map["energy"].as_f64(), Some(100.0));
 
-        let update = Value::tree([
-            ("glc", Value::float(-1.0)),
-            ("energy", Value::float(-2.0)),
-        ]);
+        let update = Value::tree([("glc", Value::float(-1.0)), ("energy", Value::float(-2.0))]);
         let projected = iface.project(&update);
         assert_eq!(projected.len(), 2);
-        assert_eq!(projected[0].0, vec![Key::from("cell"), Key::from("glucose")]);
+        assert_eq!(
+            projected[0].0,
+            vec![Key::from("cell"), Key::from("glucose")]
+        );
     }
 }

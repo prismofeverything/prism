@@ -62,10 +62,7 @@ pub fn rebuild_field(data: &[f64], original: &Value) -> Value {
         for y in 0..ny {
             let start = y * nx;
             let end = (start + nx).min(data.len());
-            let row: Vec<Value> = data[start..end]
-                .iter()
-                .map(|&v| Value::float(v))
-                .collect();
+            let row: Vec<Value> = data[start..end].iter().map(|&v| Value::float(v)).collect();
             rows.push(Value::List(row));
         }
         Value::List(rows)
@@ -128,6 +125,9 @@ mod tests {
         let original = Value::List(vec![Value::float(0.0), Value::float(0.0)]);
         let data = vec![1.0, 2.0];
         let rebuilt = rebuild_field(&data, &original);
-        assert_eq!(rebuilt, Value::List(vec![Value::float(1.0), Value::float(2.0)]));
+        assert_eq!(
+            rebuilt,
+            Value::List(vec![Value::float(1.0), Value::float(2.0)])
+        );
     }
 }

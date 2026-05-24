@@ -450,12 +450,6 @@ pub enum Def {
     Composite(CompositeDef),
     Reaction(ReactionDef),
     Pattern(PatternDef),
-    /// `extern process Name ~{in} ->{out}` — a process whose interface is
-    /// declared here but whose implementation is a NATIVE Rust factory
-    /// registered under `Name` (e.g. a spatio-flux `DiffusionAdvection`).
-    /// chrysalis only wires it; the factory is supplied via
-    /// [`crate::compile::compile_with_registry`].
-    Extern(ExternDef),
     /// `unit name : [dim] = definition` — a unit declaration.
     Unit(UnitDef),
     /// `context Name(params) (...)` — cross-dimension conversion rules.
@@ -476,7 +470,10 @@ pub enum Def {
     /// `import Name from "path.ys"` — pull another file's definitions into
     /// scope. Resolved by [`crate::parse::parse_file`] (load the file, merge
     /// its defs); after resolution no `Import` remains in a `Program`.
-    Import { name: Name, path: String },
+    Import {
+        name: Name,
+        path: String,
+    },
     /// `from <module> import <name>, …` — pull NATIVE host capabilities into
     /// scope: either a whole process (`from core import RunProcess`, used as-is
     /// with no interface redeclaration) or functions/objects
@@ -485,11 +482,18 @@ pub enum Def {
     /// compile time against the host-supplied native module registry — the
     /// replacement for `extern`. (Distinct from [`Def::Import`], which pulls in
     /// another `.ys` *file*.)
-    Use { module: Name, names: Vec<Name> },
+    Use {
+        module: Name,
+        names: Vec<Name>,
+    },
     /// Top-level binding `name = expr`, or type-ascribed `name :: Type = expr`
     /// (e.g. `network :: CRN = {species: …}` — a shared, typed value realized
     /// through the consuming method). `schema` is the optional `:: Type`.
-    Binding { name: Name, schema: Option<SchemaExpr>, value: Expr },
+    Binding {
+        name: Name,
+        schema: Option<SchemaExpr>,
+        value: Expr,
+    },
 }
 
 /// `type Name = <representation> with { method(args) = body }`.
@@ -587,17 +591,6 @@ pub struct PatternDef {
     pub body: Expr,
 }
 
-/// `extern process Name[cfg] ~{in} ->{out}` — a native process reference.
-/// The interface lets chrysalis type and wire it; the body lives in Rust
-/// (a factory registered under `name`). Used to compose prism's numerical
-/// processes (FBA, diffusion, kinetics, particles) from chrysalis.
-#[derive(Clone, Debug)]
-pub struct ExternDef {
-    pub name: Name,
-    pub params: Vec<Param>,
-    pub interface: Interface,
-}
-
 #[derive(Clone, Debug, Default)]
 pub struct Program {
     pub defs: Vec<Def>,
@@ -643,7 +636,6 @@ pub fn def_name(def: &Def) -> &str {
         Def::Composite(d) => &d.name,
         Def::Reaction(d) => &d.name,
         Def::Pattern(d) => &d.name,
-        Def::Extern(d) => &d.name,
         Def::Unit(d) => &d.name,
         Def::Context(d) => &d.name,
         Def::Type(d) => &d.name,

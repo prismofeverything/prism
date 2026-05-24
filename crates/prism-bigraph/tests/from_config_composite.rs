@@ -32,9 +32,15 @@ impl Process for Grow {
         IndexMap::from([("mass".to_string(), Schema::float())])
     }
     fn update(&self, state: &Value, interval: f64) -> Update {
-        let mass = state.get_field("mass").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let mass = state
+            .get_field("mass")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
         // delta: mass grows by rate * interval
-        Update::value(Value::tree([("mass", Value::float(mass * self.rate * interval))]))
+        Update::value(Value::tree([(
+            "mass",
+            Value::float(mass * self.rate * interval),
+        )]))
     }
     fn as_any(&self) -> &dyn Any {
         self
@@ -54,7 +60,10 @@ fn from_config_builds_and_runs_a_composite() {
     // inner engine (from_config calls discover_all_processes).
     let mut registry = ProcessRegistry::new();
     registry.register("Grow", |config| {
-        let rate = config.get_field("rate").and_then(|v| v.as_f64()).unwrap_or(0.1);
+        let rate = config
+            .get_field("rate")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.1);
         ProcessNode::Process(Box::new(Grow { rate }))
     });
     let registry = Arc::new(registry);
@@ -87,8 +96,8 @@ fn from_config_builds_and_runs_a_composite() {
     ]);
 
     let core = Core::from(Arc::clone(&registry));
-    let composite = Composite::from_config(&config, &core)
-        .expect("from_config should build a composite");
+    let composite =
+        Composite::from_config(&config, &core).expect("from_config should build a composite");
 
     // Parent engine: the composite's bridged `mass` output lands in `cell_mass`.
     let mut parent = Topology::new();
@@ -106,12 +115,19 @@ fn from_config_builds_and_runs_a_composite() {
         },
     );
     let mut inst = HashMap::new();
-    inst.insert("cell".to_string(), ProcessNode::Process(Box::new(composite)));
+    inst.insert(
+        "cell".to_string(),
+        ProcessNode::Process(Box::new(composite)),
+    );
 
     let mut engine = Engine::new(parent, inst);
     engine.run(3.0);
 
-    let cell_mass = engine.state().get_field("cell_mass").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let cell_mass = engine
+        .state()
+        .get_field("cell_mass")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
     eprintln!("cell_mass after run(3.0) = {cell_mass}");
     assert!(
         cell_mass > 1.0,

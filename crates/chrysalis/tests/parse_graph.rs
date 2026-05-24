@@ -6,7 +6,7 @@
 
 use chrysalis::compile::compile;
 use chrysalis::parse::parse_program;
-use prism_schema::{algebra, Schema, Value};
+use prism_schema::{Schema, Value, algebra};
 
 /// The actual surface file (compiled in, so it's path/CWD-independent).
 const GRAPH_YS: &str = include_str!("../ys/graph.ys");
@@ -16,7 +16,10 @@ fn s(x: &str) -> Value {
 }
 
 fn graph_schema() -> Schema {
-    Schema::Custom { name: "Graph".into(), parameters: Default::default() }
+    Schema::Custom {
+        name: "Graph".into(),
+        parameters: Default::default(),
+    }
 }
 
 #[test]
@@ -30,7 +33,9 @@ fn parses_graph_ys_and_runs() {
     // A write method parsed from the file returns the delta.
     let delta = m.dispatch(&graph_empty(), "add_node", &[s("x")]).unwrap();
     assert_eq!(
-        delta.get_path(&["nodes".into(), "_add".into()]).and_then(|v| v.as_list()),
+        delta
+            .get_path(&["nodes".into(), "_add".into()])
+            .and_then(|v| v.as_list()),
         Some(&[s("x")][..]),
         "parsed add_node returns {{nodes: {{_add: [x]}}}}"
     );
@@ -45,23 +50,41 @@ fn parses_graph_ys_and_runs() {
         let d = m.dispatch(&g, "add_edge", &[s(from), s(to)]).unwrap();
         g = algebra::apply_with(Some(types), &graph_t, &g, &d);
     }
-    assert_eq!(g.get_field("nodes").and_then(|v| v.as_list()).map(<[_]>::len), Some(3));
-    assert_eq!(g.get_field("edges").and_then(|v| v.as_list()).map(<[_]>::len), Some(2));
+    assert_eq!(
+        g.get_field("nodes")
+            .and_then(|v| v.as_list())
+            .map(<[_]>::len),
+        Some(3)
+    );
+    assert_eq!(
+        g.get_field("edges")
+            .and_then(|v| v.as_list())
+            .map(<[_]>::len),
+        Some(2)
+    );
 
     // A read method parsed from the file: the comprehension query.
     let nbrs = m.dispatch(&g, "neighbors", &[s("a")]).unwrap();
-    assert_eq!(nbrs, Value::List(vec![s("b"), s("c")]), "parsed neighbors(a) = [b, c]");
+    assert_eq!(
+        nbrs,
+        Value::List(vec![s("b"), s("c")]),
+        "parsed neighbors(a) = [b, c]"
+    );
 
     // remove_node parsed from the file: removes c and its incident edges.
     let d = m.dispatch(&g, "remove_node", &[s("c")]).unwrap();
     let g = algebra::apply_with(Some(types), &graph_t, &g, &d);
     assert_eq!(
-        g.get_field("nodes").and_then(|v| v.as_list()).map(<[_]>::len),
+        g.get_field("nodes")
+            .and_then(|v| v.as_list())
+            .map(<[_]>::len),
         Some(2),
         "remove_node dropped c"
     );
     assert_eq!(
-        g.get_field("edges").and_then(|v| v.as_list()).map(<[_]>::len),
+        g.get_field("edges")
+            .and_then(|v| v.as_list())
+            .map(<[_]>::len),
         Some(1),
         "remove_node dropped the incident a→c edge"
     );

@@ -23,8 +23,7 @@ pub fn load_vivarium(
     json_str: &str,
     registry: Arc<ProcessRegistry>,
 ) -> Result<(Engine, VivariumDocument), String> {
-    let vdoc =
-        VivariumDocument::from_json(json_str).map_err(|e| format!("parse error: {e}"))?;
+    let vdoc = VivariumDocument::from_json(json_str).map_err(|e| format!("parse error: {e}"))?;
 
     let (engine, _) = instantiate_vivarium(&vdoc, registry)?;
     Ok((engine, vdoc))
@@ -56,17 +55,11 @@ pub fn instantiate_vivarium(
         // Instantiate via registry to determine Process vs Step
         let node = registry
             .create(&vproc.class_name, vproc.config.clone())
-            .ok_or_else(|| {
-                format!("unknown process type '{}' for '{}'", vproc.class_name, name)
-            })?;
+            .ok_or_else(|| format!("unknown process type '{}' for '{}'", vproc.class_name, name))?;
 
         // Determine interval: if it's a Process, use its declared interval
         let interval = match &node {
-            ProcessNode::Process(p) => Some(
-                vproc
-                    .interval
-                    .unwrap_or_else(|| p.interval()),
-            ),
+            ProcessNode::Process(p) => Some(vproc.interval.unwrap_or_else(|| p.interval())),
             ProcessNode::Step(_) => None,
         };
 
@@ -88,7 +81,8 @@ pub fn instantiate_vivarium(
     // Handle composite containers: create Composite process nodes for them
     for composite_name in &vdoc.composites {
         // The composite's internal state is the container map from the state tree
-        let inner_state = vdoc.state
+        let inner_state = vdoc
+            .state
             .as_map()
             .and_then(|m| m.get(composite_name.as_str()))
             .cloned()
@@ -119,17 +113,26 @@ pub fn instantiate_vivarium(
             input_mappings.insert(root.clone(), path.clone());
             output_mappings.insert(root.clone(), path.clone());
         }
-        let input_bridge = Bridge { mappings: input_mappings };
-        let output_bridge = Bridge { mappings: output_mappings };
+        let input_bridge = Bridge {
+            mappings: input_mappings,
+        };
+        let output_bridge = Bridge {
+            mappings: output_mappings,
+        };
 
         // Build port schemas from the parsed state schema
         let state_schema = &topology.state_schema;
-        let input_schemas: IndexMap<String, Schema> = input_bridge.mappings.keys()
-            .map(|k| (k.clone(), Schema::Any)).collect();
+        let input_schemas: IndexMap<String, Schema> = input_bridge
+            .mappings
+            .keys()
+            .map(|k| (k.clone(), Schema::Any))
+            .collect();
         // Build output schemas from the parsed state schema.
         // The composite outputs DELTAS which the parent applies additively.
         // For field arrays, the schema tells the parent to use Array element-wise apply.
-        let output_schemas: IndexMap<String, Schema> = output_bridge.mappings.keys()
+        let output_schemas: IndexMap<String, Schema> = output_bridge
+            .mappings
+            .keys()
             .map(|k| {
                 let schema = if let Schema::Tree { branches } = state_schema {
                     branches.get(k.as_str()).cloned().unwrap_or(Schema::Any)
@@ -137,7 +140,8 @@ pub fn instantiate_vivarium(
                     Schema::Any
                 };
                 (k.clone(), schema)
-            }).collect();
+            })
+            .collect();
 
         // Build inner engine: the state is the parent's state (bridged fields
         // are injected before each run). Inner processes are discovered.
@@ -170,8 +174,12 @@ pub fn instantiate_vivarium(
         inner_engine.discover_all_processes();
 
         let composite = Composite::new(
-            inner_engine, input_bridge, output_bridge,
-            input_schemas, output_schemas, 1.0,
+            inner_engine,
+            input_bridge,
+            output_bridge,
+            input_schemas,
+            output_schemas,
+            1.0,
         );
 
         let spec = ProcessSpec {
@@ -184,13 +192,19 @@ pub fn instantiate_vivarium(
         };
 
         topology.processes.insert(composite_name.clone(), spec);
-        instances.insert(composite_name.clone(), ProcessNode::Process(Box::new(composite)));
+        instances.insert(
+            composite_name.clone(),
+            ProcessNode::Process(Box::new(composite)),
+        );
     }
 
     // Debug: show what's in topology
     if !vdoc.composites.is_empty() {
         eprintln!("[vivarium] composites: {:?}", vdoc.composites);
-        eprintln!("[vivarium] topology processes: {:?}", topology.processes.keys().collect::<Vec<_>>());
+        eprintln!(
+            "[vivarium] topology processes: {:?}",
+            topology.processes.keys().collect::<Vec<_>>()
+        );
     }
 
     let mut engine = Engine::new(topology.clone(), instances);
@@ -216,7 +230,8 @@ fn collect_bridge_roots(wires: &Value, roots: &mut IndexMap<String, Vec<Key>>) {
                 match target {
                     Value::List(path) => {
                         if let Some(root) = find_root(path) {
-                            roots.entry(root.clone())
+                            roots
+                                .entry(root.clone())
                                 .or_insert_with(|| vec![Key::from(root.as_str())]);
                         }
                     }
@@ -224,7 +239,8 @@ fn collect_bridge_roots(wires: &Value, roots: &mut IndexMap<String, Vec<Key>>) {
                         for (_sub, sub_target) in sub_map {
                             if let Value::List(path) = sub_target {
                                 if let Some(root) = find_root(path) {
-                                    roots.entry(root.clone())
+                                    roots
+                                        .entry(root.clone())
                                         .or_insert_with(|| vec![Key::from(root.as_str())]);
                                 }
                             }

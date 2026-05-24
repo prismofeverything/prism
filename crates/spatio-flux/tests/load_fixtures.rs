@@ -6,10 +6,10 @@
 //! Tests marked READY use only process types we have implemented.
 //! Tests marked BLOCKED skip gracefully when a required process type is missing.
 
-use std::sync::Arc;
 use prism_bigraph::VivariumDocument;
 use spatio_flux::from_config::build_registry;
 use spatio_flux::vivarium_loader::instantiate_vivarium;
+use std::sync::Arc;
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures");
 
@@ -19,8 +19,8 @@ fn run_fixture(name: &str, duration: f64) {
     let json = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("{name}: cannot read {path}: {e}"));
 
-    let vdoc = VivariumDocument::from_json(&json)
-        .unwrap_or_else(|e| panic!("{name}: parse error: {e}"));
+    let vdoc =
+        VivariumDocument::from_json(&json).unwrap_or_else(|e| panic!("{name}: parse error: {e}"));
 
     let n_procs = vdoc.processes.len();
     let proc_types: Vec<String> = vdoc
@@ -192,9 +192,17 @@ fn spatial_dfba_changes_outer_fields() {
         instantiate_vivarium(&vdoc, Arc::clone(&registry)).expect("should instantiate");
 
     let fields_key = [prism_schema::Key::from("fields")];
-    let before = engine.state().get_path(&fields_key).map(sum_leaves).unwrap_or(0.0);
+    let before = engine
+        .state()
+        .get_path(&fields_key)
+        .map(sum_leaves)
+        .unwrap_or(0.0);
     engine.run(10.0);
-    let after = engine.state().get_path(&fields_key).map(sum_leaves).unwrap_or(0.0);
+    let after = engine
+        .state()
+        .get_path(&fields_key)
+        .map(sum_leaves)
+        .unwrap_or(0.0);
 
     // The `spatial_dFBA` composite reads/writes the outer fields across
     // the sub-engine boundary. If cross-boundary exchange works the
@@ -222,10 +230,21 @@ fn reference_demo_depletes_glucose() {
     let (mut engine, _topo) =
         instantiate_vivarium(&vdoc, Arc::clone(&registry)).expect("should instantiate");
 
-    let glucose = [prism_schema::Key::from("fields"), prism_schema::Key::from("glucose")];
-    let before = engine.state().get_path(&glucose).map(sum_leaves).unwrap_or(0.0);
+    let glucose = [
+        prism_schema::Key::from("fields"),
+        prism_schema::Key::from("glucose"),
+    ];
+    let before = engine
+        .state()
+        .get_path(&glucose)
+        .map(sum_leaves)
+        .unwrap_or(0.0);
     engine.run(20.0);
-    let after = engine.state().get_path(&glucose).map(sum_leaves).unwrap_or(0.0);
+    let after = engine
+        .state()
+        .get_path(&glucose)
+        .map(sum_leaves)
+        .unwrap_or(0.0);
 
     println!("reference_demo glucose total: {before} -> {after}");
     assert!(

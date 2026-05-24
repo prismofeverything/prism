@@ -21,13 +21,13 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use thiserror::Error;
 
-use prism_schema::{value_type_name, Key, MethodError, MethodRegistry, Pattern, Value};
+use prism_schema::{Key, MethodError, MethodRegistry, Pattern, Value, value_type_name};
 
 use crate::ast::{
     BinOp, Block, Def, Expr, Name, PathRoot, PlacePath, PortBindings, Program, ReactionDef,
     StringLit, StringSeg, TermArg, UnaryOp,
 };
-use crate::runtime::rule::{BindingSource, Reactum, Rule, RuleBindings, FOREIGN_RULE};
+use crate::runtime::rule::{BindingSource, FOREIGN_RULE, Reactum, Rule, RuleBindings};
 
 #[derive(Debug, Error)]
 pub enum EvalError {
@@ -94,7 +94,12 @@ impl Evaluator {
         imports: IndexMap<Name, Value>,
         imported_processes: HashSet<Name>,
     ) -> Self {
-        Self { program, methods, imports, imported_processes }
+        Self {
+            program,
+            methods,
+            imports,
+            imported_processes,
+        }
     }
 
     // ===============================================================
@@ -127,11 +132,7 @@ impl Evaluator {
         self.eval_value(body, &env)
     }
 
-    pub fn eval_value(
-        &self,
-        expr: &Expr,
-        env: &IndexMap<Name, Value>,
-    ) -> Result<Value, EvalError> {
+    pub fn eval_value(&self, expr: &Expr, env: &IndexMap<Name, Value>) -> Result<Value, EvalError> {
         match expr {
             Expr::Unit => Ok(Value::None),
             Expr::Bool(b) => Ok(Value::Bool(*b)),
@@ -142,7 +143,10 @@ impl Evaluator {
             Expr::Var(name) | Expr::Site { name, .. } => {
                 if let Some(v) = env.get(name).or_else(|| self.imports.get(name)) {
                     Ok(v.clone())
-                } else if matches!(self.program.lookup(name), Some(crate::ast::Def::Function(_))) {
+                } else if matches!(
+                    self.program.lookup(name),
+                    Some(crate::ast::Def::Function(_))
+                ) {
                     // A bare reference to a `def`ined function → a first-class
                     // function value (passable to / returnable from functions).
                     Ok(function_value(name))
@@ -211,7 +215,11 @@ impl Evaluator {
 
             Expr::Block(block) => self.eval_block(block, env),
 
-            Expr::Method { receiver, method, args } => {
+            Expr::Method {
+                receiver,
+                method,
+                args,
+            } => {
                 let recv = self.eval_value(receiver, env)?;
                 let arg_vals: Vec<Value> = args
                     .iter()
@@ -230,7 +238,12 @@ impl Evaluator {
 
             Expr::Call { func, args } => self.eval_call(func, args, env),
 
-            Expr::Comprehension { var, source, filter, body } => {
+            Expr::Comprehension {
+                var,
+                source,
+                filter,
+                body,
+            } => {
                 let source_val = self.eval_value(source, env)?;
                 let Value::List(items) = source_val else {
                     return Err(EvalError::InvalidForm {
@@ -267,9 +280,12 @@ impl Evaluator {
                 Ok(Value::Map(out))
             }
 
-            Expr::Term { control, args, ports, body } => {
-                self.eval_term_value(control, args, ports, body.as_deref(), env)
-            }
+            Expr::Term {
+                control,
+                args,
+                ports,
+                body,
+            } => self.eval_term_value(control, args, ports, body.as_deref(), env),
 
             Expr::Parallel(elems) => self.eval_parallel_value(elems, env),
 
@@ -305,11 +321,7 @@ impl Evaluator {
         }
     }
 
-    fn eval_block(
-        &self,
-        block: &Block,
-        env: &IndexMap<Name, Value>,
-    ) -> Result<Value, EvalError> {
+    fn eval_block(&self, block: &Block, env: &IndexMap<Name, Value>) -> Result<Value, EvalError> {
         let mut new_env = env.clone();
         for (name, value_expr) in &block.bindings {
             let v = self.eval_value(value_expr, &new_env)?;
@@ -390,11 +402,7 @@ impl Evaluator {
         self.eval_value(body, &env)
     }
 
-    fn eval_path(
-        &self,
-        path: &PlacePath,
-        env: &IndexMap<Name, Value>,
-    ) -> Result<Value, EvalError> {
+    fn eval_path(&self, path: &PlacePath, env: &IndexMap<Name, Value>) -> Result<Value, EvalError> {
         // Tier 1: only the local-relative root is supported; @ and ^
         // are valid syntactic forms but their lowering depends on the
         // composite context, which the engine resolves via wire
@@ -411,10 +419,7 @@ impl Evaluator {
                     None => self.eval_value(&Expr::Var(name.clone()), env)?,
                 };
                 for seg in &path.segments {
-                    current = current
-                        .get_field(seg)
-                        .cloned()
-                        .unwrap_or(Value::None);
+                    current = current.get_field(seg).cloned().unwrap_or(Value::None);
                 }
                 Ok(current)
             }
@@ -431,8 +436,8 @@ impl Evaluator {
         env: &IndexMap<Name, Value>,
     ) -> Result<Value, EvalError> {
         // Classify: all keyed? all anonymous? mixed?
-        let all_keyed = !elems.is_empty()
-            && elems.iter().all(|e| matches!(e, Expr::KeyedEntry { .. }));
+        let all_keyed =
+            !elems.is_empty() && elems.iter().all(|e| matches!(e, Expr::KeyedEntry { .. }));
         if all_keyed {
             let mut map: IndexMap<Key, Value> = IndexMap::new();
             for e in elems {
@@ -523,39 +528,11 @@ impl Evaluator {
             }
             Some(Def::Process(process_def)) => {
                 let def = process_def.clone();
-                self.build_pure_spec(
-                    control,
-                    args,
-                    ports,
-                    &def.params,
-                    &def.interface,
-                    env,
-                )
+                self.build_pure_spec(control, args, ports, &def.params, &def.interface, env)
             }
             Some(Def::Step(step_def)) => {
                 let def = step_def.clone();
-                self.build_pure_spec(
-                    control,
-                    args,
-                    ports,
-                    &def.params,
-                    &def.interface,
-                    env,
-                )
-            }
-            // A native process reference: emit the same `{address, config,
-            // inputs, outputs}` spec as a user process — the engine resolves
-            // `local:Name` to the native factory merged in at compile time.
-            Some(Def::Extern(extern_def)) => {
-                let def = extern_def.clone();
-                self.build_pure_spec(
-                    control,
-                    args,
-                    ports,
-                    &def.params,
-                    &def.interface,
-                    env,
-                )
+                self.build_pure_spec(control, args, ports, &def.params, &def.interface, env)
             }
             Some(Def::Reaction(reaction_def)) => {
                 let def = reaction_def.clone();
@@ -563,7 +540,9 @@ impl Evaluator {
             }
             Some(Def::Function(_)) => Err(EvalError::InvalidForm {
                 context: "value-term".into(),
-                message: format!("`{control}` is a function — call it as `{control}(args)`, not `{control}[args]`"),
+                message: format!(
+                    "`{control}` is a function — call it as `{control}(args)`, not `{control}[args]`"
+                ),
             }),
             Some(Def::Pattern(_))
             | Some(Def::Unit(_))
@@ -605,19 +584,18 @@ impl Evaluator {
                 config_map.insert(Key::from(name.as_str()), self.eval_value(value, env)?);
             }
         }
-        let lower = |binds: &IndexMap<Name, Expr>,
-                     ev: &Self|
-         -> Result<IndexMap<Key, Value>, EvalError> {
-            let mut m: IndexMap<Key, Value> = IndexMap::new();
-            for (name, target) in binds {
-                let segs = lower_target_to_segments(target, ev, env)?;
-                m.insert(
-                    Key::from(name.as_str()),
-                    Value::List(segs.into_iter().map(Value::String).collect()),
-                );
-            }
-            Ok(m)
-        };
+        let lower =
+            |binds: &IndexMap<Name, Expr>, ev: &Self| -> Result<IndexMap<Key, Value>, EvalError> {
+                let mut m: IndexMap<Key, Value> = IndexMap::new();
+                for (name, target) in binds {
+                    let segs = lower_target_to_segments(target, ev, env)?;
+                    m.insert(
+                        Key::from(name.as_str()),
+                        Value::List(segs.into_iter().map(Value::String).collect()),
+                    );
+                }
+                Ok(m)
+            };
         let inputs_map = lower(&ports.inputs, self)?;
         let outputs_map = lower(&ports.outputs, self)?;
 
@@ -692,11 +670,19 @@ impl Evaluator {
         let config = Value::Map(IndexMap::from([
             (Key::from("state"), inner_state),
             (Key::from("bridge"), bridge),
-            (Key::from("schema"), prism_schema::schema_to_value(&inner_schema)),
+            (
+                Key::from("schema"),
+                prism_schema::schema_to_value(&inner_schema),
+            ),
         ]));
         let composite_name: Name = "Composite".into();
-        let mut spec =
-            self.build_spec_value(&composite_name, &IndexMap::new(), ports, &def.interface, env)?;
+        let mut spec = self.build_spec_value(
+            &composite_name,
+            &IndexMap::new(),
+            ports,
+            &def.interface,
+            env,
+        )?;
         if let Value::Map(m) = &mut spec {
             m.insert(Key::from("config"), config);
         }
@@ -1047,10 +1033,8 @@ impl Evaluator {
                         // The TOP-LEVEL `?name : Sort` is the key binding,
                         // handled by `eval_pattern_top`.
                         let inner = self.eval_pattern(sub, env, bindings)?;
-                        bindings.insert(
-                            name.clone(),
-                            BindingSource::Site(Key::from(name.as_str())),
-                        );
+                        bindings
+                            .insert(name.clone(), BindingSource::Site(Key::from(name.as_str())));
                         Ok(Pattern::Bind {
                             name: Key::from(name.as_str()),
                             inner: Box::new(inner),
@@ -1069,16 +1053,17 @@ impl Evaluator {
                 Ok(Pattern::Atom(v))
             }
 
-            Expr::Term { control, args, ports, body } => {
-                self.eval_pattern_term(control, args, ports, body.as_deref(), env, bindings)
-            }
+            Expr::Term {
+                control,
+                args,
+                ports,
+                body,
+            } => self.eval_pattern_term(control, args, ports, body.as_deref(), env, bindings),
 
             Expr::Parallel(elems) => {
                 // All KeyedEntry → Pattern::Map; otherwise List.
-                let all_keyed = !elems.is_empty()
-                    && elems
-                        .iter()
-                        .all(|e| matches!(e, Expr::KeyedEntry { .. }));
+                let all_keyed =
+                    !elems.is_empty() && elems.iter().all(|e| matches!(e, Expr::KeyedEntry { .. }));
                 if all_keyed {
                     let mut map: IndexMap<Key, Pattern> = IndexMap::new();
                     for e in elems {
@@ -1161,7 +1146,11 @@ impl Evaluator {
                     // the chrysalis variable name (Pattern::Site is
                     // anonymous, but we map it through the `name` field
                     // of the Site Expr that produced it).
-                    if let Expr::Site { name: var_name, sort: None } = value {
+                    if let Expr::Site {
+                        name: var_name,
+                        sort: None,
+                    } = value
+                    {
                         bindings.insert(
                             var_name.clone(),
                             BindingSource::Site(Key::from(name.as_str())),
@@ -1243,13 +1232,18 @@ impl Evaluator {
 /// by-name reference to a `def`ined function, so it can be passed to / returned
 /// from / stored by other functions.
 fn function_value(name: &str) -> Value {
-    Value::tree([("_type", Value::from("Function")), ("_name", Value::from(name))])
+    Value::tree([
+        ("_type", Value::from("Function")),
+        ("_name", Value::from(name)),
+    ])
 }
 
 /// If `v` is a function value, the name of the function it references.
 fn function_value_name(v: &Value) -> Option<String> {
     if v.get_field("_type").and_then(|t| t.as_str()) == Some("Function") {
-        v.get_field("_name").and_then(|n| n.as_str()).map(str::to_string)
+        v.get_field("_name")
+            .and_then(|n| n.as_str())
+            .map(str::to_string)
     } else {
         None
     }
@@ -1405,12 +1399,7 @@ fn lower_port_bindings(
         let segments = lower_target_to_segments(target, evaluator, env)?;
         out.insert(
             Key::from(port.as_str()),
-            Value::List(
-                segments
-                    .into_iter()
-                    .map(Value::String)
-                    .collect(),
-            ),
+            Value::List(segments.into_iter().map(Value::String).collect()),
         );
     }
     Ok(out)
@@ -1451,4 +1440,3 @@ fn lower_place_path(path: &PlacePath) -> Vec<String> {
     }
     out
 }
-

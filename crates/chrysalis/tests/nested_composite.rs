@@ -29,7 +29,11 @@ fn push_base(p: &mut Program) {
     // composite Leaf[v: Float = 0] ~{} ->{v} ( v: v | Bump ~{v: v} ->{v: v} )
     p.push(Def::Composite(CompositeDef {
         name: "Leaf".into(),
-        params: vec![Param::with_default("v", SchemaExpr::Float, Expr::float(0.0))],
+        params: vec![Param::with_default(
+            "v",
+            SchemaExpr::Float,
+            Expr::float(0.0),
+        )],
         interface: Interface::new().with_output("v", PortDecl::required(SchemaExpr::Float)),
         using: vec![],
         body: Expr::parallel(vec![
@@ -91,7 +95,10 @@ fn composite_in_map_runs() {
     // encapsulated inner slot (`leaves.a.v`). A composite is a subengine —
     // you see what it exposes through its bridge, not its internals.
     let v = run_and_read(&p, &["leaves", "v"]).unwrap_or(0.0);
-    assert!(v > 0.0, "Leaf in a passed-in map should run and expose grown v (got {v})");
+    assert!(
+        v > 0.0,
+        "Leaf in a passed-in map should run and expose grown v (got {v})"
+    );
 }
 
 #[test]
@@ -118,5 +125,8 @@ fn composite_in_direct_slot_runs() {
 
     // Observe the Leaf's bridged output on its parent (root `v`).
     let v = run_and_read(&p, &["v"]).unwrap_or(0.0);
-    assert!(v > 0.0, "Leaf in a direct slot should run and expose grown v (got {v})");
+    assert!(
+        v > 0.0,
+        "Leaf in a direct slot should run and expose grown v (got {v})"
+    );
 }

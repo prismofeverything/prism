@@ -67,7 +67,9 @@ fn repo_root() -> PathBuf {
 }
 
 fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
@@ -86,7 +88,10 @@ fn algebra_closure_is_maintained() {
     for dir in SCAN_DIRS {
         collect_rs_files(&root.join(dir), &mut files);
     }
-    assert!(!files.is_empty(), "no source files found to scan under {SCAN_DIRS:?}");
+    assert!(
+        !files.is_empty(),
+        "no source files found to scan under {SCAN_DIRS:?}"
+    );
 
     let mut found: BTreeSet<(String, String)> = BTreeSet::new();
     for file in &files {

@@ -30,8 +30,14 @@ impl Process for Grow {
         IndexMap::from([("mass".to_string(), Schema::float())])
     }
     fn update(&self, state: &Value, interval: f64) -> Update {
-        let mass = state.get_field("mass").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        Update::value(Value::tree([("mass", Value::float(mass * self.rate * interval))]))
+        let mass = state
+            .get_field("mass")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        Update::value(Value::tree([(
+            "mass",
+            Value::float(mass * self.rate * interval),
+        )]))
     }
     fn as_any(&self) -> &dyn Any {
         self
@@ -44,7 +50,10 @@ impl Process for Grow {
 fn grow_registry() -> Arc<ProcessRegistry> {
     let mut r = ProcessRegistry::new();
     r.register("Grow", |config| {
-        let rate = config.get_field("rate").and_then(|v| v.as_f64()).unwrap_or(0.1);
+        let rate = config
+            .get_field("rate")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.1);
         ProcessNode::Process(Box::new(Grow { rate }))
     });
     Arc::new(r)
@@ -65,7 +74,11 @@ fn rest_server_lifecycle_creates_runs_and_cleans_up() {
             RestProcess::initialize(server.base_url(), "Grow", config.clone()).expect("initialize")
         })
         .collect();
-    assert_eq!(server.live_count(), 3, "three live processes after initialize");
+    assert_eq!(
+        server.live_count(),
+        3,
+        "three live processes after initialize"
+    );
 
     // Drive them over HTTP — the real computation runs server-side.
     let state = Value::tree([("mass", Value::float(1.0))]);
@@ -75,13 +88,20 @@ fn rest_server_lifecycle_creates_runs_and_cleans_up() {
             .into_value()
             .and_then(|v| v.get_field("mass").and_then(|m| m.as_f64()))
             .expect("update returns mass");
-        assert!((mass - 2.0).abs() < 1e-9, "Grow(rate 2)·mass 1·interval 1 = 2, got {mass}");
+        assert!(
+            (mass - 2.0).abs() < 1e-9,
+            "Grow(rate 2)·mass 1·interval 1 = 2, got {mass}"
+        );
     }
     assert_eq!(server.live_count(), 3, "updates don't change the live set");
 
     // Dropping each RestProcess sends `end` → the server DELETES it.
     drop(procs);
-    assert_eq!(server.live_count(), 0, "every ended process is cleaned up — no leaks");
+    assert_eq!(
+        server.live_count(),
+        0,
+        "every ended process is cleaned up — no leaks"
+    );
 }
 
 /// A document referencing a process the server's core lacks is rejected, not run
@@ -93,6 +113,13 @@ fn rest_server_rejects_an_unregistered_process() {
 
     // `Grow` is registered; `Ghost` is not.
     let result = RestProcess::initialize(server.base_url(), "Ghost", Value::None);
-    assert!(result.is_err(), "initializing an unregistered process must error");
-    assert_eq!(server.live_count(), 0, "nothing is created for a rejected request");
+    assert!(
+        result.is_err(),
+        "initializing an unregistered process must error"
+    );
+    assert_eq!(
+        server.live_count(),
+        0,
+        "nothing is created for a rejected request"
+    );
 }

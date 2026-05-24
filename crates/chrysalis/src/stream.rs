@@ -20,7 +20,7 @@ use prism_bigraph::{
     PortSchema, Process, ProcessNode, ProcessRegistry, Protocol, ProtocolError, ProtocolRegistry,
     Update,
 };
-use prism_schema::{algebra, schema_to_value, Key, Schema, Value};
+use prism_schema::{Key, Schema, Value, algebra, schema_to_value};
 use prism_trace::{TraceReader, TraceWriter};
 
 /// The chrysalis binary that runs the child (`<bin> run <child> --serve-stream`):
@@ -29,7 +29,11 @@ use prism_trace::{TraceReader, TraceWriter};
 fn chrysalis_binary() -> String {
     std::env::var("CHRYSALIS_BIN")
         .ok()
-        .or_else(|| std::env::current_exe().ok().map(|p| p.to_string_lossy().into_owned()))
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .map(|p| p.to_string_lossy().into_owned())
+        })
         .unwrap_or_else(|| "chrysalis".to_string())
 }
 
@@ -67,7 +71,9 @@ impl Inner {
 
 impl std::fmt::Debug for StreamProcess {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StreamProcess").field("program", &self.program).finish_non_exhaustive()
+        f.debug_struct("StreamProcess")
+            .field("program", &self.program)
+            .finish_non_exhaustive()
     }
 }
 
@@ -81,7 +87,11 @@ impl StreamProcess {
     /// As [`new`](Self::new) but with an explicit binary (tests pass the
     /// cargo-built `chrysalis`).
     pub fn with_binary(program: impl Into<String>, binary: impl Into<String>) -> Self {
-        Self { program: program.into(), binary: binary.into(), inner: Mutex::new(Inner::empty()) }
+        Self {
+            program: program.into(),
+            binary: binary.into(),
+            inner: Mutex::new(Inner::empty()),
+        }
     }
 
     /// Spawn `<binary> run <program> --serve-stream`, returning the child, its
@@ -97,8 +107,14 @@ impl StreamProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()?;
-        let stdin = child.stdin.take().ok_or_else(|| std::io::Error::other("no child stdin"))?;
-        let stdout = child.stdout.take().ok_or_else(|| std::io::Error::other("no child stdout"))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| std::io::Error::other("no child stdin"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| std::io::Error::other("no child stdout"))?;
         // Header element: the record of the child's input ports (a Tree of the
         // state's top-level fields), so the child's connect-time `refines` check
         // sees a matching shape.
@@ -221,7 +237,9 @@ impl Drop for StreamProcess {
 /// kept private; used by the integration test via the public API).
 #[doc(hidden)]
 pub fn float_record(key: &str) -> Schema {
-    Schema::Tree { branches: [(Key::from(key), Schema::float())].into_iter().collect() }
+    Schema::Tree {
+        branches: [(Key::from(key), Schema::float())].into_iter().collect(),
+    }
 }
 
 // ── StreamProtocol ───────────────────────────────────────────────────

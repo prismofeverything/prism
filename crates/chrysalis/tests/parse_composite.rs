@@ -17,8 +17,18 @@ fn parses_process_and_composite_from_ys_and_runs() {
 
     // The parsed program has the expected declarations.
     use chrysalis::ast::Def;
-    assert!(program.defs.iter().any(|d| matches!(d, Def::Process(p) if p.name == "Bump")));
-    assert!(program.defs.iter().any(|d| matches!(d, Def::Composite(c) if c.name == "Leaf")));
+    assert!(
+        program
+            .defs
+            .iter()
+            .any(|d| matches!(d, Def::Process(p) if p.name == "Bump"))
+    );
+    assert!(
+        program
+            .defs
+            .iter()
+            .any(|d| matches!(d, Def::Composite(c) if c.name == "Leaf"))
+    );
 
     let result = compile(&program).expect("compile parsed bump.ys");
     let mut engine = Engine::from_state(
@@ -32,6 +42,13 @@ fn parses_process_and_composite_from_ys_and_runs() {
 
     // The `Bump` process (wired inside the `Leaf` composite via the parsed
     // term call) grew `v`, surfaced through the composite's bridge.
-    let v = engine.state().get_field("v").and_then(|x| x.as_f64()).unwrap_or(0.0);
-    assert!(v > 0.0, "Bump grew v through the parsed composite (got {v})");
+    let v = engine
+        .state()
+        .get_field("v")
+        .and_then(|x| x.as_f64())
+        .unwrap_or(0.0);
+    assert!(
+        v > 0.0,
+        "Bump grew v through the parsed composite (got {v})"
+    );
 }

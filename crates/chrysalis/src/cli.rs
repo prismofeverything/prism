@@ -110,7 +110,12 @@ fn collect_refs(e: &Expr, out: &mut std::collections::HashSet<String>) {
         Expr::Var(n) => {
             out.insert(n.to_string());
         }
-        Expr::Term { control, args, body, .. } => {
+        Expr::Term {
+            control,
+            args,
+            body,
+            ..
+        } => {
             out.insert(control.to_string());
             for a in args {
                 collect_refs(arg_expr(a), out);
@@ -172,7 +177,12 @@ fn collect_refs(e: &Expr, out: &mut std::collections::HashSet<String>) {
                 collect_refs(x, out);
             }
         }
-        Expr::Comprehension { source, filter, body, .. } => {
+        Expr::Comprehension {
+            source,
+            filter,
+            body,
+            ..
+        } => {
             collect_refs(source, out);
             if let Some(f) = filter {
                 collect_refs(f, out);
@@ -257,18 +267,26 @@ pub fn run_command(
             "--serve-stream" => serve = true,
             "--sample-dt" => {
                 i += 1;
-                sample_dt = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(sample_dt);
+                sample_dt = args
+                    .get(i)
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(sample_dt);
             }
             flag if flag.starts_with("--") => {
                 i += 1;
-                inputs.insert(flag[2..].to_string(), args.get(i).cloned().unwrap_or_default());
+                inputs.insert(
+                    flag[2..].to_string(),
+                    args.get(i).cloned().unwrap_or_default(),
+                );
             }
             p => path = Some(p.to_string()),
         }
         i += 1;
     }
     let Some(path) = path else {
-        eprintln!("usage: run <file.ys> [--time T] [--<port> SOURCE ...] [--in TRACE | --serve-stream] [--out FILE] [--trace [--sample-dt DT]]");
+        eprintln!(
+            "usage: run <file.ys> [--time T] [--<port> SOURCE ...] [--in TRACE | --serve-stream] [--out FILE] [--trace [--sample-dt DT]]"
+        );
         return 2;
     };
     let mut prog = match parse_file(&path) {
@@ -280,16 +298,16 @@ pub fn run_command(
     };
     // Resolve `.ys`-file imports (a dotted `from pkg.sub import file`): merge the
     // imported files' defs into this program before compiling (#25).
-    let ys_root =
-        std::path::Path::new(&path).parent().unwrap_or_else(|| std::path::Path::new("."));
+    let ys_root = std::path::Path::new(&path)
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
     if let Err(e) = resolve_file_modules(&mut prog, ys_root) {
         eprintln!("{e}");
         return 1;
     }
 
     // A `composite` entry with no explicit `main` ⇒ compositional invocation.
-    let invokes =
-        matches!(prog.entry(), Some(Def::Composite(_))) && prog.lookup("main").is_none();
+    let invokes = matches!(prog.entry(), Some(Def::Composite(_))) && prog.lookup("main").is_none();
     if invokes {
         // Live streaming filter (`--serve-stream`): the `stream:` protocol's child
         // side — read input frames from stdin, emit output frames to stdout.
@@ -327,15 +345,14 @@ pub fn run_command(
                     return 1;
                 }
             };
-            let out_trace = match invoke_driven(
-                &prog, registry, methods, modules, &inputs, &in_trace,
-            ) {
-                Ok(t) => t,
-                Err(e) => {
-                    eprintln!("run {path}: {e}");
-                    return 1;
-                }
-            };
+            let out_trace =
+                match invoke_driven(&prog, registry, methods, modules, &inputs, &in_trace) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("run {path}: {e}");
+                        return 1;
+                    }
+                };
             return if trace {
                 emit_trace(&out_trace, out, &path, time, sample_dt)
             } else {
@@ -452,5 +469,7 @@ fn emit_json(record: &prism_schema::Value, out: Option<String>, path: &str, time
 
 /// The final frame of an output trace (the batch result of a driven run).
 fn last_frame(trace: &prism_schema::Value) -> prism_schema::Value {
-    prism_trace::frames(trace).pop().unwrap_or(prism_schema::Value::None)
+    prism_trace::frames(trace)
+        .pop()
+        .unwrap_or(prism_schema::Value::None)
 }

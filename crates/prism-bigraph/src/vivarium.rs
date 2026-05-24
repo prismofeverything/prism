@@ -62,10 +62,7 @@ impl VivariumDocument {
             None => json, // treat the whole thing as state
         };
 
-        let schema = json
-            .as_map()
-            .and_then(|m| m.get("schema"))
-            .cloned();
+        let schema = json.as_map().and_then(|m| m.get("schema")).cloned();
 
         if let Some(state_map) = root_state.as_map() {
             let mut clean_state = IndexMap::new();
@@ -124,7 +121,8 @@ impl VivariumDocument {
         for (key, val) in map {
             if let Some(type_str) = val.as_str() {
                 // Check if it's a tree expression (key1:type1|key2:type2)
-                if type_str.contains('|') && type_str.contains(':') && !type_str.starts_with("link") {
+                if type_str.contains('|') && type_str.contains(':') && !type_str.starts_with("link")
+                {
                     branches.insert(key.clone(), prism_schema::parse_tree_expression(type_str));
                 } else {
                     branches.insert(key.clone(), prism_schema::parse_type_expression(type_str));
@@ -185,7 +183,9 @@ impl VivariumDocument {
         for composite_name in &self.composites {
             // Auto-detect bridge from child process wiring
             let mut bridge_roots: IndexMap<String, Vec<Key>> = IndexMap::new();
-            if let Some(Value::Map(container)) = self.state.as_map()
+            if let Some(Value::Map(container)) = self
+                .state
+                .as_map()
                 .and_then(|m| m.get(composite_name.as_str()))
             {
                 for (_key, child) in container {
@@ -203,13 +203,16 @@ impl VivariumDocument {
                                     };
                                     let root = match target {
                                         Value::List(path) => find_root(path),
-                                        Value::Map(sub) => sub.values().next()
+                                        Value::Map(sub) => sub
+                                            .values()
+                                            .next()
                                             .and_then(|v| v.as_list())
                                             .and_then(|l| find_root(l)),
                                         _ => None,
                                     };
                                     if let Some(r) = root {
-                                        bridge_roots.entry(r.to_string())
+                                        bridge_roots
+                                            .entry(r.to_string())
                                             .or_insert_with(|| vec![r]);
                                     }
                                 }
@@ -250,9 +253,7 @@ impl VivariumDocument {
 
 /// Check if a value is a process node (has an `address` field).
 fn is_process_node(value: &Value) -> bool {
-    value
-        .as_map()
-        .is_some_and(|m| m.contains_key("address"))
+    value.as_map().is_some_and(|m| m.contains_key("address"))
 }
 
 /// Check if a value is a composite container: a map where ALL children
@@ -340,8 +341,7 @@ fn extract_nested_processes(
                 } else {
                     let mut child_path = path.to_vec();
                     child_path.push(key.to_string());
-                    let (cleaned_val, child_procs) =
-                        extract_nested_processes(val, &child_path);
+                    let (cleaned_val, child_procs) = extract_nested_processes(val, &child_path);
                     nested_procs.extend(child_procs);
                     cleaned.insert(key.clone(), cleaned_val);
                 }

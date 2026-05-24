@@ -27,12 +27,16 @@ fn insert_nested(schema: &mut Schema, path: &[Key], leaf: Schema) {
         return;
     }
     if !matches!(schema, Schema::Tree { .. }) {
-        *schema = Schema::Tree { branches: IndexMap::new() };
+        *schema = Schema::Tree {
+            branches: IndexMap::new(),
+        };
     }
     if let Schema::Tree { branches } = schema {
         let child = branches
             .entry(path[0].clone())
-            .or_insert_with(|| Schema::Tree { branches: IndexMap::new() });
+            .or_insert_with(|| Schema::Tree {
+                branches: IndexMap::new(),
+            });
         insert_nested(child, &path[1..], leaf);
     }
 }
@@ -58,18 +62,16 @@ fn address_class(parsed: &crate::protocol::ParsedAddress) -> Option<String> {
 ///
 /// If the wire path starts with "..", resolve relative to the process's location
 /// (each ".." pops one level). Otherwise, treat as absolute from the state root.
-fn resolve_wires_from_process(
-    wires: &Value,
-    process_path: &[Key],
-) -> IndexMap<String, Vec<Key>> {
+fn resolve_wires_from_process(wires: &Value, process_path: &[Key]) -> IndexMap<String, Vec<Key>> {
     let parent: Vec<Key> = if !process_path.is_empty() {
-        process_path[..process_path.len()-1].to_vec()
+        process_path[..process_path.len() - 1].to_vec()
     } else {
         vec![]
     };
 
     fn resolve_one(path_list: &[Value], parent: &[Key]) -> Vec<Key> {
-        let elems: Vec<Key> = path_list.iter()
+        let elems: Vec<Key> = path_list
+            .iter()
             .filter_map(|v| match v {
                 Value::String(s) => Some(Key::from(s.as_str())),
                 Value::Int(i) => Some(Key::from(i.to_string())),
@@ -127,7 +129,6 @@ use crate::ports::Interface;
 use crate::process::ProcessNode;
 use crate::topology::{ProcessSpec, Topology};
 
-
 /// Scheduling state for a temporal process.
 #[derive(Debug)]
 struct ProcessFront {
@@ -136,11 +137,13 @@ struct ProcessFront {
     /// interval`).
     next_time: f64,
     interval: f64,
-    /// Update computed by invoke but not yet applied. The run loop invokes all
-    /// due processes against the SAME state snapshot, advances time, then applies
-    /// these together — so processes in a tick never see each other's mid-tick
-    /// mutations (invoke/apply separation, faithful to process-bigraph).
-    pending: Option<Value>,
+    /// Deferred update computed by invoke but not yet applied. The run loop invokes
+    /// all due processes against the SAME snapshot, advances time, flushes batching
+    /// protocols, then collects + applies these together — so processes in a tick
+    /// never see each other's mid-tick mutations (invoke/apply separation, faithful
+    /// to process-bigraph). A `Defer` is immediate for a local process and
+    /// runtime-filled for a batching protocol (Ray/Pool). See docs/execution-model.md.
+    pending: Option<crate::defer::Defer<crate::Update>>,
 }
 
 /// A running composition of processes and shared state.
@@ -214,10 +217,7 @@ impl Engine {
     ///
     /// `factories` maps process type names to constructor functions.
     /// Each factory receives the process config and returns a ProcessNode.
-    pub fn new(
-        topology: Topology,
-        instances: HashMap<String, ProcessNode>,
-    ) -> Self {
+    pub fn new(topology: Topology, instances: HashMap<String, ProcessNode>) -> Self {
         Self::new_with_cache(topology, instances, None)
     }
 
@@ -327,11 +327,7 @@ impl Engine {
     /// Walks the state tree, finds process/step nodes (via `Schema::Link` in the
     /// schema or `_type` annotations in state), instantiates them via the registry,
     /// extracts wiring, and builds the engine.
-    pub fn from_state(
-        schema: Schema,
-        state: Value,
-        core: impl Into<Core>,
-    ) -> Result<Self, String> {
+    pub fn from_state(schema: Schema, state: Value, core: impl Into<Core>) -> Result<Self, String> {
         Self::from_state_core(schema, state, core.into())
     }
 
@@ -348,7 +344,9 @@ impl Engine {
         Self::from_state_core(
             schema,
             state,
-            Core::new().with_processes(registry).with_protocols(protocols),
+            Core::new()
+                .with_processes(registry)
+                .with_protocols(protocols),
         )
     }
 
@@ -396,11 +394,7 @@ impl Engine {
     /// 1. Merge the new schema into the existing schema
     /// 2. Merge the new state into the existing state (using the merged schema)
     /// 3. Find any new Link nodes and instantiate their processes
-    pub fn merge_schema(
-        &mut self,
-        schema_update: Schema,
-        state_update: Value,
-    ) {
+    pub fn merge_schema(&mut self, schema_update: Schema, state_update: Value) {
         // 1. Merge schemas — the new declaration refines the existing one
         // (join / set-union of branches, more-specific subtype wins).
         self.schema = algebra::resolve(&self.schema, &schema_update);
@@ -495,11 +489,7 @@ impl Engine {
 
                 let config = map.get("config").cloned().unwrap_or(Value::None);
 
-                let node = match protocols.instantiate(
-                    &parsed,
-                    config.clone(),
-                    registry,
-                ) {
+                let node = match protocols.instantiate(&parsed, config.clone(), registry) {
                     Ok(n) => n,
                     Err(_) => return,
                 };
@@ -514,25 +504,30 @@ impl Engine {
 
                 let interval = match (&node, temporal) {
                     (ProcessNode::Process(p), _) => {
-                        let cfg_interval = map.get("interval")
-                            .and_then(|v| v.as_f64())
-                            .or_else(|| config.as_map()
-                                .and_then(|m| m.get("interval"))
-                                .and_then(|v| v.as_f64()));
+                        let cfg_interval =
+                            map.get("interval").and_then(|v| v.as_f64()).or_else(|| {
+                                config
+                                    .as_map()
+                                    .and_then(|m| m.get("interval"))
+                                    .and_then(|v| v.as_f64())
+                            });
                         Some(cfg_interval.unwrap_or_else(|| p.interval()))
                     }
                     (ProcessNode::Step(_), _) => None,
                 };
 
                 let name = path.join(".");
-                specs.insert(name.clone(), ProcessSpec {
-                    process_type: class_name,
-                    config,
-                    inputs,
-                    outputs,
-                    interval,
-                    priority: 0.0,
-                });
+                specs.insert(
+                    name.clone(),
+                    ProcessSpec {
+                        process_type: class_name,
+                        config,
+                        inputs,
+                        outputs,
+                        interval,
+                        priority: 0.0,
+                    },
+                );
                 instances.insert(name, node);
             }
             Schema::Tree { branches } => {
@@ -542,8 +537,14 @@ impl Engine {
                         child_path.push(key.clone());
                         let child_state = map.get(key).cloned().unwrap_or(Value::None);
                         Self::extract_processes(
-                            child_schema, &child_state, &child_path,
-                            protocols, registry, specs, instances);
+                            child_schema,
+                            &child_state,
+                            &child_path,
+                            protocols,
+                            registry,
+                            specs,
+                            instances,
+                        );
                     }
                     // Also check state keys not in schema (might have _type annotations)
                     for (key, child_state) in map {
@@ -552,8 +553,14 @@ impl Engine {
                             child_path.push(key.clone());
                             let inferred = Schema::infer(child_state);
                             Self::extract_processes(
-                                &inferred, child_state, &child_path,
-                                protocols, registry, specs, instances);
+                                &inferred,
+                                child_state,
+                                &child_path,
+                                protocols,
+                                registry,
+                                specs,
+                                instances,
+                            );
                         }
                     }
                 }
@@ -564,8 +571,14 @@ impl Engine {
                         let mut child_path = path.to_vec();
                         child_path.push(key.clone());
                         Self::extract_processes(
-                            value, child_state, &child_path,
-                            protocols, registry, specs, instances);
+                            value,
+                            child_state,
+                            &child_path,
+                            protocols,
+                            registry,
+                            specs,
+                            instances,
+                        );
                     }
                 }
             }
@@ -577,7 +590,9 @@ impl Engine {
     /// When set, new process nodes appearing in state (e.g., via _add)
     /// are automatically instantiated and wired.
     /// Number of temporal processes.
-    pub fn fronts_count(&self) -> usize { self.fronts.len() }
+    pub fn fronts_count(&self) -> usize {
+        self.fronts.len()
+    }
 
     /// Queue pending state changes to trigger steps at the start of next run.
     pub fn queue_changes(&mut self, paths: Vec<Path>) {
@@ -643,34 +658,24 @@ impl Engine {
     /// When set, the engine's merge logic consults this registry's
     /// `TypeMethods` for paths with custom-typed schema; otherwise
     /// the existing structural Schema semantics apply.
-    pub fn set_type_registry(
-        &mut self,
-        registry: Arc<prism_schema::registry::TypeRegistry>,
-    ) {
+    pub fn set_type_registry(&mut self, registry: Arc<prism_schema::registry::TypeRegistry>) {
         self.core.types = registry;
     }
 
     /// Borrow the type registry (always present in the core; may be empty).
-    pub fn type_registry(
-        &self,
-    ) -> Option<&Arc<prism_schema::registry::TypeRegistry>> {
+    pub fn type_registry(&self) -> Option<&Arc<prism_schema::registry::TypeRegistry>> {
         Some(&self.core.types)
     }
 
     /// Attach a `MethodRegistry` for value-receiver method dispatch.
     /// Used by chrysalis to look up methods on values inside
     /// expression bodies.
-    pub fn set_method_registry(
-        &mut self,
-        registry: Arc<prism_schema::MethodRegistry>,
-    ) {
+    pub fn set_method_registry(&mut self, registry: Arc<prism_schema::MethodRegistry>) {
         self.core.methods = registry;
     }
 
     /// Borrow the method registry (always present in the core; may be empty).
-    pub fn method_registry(
-        &self,
-    ) -> Option<&Arc<prism_schema::MethodRegistry>> {
+    pub fn method_registry(&self) -> Option<&Arc<prism_schema::MethodRegistry>> {
         Some(&self.core.methods)
     }
 
@@ -686,11 +691,11 @@ impl Engine {
         self.protocol_runtimes.register(runtime);
     }
 
-    /// Flush every registered protocol runtime. Called by the
-    /// orchestrator between the invoke pass and the collect phase.
-    /// Currently a no-op when no batching protocols are registered —
-    /// the `run_process` path uses direct `update()` calls until a
-    /// batching protocol lands.
+    /// Flush every registered protocol runtime — called by the run loop
+    /// (`advance_to_next_event`) between the invoke pass and the collect
+    /// phase, so a batching runtime dispatches its enqueued invokes here.
+    /// A no-op when no batching protocols are registered (local Defers are
+    /// immediate). See docs/execution-model.md.
     pub fn flush_protocol_runtimes(&self) {
         self.protocol_runtimes.flush_all();
     }
@@ -709,10 +714,7 @@ impl Engine {
 
     /// Replace the protocol registry. Use when registering additional
     /// protocols (parallel, rest, ray, …).
-    pub fn set_protocol_registry(
-        &mut self,
-        registry: Arc<crate::protocol::ProtocolRegistry>,
-    ) {
+    pub fn set_protocol_registry(&mut self, registry: Arc<crate::protocol::ProtocolRegistry>) {
         self.core.protocols = registry;
     }
 
@@ -759,8 +761,7 @@ impl Engine {
     /// (state_schema, current state, registered process specs). Useful
     /// for renderers that want the full place-graph + wiring picture.
     pub fn snapshot_topology(&self) -> Topology {
-        let mut processes: indexmap::IndexMap<String, ProcessSpec> =
-            indexmap::IndexMap::new();
+        let mut processes: indexmap::IndexMap<String, ProcessSpec> = indexmap::IndexMap::new();
         for (name, spec) in &self.specs {
             processes.insert(name.clone(), spec.clone());
         }
@@ -820,7 +821,7 @@ impl Engine {
     }
 
     /// One simulation step, faithful to process-bigraph's run loop —
-    /// **invoke → advance → apply → trigger/discover**:
+    /// **invoke → advance → flush → collect/apply → trigger/discover**:
     ///
     /// 1. **invoke** every *due* process (`next_time <= time`) against the
     ///    current state, stashing its update in the front and advancing that
@@ -868,13 +869,16 @@ impl Engine {
                 let future = process_time + interval;
                 full_step = full_step.min(future - self.time);
                 if future <= end_time {
-                    let update = match self.nodes.get(name) {
-                        Some(ProcessNode::Process(p)) => p.update(&input, interval),
+                    // invoke (not update): the result is a Defer — immediate for a
+                    // local process, runtime-filled for a batching protocol. It is
+                    // resolved in the collect/apply pass, after the flush below.
+                    let defer = match self.nodes.get(name) {
+                        Some(ProcessNode::Process(p)) => p.invoke(&input, interval),
                         _ => continue,
                     };
                     let front = self.fronts.get_mut(name).expect("front exists");
                     front.next_time = future;
-                    front.pending = update.into_value();
+                    front.pending = Some(defer);
                 }
             } else {
                 // Not due yet, but its event bounds how far time may move.
@@ -891,9 +895,13 @@ impl Engine {
         // 2. advance global time.
         self.time += full_step;
 
-        // 3. apply pass — collect every stashed update now due and apply them as
-        //    ONE reconciled batch, so updates targeting the same store combine
-        //    (deltas sum, _add/_remove batch) instead of clobbering each other.
+        // flush pass — batching protocol runtimes (Ray/Pool/parallel pool) resolve
+        // their enqueued invokes here, before we collect; local Defers are immediate.
+        self.flush_protocol_runtimes();
+
+        // 3. collect + apply pass — resolve every stashed Defer now due and apply
+        //    them as ONE reconciled batch, so updates targeting the same store
+        //    combine (deltas sum, _add/_remove batch) instead of clobbering.
         let mut projection_sets: Vec<Vec<(Path, Value, Option<Schema>)>> = Vec::new();
         for name in &names {
             let ready = self
@@ -903,7 +911,12 @@ impl Engine {
             if !ready {
                 continue;
             }
-            let pending = self.fronts.get_mut(name).unwrap().pending.take().unwrap();
+            let defer = self.fronts.get_mut(name).unwrap().pending.take().unwrap();
+            // Collect: resolve the deferred update. A Noop carries no value → skip.
+            let pending = match defer.get().into_value() {
+                Some(v) => v,
+                None => continue,
+            };
             let projections = match self.interfaces.get(name) {
                 Some(iface) => iface.project(&pending),
                 None => continue,
@@ -954,14 +967,12 @@ impl Engine {
         if fragments.is_empty() {
             return (Vec::new(), false);
         }
-        let combined = match algebra::reconcile_with(
-            Some(self.core.types.as_ref()),
-            &self.schema,
-            &fragments,
-        ) {
-            Some(c) => c,
-            None => return (Vec::new(), false),
-        };
+        let combined =
+            match algebra::reconcile_with(Some(self.core.types.as_ref()), &self.schema, &fragments)
+            {
+                Some(c) => c,
+                None => return (Vec::new(), false),
+            };
         // Apply the combined update one top-level store at a time (each subtree
         // carries its own nested `_add`/`_remove`), carrying the writer's port
         // schema so `apply` promotes the slot's additive type (law #5).
@@ -972,10 +983,14 @@ impl Engine {
         // silently dropping nested ones → nested overwrites fell back to additive.)
         let mut store_schemas: HashMap<Key, Schema> = HashMap::new();
         for (full_path, leaf) in &port_schema {
-            let Some(top) = full_path.first() else { continue };
+            let Some(top) = full_path.first() else {
+                continue;
+            };
             let entry = store_schemas
                 .entry(top.clone())
-                .or_insert_with(|| Schema::Tree { branches: IndexMap::new() });
+                .or_insert_with(|| Schema::Tree {
+                    branches: IndexMap::new(),
+                });
             insert_nested(entry, &full_path[1..], leaf.clone());
         }
         let projections: Vec<(Path, Value, Option<Schema>)> = match combined.as_map() {
@@ -993,7 +1008,10 @@ impl Engine {
     /// Structural changes are `_add`/`_remove` operations that may require
     /// process discovery. Skipping discovery on non-structural ticks is a
     /// major performance win.
-    fn apply_projections(&mut self, projections: &[(Path, Value, Option<Schema>)]) -> (Vec<Path>, bool) {
+    fn apply_projections(
+        &mut self,
+        projections: &[(Path, Value, Option<Schema>)],
+    ) -> (Vec<Path>, bool) {
         if self.passthrough_paths.is_empty() {
             let result = apply_projections_to(
                 &mut self.state,
@@ -1024,8 +1042,7 @@ impl Engine {
                     // inner schema (that is what makes them passthrough), so
                     // fall back to a dynamic `Map` schema — enough for
                     // reconcile to union the structural sentinels.
-                    let root_schema =
-                        self.schema.schema_at_path(std::slice::from_ref(&root_key));
+                    let root_schema = self.schema.schema_at_path(std::slice::from_ref(&root_key));
                     let map_any;
                     let s = if matches!(root_schema, Schema::Any) {
                         map_any = Schema::map(Schema::Any);
@@ -1251,10 +1268,7 @@ impl Engine {
     /// its raw output value (for caching) and the projected state update (ready for
     /// `reconcile`). The per-step invoke primitive used by `run_step_layers`, which
     /// decides FRESH (reload from cache) vs STALE (call this) for each step.
-    fn invoke_one_step(
-        &self,
-        name: &str,
-    ) -> Option<(Value, Vec<(Path, Value, Option<Schema>)>)> {
+    fn invoke_one_step(&self, name: &str) -> Option<(Value, Vec<(Path, Value, Option<Schema>)>)> {
         let iface = self.interfaces.get(name)?;
         let input_state = iface.view(&self.state);
         let value = match self.nodes.get(name)? {
@@ -1266,14 +1280,12 @@ impl Engine {
     }
 
     /// Dynamically add a process to the running engine.
-    pub fn add_process(
-        &mut self,
-        name: String,
-        spec: ProcessSpec,
-        mut node: ProcessNode,
-    ) {
+    pub fn add_process(&mut self, name: String, spec: ProcessSpec, mut node: ProcessNode) {
         let mut interface = spec.interface();
         interface.output_schemas = node.outputs();
+        // The instance's REAL interface, captured before `node` is moved — used
+        // below to thread its Link into the state schema (filling `Any` holes).
+        let link = Self::link_from_instance(&node);
         self.interfaces.insert(name.clone(), interface);
 
         if let Some(interval) = spec.interval {
@@ -1313,7 +1325,87 @@ impl Engine {
                 ProcessNode::Step(s) => s.set_registry(Arc::clone(registry)),
             }
         }
+        // Thread the instance's real Link into the state schema: at a process
+        // node reached through `Tree`s, replace the inferred spec-`Tree` (or fill
+        // an `Any`) with the instance's ProcessLink/StepLink — so downstream
+        // apply/diff/promote are type-aware, not stuck on the raw
+        // `{address, inputs, outputs}` shape `infer` saw. Never clobbers a
+        // declared Link/CompositeLink and skips Map-nested nodes (their value
+        // schema governs the type). The instance is the source of truth for a
+        // process's interface — the schema-as-state reconcile. See
+        // docs/state-schema-unification.md.
+        self.stamp_instance_link(&name, &link);
         self.nodes.insert(name, node);
+    }
+
+    /// Build the schema `Link` describing a process node from its instance — the
+    /// authoritative interface (`inputs()`/`outputs()` + `interval()`/
+    /// `priority()`). A leaf process → `ProcessLink`; a step → `StepLink`.
+    /// (Composites already carry a declared `CompositeLink`, so they never reach
+    /// the stamping path — see [`Engine::stamp_instance_link`].)
+    fn link_from_instance(node: &ProcessNode) -> Schema {
+        let keyed = |m: crate::ports::PortSchema| -> IndexMap<Key, Schema> {
+            m.into_iter().map(|(k, v)| (Key::from(k), v)).collect()
+        };
+        match node {
+            ProcessNode::Process(p) => Schema::ProcessLink {
+                inputs: keyed(p.inputs()),
+                outputs: keyed(p.outputs()),
+                interval: p.interval(),
+            },
+            ProcessNode::Step(s) => Schema::StepLink {
+                inputs: keyed(s.inputs()),
+                outputs: keyed(s.outputs()),
+                priority: s.priority(),
+            },
+        }
+    }
+
+    /// Thread `link` (the instance's real interface) into the state schema at
+    /// `name`'s path, via the schema algebra (`resolve`, which prefers the more
+    /// specific update — so the `Link` replaces an inferred spec-`Tree` or fills
+    /// an `Any`). No-op unless [`Engine::is_stampable_node_path`] holds, so a
+    /// declared `Link`/`CompositeLink` is never clobbered and a `Map`-nested node
+    /// (governed by its value schema) is left alone.
+    fn stamp_instance_link(&mut self, name: &str, link: &Schema) {
+        let path: Vec<Key> = name.split('.').map(Key::from).collect();
+        if !Self::is_stampable_node_path(&self.schema, &path) {
+            return;
+        }
+        let update = Self::nest_schema(&path, link.clone());
+        self.schema = algebra::resolve(&self.schema, &update);
+    }
+
+    /// A nested `Tree` placing `leaf` at `path` (`[a,b] → Tree{a: Tree{b: leaf}}`).
+    fn nest_schema(path: &[Key], leaf: Schema) -> Schema {
+        match path.split_first() {
+            None => leaf,
+            Some((head, rest)) => {
+                let mut branches: IndexMap<Key, Schema> = IndexMap::new();
+                branches.insert(head.clone(), Self::nest_schema(rest, leaf));
+                Schema::Tree { branches }
+            }
+        }
+    }
+
+    /// Whether `name`'s path is a process node the engine may (re)type from its
+    /// instance: the path reaches its slot through `Tree`s only, and that slot is
+    /// either an `Any` hole or an *inferred* plain spec-`Tree`
+    /// (`{address, inputs, outputs}`, which lost the port types). `false` if the
+    /// slot is an already-declared `Link`/`CompositeLink` (chrysalis typed it) or
+    /// any ancestor is a `Map`/`Array`/`Link`/leaf (governed by its value schema).
+    fn is_stampable_node_path(schema: &Schema, path: &[Key]) -> bool {
+        match path.split_first() {
+            None => matches!(schema, Schema::Any | Schema::Tree { .. }),
+            Some((head, rest)) => match schema {
+                Schema::Tree { branches } => match branches.get(head) {
+                    Some(child) => Self::is_stampable_node_path(child, rest),
+                    None => true, // missing branch in a Tree → fillable
+                },
+                Schema::Any => true, // unspecified ancestor → fillable
+                _ => false,          // Map/Array/Link/leaf → governed elsewhere
+            },
+        }
     }
 
     /// Remove a process from the running engine.
@@ -1431,10 +1523,8 @@ impl Engine {
         let existing_names: Vec<String> = self.specs.keys().cloned().collect();
         for name in &existing_names {
             if let Some(dot_pos) = name.rfind('.') {
-                let parent_path: Vec<Key> = name[..dot_pos]
-                    .split('.')
-                    .map(|s| Key::from(s))
-                    .collect();
+                let parent_path: Vec<Key> =
+                    name[..dot_pos].split('.').map(|s| Key::from(s)).collect();
                 if self.state.get_path(&parent_path).is_none() {
                     // Parent state was removed (_remove)
                     to_remove.push(name.clone());
@@ -1486,7 +1576,9 @@ impl Engine {
                 if self.nodes.contains_key(&child_name) {
                     // Check if this is a replaced entry (_add with same key).
                     // Compare stored config with current state config.
-                    let config_changed = self.specs.get(&child_name)
+                    let config_changed = self
+                        .specs
+                        .get(&child_name)
                         .map(|spec| {
                             let current_config = child_map.get("config");
                             current_config != Some(&spec.config)
@@ -1501,12 +1593,12 @@ impl Engine {
                 // is a process node.
                 let child_schema = self.schema.schema_at_path(&child_path);
                 let is_link = child_schema.is_link_kind();
-                if is_link {
-                }
+                if is_link {}
 
                 // Fall back to address-scanning when schema is Any
                 let has_address = !is_link
-                    && child_map.get("address")
+                    && child_map
+                        .get("address")
                         .map(|a| a.as_map().is_some() || a.as_str().is_some())
                         .unwrap_or(false);
 
@@ -1531,29 +1623,20 @@ impl Engine {
                 };
 
                 // Get config
-                let config = child_map
-                    .get("config")
-                    .cloned()
-                    .unwrap_or(Value::None);
+                let config = child_map.get("config").cloned().unwrap_or(Value::None);
 
                 // Dispatch through the protocol registry.
-                let node = match self.core.protocols.instantiate(
-                    &parsed,
-                    config.clone(),
-                    registry,
-                ) {
+                let node = match self
+                    .core
+                    .protocols
+                    .instantiate(&parsed, config.clone(), registry)
+                {
                     Ok(n) => n,
                     Err(_) => continue,
                 };
 
-                let inputs_val = child_map
-                    .get("inputs")
-                    .cloned()
-                    .unwrap_or(Value::None);
-                let outputs_val = child_map
-                    .get("outputs")
-                    .cloned()
-                    .unwrap_or(Value::None);
+                let inputs_val = child_map.get("inputs").cloned().unwrap_or(Value::None);
+                let outputs_val = child_map.get("outputs").cloned().unwrap_or(Value::None);
 
                 // Resolve wires: ".." navigates up from the process's own
                 // location; plain paths are absolute from root.
@@ -1601,8 +1684,9 @@ fn apply_projections_to(
     let mut removed_prefixes: Vec<Path> = Vec::new();
     for (path, value, port_schema) in projections {
         // Skip projections into paths that were removed by a prior _remove
-        if removed_prefixes.iter().any(|prefix|
-            path.len() > prefix.len() && path[..prefix.len()] == prefix[..])
+        if removed_prefixes
+            .iter()
+            .any(|prefix| path.len() > prefix.len() && path[..prefix.len()] == prefix[..])
         {
             continue;
         }
@@ -1678,11 +1762,18 @@ mod tests {
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
             // Output delta: level * (rate - 1) so engine adds it to get level * rate
-            Update::value(Value::tree([("level", Value::float(level * (self.rate - 1.0)))]))
+            Update::value(Value::tree([(
+                "level",
+                Value::float(level * (self.rate - 1.0)),
+            )]))
         }
 
-        fn as_any(&self) -> &dyn std::any::Any { self }
-        fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            self
+        }
     }
 
     #[test]
@@ -1716,5 +1807,56 @@ mod tests {
             .unwrap();
         // After 3 ticks at rate 1.1: 1.0 * 1.1 * 1.1 * 1.1 ≈ 1.331
         assert!((level - 1.331).abs() < 0.001);
+    }
+
+    #[test]
+    fn native_node_found_by_address_gets_a_real_link_in_schema() {
+        // A native process spec sits in state at a `Tree` path with the engine
+        // schema `Any`, so discovery finds it via the ADDRESS scan, not
+        // schema-first. After discovery the node must carry the instance's REAL
+        // `ProcessLink` (the threaded interface) — no `Any` left at the node.
+        // This is the schema-as-state reconcile: the instance is the source of
+        // truth for a process's interface (Schema::Any retirement, #28 step B).
+        let wire = || Value::List(vec![Value::String("level".into())]);
+        let state = Value::tree([
+            ("level", Value::float(1.0)),
+            (
+                "growth",
+                Value::tree([
+                    ("address", Value::String("local:Growth".into())),
+                    ("inputs", Value::tree([("level", wire())])),
+                    ("outputs", Value::tree([("level", wire())])),
+                ]),
+            ),
+        ]);
+
+        let engine = Engine::builder()
+            .schema(Schema::Any)
+            .state(state)
+            .register_process("Growth", |_cfg| {
+                ProcessNode::Process(Box::new(GrowthProcess { rate: 1.1 }))
+            })
+            .build()
+            .unwrap(); // builder auto-discovers → the address scan finds + stamps
+
+        // The node was `Any` (address-discovered); now it's the instance's real
+        // ProcessLink with the `level: Float` port threaded through — the
+        // downstream schema is no longer `Any` at the process node.
+        match engine.schema().schema_at_path(&[Key::from("growth")]) {
+            Schema::ProcessLink {
+                inputs, outputs, ..
+            } => {
+                assert!(
+                    matches!(inputs.get(&Key::from("level")), Some(Schema::Float { .. })),
+                    "input `level` threaded from the instance, got {:?}",
+                    inputs.get(&Key::from("level"))
+                );
+                assert!(
+                    matches!(outputs.get(&Key::from("level")), Some(Schema::Float { .. })),
+                    "output `level` threaded from the instance"
+                );
+            }
+            other => panic!("native node should carry a real ProcessLink, not {other:?}"),
+        }
     }
 }

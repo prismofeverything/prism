@@ -16,7 +16,7 @@ use indexmap::IndexMap;
 
 use prism_bigraph::{Key, Process, Schema, Update, Value};
 
-use super::fba::{load_model_cached, CobraModel, FbaSolver};
+use super::fba::{CobraModel, FbaSolver, load_model_cached};
 
 /// Kinetic parameters for a substrate: (km, vmax).
 #[derive(Clone, Debug)]
@@ -234,7 +234,10 @@ pub fn dfba_from_config(config: &Value) -> DynamicFBA {
 
     // Parse substrate → reaction mapping
     let mut substrate_reactions = IndexMap::new();
-    if let Some(sr) = map.get("substrate_update_reactions").and_then(|v| v.as_map()) {
+    if let Some(sr) = map
+        .get("substrate_update_reactions")
+        .and_then(|v| v.as_map())
+    {
         for (substrate, rxn_id) in sr {
             if let Some(rxn) = rxn_id.as_str() {
                 substrate_reactions.insert(substrate.to_string(), rxn.to_string());
@@ -254,10 +257,7 @@ pub fn dfba_from_config(config: &Value) -> DynamicFBA {
         }
     }
 
-    let interval = map
-        .get("interval")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(1.0);
+    let interval = map.get("interval").and_then(|v| v.as_f64()).unwrap_or(1.0);
 
     DynamicFBA {
         model,
@@ -297,8 +297,14 @@ mod tests {
             (
                 "kinetic_params",
                 Value::tree([
-                    ("glucose", Value::List(vec![Value::float(0.5), Value::float(1.0)])),
-                    ("acetate", Value::List(vec![Value::float(0.5), Value::float(2.0)])),
+                    (
+                        "glucose",
+                        Value::List(vec![Value::float(0.5), Value::float(1.0)]),
+                    ),
+                    (
+                        "acetate",
+                        Value::List(vec![Value::float(0.5), Value::float(2.0)]),
+                    ),
                 ]),
             ),
             (
@@ -312,10 +318,10 @@ mod tests {
                 "bounds",
                 Value::tree([
                     ("EX_o2_e", Value::tree([("lower", Value::float(-2.0))])),
-                    ("ATPM", Value::tree([
-                        ("lower", Value::float(1.0)),
-                        ("upper", Value::float(1.0)),
-                    ])),
+                    (
+                        "ATPM",
+                        Value::tree([("lower", Value::float(1.0)), ("upper", Value::float(1.0))]),
+                    ),
                 ]),
             ),
         ]);
@@ -331,10 +337,13 @@ mod tests {
 
         for t in 0..60 {
             let state = Value::tree([
-                ("substrates", Value::tree([
-                    ("glucose", Value::float(glucose)),
-                    ("acetate", Value::float(acetate)),
-                ])),
+                (
+                    "substrates",
+                    Value::tree([
+                        ("glucose", Value::float(glucose)),
+                        ("acetate", Value::float(acetate)),
+                    ]),
+                ),
                 ("biomass", Value::float(biomass)),
             ]);
 
@@ -359,9 +368,7 @@ mod tests {
             peak_acetate = peak_acetate.max(acetate);
 
             if t % 10 == 0 {
-                println!(
-                    "t={t}: glucose={glucose:.3}, acetate={acetate:.3}, biomass={biomass:.4}"
-                );
+                println!("t={t}: glucose={glucose:.3}, acetate={acetate:.3}, biomass={biomass:.4}");
             }
         }
 
@@ -370,7 +377,10 @@ mod tests {
 
         assert!(glucose < 0.1, "glucose should deplete: {glucose}");
         assert!(biomass > 0.3, "biomass should grow: {biomass}");
-        assert!(peak_acetate > 0.5, "acetate should accumulate: {peak_acetate}");
+        assert!(
+            peak_acetate > 0.5,
+            "acetate should accumulate: {peak_acetate}"
+        );
         assert!(
             acetate < peak_acetate * 0.5,
             "acetate should decline (diauxic): current={acetate}, peak={peak_acetate}"

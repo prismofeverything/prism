@@ -93,7 +93,12 @@ impl RestProcessServer {
             })
         };
 
-        Ok(Self { port, processes, shutdown, thread: Some(thread) })
+        Ok(Self {
+            port,
+            processes,
+            shutdown,
+            thread: Some(thread),
+        })
     }
 
     /// The bound port (use in a `rest` address's `port` field).
@@ -182,7 +187,10 @@ fn route(
         // POST /process/{class}/initialize  body=config → "process_id"
         ("POST", ["process", class, "initialize"]) => {
             if !registry.contains(class) {
-                return ("404 Not Found", json_string(&format!("process-not-found: {class}")));
+                return (
+                    "404 Not Found",
+                    json_string(&format!("process-not-found: {class}")),
+                );
             }
             let config = json_to_value(&parse_json(body));
             // A composite document may reference inner processes this server's core
@@ -203,7 +211,10 @@ fn route(
                     processes.lock().unwrap().insert(id.clone(), node);
                     ("200 OK", json_string(&id))
                 }
-                None => ("404 Not Found", json_string(&format!("process-not-found: {class}"))),
+                None => (
+                    "404 Not Found",
+                    json_string(&format!("process-not-found: {class}")),
+                ),
             }
         }
         // GET /process/{class}/inputs/{id}
@@ -214,7 +225,10 @@ fn route(
         ("POST", ["process", _class, "update", id]) => {
             let parsed = parse_json(body);
             let state = json_to_value(parsed.get("state").unwrap_or(&serde_json::Value::Null));
-            let interval = parsed.get("interval").and_then(|v| v.as_f64()).unwrap_or(1.0);
+            let interval = parsed
+                .get("interval")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1.0);
             let map = processes.lock().unwrap();
             let Some(node) = map.get(*id) else {
                 return ("404 Not Found", "null".to_string());
@@ -244,7 +258,11 @@ fn port_response(processes: &Processes, id: &str, inputs: bool) -> (&'static str
     let Some(node) = map.get(id) else {
         return ("404 Not Found", "null".to_string());
     };
-    let ports = if inputs { node.inputs() } else { node.outputs() };
+    let ports = if inputs {
+        node.inputs()
+    } else {
+        node.outputs()
+    };
     let obj: serde_json::Map<String, serde_json::Value> = ports
         .keys()
         .map(|k| (k.clone(), serde_json::Value::String("any".to_string())))

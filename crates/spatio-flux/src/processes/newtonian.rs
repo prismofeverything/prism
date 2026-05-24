@@ -17,7 +17,7 @@ use rapier2d::prelude::*;
 
 use prism_bigraph::{Process, Schema, Update, Value};
 
-use super::particles::{radius_from_mass, DEFAULT_DENSITY};
+use super::particles::{DEFAULT_DENSITY, radius_from_mass};
 
 /// Persistent rapier2d world state.
 struct RapierWorld {
@@ -234,14 +234,16 @@ impl fmt::Debug for NewtonianParticles {
 
 /// Extract mass from particle value (sub_masses sum or mass field).
 fn particle_mass(particle: &Value) -> f32 {
-    let sub_total: f64 = particle.get_field("sub_masses")
+    let sub_total: f64 = particle
+        .get_field("sub_masses")
         .and_then(|v| v.as_map())
         .map(|sm| sm.values().filter_map(|v| v.as_f64()).sum())
         .unwrap_or(0.0);
     if sub_total > 0.0 {
         sub_total as f32
     } else {
-        particle.get_field("mass")
+        particle
+            .get_field("mass")
             .and_then(|v| v.as_f64())
             .unwrap_or(1.0) as f32
     }
@@ -283,7 +285,10 @@ impl Process for NewtonianParticles {
     fn outputs(&self) -> IndexMap<String, Schema> {
         // Additive position + velocity (Δ each step, summed by apply) — Newtonian
         // motion in the same delta model as Brownian. (radius is already a Δ.)
-        let vec2 = || Schema::Array { shape: vec![2], element: Box::new(Schema::float()) };
+        let vec2 = || Schema::Array {
+            shape: vec![2],
+            element: Box::new(Schema::float()),
+        };
         IndexMap::from([(
             "particles".into(),
             Schema::map(Schema::Tree {
@@ -300,10 +305,7 @@ impl Process for NewtonianParticles {
     }
 
     fn update(&self, state: &Value, interval: f64) -> Update {
-        let particles = match state
-            .get_field("particles")
-            .and_then(|v| v.as_map())
-        {
+        let particles = match state.get_field("particles").and_then(|v| v.as_map()) {
             Some(p) => p,
             None => return Update::Noop,
         };
@@ -331,8 +333,7 @@ impl Process for NewtonianParticles {
         // Sync particles: detect additions, removals, and changes
         let current_ids: std::collections::HashSet<&str> =
             particles.keys().map(|s| s.as_str()).collect();
-        let world_ids: std::collections::HashSet<String> =
-            world.body_map.keys().cloned().collect();
+        let world_ids: std::collections::HashSet<String> = world.body_map.keys().cloned().collect();
 
         // Remove particles no longer in state
         let to_remove: Vec<String> = world_ids
@@ -369,7 +370,6 @@ impl Process for NewtonianParticles {
         // Step physics
         let gravity = vector![self.gravity.0 as f32, self.gravity.1 as f32];
         world.step(&gravity, interval as f32, self.substeps);
-
 
         // Extract updated positions and velocities
         let mut result: IndexMap<prism_schema::Key, Value> = IndexMap::new();
@@ -413,7 +413,10 @@ impl Process for NewtonianParticles {
                 ]),
             );
             if radius_delta.abs() > 1e-12 {
-                update.insert(prism_schema::Key::from("radius"), Value::float(radius_delta));
+                update.insert(
+                    prism_schema::Key::from("radius"),
+                    Value::float(radius_delta),
+                );
             }
 
             result.insert(pid.clone(), Value::Map(update));
@@ -467,15 +470,9 @@ pub fn newtonian_from_config(config: &Value) -> NewtonianParticles {
         .and_then(|v| v.as_f64())
         .unwrap_or(0.1);
 
-    let substeps = map
-        .get("substeps")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(10.0) as usize;
+    let substeps = map.get("substeps").and_then(|v| v.as_f64()).unwrap_or(10.0) as usize;
 
-    let interval = map
-        .get("interval")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.1);
+    let interval = map.get("interval").and_then(|v| v.as_f64()).unwrap_or(0.1);
 
     NewtonianParticles {
         bounds,

@@ -14,7 +14,7 @@ use indexmap::IndexMap;
 use prism_bigraph::{Process, Schema, Update, Value};
 
 use super::dfba::KineticParam;
-use super::fba::{load_model_cached, CobraModel};
+use super::fba::{CobraModel, load_model_cached};
 use crate::processes::fields::flatten_field;
 
 /// Spatial dFBA process operating on a 2D lattice.
@@ -119,8 +119,12 @@ impl Process for SpatialDFBA {
                 if let Some(cb) = self.config_bounds.get(model_name) {
                     for (rxn_id, (lo, hi)) in cb {
                         if let Some(idx) = model.reaction_index(rxn_id) {
-                            if let Some(l) = lo { lb[idx] = *l; }
-                            if let Some(h) = hi { ub[idx] = *h; }
+                            if let Some(l) = lo {
+                                lb[idx] = *l;
+                            }
+                            if let Some(h) = hi {
+                                ub[idx] = *h;
+                            }
                         }
                     }
                 }
@@ -197,8 +201,11 @@ impl Process for SpatialDFBA {
             );
         }
 
-        let biomass_delta: Vec<f64> = biomass_arr.iter().zip(biomass_original.iter())
-            .map(|(a, o)| a - o).collect();
+        let biomass_delta: Vec<f64> = biomass_arr
+            .iter()
+            .zip(biomass_original.iter())
+            .map(|(a, o)| a - o)
+            .collect();
         let biomass_orig_val = biomass_key.unwrap_or(&Value::None);
         let biomass_out = crate::processes::fields::rebuild_field(&biomass_delta, biomass_orig_val);
 
@@ -208,8 +215,12 @@ impl Process for SpatialDFBA {
         ]))
     }
 
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 /// Construct SpatialDFBA from vivarium config.
@@ -217,8 +228,14 @@ pub fn spatial_dfba_from_config(config: &Value) -> SpatialDFBA {
     let map = config.as_map().cloned().unwrap_or_default();
 
     let n_bins_val = map.get("n_bins").and_then(|v| v.as_list());
-    let nx = n_bins_val.and_then(|l| l.first()).and_then(|v| v.as_f64()).unwrap_or(5.0) as usize;
-    let ny = n_bins_val.and_then(|l| l.get(1)).and_then(|v| v.as_f64()).unwrap_or(5.0) as usize;
+    let nx = n_bins_val
+        .and_then(|l| l.first())
+        .and_then(|v| v.as_f64())
+        .unwrap_or(5.0) as usize;
+    let ny = n_bins_val
+        .and_then(|l| l.get(1))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(5.0) as usize;
 
     // Parse model_grid
     let mut model_grid: Vec<Vec<String>> = Vec::new();
@@ -238,20 +255,28 @@ pub fn spatial_dfba_from_config(config: &Value) -> SpatialDFBA {
     let mol_ids: Vec<String> = map
         .get("mol_ids")
         .and_then(|v| v.as_list())
-        .map(|l| l.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .map(|l| {
+            l.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
 
     // Parse models configs
     let mut models: HashMap<String, Arc<CobraModel>> = HashMap::new();
     let mut kinetic_params: HashMap<String, IndexMap<String, KineticParam>> = HashMap::new();
-    let mut config_bounds: HashMap<String, IndexMap<String, (Option<f64>, Option<f64>)>> = HashMap::new();
+    let mut config_bounds: HashMap<String, IndexMap<String, (Option<f64>, Option<f64>)>> =
+        HashMap::new();
 
     if let Some(models_map) = map.get("models").and_then(|v| v.as_map()) {
         for (model_name, model_config) in models_map {
             let mc = model_config.as_map().cloned().unwrap_or_default();
 
             // Load COBRA model (cached)
-            let model_file = mc.get("model_file").and_then(|v| v.as_str()).unwrap_or("textbook");
+            let model_file = mc
+                .get("model_file")
+                .and_then(|v| v.as_str())
+                .unwrap_or("textbook");
             if let Ok(m) = load_model_cached(model_file) {
                 models.insert(model_name.to_string(), m);
             }
@@ -289,7 +314,11 @@ pub fn spatial_dfba_from_config(config: &Value) -> SpatialDFBA {
     if let Some(models_map) = map.get("models").and_then(|v| v.as_map()) {
         for (model_name, mc) in models_map {
             let mut sr_map = IndexMap::new();
-            if let Some(sr) = mc.as_map().and_then(|m| m.get("substrate_update_reactions")).and_then(|v| v.as_map()) {
+            if let Some(sr) = mc
+                .as_map()
+                .and_then(|m| m.get("substrate_update_reactions"))
+                .and_then(|v| v.as_map())
+            {
                 for (substrate, rxn_id) in sr {
                     if let Some(rxn) = rxn_id.as_str() {
                         sr_map.insert(substrate.to_string(), rxn.to_string());

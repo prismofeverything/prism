@@ -6,8 +6,8 @@
 
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use indexmap::IndexMap;
 
@@ -16,7 +16,9 @@ use prism_bigraph::topology::{ProcessSpec, Topology};
 use prism_bigraph::{Engine, Key, Schema, StepCache, Update, Value};
 
 fn overwrite_float() -> Schema {
-    Schema::Overwrite { inner: Box::new(Schema::float()) }
+    Schema::Overwrite {
+        inner: Box::new(Schema::float()),
+    }
 }
 
 /// A step that records each firing in a shared counter, reads its (optional) input
@@ -46,7 +48,10 @@ impl Step for Recording {
             .and_then(|p| state.get_field(p))
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
-        Update::value(Value::tree([(self.out_port, Value::float(input + self.add))]))
+        Update::value(Value::tree([(
+            self.out_port,
+            Value::float(input + self.add),
+        )]))
     }
     fn as_any(&self) -> &dyn Any {
         self
@@ -60,8 +65,14 @@ fn spec(inputs: &[(&str, &str)], outputs: &[(&str, &str)]) -> ProcessSpec {
     ProcessSpec {
         process_type: "Recording".to_string(),
         config: Value::None,
-        inputs: inputs.iter().map(|(p, s)| (p.to_string(), vec![Key::from(*s)])).collect(),
-        outputs: outputs.iter().map(|(p, s)| (p.to_string(), vec![Key::from(*s)])).collect(),
+        inputs: inputs
+            .iter()
+            .map(|(p, s)| (p.to_string(), vec![Key::from(*s)]))
+            .collect(),
+        outputs: outputs
+            .iter()
+            .map(|(p, s)| (p.to_string(), vec![Key::from(*s)]))
+            .collect(),
         interval: None,
         priority: 0.0,
     }
@@ -84,12 +95,20 @@ fn chain(
         ("vb", overwrite_float()),
         ("vc", overwrite_float()),
     ]);
-    topo.processes.insert("a".into(), spec(&[], &[("out", "va")]));
-    topo.processes.insert("b".into(), spec(&[("in", "va")], &[("out", "vb")]));
-    topo.processes.insert("c".into(), spec(&[("in", "vb")], &[("out", "vc")]));
+    topo.processes
+        .insert("a".into(), spec(&[], &[("out", "va")]));
+    topo.processes
+        .insert("b".into(), spec(&[("in", "va")], &[("out", "vb")]));
+    topo.processes
+        .insert("c".into(), spec(&[("in", "vb")], &[("out", "vc")]));
 
     let step = |in_port, out_port, add, fired: &Arc<AtomicUsize>| {
-        ProcessNode::Step(Box::new(Recording { in_port, out_port, add, fired: Arc::clone(fired) }))
+        ProcessNode::Step(Box::new(Recording {
+            in_port,
+            out_port,
+            add,
+            fired: Arc::clone(fired),
+        }))
     };
     let mut instances: HashMap<String, ProcessNode> = HashMap::new();
     instances.insert("a".into(), step(None, "out", 1.0, a));
@@ -126,13 +145,18 @@ fn rerun_skips_and_force_cascades_downstream() {
         Arc::new(AtomicUsize::new(0)),
     );
     let fires = |a: &Arc<AtomicUsize>, b: &Arc<AtomicUsize>, c: &Arc<AtomicUsize>| {
-        (a.load(Ordering::SeqCst), b.load(Ordering::SeqCst), c.load(Ordering::SeqCst))
+        (
+            a.load(Ordering::SeqCst),
+            b.load(Ordering::SeqCst),
+            c.load(Ordering::SeqCst),
+        )
     };
 
     // Run 1: empty cache ⇒ all three fire and persist.
     {
         let (topo, inst) = chain(&a, &b, &c);
-        let engine = Engine::new_with_cache(topo, inst, Some(StepCache::new(&dir, None, HashSet::new())));
+        let engine =
+            Engine::new_with_cache(topo, inst, Some(StepCache::new(&dir, None, HashSet::new())));
         assert_chain_state(&engine);
     }
     assert_eq!(fires(&a, &b, &c), (1, 1, 1), "run 1: all steps fire");
@@ -141,10 +165,15 @@ fn rerun_skips_and_force_cascades_downstream() {
     // state is correct ⇒ cached outputs were reloaded (exact serde round-trip).
     {
         let (topo, inst) = chain(&a, &b, &c);
-        let engine = Engine::new_with_cache(topo, inst, Some(StepCache::new(&dir, None, HashSet::new())));
+        let engine =
+            Engine::new_with_cache(topo, inst, Some(StepCache::new(&dir, None, HashSet::new())));
         assert_chain_state(&engine);
     }
-    assert_eq!(fires(&a, &b, &c), (1, 1, 1), "run 2: every step skips (reloaded from cache)");
+    assert_eq!(
+        fires(&a, &b, &c),
+        (1, 1, 1),
+        "run 2: every step skips (reloaded from cache)"
+    );
 
     // Run 3: force `b` ⇒ b recomputes, c (downstream) cascades, a stays cached.
     {
@@ -177,7 +206,11 @@ fn no_cache_fires_every_step_every_build() {
         assert_chain_state(&engine);
     }
     assert_eq!(
-        (a.load(Ordering::SeqCst), b.load(Ordering::SeqCst), c.load(Ordering::SeqCst)),
+        (
+            a.load(Ordering::SeqCst),
+            b.load(Ordering::SeqCst),
+            c.load(Ordering::SeqCst)
+        ),
         (2, 2, 2),
         "no cache ⇒ every step fires on every build"
     );

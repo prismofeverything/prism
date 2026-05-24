@@ -5,14 +5,12 @@
 
 use indexmap::IndexMap;
 
-use prism_bigraph::{Document, ProcessNode, ProcessRegistry, Value};
 use prism_bigraph::document::ProcessDocument;
+use prism_bigraph::{Document, ProcessNode, ProcessRegistry, Value};
 
 use crate::processes::diffusion_advection::DiffusionAdvection;
 use crate::processes::monod_kinetics::{self, MonodKinetics};
-use crate::processes::particles::{
-    make_particle, BrownianMovement, ParticleExchange,
-};
+use crate::processes::particles::{BrownianMovement, ParticleExchange, make_particle};
 
 // ── Helper: build fields as flat arrays ──
 
@@ -109,10 +107,7 @@ pub fn diffusion_doc() -> (Document, ProcessRegistry) {
         ProcessNode::Process(Box::new(DiffusionAdvection::new(
             (proc_nx, proc_ny),
             (40.0, 80.0),
-            IndexMap::from([
-                ("glucose".into(), 1e-1),
-                ("acetate".into(), 1e-1),
-            ]),
+            IndexMap::from([("glucose".into(), 1e-1), ("acetate".into(), 1e-1)]),
             1.0,
         )))
     });
@@ -128,10 +123,7 @@ pub fn brownian_particles_doc() -> (Document, ProcessRegistry) {
     let particle = make_particle((25.0, 25.0), 0.5, &exchange_mols);
 
     let mut doc = Document::new();
-    doc.state = Value::tree([(
-        "particles",
-        Value::tree([("p0", particle)]),
-    )]);
+    doc.state = Value::tree([("particles", Value::tree([("p0", particle)]))]);
 
     doc.processes.insert(
         "movement".into(),
@@ -164,10 +156,8 @@ pub fn particles_kinetics_doc() -> (Document, ProcessRegistry) {
     let bounds = (50.0, 50.0);
     let (nx, ny) = (10, 10);
 
-    let exchange_mols = IndexMap::from([
-        ("glucose".to_string(), 0.0),
-        ("acetate".to_string(), 0.0),
-    ]);
+    let exchange_mols =
+        IndexMap::from([("glucose".to_string(), 0.0), ("acetate".to_string(), 0.0)]);
     let particle = make_particle((25.0, 25.0), 0.1, &exchange_mols);
 
     let mut doc = Document::new();
@@ -248,8 +238,7 @@ pub fn comets_diffusion_doc() -> (Document, ProcessRegistry) {
     for x in 3..7 {
         biomass_vals[(ny - 1) * nx + x] = 0.1;
     }
-    let biomass_field =
-        Value::List(biomass_vals.into_iter().map(Value::float).collect());
+    let biomass_field = Value::List(biomass_vals.into_iter().map(Value::float).collect());
 
     let mut doc = Document::new();
     doc.state = Value::tree([(
@@ -297,10 +286,8 @@ pub fn comets_particles_kinetics_doc() -> (Document, ProcessRegistry) {
     let (nx, ny) = (10, 10);
     let bounds = (50.0, 50.0);
 
-    let exchange_mols = IndexMap::from([
-        ("glucose".to_string(), 0.0),
-        ("acetate".to_string(), 0.0),
-    ]);
+    let exchange_mols =
+        IndexMap::from([("glucose".to_string(), 0.0), ("acetate".to_string(), 0.0)]);
     let particle = make_particle((25.0, 40.0), 0.1, &exchange_mols);
 
     let mut doc = Document::new();
@@ -365,10 +352,7 @@ pub fn comets_particles_kinetics_doc() -> (Document, ProcessRegistry) {
         ProcessNode::Process(Box::new(DiffusionAdvection::new(
             (nx, ny),
             bounds,
-            IndexMap::from([
-                ("glucose".into(), 1e-1),
-                ("acetate".into(), 1e-1),
-            ]),
+            IndexMap::from([("glucose".into(), 1e-1), ("acetate".into(), 1e-1)]),
             1.0,
         )))
     });

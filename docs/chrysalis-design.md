@@ -29,8 +29,8 @@ first-class values **and functions** (`def network :: CRN = {…}`,
 `def f(x) = …`; functions pass/return/store). `from <module> import <names>`
 pulls in native host capabilities — a whole process (`from core import
 RunProcess`), or functions / types a `.ys` `process` wraps with its own ports +
-contract (this **replaced `extern`**, which still lingers in the grammar pending
-retirement). **Process contracts** (`contract` / `fulfills` / `::`) give a
+contract (this **replaced `extern`**, now fully removed from the grammar).
+**Process contracts** (`contract` / `fulfills` / `::`) give a
 process its *meaning* — which mathematical object it approximates — so two
 processes are substitutable only when they share a contract, and an illegitimate
 comparison does not compile (`docs/process-contracts.md`; substitutability =
@@ -142,7 +142,7 @@ load-bearing:
    also call **effectful** writer methods (`a.csv(path)`, `figure.svg(path)`),
    so a workflow can emit its own artifacts — an `Output` step with `->{}`
    runs purely for its writes.
-3. (`extern` is retained only as a legacy alias; new code uses `from … import …`.)
+3. (`extern` has been fully removed; natives come in via `from … import …`.)
 
 The two meet at the typed port interface (`~{} ->{}`): a ys-native
 process can't tell whether what it wires to is native or ys-native, and
@@ -1319,11 +1319,15 @@ is the full target.
     typed scheduling (should fix the nested-composite bug), method
     dispatch, and compile-time wire-schema validation. This realizes the
     schema-driven-dispatch goal end to end.
-14. **Native imports replace `extern`.** `from <module> import <names>`
-    (`compile_with_modules` + a `ModuleRegistry`) pulls in host capabilities:
-    a whole process, or functions/types a `.ys` `process` wraps with its own
-    ports + `fulfills`. `extern` is deprecated (still parses; retirement is a
-    tracked task).
+14. **Native imports replace `extern` (now fully removed).** `from <module>
+    import <names>` (`compile_with_modules` + a `ModuleRegistry`) pulls in host
+    capabilities: a whole process, or functions/types a `.ys` `process` wraps
+    with its own ports + `fulfills`. A native process is a wholesale import
+    wired straight from its call site — no declared interface in the `.ys`
+    (`eval::build_native_spec`); its real port schema is the instance's
+    `inputs()`/`outputs()` (threading that into the state schema so a native
+    node is discovered schema-first, not by the address scan, is the #28
+    follow-up).
 15. **`def` is the binder for values AND functions.** `def name :: T = expr`;
     `def f(args) = body`. Functions are first-class values (pass / return /
     store; `Expr::Call`). Bare `name = …` is an error — naming requires `def`.

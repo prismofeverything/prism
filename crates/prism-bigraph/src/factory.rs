@@ -29,8 +29,7 @@ impl ProcessRegistry {
     where
         F: Fn(Value) -> ProcessNode + Send + Sync + 'static,
     {
-        self.factories
-            .insert(type_name.into(), Box::new(factory));
+        self.factories.insert(type_name.into(), Box::new(factory));
     }
 
     /// Create a process instance from a type name and config.

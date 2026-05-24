@@ -81,11 +81,13 @@ impl Document {
         let mut processes = IndexMap::new();
 
         for (name, spec) in &topology.processes {
-            let to_string_paths = |wires: &IndexMap<String, Vec<Key>>| -> IndexMap<String, Vec<String>> {
-                wires.iter()
-                    .map(|(k, v)| (k.clone(), v.iter().map(|k| k.to_string()).collect()))
-                    .collect()
-            };
+            let to_string_paths =
+                |wires: &IndexMap<String, Vec<Key>>| -> IndexMap<String, Vec<String>> {
+                    wires
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.iter().map(|k| k.to_string()).collect()))
+                        .collect()
+                };
             processes.insert(
                 name.clone(),
                 ProcessDocument {
@@ -113,7 +115,8 @@ impl Document {
         topology.initial_state = self.state.clone();
 
         let to_key_paths = |wires: &IndexMap<String, Vec<String>>| -> IndexMap<String, Vec<Key>> {
-            wires.iter()
+            wires
+                .iter()
                 .map(|(k, v)| (k.clone(), v.iter().map(|s| Key::from(s.as_str())).collect()))
                 .collect()
         };
@@ -160,8 +163,7 @@ impl Document {
 
     /// Save the initial state separately.
     pub fn save_state(&self, path: impl AsRef<Path>) -> Result<(), DocumentError> {
-        let json =
-            serde_json::to_string_pretty(&self.state).map_err(DocumentError::Serialize)?;
+        let json = serde_json::to_string_pretty(&self.state).map_err(DocumentError::Serialize)?;
         std::fs::write(path, json).map_err(DocumentError::Io)?;
         Ok(())
     }
@@ -169,8 +171,7 @@ impl Document {
     /// Save the schema separately.
     pub fn save_schema(&self, path: impl AsRef<Path>) -> Result<(), DocumentError> {
         if let Some(schema) = &self.schema {
-            let json =
-                serde_json::to_string_pretty(schema).map_err(DocumentError::Serialize)?;
+            let json = serde_json::to_string_pretty(schema).map_err(DocumentError::Serialize)?;
             std::fs::write(path, json).map_err(DocumentError::Io)?;
         }
         Ok(())
@@ -248,10 +249,7 @@ mod tests {
         let topology2 = doc2.to_topology();
 
         assert_eq!(topology2.processes.len(), 2);
-        assert_eq!(
-            topology2.processes["growth"].process_type,
-            "monod_kinetics"
-        );
+        assert_eq!(topology2.processes["growth"].process_type, "monod_kinetics");
         assert!(topology2.processes["growth"].interval.is_some());
         assert!(topology2.processes["division"].interval.is_none());
 

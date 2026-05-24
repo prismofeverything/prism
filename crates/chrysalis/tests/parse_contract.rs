@@ -11,8 +11,8 @@ const SRC: &str = r#"
 contract DeterministicMassAction (target: MassActionODE, claims: Deterministic, advance: Continuous)
 contract ConstraintBasedFlux (target: SteadyStateFlux, claims: OptimalFlux, advance: SteadyState)
 
-extern Rk4 ->{trajectory: TimeSeries} fulfills DeterministicMassAction[method: Rk4]
-extern Fba ->{flux: FluxVector} fulfills ConstraintBasedFlux
+process Rk4 ->{trajectory: TimeSeries} fulfills DeterministicMassAction[method: Rk4] ( {trajectory: 0.0} )
+process Fba ->{flux: FluxVector} fulfills ConstraintBasedFlux ( {flux: 0.0} )
 
 step Compare ~{a: TimeSeries :: DeterministicMassAction} ->{mse: Float} ( {mse: 0.0} )
 
@@ -32,11 +32,14 @@ fn contract_surface_parses() {
     assert_eq!(contracts, 2, "two `contract` declarations");
 
     // `fulfills C[method: Rk4]` lowered onto Rk4's output port.
-    let Def::Extern(rk4) = prog.lookup("Rk4").expect("Rk4 def") else {
-        panic!("Rk4 should be extern");
+    let Def::Process(rk4) = prog.lookup("Rk4").expect("Rk4 def") else {
+        panic!("Rk4 should be a process");
     };
     let traj = rk4.interface.outputs.get("trajectory").unwrap();
-    let c = traj.contract.as_ref().expect("trajectory carries a contract");
+    let c = traj
+        .contract
+        .as_ref()
+        .expect("trajectory carries a contract");
     assert_eq!(c.name, "DeterministicMassAction");
     assert_eq!(c.pins.get("method").map(String::as_str), Some("Rk4"));
 }

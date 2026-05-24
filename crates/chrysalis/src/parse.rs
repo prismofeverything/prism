@@ -31,7 +31,6 @@ pub enum Tok {
     Step,
     Composite,
     Reaction,
-    Extern,
     Unit,
     Context,
     Using,
@@ -53,9 +52,9 @@ pub enum Tok {
     Fulfills,
 
     // operators / punctuation
-    Eq,     // =
-    EqEq,   // ==
-    Ne,     // !=
+    Eq,   // =
+    EqEq, // ==
+    Ne,   // !=
     Lt,
     Le,
     Gt,
@@ -64,17 +63,17 @@ pub enum Tok {
     Minus,
     Star,
     Slash,
-    PlusPlus, // ++
-    AmpAmp,   // &&
-    BarBar,   // ||
-    Arrow,    // ->
-    FatArrow, // =>
-    Tilde,    // ~
-    Bar,      // |
-    At,       // @ (composite bridge: `port :: Type @ internal.path`)
-    Percent,  // % (self / here — the enclosing composite's own place)
-    Bang,     // !
-    Question, // ?
+    PlusPlus,   // ++
+    AmpAmp,     // &&
+    BarBar,     // ||
+    Arrow,      // ->
+    FatArrow,   // =>
+    Tilde,      // ~
+    Bar,        // |
+    At,         // @ (composite bridge: `port :: Type @ internal.path`)
+    Percent,    // % (self / here — the enclosing composite's own place)
+    Bang,       // !
+    Question,   // ?
     Caret,      // ^ (unit/dimension power)
     BiArrow,    // <-> (bidirectional context rule)
     ColonColon, // :: (typed site / as-pattern)
@@ -112,7 +111,6 @@ fn keyword(word: &str) -> Option<Tok> {
         "step" => Tok::Step,
         "composite" => Tok::Composite,
         "reaction" => Tok::Reaction,
-        "extern" => Tok::Extern,
         "unit" => Tok::Unit,
         "context" => Tok::Context,
         "using" => Tok::Using,
@@ -227,7 +225,10 @@ pub fn lex(src: &str) -> Result<Vec<Spanned>, ParseError> {
                     i += 1;
                 }
                 if i >= n {
-                    return Err(ParseError { message: "unterminated string".into(), line });
+                    return Err(ParseError {
+                        message: "unterminated string".into(),
+                        line,
+                    });
                 }
                 let s: String = chars[start..i].iter().collect();
                 i += 1; // closing quote
@@ -241,50 +242,50 @@ pub fn lex(src: &str) -> Result<Vec<Spanned>, ParseError> {
                     (Tok::BiArrow, 3)
                 } else {
                     match two.as_str() {
-                    "==" => (Tok::EqEq, 2),
-                    "!=" => (Tok::Ne, 2),
-                    "<=" => (Tok::Le, 2),
-                    ">=" => (Tok::Ge, 2),
-                    "++" => (Tok::PlusPlus, 2),
-                    "&&" => (Tok::AmpAmp, 2),
-                    "||" => (Tok::BarBar, 2),
-                    "->" => (Tok::Arrow, 2),
-                    "=>" => (Tok::FatArrow, 2),
-                    "::" => (Tok::ColonColon, 2),
-                    _ => {
-                        let t = match c {
-                            '=' => Tok::Eq,
-                            '<' => Tok::Lt,
-                            '>' => Tok::Gt,
-                            '+' => Tok::Plus,
-                            '-' => Tok::Minus,
-                            '*' => Tok::Star,
-                            '/' => Tok::Slash,
-                            '~' => Tok::Tilde,
-                            '|' => Tok::Bar,
-                            '@' => Tok::At,
-                            '%' => Tok::Percent,
-                            '!' => Tok::Bang,
-                            '?' => Tok::Question,
-                            '^' => Tok::Caret,
-                            '.' => Tok::Dot,
-                            ',' => Tok::Comma,
-                            ':' => Tok::Colon,
-                            '(' => Tok::LParen,
-                            ')' => Tok::RParen,
-                            '[' => Tok::LBrack,
-                            ']' => Tok::RBrack,
-                            '{' => Tok::LBrace,
-                            '}' => Tok::RBrace,
-                            other => {
-                                return Err(ParseError {
-                                    message: format!("unexpected character `{other}`"),
-                                    line,
-                                })
-                            }
-                        };
-                        (t, 1)
-                    }
+                        "==" => (Tok::EqEq, 2),
+                        "!=" => (Tok::Ne, 2),
+                        "<=" => (Tok::Le, 2),
+                        ">=" => (Tok::Ge, 2),
+                        "++" => (Tok::PlusPlus, 2),
+                        "&&" => (Tok::AmpAmp, 2),
+                        "||" => (Tok::BarBar, 2),
+                        "->" => (Tok::Arrow, 2),
+                        "=>" => (Tok::FatArrow, 2),
+                        "::" => (Tok::ColonColon, 2),
+                        _ => {
+                            let t = match c {
+                                '=' => Tok::Eq,
+                                '<' => Tok::Lt,
+                                '>' => Tok::Gt,
+                                '+' => Tok::Plus,
+                                '-' => Tok::Minus,
+                                '*' => Tok::Star,
+                                '/' => Tok::Slash,
+                                '~' => Tok::Tilde,
+                                '|' => Tok::Bar,
+                                '@' => Tok::At,
+                                '%' => Tok::Percent,
+                                '!' => Tok::Bang,
+                                '?' => Tok::Question,
+                                '^' => Tok::Caret,
+                                '.' => Tok::Dot,
+                                ',' => Tok::Comma,
+                                ':' => Tok::Colon,
+                                '(' => Tok::LParen,
+                                ')' => Tok::RParen,
+                                '[' => Tok::LBrack,
+                                ']' => Tok::RBrack,
+                                '{' => Tok::LBrace,
+                                '}' => Tok::RBrace,
+                                other => {
+                                    return Err(ParseError {
+                                        message: format!("unexpected character `{other}`"),
+                                        line,
+                                    });
+                                }
+                            };
+                            (t, 1)
+                        }
                     }
                 };
                 i += len;
@@ -348,15 +349,26 @@ mod lex_tests {
     #[test]
     fn lexes_comprehension_and_membership_ops() {
         let t = toks("[e.to for e in xs if not (e == y)]");
-        assert!(t.contains(&Tok::For) && t.contains(&Tok::In) && t.contains(&Tok::Not) && t.contains(&Tok::EqEq));
+        assert!(
+            t.contains(&Tok::For)
+                && t.contains(&Tok::In)
+                && t.contains(&Tok::Not)
+                && t.contains(&Tok::EqEq)
+        );
     }
 
     #[test]
     fn lexes_bigraph_punctuation() {
         let t = toks("~{a} ->{b} | x ++ y => @ %");
-        assert!(t.contains(&Tok::Tilde) && t.contains(&Tok::Arrow) && t.contains(&Tok::Bar)
-            && t.contains(&Tok::PlusPlus) && t.contains(&Tok::FatArrow) && t.contains(&Tok::At)
-            && t.contains(&Tok::Percent));
+        assert!(
+            t.contains(&Tok::Tilde)
+                && t.contains(&Tok::Arrow)
+                && t.contains(&Tok::Bar)
+                && t.contains(&Tok::PlusPlus)
+                && t.contains(&Tok::FatArrow)
+                && t.contains(&Tok::At)
+                && t.contains(&Tok::Percent)
+        );
     }
 }
 
@@ -414,7 +426,10 @@ impl Parser {
         }
     }
     fn err(&self, message: &str) -> ParseError {
-        ParseError { message: message.to_string(), line: self.line() }
+        ParseError {
+            message: message.to_string(),
+            line: self.line(),
+        }
     }
     /// A TYPE-ascription separator: `::` (canonical) or legacy `:` (accepted
     /// during the migration to `::`=type / `:`=value). Errors if neither.
@@ -445,7 +460,11 @@ impl Parser {
 /// `Def::Import` — use [`parse_file`] to resolve them).
 pub fn parse_program(src: &str) -> Result<Program, ParseError> {
     let toks = lex(src)?;
-    let mut p = Parser { toks, pos: 0, aliases: Default::default() };
+    let mut p = Parser {
+        toks,
+        pos: 0,
+        aliases: Default::default(),
+    };
     let mut program = Program::new();
     while !p.check(&Tok::Eof) {
         // A capitalized `Name = <schema>` is a TYPE ALIAS (e.g.
@@ -481,7 +500,11 @@ fn apply_fulfills(interface: &mut Interface, contract: &ContractRef) {
 /// a `ModuleRegistry`) its representation from a source string.
 pub fn parse_schema_expr(src: &str) -> Result<SchemaExpr, ParseError> {
     let toks = lex(src)?;
-    let mut p = Parser { toks, pos: 0, aliases: Default::default() };
+    let mut p = Parser {
+        toks,
+        pos: 0,
+        aliases: Default::default(),
+    };
     let schema = p.parse_schema()?;
     if !p.check(&Tok::Eof) {
         return Err(p.err("unexpected trailing tokens after schema expression"));
@@ -543,7 +566,6 @@ impl Parser {
             Tok::Process => self.parse_process_def(false),
             Tok::Step => self.parse_process_def(true),
             Tok::Composite => self.parse_composite_def(),
-            Tok::Extern => self.parse_extern_def(),
             Tok::Reaction => self.parse_reaction_def(),
             Tok::Unit => self.parse_unit_def(),
             Tok::Context => self.parse_context_def(),
@@ -558,7 +580,7 @@ impl Parser {
                 let path = match self.bump() {
                     Tok::Str(s) => s,
                     other => {
-                        return Err(self.err(&format!("expected a quoted path, found {other:?}")))
+                        return Err(self.err(&format!("expected a quoted path, found {other:?}")));
                     }
                 };
                 Ok(Def::Import { name, path })
@@ -582,7 +604,11 @@ impl Parser {
                         "bare binding `{name}`: named values require `def` \u{2014} write `def {name} = …`"
                     )));
                 }
-                Ok(Def::Binding { name: "main".into(), schema: None, value: self.parse_expr()? })
+                Ok(Def::Binding {
+                    name: "main".into(),
+                    schema: None,
+                    value: self.parse_expr()?,
+                })
             }
         }
     }
@@ -607,7 +633,11 @@ impl Parser {
                 } else {
                     SchemaExpr::Any
                 };
-                params.push(Param { name: pname, schema, default: None });
+                params.push(Param {
+                    name: pname,
+                    schema,
+                    default: None,
+                });
                 if !self.accept(&Tok::Comma) {
                     break;
                 }
@@ -618,7 +648,11 @@ impl Parser {
             }
             self.expect(&Tok::Eq)?;
             let body = self.parse_expr()?;
-            return Ok(Def::Function(crate::ast::FunctionDef { name, params, body }));
+            return Ok(Def::Function(crate::ast::FunctionDef {
+                name,
+                params,
+                body,
+            }));
         }
         // Value form: `def name [:: Type] = expr`.
         let schema = if self.accept(&Tok::ColonColon) {
@@ -628,7 +662,11 @@ impl Parser {
         };
         self.expect(&Tok::Eq)?;
         let value = self.parse_expr()?;
-        Ok(Def::Binding { name, schema, value })
+        Ok(Def::Binding {
+            name,
+            schema,
+            value,
+        })
     }
 
     // ── native host import ──────────────────────────────────────────
@@ -663,7 +701,7 @@ impl Parser {
             other => {
                 return Err(self.err(&format!(
                     "expected `import` after `from {module}`, found {other:?}"
-                )))
+                )));
             }
         }
         let mut names = vec![self.ident()?];
@@ -688,7 +726,12 @@ impl Parser {
             }
             self.expect(&Tok::RBrace)?;
         }
-        Ok(Def::Type(TypeDef { name, params: vec![], representation, methods }))
+        Ok(Def::Type(TypeDef {
+            name,
+            params: vec![],
+            representation,
+            methods,
+        }))
     }
 
     // ── contract declaration ────────────────────────────────────────
@@ -740,15 +783,6 @@ impl Parser {
         } else {
             Ok(None)
         }
-    }
-
-    /// Parse an optional `fulfills C[…]` clause and apply it to the output ports
-    /// — sugar for `:: C` on each output that doesn't already declare one.
-    fn parse_fulfills_into(&mut self, interface: &mut Interface) -> Result<(), ParseError> {
-        if let Some(c) = self.parse_optional_fulfills()? {
-            apply_fulfills(interface, &c);
-        }
-        Ok(())
     }
 
     // `name(params) = expr`
@@ -842,7 +876,7 @@ impl Parser {
                                 other => {
                                     return Err(self.err(&format!(
                                         "array shape expects non-negative ints, found {other:?}"
-                                    )))
+                                    )));
                                 }
                             }
                             if !self.accept(&Tok::Comma) {
@@ -870,7 +904,9 @@ impl Parser {
                                 "extensive" => extensive = true,
                                 "affine" => affine = true,
                                 other => {
-                                    return Err(self.err(&format!("unknown Quantity flag `{other}`")))
+                                    return Err(
+                                        self.err(&format!("unknown Quantity flag `{other}`"))
+                                    );
                                 }
                             }
                         }
@@ -879,9 +915,7 @@ impl Parser {
                     }
                     // A type alias inlines to its schema (so units lowering
                     // sees the `Quantity`, not an opaque `Custom`).
-                    _ if self.aliases.contains_key(&name) => {
-                        Ok(self.aliases[&name].clone())
-                    }
+                    _ if self.aliases.contains_key(&name) => Ok(self.aliases[&name].clone()),
                     // Otherwise a (possibly parameterized) custom type.
                     _ => {
                         let mut params = Vec::new();
@@ -930,7 +964,10 @@ impl Parser {
         if self.check(&Tok::Not) {
             self.bump();
             let operand = self.parse_not()?;
-            return Ok(Expr::UnaryOp { op: UnaryOp::Not, operand: Box::new(operand) });
+            return Ok(Expr::UnaryOp {
+                op: UnaryOp::Not,
+                operand: Box::new(operand),
+            });
         }
         self.parse_cmp()
     }
@@ -1011,7 +1048,11 @@ impl Parser {
                     self.ident()?
                 };
                 if self.check(&Tok::LParen) {
-                    base = Expr::Method { receiver: Box::new(base), method: name, args: self.parse_call_args()? };
+                    base = Expr::Method {
+                        receiver: Box::new(base),
+                        method: name,
+                        args: self.parse_call_args()?,
+                    };
                 } else {
                     // Field access. A `Var`/`Path` base extends a *place path*
                     // (the wiring form, `var.seg.seg`); any other base is a
@@ -1021,12 +1062,18 @@ impl Parser {
                     base = match base {
                         Expr::Var(v) => Expr::Path(PlacePath::local(v).dot(name)),
                         Expr::Path(p) => Expr::Path(p.dot(name)),
-                        other => Expr::Field { base: Box::new(other), name },
+                        other => Expr::Field {
+                            base: Box::new(other),
+                            name,
+                        },
                     };
                 }
             } else if self.check(&Tok::LParen) {
                 // bare call: `f(args)` — call a function value.
-                base = Expr::Call { func: Box::new(base), args: self.parse_call_args()? };
+                base = Expr::Call {
+                    func: Box::new(base),
+                    args: self.parse_call_args()?,
+                };
             } else {
                 break;
             }
@@ -1082,7 +1129,11 @@ impl Parser {
                 }
                 let inner: String = chars[start..i].iter().collect();
                 i += 1; // skip closing `}`
-                let mut sub = Parser { toks: lex(&inner)?, pos: 0, aliases: Default::default() };
+                let mut sub = Parser {
+                    toks: lex(&inner)?,
+                    pos: 0,
+                    aliases: Default::default(),
+                };
                 segments.push(StringSeg::Expr(sub.parse_expr()?));
             } else {
                 lit.push(chars[i]);
@@ -1122,7 +1173,10 @@ impl Parser {
                 let id = self.parse_expr()?;
                 self.expect(&Tok::With)?;
                 let with = self.parse_expr()?;
-                Ok(Expr::ReplaceWith { id: Box::new(id), with: Box::new(with) })
+                Ok(Expr::ReplaceWith {
+                    id: Box::new(id),
+                    with: Box::new(with),
+                })
             }
             // `?name` (site) / `?name :: Sort` (typed site) / `?name.field…`
             // (a path rooted at the `?`-local). The name keeps its `?`.
@@ -1284,7 +1338,11 @@ impl Parser {
 }
 
 fn binop(op: BinOp, lhs: Expr, rhs: Expr) -> Expr {
-    Expr::BinOp { op, lhs: Box::new(lhs), rhs: Box::new(rhs) }
+    Expr::BinOp {
+        op,
+        lhs: Box::new(lhs),
+        rhs: Box::new(rhs),
+    }
 }
 
 /// A bare subprocess term in a COMPOSITE body (`Diffusion ~{…}`, no slot key)
@@ -1349,11 +1407,14 @@ fn lower_first(s: &str) -> String {
 //     + the bigraph surface (`~{}->{}` interfaces, `|` bodies, term calls)
 // ─────────────────────────────────────────────────────────────────────
 
-use crate::ast::{ExternDef, Interface, Name, PortDecl, ProcessDef, ReactionDef, StepDef};
+use crate::ast::{Interface, Name, PortDecl, ProcessDef, ReactionDef, StepDef};
 
 impl Parser {
     fn peek2(&self) -> &Tok {
-        self.toks.get(self.pos + 1).map(|s| &s.tok).unwrap_or(&Tok::Eof)
+        self.toks
+            .get(self.pos + 1)
+            .map(|s| &s.tok)
+            .unwrap_or(&Tok::Eof)
     }
 
     /// `[ param ("," param)* ]` (config params). Empty if no `[`.
@@ -1527,9 +1588,19 @@ impl Parser {
         }
         let body = self.parse_body()?;
         Ok(if is_step {
-            Def::Step(StepDef { name, params, interface, body })
+            Def::Step(StepDef {
+                name,
+                params,
+                interface,
+                body,
+            })
         } else {
-            Def::Process(ProcessDef { name, params, interface, body })
+            Def::Process(ProcessDef {
+                name,
+                params,
+                interface,
+                body,
+            })
         })
     }
 
@@ -1558,17 +1629,6 @@ impl Parser {
         }))
     }
 
-    fn parse_extern_def(&mut self) -> Result<Def, ParseError> {
-        self.expect(&Tok::Extern)?;
-        // optional `process` / `step` keyword
-        let _ = self.accept(&Tok::Process) || self.accept(&Tok::Step);
-        let name = self.ident()?;
-        let params = self.parse_bracket_params()?;
-        let mut interface = self.parse_interface()?;
-        self.parse_fulfills_into(&mut interface)?;
-        Ok(Def::Extern(ExternDef { name, params, interface }))
-    }
-
     fn parse_reaction_def(&mut self) -> Result<Def, ParseError> {
         self.expect(&Tok::Reaction)?;
         let name = self.ident()?;
@@ -1584,7 +1644,14 @@ impl Parser {
         self.expect(&Tok::FatArrow)?;
         let reactum = self.parse_expr()?;
         self.expect(&Tok::RParen)?;
-        Ok(Def::Reaction(ReactionDef { name, params, redex, reactum, guard, rate: None }))
+        Ok(Def::Reaction(ReactionDef {
+            name,
+            params,
+            redex,
+            reactum,
+            guard,
+            rate: None,
+        }))
     }
 
     /// A body `( item ("|" item)* )`. An item is a keyed entry (`name: expr`),
@@ -1692,7 +1759,12 @@ impl Parser {
         } else {
             self.parse_unit_expr()?
         };
-        Ok(Def::Unit(UnitDef { name, dimension, definition, affine_offset: None }))
+        Ok(Def::Unit(UnitDef {
+            name,
+            dimension,
+            definition,
+            affine_offset: None,
+        }))
     }
 
     /// A dimension expression: `[base]` factors combined with `*` / `/`, each
@@ -1727,7 +1799,9 @@ impl Parser {
             match self.bump() {
                 Tok::Int(n) => n as i32,
                 other => {
-                    return Err(self.err(&format!("dimension power expects an int, found {other:?}")))
+                    return Err(
+                        self.err(&format!("dimension power expects an int, found {other:?}"))
+                    );
                 }
             }
         } else {
@@ -1768,7 +1842,7 @@ impl Parser {
             let exp = match self.bump() {
                 Tok::Int(n) => n as i32,
                 other => {
-                    return Err(self.err(&format!("unit power expects an int, found {other:?}")))
+                    return Err(self.err(&format!("unit power expects an int, found {other:?}")));
                 }
             };
             Ok(base.pow(Ratio::new(exp, 1)))
@@ -1809,13 +1883,22 @@ impl Parser {
             let to = self.parse_dimension()?;
             self.expect(&Tok::Colon)?;
             let transform = self.parse_expr()?;
-            rules.push(ContextRule { from, to, bidirectional, transform });
+            rules.push(ContextRule {
+                from,
+                to,
+                bidirectional,
+                transform,
+            });
             if !self.accept(&Tok::Bar) {
                 break;
             }
         }
         self.expect(&Tok::RParen)?;
-        Ok(Def::Context(ContextDef { name, params, rules }))
+        Ok(Def::Context(ContextDef {
+            name,
+            params,
+            rules,
+        }))
     }
 
     /// `param ("," param)*` inside parens — `IDENT ":" schema ("=" default)?`.

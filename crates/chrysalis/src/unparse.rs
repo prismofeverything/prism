@@ -53,15 +53,18 @@ fn unparse_def(def: &Def) -> String {
         Def::Process(p) => unparse_definer("process", &p.name, &p.params, &p.interface, &p.body),
         Def::Step(p) => unparse_definer("step", &p.name, &p.params, &p.interface, &p.body),
         Def::Function(f) => {
-            format!("def {}({}) = {}", f.name, unparse_fn_params(&f.params), unparse_expr(&f.body))
+            format!(
+                "def {}({}) = {}",
+                f.name,
+                unparse_fn_params(&f.params),
+                unparse_expr(&f.body)
+            )
         }
         Def::Composite(c) => {
             let using: String = c
                 .using
                 .iter()
-                .map(|u| {
-                    format!(" using {}({})", u.name, unparse_term_args(&u.args))
-                })
+                .map(|u| format!(" using {}({})", u.name, unparse_term_args(&u.args)))
                 .collect();
             format!(
                 "composite {}{}{}{} {}",
@@ -72,12 +75,6 @@ fn unparse_def(def: &Def) -> String {
                 unparse_body(&c.body)
             )
         }
-        Def::Extern(e) => format!(
-            "extern {}{}{}",
-            e.name,
-            unparse_bracket_params(&e.params),
-            unparse_interface(&e.interface)
-        ),
         Def::Reaction(r) => {
             let redex = match &r.guard {
                 Some(g) => format!("{} where {}", unparse_expr(&r.redex), unparse_expr(g)),
@@ -141,12 +138,20 @@ fn unparse_def(def: &Def) -> String {
         }
         Def::Import { name, path } => format!("import {name} from '{path}'"),
         Def::Use { module, names } => format!("from {module} import {}", names.join(", ")),
-        Def::Binding { name, schema, value } => {
+        Def::Binding {
+            name,
+            schema,
+            value,
+        } => {
             if name == "main" {
                 // The trailing-value form.
                 unparse_expr(value)
             } else if let Some(s) = schema {
-                format!("def {name} :: {} = {}", unparse_schema(s), unparse_expr(value))
+                format!(
+                    "def {name} :: {} = {}",
+                    unparse_schema(s),
+                    unparse_expr(value)
+                )
             } else {
                 format!("def {name} = {}", unparse_expr(value))
             }
@@ -292,8 +297,10 @@ fn unparse_interface_inner(iface: &Interface, hoisted: Option<&ContractRef>) -> 
 fn unparse_body(body: &Expr) -> String {
     match body {
         Expr::Block(Block { bindings, value }) => {
-            let mut items: Vec<String> =
-                bindings.iter().map(|(n, e)| format!("{n} = {}", unparse_expr(e))).collect();
+            let mut items: Vec<String> = bindings
+                .iter()
+                .map(|(n, e)| format!("{n} = {}", unparse_expr(e)))
+                .collect();
             items.push(unparse_expr(value));
             format!("(\n  {}\n)", items.join(" |\n  "))
         }
@@ -317,7 +324,12 @@ pub fn unparse_expr(e: &Expr) -> String {
         Expr::Str(s) => unparse_string(s),
         Expr::Var(n) => n.clone(),
         Expr::Path(p) => unparse_path(p),
-        Expr::Term { control, args, ports, body } => unparse_term(control, args, ports, body),
+        Expr::Term {
+            control,
+            args,
+            ports,
+            body,
+        } => unparse_term(control, args, ports, body),
         Expr::Parallel(items) => {
             let parts: Vec<String> = items.iter().map(unparse_expr).collect();
             format!("({})", parts.join(" | "))
@@ -331,8 +343,10 @@ pub fn unparse_expr(e: &Expr) -> String {
             format!("{{{}}}", parts.join(", "))
         }
         Expr::Record(fields) => {
-            let parts: Vec<String> =
-                fields.iter().map(|(k, v)| format!("{k}: {}", unparse_expr(v))).collect();
+            let parts: Vec<String> = fields
+                .iter()
+                .map(|(k, v)| format!("{k}: {}", unparse_expr(v)))
+                .collect();
             format!("{{{}}}", parts.join(", "))
         }
         Expr::List(items) => {
@@ -350,13 +364,18 @@ pub fn unparse_expr(e: &Expr) -> String {
             format!("{} => {}", unparse_expr(redex), unparse_expr(reactum))
         }
         Expr::Let { bindings, body } => {
-            let bs: Vec<String> =
-                bindings.iter().map(|(n, e)| format!("{n} = {}", unparse_expr(e))).collect();
+            let bs: Vec<String> = bindings
+                .iter()
+                .map(|(n, e)| format!("{n} = {}", unparse_expr(e)))
+                .collect();
             format!("({} | {})", bs.join(" | "), unparse_expr(body))
         }
         Expr::Block(b) => {
-            let mut items: Vec<String> =
-                b.bindings.iter().map(|(n, e)| format!("{n} = {}", unparse_expr(e))).collect();
+            let mut items: Vec<String> = b
+                .bindings
+                .iter()
+                .map(|(n, e)| format!("{n} = {}", unparse_expr(e)))
+                .collect();
             items.push(unparse_expr(&b.value));
             format!("({})", items.join(" | "))
         }
@@ -368,13 +387,22 @@ pub fn unparse_expr(e: &Expr) -> String {
             s
         }
         Expr::BinOp { op, lhs, rhs } => {
-            format!("({} {} {})", unparse_expr(lhs), unparse_binop(*op), unparse_expr(rhs))
+            format!(
+                "({} {} {})",
+                unparse_expr(lhs),
+                unparse_binop(*op),
+                unparse_expr(rhs)
+            )
         }
         Expr::UnaryOp { op, operand } => match op {
             UnaryOp::Neg => format!("-{}", unparse_expr(operand)),
             UnaryOp::Not => format!("not {}", unparse_expr(operand)),
         },
-        Expr::Method { receiver, method, args } => {
+        Expr::Method {
+            receiver,
+            method,
+            args,
+        } => {
             let a: Vec<String> = args.iter().map(unparse_arg).collect();
             format!("{}.{method}({})", unparse_expr(receiver), a.join(", "))
         }
@@ -383,8 +411,17 @@ pub fn unparse_expr(e: &Expr) -> String {
             let a: Vec<String> = args.iter().map(unparse_arg).collect();
             format!("{}({})", unparse_expr(func), a.join(", "))
         }
-        Expr::Comprehension { var, source, filter, body } => {
-            let mut s = format!("[{} for {var} in {}", unparse_expr(body), unparse_expr(source));
+        Expr::Comprehension {
+            var,
+            source,
+            filter,
+            body,
+        } => {
+            let mut s = format!(
+                "[{} for {var} in {}",
+                unparse_expr(body),
+                unparse_expr(source)
+            );
             if let Some(f) = filter {
                 s.push_str(&format!(" if {}", unparse_expr(f)));
             }
@@ -411,13 +448,19 @@ fn unparse_term(
         s.push_str(&format!("[{}]", unparse_term_args(args)));
     }
     if !ports.inputs.is_empty() {
-        let ps: Vec<String> =
-            ports.inputs.iter().map(|(p, t)| format!("{p}: {}", unparse_expr(t))).collect();
+        let ps: Vec<String> = ports
+            .inputs
+            .iter()
+            .map(|(p, t)| format!("{p}: {}", unparse_expr(t)))
+            .collect();
         s.push_str(&format!(" ~{{{}}}", ps.join(", ")));
     }
     if !ports.outputs.is_empty() {
-        let ps: Vec<String> =
-            ports.outputs.iter().map(|(p, t)| format!("{p}: {}", unparse_expr(t))).collect();
+        let ps: Vec<String> = ports
+            .outputs
+            .iter()
+            .map(|(p, t)| format!("{p}: {}", unparse_expr(t)))
+            .collect();
         s.push_str(&format!(" ->{{{}}}", ps.join(", ")));
     }
     if let Some(b) = body {
@@ -430,11 +473,21 @@ fn unparse_term(
 fn inline_body(b: &Expr) -> String {
     match b {
         Expr::Parallel(items) => {
-            format!("({})", items.iter().map(unparse_expr).collect::<Vec<_>>().join(" | "))
+            format!(
+                "({})",
+                items
+                    .iter()
+                    .map(unparse_expr)
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            )
         }
         Expr::Block(bl) => {
-            let mut items: Vec<String> =
-                bl.bindings.iter().map(|(n, e)| format!("{n} = {}", unparse_expr(e))).collect();
+            let mut items: Vec<String> = bl
+                .bindings
+                .iter()
+                .map(|(n, e)| format!("{n} = {}", unparse_expr(e)))
+                .collect();
             items.push(unparse_expr(&bl.value));
             format!("({})", items.join(" | "))
         }
@@ -459,7 +512,12 @@ fn unparse_term_args(args: &[TermArg]) -> String {
 fn unparse_arg(e: &Expr) -> String {
     match e {
         Expr::BinOp { op, lhs, rhs } => {
-            format!("{} {} {}", unparse_expr(lhs), unparse_binop(*op), unparse_expr(rhs))
+            format!(
+                "{} {} {}",
+                unparse_expr(lhs),
+                unparse_binop(*op),
+                unparse_expr(rhs)
+            )
         }
         other => unparse_expr(other),
     }
@@ -544,8 +602,10 @@ fn unparse_schema(s: &SchemaExpr) -> String {
         SchemaExpr::Map(inner) => format!("map[{}]", unparse_schema(inner)),
         SchemaExpr::List(inner) => format!("list[{}]", unparse_schema(inner)),
         SchemaExpr::Record(fields) => {
-            let parts: Vec<String> =
-                fields.iter().map(|(k, v)| format!("{k}: {}", unparse_schema(v))).collect();
+            let parts: Vec<String> = fields
+                .iter()
+                .map(|(k, v)| format!("{k}: {}", unparse_schema(v)))
+                .collect();
             format!("{{{}}}", parts.join(", "))
         }
         SchemaExpr::Custom { name, params } => {
@@ -557,7 +617,11 @@ fn unparse_schema(s: &SchemaExpr) -> String {
             }
         }
         SchemaExpr::SelfType => "%".into(),
-        SchemaExpr::Quantity { unit, extensive, affine } => {
+        SchemaExpr::Quantity {
+            unit,
+            extensive,
+            affine,
+        } => {
             let mut s = format!("Quantity[unit: {}", unparse_unit_expr(unit));
             if *extensive {
                 s.push_str(", extensive");

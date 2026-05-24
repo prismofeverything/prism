@@ -222,7 +222,12 @@ pub fn composite_inner_schema(def: &CompositeDef, program: &Program) -> Schema {
     for p in &def.params {
         known.insert(p.name.clone(), lower_schema_in_program(&p.schema, program));
     }
-    for (n, d) in def.interface.inputs.iter().chain(def.interface.outputs.iter()) {
+    for (n, d) in def
+        .interface
+        .inputs
+        .iter()
+        .chain(def.interface.outputs.iter())
+    {
         known
             .entry(n.clone())
             .or_insert_with(|| lower_schema_in_program(&d.schema, program));
@@ -236,7 +241,12 @@ pub fn composite_inner_schema(def: &CompositeDef, program: &Program) -> Schema {
     // run via Simulate carrying `Any` at its port paths (`Composite.outputs()` →
     // Any → no schema-driven plot). Fill them (without clobbering a body branch) so
     // the composite's output schema is honest.
-    for (n, d) in def.interface.inputs.iter().chain(def.interface.outputs.iter()) {
+    for (n, d) in def
+        .interface
+        .inputs
+        .iter()
+        .chain(def.interface.outputs.iter())
+    {
         let ty = lower_schema_in_program(&d.schema, program);
         let path = d.bridge.clone().unwrap_or_else(|| vec![n.clone()]);
         insert_at_path(&mut branches, &path, ty);
@@ -247,13 +257,16 @@ pub fn composite_inner_schema(def: &CompositeDef, program: &Program) -> Schema {
 /// Insert `schema` at `path` in `branches`, building nested `Tree`s; never
 /// clobbers an existing (body-derived) branch — ports only DEFAULT a slot type.
 fn insert_at_path(branches: &mut IndexMap<Key, Schema>, path: &[String], schema: Schema) {
-    let Some((head, rest)) = path.split_first() else { return };
+    let Some((head, rest)) = path.split_first() else {
+        return;
+    };
     let key = Key::from(head.as_str());
     if rest.is_empty() {
         branches.entry(key).or_insert(schema);
     } else {
-        let child =
-            branches.entry(key).or_insert_with(|| Schema::Tree { branches: IndexMap::new() });
+        let child = branches.entry(key).or_insert_with(|| Schema::Tree {
+            branches: IndexMap::new(),
+        });
         if let Schema::Tree { branches: inner } = child {
             insert_at_path(inner, rest, schema);
         }
@@ -286,7 +299,9 @@ fn branch_schema(e: &Expr, program: &Program, known: &IndexMap<String, Schema>) 
     match e {
         // A sub-term whose control names a definer → its link schema.
         Expr::Term { control, .. } => match program.lookup(control) {
-            Some(d @ (Def::Process(_) | Def::Step(_) | Def::Composite(_))) => def_schema(d, program),
+            Some(d @ (Def::Process(_) | Def::Step(_) | Def::Composite(_))) => {
+                def_schema(d, program)
+            }
             _ => Schema::Any, // built-ins (BRS), plain ions, etc.
         },
         // A bare reference (`mass: mass`) → the param/port's schema.
@@ -333,7 +348,9 @@ mod tests {
         let prog = grow_divide::program();
         let grow = def_schema(prog.lookup("Grow").unwrap(), &prog);
         match grow {
-            Schema::ProcessLink { inputs, outputs, .. } => {
+            Schema::ProcessLink {
+                inputs, outputs, ..
+            } => {
                 assert!(inputs.contains_key(&k("mass")));
                 assert!(inputs.contains_key(&k("interval")));
                 assert!(outputs.contains_key(&k("mass")));

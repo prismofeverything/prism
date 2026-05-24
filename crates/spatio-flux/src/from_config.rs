@@ -31,10 +31,7 @@ fn as_f64_pair(v: &Value) -> (f64, f64) {
 /// Helper to extract a pair of usize from a list Value.
 fn as_usize_pair(v: &Value) -> (usize, usize) {
     match v.as_list() {
-        Some(l) if l.len() >= 2 => (
-            as_f64(&l[0]) as usize,
-            as_f64(&l[1]) as usize,
-        ),
+        Some(l) if l.len() >= 2 => (as_f64(&l[0]) as usize, as_f64(&l[1]) as usize),
         _ => (0, 0),
     }
 }
@@ -68,10 +65,7 @@ pub fn monod_kinetics_from_config(config: &Value) -> MonodKinetics {
                     .to_string();
                 let km = rxn_map.get("km").map(as_f64).unwrap_or(0.5);
                 let vmax = rxn_map.get("vmax").map(as_f64).unwrap_or(0.1);
-                let yield_coeff = rxn_map
-                    .get("yield")
-                    .map(as_f64)
-                    .unwrap_or(0.5);
+                let yield_coeff = rxn_map.get("yield").map(as_f64).unwrap_or(0.5);
 
                 reactions.push(Reaction {
                     reactant,
@@ -103,22 +97,10 @@ pub fn monod_kinetics_from_config(config: &Value) -> MonodKinetics {
 pub fn diffusion_advection_from_config(config: &Value) -> DiffusionAdvection {
     let map = config.as_map().unwrap_or(&IndexMap::new()).clone();
 
-    let n_bins = map
-        .get("n_bins")
-        .map(as_usize_pair)
-        .unwrap_or((10, 10));
-    let bounds = map
-        .get("bounds")
-        .map(as_f64_pair)
-        .unwrap_or((50.0, 50.0));
-    let default_diffusion = map
-        .get("default_diffusion_rate")
-        .map(as_f64)
-        .unwrap_or(0.1);
-    let interval = map
-        .get("interval")
-        .map(as_f64)
-        .unwrap_or(1.0);
+    let n_bins = map.get("n_bins").map(as_usize_pair).unwrap_or((10, 10));
+    let bounds = map.get("bounds").map(as_f64_pair).unwrap_or((50.0, 50.0));
+    let default_diffusion = map.get("default_diffusion_rate").map(as_f64).unwrap_or(0.1);
+    let interval = map.get("interval").map(as_f64).unwrap_or(1.0);
 
     let mut diffusion_coeffs = IndexMap::new();
     if let Some(dc) = map.get("diffusion_coeffs").and_then(|v| v.as_map()) {
@@ -171,7 +153,11 @@ pub fn particle_exchange_from_config(config: &Value) -> ParticleExchange {
     let bounds = map.get("bounds").map(as_f64_pair).unwrap_or((50.0, 50.0));
     let depth = map.get("depth").map(as_f64).unwrap_or(1.0);
 
-    ParticleExchange { n_bins, bounds, depth }
+    ParticleExchange {
+        n_bins,
+        bounds,
+        depth,
+    }
 }
 
 // ── ParticleDivision ──
@@ -183,15 +169,9 @@ pub fn particle_division_from_config(config: &Value) -> ParticleDivision {
         .get("division_mass_threshold")
         .map(as_f64)
         .unwrap_or(5.0);
-    let jitter = map
-        .get("division_jitter")
-        .map(as_f64)
-        .unwrap_or(0.001);
+    let jitter = map.get("division_jitter").map(as_f64).unwrap_or(0.001);
 
-    let max_particles = map
-        .get("max_particles")
-        .map(as_f64)
-        .unwrap_or(100.0) as usize;
+    let max_particles = map.get("max_particles").map(as_f64).unwrap_or(100.0) as usize;
 
     ParticleDivision {
         division_mass_threshold: threshold,
@@ -216,12 +196,20 @@ pub fn manage_boundaries_from_config(config: &Value) -> ManageBoundaries {
     let boundary_to_add = map
         .get("boundary_to_add")
         .and_then(|v| v.as_list())
-        .map(|l| l.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .map(|l| {
+            l.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
     let boundary_to_remove = map
         .get("boundary_to_remove")
         .and_then(|v| v.as_list())
-        .map(|l| l.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .map(|l| {
+            l.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
 
     ManageBoundaries {

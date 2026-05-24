@@ -27,8 +27,14 @@ impl Process for Grow {
         IndexMap::from([("mass".to_string(), Schema::float())])
     }
     fn update(&self, state: &Value, interval: f64) -> Update {
-        let mass = state.get_field("mass").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        Update::value(Value::tree([("mass", Value::float(mass * self.rate * interval))]))
+        let mass = state
+            .get_field("mass")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        Update::value(Value::tree([(
+            "mass",
+            Value::float(mass * self.rate * interval),
+        )]))
     }
     fn as_any(&self) -> &dyn Any {
         self
@@ -95,17 +101,32 @@ fn a_remote_process_is_discovered_and_driven_over_rest() {
     ]);
 
     let mut engine = Engine::from_state(Schema::Any, state, rest_client_core()).expect("engine");
-    assert_eq!(server.live_count(), 1, "discovery initialized the remote Grow on the server");
+    assert_eq!(
+        server.live_count(),
+        1,
+        "discovery initialized the remote Grow on the server"
+    );
 
     // Drive it: each tick the engine calls update() over HTTP; the server runs
     // Grow and returns the delta. Mass climbs.
     engine.run(3.0);
-    let mass = engine.state().get_field("mass").and_then(|v| v.as_f64()).unwrap();
-    assert!(mass > 1.0, "remote Grow drove mass up over HTTP (got {mass})");
+    let mass = engine
+        .state()
+        .get_field("mass")
+        .and_then(|v| v.as_f64())
+        .unwrap();
+    assert!(
+        mass > 1.0,
+        "remote Grow drove mass up over HTTP (got {mass})"
+    );
 
     // Teardown drops the RestProcess → its `end` deletes the server instance.
     drop(engine);
-    assert_eq!(server.live_count(), 0, "engine teardown ended the remote process — no leak");
+    assert_eq!(
+        server.live_count(),
+        0,
+        "engine teardown ended the remote process — no leak"
+    );
 }
 
 /// A bare remote-`Grow` node (no wiring needed — this exercises lifecycle, not
@@ -132,11 +153,23 @@ fn deleting_a_remote_cell_ends_its_server_instance() {
         ("c2", rest_grow_node(server.port())),
     ]);
     let mut engine = Engine::from_state(Schema::Any, state, rest_client_core()).expect("engine");
-    assert_eq!(server.live_count(), 3, "three remote cells initialized on the server");
+    assert_eq!(
+        server.live_count(),
+        3,
+        "three remote cells initialized on the server"
+    );
 
     engine.remove_process("c1");
-    assert_eq!(server.live_count(), 2, "deleting a cell ends exactly its remote instance");
+    assert_eq!(
+        server.live_count(),
+        2,
+        "deleting a cell ends exactly its remote instance"
+    );
 
     drop(engine);
-    assert_eq!(server.live_count(), 0, "teardown ends the remaining cells — no leaks");
+    assert_eq!(
+        server.live_count(),
+        0,
+        "teardown ends the remaining cells — no leaks"
+    );
 }

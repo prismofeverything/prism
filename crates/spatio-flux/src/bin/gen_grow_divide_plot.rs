@@ -46,9 +46,7 @@ fn main() {
 
     let max_dur = 65.0_f64;
 
-    let x_of = |dur: f64| -> i32 {
-        margin as i32 + ((dur / max_dur) * pw as f64) as i32
-    };
+    let x_of = |dur: f64| -> i32 { margin as i32 + ((dur / max_dur) * pw as f64) as i32 };
     let y_of = |ms: f64| -> i32 {
         let log_val = ms.max(min_time).log10();
         let frac = (log_val - log_min) / (log_max - log_min);
@@ -70,9 +68,13 @@ fn main() {
             "<line x1=\"{margin}\" y1=\"{y}\" x2=\"{}\" y2=\"{y}\" stroke=\"#eee\" stroke-width=\"1\"/>",
             margin + pw
         ));
-        let label = if ms >= 1000.0 { format!("{}s", ms as i32 / 1000) }
-                    else if ms >= 1.0 { format!("{}ms", ms as i32) }
-                    else { format!("0.1ms") };
+        let label = if ms >= 1000.0 {
+            format!("{}s", ms as i32 / 1000)
+        } else if ms >= 1.0 {
+            format!("{}ms", ms as i32)
+        } else {
+            format!("0.1ms")
+        };
         svg.push_str(&format!(
             "<text x=\"{}\" y=\"{}\" text-anchor=\"end\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#666\">{label}</text>",
             margin - 5, y + 3
@@ -95,7 +97,9 @@ fn main() {
     ));
     svg.push_str(&format!(
         "<line x1=\"{margin}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#333\" stroke-width=\"1\"/>",
-        margin + ph, margin + pw, margin + ph
+        margin + ph,
+        margin + pw,
+        margin + ph
     ));
 
     // Axis labels
@@ -110,7 +114,8 @@ fn main() {
     ));
 
     // Plot Rust line
-    let rust_points: String = rust_data.iter()
+    let rust_points: String = rust_data
+        .iter()
         .map(|&(dur, _, ms)| format!("{},{}", x_of(dur), y_of(ms)))
         .collect::<Vec<_>>()
         .join(" ");
@@ -132,7 +137,8 @@ fn main() {
     }
 
     // Plot Python line
-    let python_points: String = python_data.iter()
+    let python_points: String = python_data
+        .iter()
         .map(|&(dur, _, ms)| format!("{},{}", x_of(dur), y_of(ms)))
         .collect::<Vec<_>>()
         .join(" ");
@@ -161,19 +167,27 @@ fn main() {
     ));
     svg.push_str(&format!(
         "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#2ca02c\" stroke-width=\"2.5\"/>",
-        lx + 10, ly + 18, lx + 30, ly + 18
+        lx + 10,
+        ly + 18,
+        lx + 30,
+        ly + 18
     ));
     svg.push_str(&format!(
         "<text x=\"{}\" y=\"{}\" font-size=\"11\" font-family=\"sans-serif\">Rust (release)</text>",
-        lx + 35, ly + 22
+        lx + 35,
+        ly + 22
     ));
     svg.push_str(&format!(
         "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#d62728\" stroke-width=\"2.5\"/>",
-        lx + 10, ly + 38, lx + 30, ly + 38
+        lx + 10,
+        ly + 38,
+        lx + 30,
+        ly + 38
     ));
     svg.push_str(&format!(
         "<text x=\"{}\" y=\"{}\" font-size=\"11\" font-family=\"sans-serif\">Python</text>",
-        lx + 35, ly + 42
+        lx + 35,
+        ly + 42
     ));
 
     // Annotation: numbers are agent counts
@@ -185,7 +199,10 @@ fn main() {
 
     svg.push_str("</svg>");
 
-    let out = concat!(env!("CARGO_MANIFEST_DIR"), "/report/grow_divide_benchmark.svg");
+    let out = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/report/grow_divide_benchmark.svg"
+    );
     std::fs::write(out, &svg).unwrap();
     println!("Wrote {out}");
 }

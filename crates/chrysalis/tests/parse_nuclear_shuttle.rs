@@ -29,7 +29,10 @@ fn parses_nuclear_shuttle() {
 
     // The parser produced the context + composites that scope it via `using`.
     assert!(
-        program.defs.iter().any(|d| matches!(d, Def::Context(c) if c.name == "concentration")),
+        program
+            .defs
+            .iter()
+            .any(|d| matches!(d, Def::Context(c) if c.name == "concentration")),
         "parsed the `context concentration (...)` declaration"
     );
     let nucleus = program
@@ -41,7 +44,10 @@ fn parses_nuclear_shuttle() {
         })
         .expect("Nucleus composite");
     assert_eq!(nucleus.using.len(), 1, "Nucleus scopes one context");
-    assert_eq!(nucleus.using[0].name, "concentration", "...the concentration context");
+    assert_eq!(
+        nucleus.using[0].name, "concentration",
+        "...the concentration context"
+    );
 }
 
 #[test]
@@ -61,8 +67,16 @@ fn nuclear_shuttle_runs_and_exposes_tf_via_bridge() {
 
     // The Cell exposes the compartments' TF only through their bridges — these
     // slots are the ONLY window onto compartment state.
-    assert_eq!(slot(engine.state(), "cyt_tf"), Some(0.0), "cyt_tf seeded at 0");
-    assert_eq!(slot(engine.state(), "nuc_tf"), Some(0.0), "nuc_tf seeded at 0");
+    assert_eq!(
+        slot(engine.state(), "cyt_tf"),
+        Some(0.0),
+        "cyt_tf seeded at 0"
+    );
+    assert_eq!(
+        slot(engine.state(), "nuc_tf"),
+        Some(0.0),
+        "nuc_tf seeded at 0"
+    );
 
     engine.run(60.0);
 
@@ -72,6 +86,12 @@ fn nuclear_shuttle_runs_and_exposes_tf_via_bridge() {
     // internals: the compartments' own `tf` is private and never read here.
     let cyt_tf = slot(engine.state(), "cyt_tf").expect("cyt_tf present");
     let nuc_tf = slot(engine.state(), "nuc_tf").expect("nuc_tf present");
-    assert!(cyt_tf > 0.0, "cytoplasm TF exposed through its bridge onto cyt_tf (got {cyt_tf})");
-    assert!(nuc_tf > 0.0, "TF transported to the nucleus via the exposed slots (got {nuc_tf})");
+    assert!(
+        cyt_tf > 0.0,
+        "cytoplasm TF exposed through its bridge onto cyt_tf (got {cyt_tf})"
+    );
+    assert!(
+        nuc_tf > 0.0,
+        "TF transported to the nucleus via the exposed slots (got {nuc_tf})"
+    );
 }

@@ -25,9 +25,10 @@ fn contract(name: &str, axes: &[(&str, &str)]) -> Def {
     })
 }
 
-/// `extern process Name ~{} ->{out: <out_type> :: contract}`
+/// `process Name ~{} ->{out: <out_type> :: contract}` (empty body — the test
+/// exercises connection/contract checking, not execution).
 fn producer(name: &str, out: &str, out_type: &str, contract_name: &str) -> Def {
-    Def::Extern(ExternDef {
+    Def::Process(ProcessDef {
         name: name.into(),
         params: vec![],
         interface: Interface::new().with_output(
@@ -35,6 +36,7 @@ fn producer(name: &str, out: &str, out_type: &str, contract_name: &str) -> Def {
             PortDecl::required(SchemaExpr::custom(out_type))
                 .with_contract(ContractRef::new(contract_name)),
         ),
+        body: Expr::Record(IndexMap::new()),
     })
 }
 
@@ -89,7 +91,12 @@ fn base_program() -> Program {
             ("advance", "SteadyState"),
         ],
     ));
-    p.push(producer("Rk4", "trajectory", "TimeSeries", "DeterministicMassAction"));
+    p.push(producer(
+        "Rk4",
+        "trajectory",
+        "TimeSeries",
+        "DeterministicMassAction",
+    ));
     p.push(producer("Fba", "flux", "FluxVector", "ConstraintBasedFlux"));
     p.push(compare_step());
     p
@@ -122,11 +129,14 @@ fn uncontracted_producer_is_rejected() {
     // A producer that declares no contract on its output cannot satisfy a
     // port that demands one — underspecification is a compile error.
     let mut p = base_program();
-    p.push(Def::Extern(ExternDef {
+    p.push(Def::Process(ProcessDef {
         name: "Mystery".into(),
         params: vec![],
-        interface: Interface::new()
-            .with_output("trajectory", PortDecl::required(SchemaExpr::custom("TimeSeries"))),
+        interface: Interface::new().with_output(
+            "trajectory",
+            PortDecl::required(SchemaExpr::custom("TimeSeries")),
+        ),
+        body: Expr::Record(IndexMap::new()),
     }));
     p.push(workflow("Murky", "m", "Mystery", "trajectory"));
     let errs = validate_connections(&p);

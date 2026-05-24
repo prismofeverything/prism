@@ -47,14 +47,24 @@ impl StepCache {
         source_mtime: Option<SystemTime>,
         forced: HashSet<String>,
     ) -> Self {
-        Self { dir: dir.into(), source_mtime, forced }
+        Self {
+            dir: dir.into(),
+            source_mtime,
+            forced,
+        }
     }
 
     /// The cache file for a step (its node name sanitised to a safe filename).
     fn entry_path(&self, step: &str) -> PathBuf {
         let safe: String = step
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         self.dir.join(format!("{safe}.json"))
     }
@@ -93,9 +103,10 @@ impl StepCache {
         let map = value.as_map()?;
         let dir = map.get("dir").and_then(|v| v.as_str())?;
         let forced = match map.get("forced") {
-            Some(Value::List(items)) => {
-                items.iter().filter_map(|v| v.as_str().map(String::from)).collect()
-            }
+            Some(Value::List(items)) => items
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect(),
             _ => HashSet::new(),
         };
         Some(StepCache::new(dir, None, forced))

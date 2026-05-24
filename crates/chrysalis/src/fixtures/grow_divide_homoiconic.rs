@@ -203,9 +203,11 @@ fn environment_def() -> CompositeDef {
             Expr::term("BRS")
                 .arg_named(
                     "rules",
-                    Expr::List(vec![Expr::term("Divide")
-                        .arg_named("threshold", Expr::var("threshold"))
-                        .build()]),
+                    Expr::List(vec![
+                        Expr::term("Divide")
+                            .arg_named("threshold", Expr::var("threshold"))
+                            .build(),
+                    ]),
                 )
                 .input("state", Expr::var("cells"))
                 .output("state", Expr::var("cells"))

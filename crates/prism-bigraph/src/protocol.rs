@@ -94,9 +94,7 @@ impl ParsedAddress {
                     .get("protocol")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| {
-                        ProtocolError::MalformedAddress(
-                            "map address missing `protocol`".into(),
-                        )
+                        ProtocolError::MalformedAddress("map address missing `protocol`".into())
                     })?
                     .to_string();
                 let data = map.get("data").cloned().unwrap_or(Value::None);
@@ -150,9 +148,9 @@ impl Protocol for LocalProtocol {
                 "local protocol expects data: String, got {data:?}"
             ))
         })?;
-        registry.create(class_name, config).ok_or_else(|| {
-            ProtocolError::UnknownClass(class_name.to_string(), "local".into())
-        })
+        registry
+            .create(class_name, config)
+            .ok_or_else(|| ProtocolError::UnknownClass(class_name.to_string(), "local".into()))
     }
 }
 
@@ -205,9 +203,9 @@ impl ProtocolRegistry {
         config: Value,
         registry: &Arc<ProcessRegistry>,
     ) -> Result<ProcessNode, ProtocolError> {
-        let protocol = self.get(&address.protocol).ok_or_else(|| {
-            ProtocolError::UnknownProtocol(address.protocol.clone())
-        })?;
+        let protocol = self
+            .get(&address.protocol)
+            .ok_or_else(|| ProtocolError::UnknownProtocol(address.protocol.clone()))?;
         protocol.instantiate(&address.data, config, registry)
     }
 }
@@ -275,7 +273,9 @@ mod tests {
         let registry = registry_with_noop();
         let protocols = ProtocolRegistry::new();
         let addr = ParsedAddress::parse(&Value::String("local:Noop".into())).unwrap();
-        let node = protocols.instantiate(&addr, Value::None, &registry).unwrap();
+        let node = protocols
+            .instantiate(&addr, Value::None, &registry)
+            .unwrap();
         assert!(matches!(node, ProcessNode::Step(_)));
     }
 

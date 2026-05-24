@@ -70,7 +70,6 @@ pub struct Composite {
 
     /// Process interval (how often the parent engine fires this composite).
     pub interval: f64,
-
 }
 
 impl Composite {
@@ -108,10 +107,7 @@ impl Composite {
     ///
     /// The inner state should contain process specs that will be discovered
     /// when the inner engine runs.
-    pub fn from_config(
-        config: &Value,
-        core: &crate::core::Core,
-    ) -> Option<Self> {
+    pub fn from_config(config: &Value, core: &crate::core::Core) -> Option<Self> {
         let map = config.as_map()?;
 
         // Parse inner document
@@ -122,9 +118,7 @@ impl Composite {
         let input_bridge = parse_bridge(bridge_val.get("inputs")?)?;
         let output_bridge = parse_bridge(bridge_val.get("outputs")?)?;
 
-        let interval = map.get("interval")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(1.0);
+        let interval = map.get("interval").and_then(|v| v.as_f64()).unwrap_or(1.0);
 
         // Carry a REAL inner schema (law #10: the Composite runs on the
         // algebra, not `Schema::Any`). PREFER the DECLARED schema the spec
@@ -168,15 +162,25 @@ impl Composite {
         // port's schema onto the parent slot it writes — additive `Array`
         // fields then apply element-wise across the bridge (nested GOTCHA #14)
         // instead of replacing.
-        let input_schemas: PortSchema = input_bridge.mappings.iter()
+        let input_schemas: PortSchema = input_bridge
+            .mappings
+            .iter()
             .map(|(port, path)| (port.clone(), engine.schema().schema_at_path(path).clone()))
             .collect();
-        let output_schemas: PortSchema = output_bridge.mappings.iter()
+        let output_schemas: PortSchema = output_bridge
+            .mappings
+            .iter()
             .map(|(port, path)| (port.clone(), engine.schema().schema_at_path(path).clone()))
             .collect();
 
-        Some(Self::new(engine, input_bridge, output_bridge,
-                       input_schemas, output_schemas, interval))
+        Some(Self::new(
+            engine,
+            input_bridge,
+            output_bridge,
+            input_schemas,
+            output_schemas,
+            interval,
+        ))
     }
 }
 
@@ -224,7 +228,9 @@ impl Process for Composite {
             if passthrough.contains(root) {
                 continue; // Skip — handled by passthrough
             }
-            let val = engine.state().get_path(internal_path)
+            let val = engine
+                .state()
+                .get_path(internal_path)
                 .cloned()
                 .unwrap_or(Value::None);
             pre_run.insert(port.clone(), val);
@@ -260,8 +266,11 @@ impl Process for Composite {
                 // inner slot's schema (the algebra's view/bridge-out) — a
                 // numeric `Delta`, a per-key Map delta with `_add`/`_remove`,
                 // etc. This replaces the hand-rolled `compute_delta`.
-                let new_val = engine.state().get_path(internal_path)
-                    .cloned().unwrap_or(Value::None);
+                let new_val = engine
+                    .state()
+                    .get_path(internal_path)
+                    .cloned()
+                    .unwrap_or(Value::None);
                 let old_val = pre_run.get(port).unwrap_or(&Value::None);
                 let slot_schema = engine.schema().schema_at_path(internal_path);
                 if let Some(delta) = prism_schema::algebra::diff_with(
@@ -287,8 +296,12 @@ impl Process for Composite {
         }
     }
 
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 // Safety: Composite is Send+Sync because inner Engine is behind a Mutex.
@@ -312,7 +325,8 @@ fn parse_bridge(val: &Value) -> Option<Bridge> {
     let mut mappings = IndexMap::new();
     for (port, path_val) in map {
         if let Some(path_list) = path_val.as_list() {
-            let path: Path = path_list.iter()
+            let path: Path = path_list
+                .iter()
                 .filter_map(|v| v.as_str().map(Key::from))
                 .collect();
             mappings.insert(port.to_string(), path);

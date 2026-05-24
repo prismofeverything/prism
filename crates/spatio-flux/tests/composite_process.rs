@@ -19,9 +19,10 @@ use prism_bigraph::{Engine, ProcessNode, ProcessRegistry, Step, Update};
 use prism_schema::{Key, Schema, Value};
 
 use chrysalis::ast::{
-    CompositeDef, Def, Expr, ExternDef, Interface, Param, PortDecl, Program, SchemaExpr, StringLit,
+    CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, SchemaExpr, StringLit,
 };
-use chrysalis::compile::compile_with_registry;
+use chrysalis::compile::{ModuleRegistry, compile_with_modules};
+use prism_schema::MethodRegistry;
 use spatio_flux::processes::diffusion_advection::DiffusionAdvection;
 
 // ── helpers ─────────────────────────────────────────────────────────
@@ -48,13 +49,12 @@ fn gradient(glucose: &[f64]) -> Expr {
 /// into `p`. This is the **import**: pre-parser, bringing another file's defs
 /// into scope = merging them (`import Dish from "dish.ys"` later).
 fn import_dish(p: &mut Program) {
-    p.push(Def::Extern(ExternDef {
-        name: "Diffusion".into(),
-        params: vec![],
-        interface: Interface::new()
-            .with_input("fields", PortDecl::required(fieldmap()))
-            .with_output("fields", PortDecl::required(fieldmap())),
-    }));
+    // `Diffusion` is a native process imported wholesale (the `extern`
+    // replacement); its interface comes from the call-site wiring + the factory.
+    p.push(Def::Use {
+        module: "natives".into(),
+        names: vec!["Diffusion".into()],
+    });
     // composite Dish[fields] ->{fields} ( fields: fields | Diffusion ~{fields}->{fields} )
     p.push(Def::Composite(CompositeDef {
         name: "Dish".into(),
@@ -117,7 +117,11 @@ fn culture_program() -> Program {
         ]),
     }));
 
-    p.push(Def::Binding { name: "main".into(), schema: None, value: Expr::term("Culture").build() });
+    p.push(Def::Binding {
+        name: "main".into(),
+        schema: None,
+        value: Expr::term("Culture").build(),
+    });
     p
 }
 
@@ -141,7 +145,9 @@ fn address_at(state: &Value, path: &[&str]) -> Option<String> {
     for seg in path {
         node = node.get_field(seg)?;
     }
-    node.get_field("address").and_then(|v| v.as_str()).map(str::to_string)
+    node.get_field("address")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
 }
 
 /// A Culture slot's glucose field: `state.<slot>.glucose` — the nested Dish's
@@ -164,8 +170,13 @@ fn slot_glucose(state: &Value, slot: &str) -> Vec<f64> {
 #[test]
 fn culture_imports_nests_and_runs_dish() {
     let program = culture_program();
-    let result =
-        compile_with_registry(&program, diffusion_natives()).expect("compile Culture (imports Dish)");
+    let result = compile_with_modules(
+        &program,
+        diffusion_natives(),
+        MethodRegistry::new(),
+        ModuleRegistry::new().process("natives", "Diffusion"),
+    )
+    .expect("compile Culture (imports Dish)");
 
     // Import + nest: each well is a nested COMPOSITE spec carrying the imported
     // Dish's `Diffusion` sub-process.
@@ -176,7 +187,11 @@ fn culture_imports_nests_and_runs_dish() {
             "{well} is a nested composite"
         );
         assert_eq!(
-            address_at(&result.initial_state, &[well, "config", "state", "diffusion"]).as_deref(),
+            address_at(
+                &result.initial_state,
+                &[well, "config", "state", "diffusion"]
+            )
+            .as_deref(),
             Some("local:Diffusion"),
             "{well} nests the imported Dish's Diffusion process"
         );
@@ -206,8 +221,16 @@ fn culture_imports_nests_and_runs_dish() {
     assert_eq!(after_b.len(), 9, "well_b bridged its 3×3 field to fields_b");
     assert!(before_a != after_a, "well_a diffused");
     assert!(before_b != after_b, "well_b diffused");
-    assert!((sum(&after_a) - 45.0).abs() < 1e-6, "well_a conserves glucose (got {})", sum(&after_a));
-    assert!((sum(&after_b) - 45.0).abs() < 1e-6, "well_b conserves glucose (got {})", sum(&after_b));
+    assert!(
+        (sum(&after_a) - 45.0).abs() < 1e-6,
+        "well_a conserves glucose (got {})",
+        sum(&after_a)
+    );
+    assert!(
+        (sum(&after_b) - 45.0).abs() < 1e-6,
+        "well_b conserves glucose (got {})",
+        sum(&after_b)
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -222,7 +245,14 @@ fn culture_imports_nests_and_runs_dish() {
 
 /// Encode one snapshot of the Culture: `{ t, well_a:[9], well_b:[9] }`.
 fn encode_culture_snapshot(t: f64, state: &Value) -> Value {
-    let glucose = |slot: &str| Value::List(slot_glucose(state, slot).into_iter().map(Value::float).collect());
+    let glucose = |slot: &str| {
+        Value::List(
+            slot_glucose(state, slot)
+                .into_iter()
+                .map(Value::float)
+                .collect(),
+        )
+    };
     Value::tree([
         ("t", Value::float(t)),
         ("well_a", glucose("fields_a")),
@@ -246,8 +276,13 @@ impl Step for RunCultureStep {
         IndexMap::from([("snapshots".into(), Schema::overwrite(Schema::Any))])
     }
     fn update(&self, _state: &Value) -> Update {
-        let result = compile_with_registry(&culture_program(), diffusion_natives())
-            .expect("compile Culture");
+        let result = compile_with_modules(
+            &culture_program(),
+            diffusion_natives(),
+            MethodRegistry::new(),
+            ModuleRegistry::new().process("natives", "Diffusion"),
+        )
+        .expect("compile Culture");
         let mut engine = Engine::from_state(
             result.topology.state_schema.clone(),
             result.initial_state.clone(),
@@ -262,8 +297,12 @@ impl Step for RunCultureStep {
         }
         Update::value(Value::tree([("snapshots", Value::List(snapshots))]))
     }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 /// Render the field snapshots into an HTML section of 3×3 heatmaps (rows =
@@ -290,7 +329,8 @@ impl Step for RenderSectionStep {
         let n = snaps.len();
         let picks: Vec<usize> = (0..4).map(|k| (k * (n - 1)) / 3).collect();
         let glucose = |snap: &Value, well: &str| -> Vec<f64> {
-            snap.get_field(well).and_then(|v| v.as_list())
+            snap.get_field(well)
+                .and_then(|v| v.as_list())
                 .map(|l| l.iter().filter_map(|x| x.as_f64()).collect())
                 .unwrap_or_default()
         };
@@ -298,7 +338,10 @@ impl Step for RenderSectionStep {
         for well in ["well_a", "well_b"] {
             rows.push_str(&format!("<tr><th>{well}</th>"));
             for &i in &picks {
-                let t = snaps[i].get_field("t").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let t = snaps[i]
+                    .get_field("t")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
                 rows.push_str(&format!(
                     "<td><div class=\"t\">t={t:.0}</div>{}</td>",
                     heatmap_svg(&glucose(&snaps[i], well))
@@ -320,8 +363,12 @@ impl Step for RenderSectionStep {
         let _ = fs::write(self.out_dir.join(&fname), html);
         Update::value(Value::tree([("section", Value::String(fname))]))
     }
-    fn as_any(&self) -> &dyn Any { self }
-    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 /// A 3×3 glucose field as an inline SVG heatmap (white → green by value).
@@ -349,8 +396,14 @@ fn heatmap_svg(glucose: &[f64]) -> String {
 fn step_spec(address: &str, inputs: &[(&str, &str)], outputs: &[(&str, &str)]) -> Value {
     let wire = |pairs: &[(&str, &str)]| {
         Value::Map(
-            pairs.iter()
-                .map(|(p, path)| (Key::from(*p), Value::List(vec![Value::String(path.to_string())])))
+            pairs
+                .iter()
+                .map(|(p, path)| {
+                    (
+                        Key::from(*p),
+                        Value::List(vec![Value::String(path.to_string())]),
+                    )
+                })
                 .collect::<IndexMap<Key, Value>>(),
         )
     };
@@ -376,10 +429,15 @@ fn spatio_flux_section_produced_by_a_workflow() {
 
     // Native step factories for the section workflow.
     let mut registry = ProcessRegistry::new();
-    registry.register("RunCulture", |_cfg| ProcessNode::Step(Box::new(RunCultureStep { steps: 20 })));
+    registry.register("RunCulture", |_cfg| {
+        ProcessNode::Step(Box::new(RunCultureStep { steps: 20 }))
+    });
     let (od, nm) = (dir.clone(), name.to_string());
     registry.register("RenderSection", move |_cfg| {
-        ProcessNode::Step(Box::new(RenderSectionStep { out_dir: od.clone(), name: nm.clone() }))
+        ProcessNode::Step(Box::new(RenderSectionStep {
+            out_dir: od.clone(),
+            name: nm.clone(),
+        }))
     });
     let registry = Arc::new(registry);
 
@@ -387,14 +445,32 @@ fn spatio_flux_section_produced_by_a_workflow() {
     let schema = Schema::Tree {
         branches: IndexMap::from([
             ("RunCulture".into(), section_step_link(&[], &["snapshots"])),
-            ("RenderSection".into(), section_step_link(&["snapshots"], &["section"])),
-            ("snapshots".into(), Schema::List { element: Box::new(Schema::Any) }),
+            (
+                "RenderSection".into(),
+                section_step_link(&["snapshots"], &["section"]),
+            ),
+            (
+                "snapshots".into(),
+                Schema::List {
+                    element: Box::new(Schema::Any),
+                },
+            ),
             ("section".into(), Schema::Any),
         ]),
     };
     let state = Value::tree([
-        ("RunCulture", step_spec("RunCulture", &[], &[("snapshots", "snapshots")])),
-        ("RenderSection", step_spec("RenderSection", &[("snapshots", "snapshots")], &[("section", "section")])),
+        (
+            "RunCulture",
+            step_spec("RunCulture", &[], &[("snapshots", "snapshots")]),
+        ),
+        (
+            "RenderSection",
+            step_spec(
+                "RenderSection",
+                &[("snapshots", "snapshots")],
+                &[("section", "section")],
+            ),
+        ),
         ("snapshots", Value::List(vec![])),
         ("section", Value::None),
     ]);
@@ -405,8 +481,17 @@ fn spatio_flux_section_produced_by_a_workflow() {
     let section = dir.join(format!("{name}_section.html"));
     assert!(section.exists(), "section HTML produced at {section:?}");
     let html = fs::read_to_string(&section).unwrap();
-    assert!(html.contains("diffusion field section"), "section has the heading");
-    assert!(html.contains("well_a") && html.contains("well_b"), "both wells rendered");
-    assert!(html.matches("<svg").count() >= 8, "heatmaps for 2 wells × ~4 timepoints");
+    assert!(
+        html.contains("diffusion field section"),
+        "section has the heading"
+    );
+    assert!(
+        html.contains("well_a") && html.contains("well_b"),
+        "both wells rendered"
+    );
+    assert!(
+        html.matches("<svg").count() >= 8,
+        "heatmaps for 2 wells × ~4 timepoints"
+    );
     let _ = fs::remove_dir_all(&dir);
 }

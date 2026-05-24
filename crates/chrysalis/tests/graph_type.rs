@@ -15,7 +15,7 @@
 
 use chrysalis::compile::compile;
 use chrysalis::fixtures::graph as g;
-use prism_schema::{algebra, Schema, Value};
+use prism_schema::{Schema, Value, algebra};
 
 fn s(x: &str) -> Value {
     Value::String(x.into())
@@ -23,7 +23,10 @@ fn s(x: &str) -> Value {
 
 /// The `Custom(Graph)` slot schema.
 fn graph_schema() -> Schema {
-    Schema::Custom { name: "Graph".into(), parameters: Default::default() }
+    Schema::Custom {
+        name: "Graph".into(),
+        parameters: Default::default(),
+    }
 }
 
 #[test]
@@ -34,9 +37,13 @@ fn graph_type_defined_in_chrysalis_is_first_class() {
     let graph_t = graph_schema();
 
     // A write method is PURE: it returns the *delta*, not a new graph.
-    let delta = m.dispatch(&g::empty_graph(), "add_node", &[s("x")]).unwrap();
+    let delta = m
+        .dispatch(&g::empty_graph(), "add_node", &[s("x")])
+        .unwrap();
     assert_eq!(
-        delta.get_path(&["nodes".into(), "_add".into()]).and_then(|v| v.as_list()),
+        delta
+            .get_path(&["nodes".into(), "_add".into()])
+            .and_then(|v| v.as_list()),
         Some(&[s("x")][..]),
         "add_node returns the delta {{nodes: {{_add: [x]}}}}"
     );
@@ -55,9 +62,24 @@ fn graph_type_defined_in_chrysalis_is_first_class() {
 
     // Structure grew, and the `_type` tag survived (apply only touched
     // nodes/edges via the representation).
-    assert_eq!(graph.get_field("_type").and_then(|v| v.as_str()), Some("Graph"));
-    assert_eq!(graph.get_field("nodes").and_then(|v| v.as_list()).map(<[_]>::len), Some(3));
-    assert_eq!(graph.get_field("edges").and_then(|v| v.as_list()).map(<[_]>::len), Some(2));
+    assert_eq!(
+        graph.get_field("_type").and_then(|v| v.as_str()),
+        Some("Graph")
+    );
+    assert_eq!(
+        graph
+            .get_field("nodes")
+            .and_then(|v| v.as_list())
+            .map(<[_]>::len),
+        Some(3)
+    );
+    assert_eq!(
+        graph
+            .get_field("edges")
+            .and_then(|v| v.as_list())
+            .map(<[_]>::len),
+        Some(2)
+    );
 
     // Read method (query): the comprehension `[edge.to for edge in self.edges
     // if edge.from == "a"]`.
@@ -97,8 +119,15 @@ fn arbitrary_operations_land_in_the_complete_delta_basis() {
 
     // remove_edge(a,b): a `_remove` delta on the edge set (by value).
     graph = act(&result, &graph, "remove_edge", &[s("a"), s("b")]);
-    let nbrs_a = result.methods.dispatch(&graph, "neighbors", &[s("a")]).unwrap();
-    assert_eq!(nbrs_a, Value::List(vec![s("c")]), "a→b removed, a→c remains");
+    let nbrs_a = result
+        .methods
+        .dispatch(&graph, "neighbors", &[s("a")])
+        .unwrap();
+    assert_eq!(
+        nbrs_a,
+        Value::List(vec![s("c")]),
+        "a→b removed, a→c remains"
+    );
 
     // remove_node(c): removes c AND its incident edges (a→c, b→c) — a delta
     // computed by the method (a comprehension over self.edges).
@@ -109,7 +138,10 @@ fn arbitrary_operations_land_in_the_complete_delta_basis() {
         "c removed"
     );
     assert_eq!(
-        graph.get_field("edges").and_then(|v| v.as_list()).map(<[_]>::len),
+        graph
+            .get_field("edges")
+            .and_then(|v| v.as_list())
+            .map(<[_]>::len),
         Some(0),
         "incident edges a→c, b→c removed with c"
     );
@@ -131,8 +163,15 @@ fn arbitrary_operations_land_in_the_complete_delta_basis() {
         .filter_map(|v| v.as_str().map(String::from))
         .collect();
     nodes.sort();
-    assert_eq!(nodes, vec!["a", "b", "d"], "union adds d (b already present, not duplicated)");
-    let nbrs_b = result.methods.dispatch(&graph, "neighbors", &[s("b")]).unwrap();
+    assert_eq!(
+        nodes,
+        vec!["a", "b", "d"],
+        "union adds d (b already present, not duplicated)"
+    );
+    let nbrs_b = result
+        .methods
+        .dispatch(&graph, "neighbors", &[s("b")])
+        .unwrap();
     assert_eq!(nbrs_b, Value::List(vec![s("d")]), "union brought edge b→d");
 }
 
@@ -146,12 +185,20 @@ fn add_node_deltas_compose_like_add() {
     let types = &*result.type_registry;
     let repr = types.get("Graph").expect("Graph registered").schema.clone();
 
-    let d_a = m.dispatch(&g::empty_graph(), "add_node", &[s("a")]).unwrap();
-    let d_b = m.dispatch(&g::empty_graph(), "add_node", &[s("b")]).unwrap();
+    let d_a = m
+        .dispatch(&g::empty_graph(), "add_node", &[s("a")])
+        .unwrap();
+    let d_b = m
+        .dispatch(&g::empty_graph(), "add_node", &[s("b")])
+        .unwrap();
 
     let combined = algebra::reconcile(&repr, &[d_a, d_b]).expect("two adds reconcile to one delta");
     let graph = algebra::apply_with(Some(types), &graph_schema(), &g::empty_graph(), &combined);
 
     let nodes = graph.get_field("nodes").and_then(|v| v.as_list()).unwrap();
-    assert_eq!(nodes, &[s("a"), s("b")], "reconcile unioned the two _add deltas");
+    assert_eq!(
+        nodes,
+        &[s("a"), s("b")],
+        "reconcile unioned the two _add deltas"
+    );
 }

@@ -12,9 +12,10 @@ use std::sync::Arc;
 use prism_bigraph::{Engine, ProcessNode, ProcessRegistry};
 
 use chrysalis::ast::{
-    CompositeDef, Def, Expr, ExternDef, Interface, Param, PortDecl, Program, SchemaExpr, StringLit,
+    CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, SchemaExpr, StringLit,
 };
-use chrysalis::compile::compile_with_registry;
+use chrysalis::compile::{ModuleRegistry, compile_with_modules};
+use prism_schema::MethodRegistry;
 
 // ── Example 1: Monod kinetics (well-mixed) ───────────────────────────
 
@@ -26,15 +27,12 @@ fn monod_program() -> Program {
 
     let mut p = Program::new();
 
-    p.push(Def::Extern(ExternDef {
-        name: "Kinetics".into(),
-        params: vec![],
-        interface: Interface::new()
-            .with_input("biomass", PortDecl::required(float()))
-            .with_input("substrates", PortDecl::required(submap()))
-            .with_output("biomass", PortDecl::required(float()))
-            .with_output("substrates", PortDecl::required(submap())),
-    }));
+    // `Kinetics` is a native process imported wholesale (the `extern`
+    // replacement); its interface comes from the call-site wiring + the factory.
+    p.push(Def::Use {
+        module: "natives".into(),
+        names: vec!["Kinetics".into()],
+    });
 
     p.push(Def::Composite(CompositeDef {
         name: "Well".into(),
@@ -81,7 +79,7 @@ fn monod_program() -> Program {
 
 #[test]
 fn monod_kinetics_composed_from_chrysalis() {
-    use spatio_flux::processes::monod_kinetics::{models, MonodKinetics};
+    use spatio_flux::processes::monod_kinetics::{MonodKinetics, models};
 
     // The native factory backs `extern process Kinetics`.
     let mut natives = ProcessRegistry::new();
@@ -93,7 +91,13 @@ fn monod_kinetics_composed_from_chrysalis() {
     });
 
     let program = monod_program();
-    let result = compile_with_registry(&program, natives).expect("compile");
+    let result = compile_with_modules(
+        &program,
+        natives,
+        MethodRegistry::new(),
+        ModuleRegistry::new().process("natives", "Kinetics"),
+    )
+    .expect("compile");
 
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
@@ -115,7 +119,10 @@ fn monod_kinetics_composed_from_chrysalis() {
     // Overflow metabolism on glucose: biomass grows from 0.1, glucose drops
     // from 10.0 — the native MonodKinetics ran, wired by chrysalis.
     assert!(biomass > 0.1, "biomass should grow from 0.1, got {biomass}");
-    assert!(glucose < 10.0, "glucose should be consumed from 10.0, got {glucose}");
+    assert!(
+        glucose < 10.0,
+        "glucose should be consumed from 10.0, got {glucose}"
+    );
 }
 
 // ── Example 2: Diffusion on a field (spatial) ────────────────────────
@@ -135,13 +142,12 @@ fn diffusion_program() -> Program {
 
     let mut p = Program::new();
 
-    p.push(Def::Extern(ExternDef {
-        name: "Diffusion".into(),
-        params: vec![],
-        interface: Interface::new()
-            .with_input("fields", PortDecl::required(fieldmap()))
-            .with_output("fields", PortDecl::required(fieldmap())),
-    }));
+    // `Diffusion` is a native process imported wholesale (the `extern`
+    // replacement); its interface comes from the call-site wiring + the factory.
+    p.push(Def::Use {
+        module: "natives".into(),
+        names: vec!["Diffusion".into()],
+    });
 
     p.push(Def::Composite(CompositeDef {
         name: "Dish".into(),
@@ -220,7 +226,13 @@ fn diffusion_composed_from_chrysalis() {
     });
 
     let program = diffusion_program();
-    let result = compile_with_registry(&program, natives).expect("compile");
+    let result = compile_with_modules(
+        &program,
+        natives,
+        MethodRegistry::new(),
+        ModuleRegistry::new().process("natives", "Diffusion"),
+    )
+    .expect("compile");
 
     let initial = field_vals(&result.initial_state, "glucose");
     let sum0 = field_sum(&result.initial_state, "glucose");
@@ -249,4 +261,3 @@ fn diffusion_composed_from_chrysalis() {
         "the gradient should have diffused (field changed)"
     );
 }
-
