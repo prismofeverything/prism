@@ -56,11 +56,12 @@ pub fn std_core() -> Core {
     core
 }
 
-/// The std importable modules: `core` (RunProcess), `integrators` (rk4/euler),
-/// `chem` (CRN), `io` (Path).
+/// The std importable modules: `core` (RunProcess/Simulate), `integrators`
+/// (rk4/euler), `chem` (CRN), `io` (Path).
 pub fn std_modules() -> ModuleRegistry {
     ModuleRegistry::new()
         .process("core", "RunProcess")
+        .process("core", "Simulate")
         .object("integrators", "rk4", prism_std::integrator("rk4"))
         .object("integrators", "euler", prism_std::integrator("euler"))
         .type_(

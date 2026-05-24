@@ -15,8 +15,6 @@
 //! binary uses over std. So `run` / `compile` / `server` are one path, not one
 //! per host.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -187,30 +185,20 @@ fn render_runner(manifest: &Manifest, layout: &Layout) -> (String, String) {
 }
 
 /// Ensure the runner crate is generated and built, returning the binary path.
-/// Skips the build when the generated sources are unchanged AND the binary
-/// exists (cache keyed by a content hash of the generated files).
+/// Generates the runner sources (rewriting them only when changed, to avoid mtime
+/// churn) then ALWAYS invokes `cargo build`: cargo's fingerprinting is the source
+/// of truth for staleness, so a change to ANY dependency — `chrysalis`,
+/// `prism-std`, the package itself — rebuilds the runner, while an up-to-date
+/// build is near-instant. (A content-hash of only the generated files, as before,
+/// could not see dependency changes and served stale binaries during development.)
 fn ensure_built(manifest: &Manifest, layout: &Layout) -> Result<PathBuf, String> {
     let (cargo_toml, main_rs) = render_runner(manifest, layout);
-
-    let mut hasher = DefaultHasher::new();
-    cargo_toml.hash(&mut hasher);
-    main_rs.hash(&mut hasher);
-    let hash = format!("{:x}", hasher.finish());
 
     let src_dir = layout.gen_dir.join("src");
     std::fs::create_dir_all(&src_dir).map_err(|e| format!("create {}: {e}", src_dir.display()))?;
     write_if_changed(&layout.gen_dir.join("Cargo.toml"), &cargo_toml)?;
     write_if_changed(&src_dir.join("main.rs"), &main_rs)?;
 
-    let binary = layout.binary_path();
-    let hash_file = layout.gen_dir.join(".chrysalis-hash");
-    let fresh = binary.is_file()
-        && std::fs::read_to_string(&hash_file).map(|h| h.trim() == hash).unwrap_or(false);
-    if fresh {
-        return Ok(binary);
-    }
-
-    eprintln!("chrysalis: building runner for `{}` (first run / changed)…", manifest.package);
     let status = Command::new("cargo")
         .arg("build")
         .arg("--manifest-path")
@@ -222,7 +210,7 @@ fn ensure_built(manifest: &Manifest, layout: &Layout) -> Result<PathBuf, String>
     if !status.success() {
         return Err(format!("building runner for `{}` failed", manifest.package));
     }
-    std::fs::write(&hash_file, &hash).map_err(|e| format!("write hash: {e}"))?;
+    let binary = layout.binary_path();
     if !binary.is_file() {
         return Err(format!("runner built but binary missing at {}", binary.display()));
     }

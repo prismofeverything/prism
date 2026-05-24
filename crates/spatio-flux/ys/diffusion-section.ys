@@ -1,0 +1,32 @@
+# diffusion-section.ys — the glucose-diffusion sim AS A REPORT SECTION, via the
+# codegen path. Runs DiffusionAdvection over time (engine-faithful Simulate),
+# captures the FIELD trace, and plots it BY ITS SCHEMA — array fields → an
+# animated heatmap (View::Field), the spatial counterpart to the kinetics line
+# section. Same template shape; the trace's type drives a different view.
+from core import Simulate
+from io import Path
+from diffusion import DiffusionAdvection
+
+type Trace = { times: list[float], frames: list[map[float]] }
+type Figure = { svg: string }
+
+step Plot[title: string = 'diffusion'] ~{traj: Trace} ->{figure: Figure} (
+  {figure: traj.plot(title)}
+)
+
+step Output[path: Path] ~{figure: Figure} (
+  figure.svg(path)
+)
+
+composite DiffusionSection[
+  field :: map[array[[3, 3], float]] =
+    { glucose: [0.0, 0.0, 0.0, 5.0, 5.0, 5.0, 10.0, 10.0, 10.0] }
+] ->{figure: Figure} (
+  state: { fields: field } |
+  run: Simulate[
+    proc: DiffusionAdvection[n_bins: [3, 3], bounds: [3.0, 3.0], diffusion_coeffs: {glucose: 0.1}],
+    runtime: 5.0, timestep: 0.5
+  ] ~{state: state} ->{trace: traj} |
+  plot: Plot[title: 'Glucose diffusion'] ~{traj: traj} ->{figure: figure} |
+  output: Output[path: 'outputs/diffusion/glucose'] ~{figure: figure}
+)

@@ -60,9 +60,11 @@ impl Simulate {
 
 impl Step for Simulate {
     fn inputs(&self) -> IndexMap<String, Schema> {
-        // Declared port (mirrors RunProcess). The element actually folded/carried
-        // is the inner's `state` output sort (below), so non-Map states work too.
-        IndexMap::from([("state".to_string(), Schema::Map { value: Box::new(Schema::float()) })])
+        // The sim's whole state flows through this one port (the section wires it
+        // in). It is whatever shape the inner expects — a Map, or a Tree of
+        // `biomass:Float + substrates:Map[Float]`, … — so the generic runner's
+        // input is `Any` (a polymorphic passthrough), not Map[Float].
+        IndexMap::from([("state".to_string(), Schema::Any)])
     }
 
     fn outputs(&self) -> IndexMap<String, Schema> {
@@ -86,27 +88,32 @@ impl Step for Simulate {
             _ => return Update::Noop, // Simulate wraps a Process
         };
 
-        // The state schema is the inner's `state` output sort — used BOTH to fold
-        // each update (the engine-faithful `apply`) AND as the carried element `T`
-        // of the trace (never re-inferred).
-        let element = inner.outputs().get("state").cloned().unwrap_or(Schema::Any);
+        // The element folded/carried is the inner's WHOLE output interface as a
+        // record schema (`biomass:Float, substrates:Map[Float], …`) — NOT a single
+        // `state` port. This is what makes Simulate engine-faithful for ANY
+        // process: the sim's state IS the inner's port-view (same-name wiring, the
+        // engine default), and each update folds via `apply` under each port's real
+        // type (additive sorts accumulate, Overwrite/Array replace). RunProcess's
+        // single-`state`-port wrapping is the integrator special case; this is the
+        // general one. The element is KNOWN (the inner's declared outputs), carried
+        // as the trace's `T`, never re-inferred.
+        let element = Schema::Tree {
+            branches: inner.outputs().into_iter().map(|(k, v)| (k.into(), v)).collect(),
+        };
 
+        // Simulate's own `state` input port holds the sim's natural state.
         let init = state.get_field("state").cloned().unwrap_or_else(Value::map);
         let n_steps = (self.runtime / self.timestep).round().max(0.0) as usize;
 
         let mut cur = init.clone();
         let mut samples: Vec<(f64, Value)> = vec![(0.0, init)];
         for step in 0..n_steps {
-            let local = Value::tree([("state", cur.clone())]);
-            // The inner's update is an EVENT (a delta); fold it via the schema —
-            // additive sorts accumulate, Overwrite/Array replace. THIS is the line
-            // that distinguishes Simulate from RunProcess (which would use it as
-            // the full next state).
-            let update = inner
-                .update(&local, self.timestep)
-                .into_value()
-                .and_then(|v| v.get_field("state").cloned())
-                .unwrap_or_else(Value::map);
+            // Same-name: the sim state IS the inner's input view (extra fields
+            // tolerated, like the engine's projection). The inner's update is an
+            // EVENT (a delta); fold it via the schema — additive sorts accumulate,
+            // Overwrite/Array replace. THIS distinguishes Simulate from RunProcess
+            // (which uses each update as the full next state).
+            let update = inner.update(&cur, self.timestep).into_value().unwrap_or_else(Value::map);
             cur = algebra::apply(&element, &cur, &update);
             samples.push(((step + 1) as f64 * self.timestep, cur.clone()));
         }
@@ -140,18 +147,22 @@ mod tests {
         ])
     }
 
-    /// A delta-emitting process: each update is `+1` on `n` (NOT the full state).
+    /// A delta-emitting process with a NATURAL port: each update is `+1` on the
+    /// `n` field directly (same-name, like spatio-flux processes) — NOT wrapped in
+    /// a `state` port. Folding it via `apply` accumulates; using it as the full
+    /// next state would not. This is the contract Simulate now serves: any-port
+    /// processes, wired same-name.
     #[derive(Debug)]
     struct Increment;
     impl Process for Increment {
         fn inputs(&self) -> IndexMap<String, Schema> {
-            IndexMap::from([("state".to_string(), Schema::Map { value: Box::new(Schema::float()) })])
+            IndexMap::from([("n".to_string(), Schema::float())])
         }
         fn outputs(&self) -> IndexMap<String, Schema> {
-            IndexMap::from([("state".to_string(), Schema::Map { value: Box::new(Schema::float()) })])
+            IndexMap::from([("n".to_string(), Schema::float())])
         }
         fn update(&self, _state: &Value, _interval: f64) -> Update {
-            Update::value(Value::tree([("state", mf(&[("n", 1.0)]))]))
+            Update::value(Value::tree([("n", Value::float(1.0))]))
         }
         fn as_any(&self) -> &dyn Any {
             self
@@ -180,8 +191,9 @@ mod tests {
 
         // Engine-faithful: the `+1` event ACCUMULATES (apply adds under Float).
         assert_eq!(ns(&trace), vec![0.0, 1.0, 2.0, 3.0]);
-        // The distinguishing assertion: RunProcess would treat each `+1` as the
-        // FULL state → [0, 1, 1, 1]. Simulate differs precisely by folding `apply`.
+        // The distinguishing assertion: a REPLACE policy (each `{n: 1}` taken as
+        // the full next state) would give [0, 1, 1, 1]. Simulate differs precisely
+        // by folding via `apply` (accumulate), not replacing.
         assert_ne!(ns(&trace), vec![0.0, 1.0, 1.0, 1.0]);
     }
 

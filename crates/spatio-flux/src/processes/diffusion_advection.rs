@@ -168,8 +168,22 @@ impl Process for DiffusionAdvection {
     }
 
     fn outputs(&self) -> IndexMap<String, Schema> {
-        // Use Any so the engine uses the state schema (map[array[...]]) for apply
-        IndexMap::from([("fields".to_string(), Schema::Any)])
+        // The real output type: a map of 2D fields, each an [ny, nx] array
+        // (row-major). Declaring it — not Schema::Any — lets schema-driven
+        // consumers SEE the field: the engine folds the delta additively (Array),
+        // AND `Simulate` carries THIS as the trace's element type, so
+        // `prism_viz::plot` classifies it as a heatmap (View::Field). `Any` dodged
+        // the type and broke the trace/plot path (it fell back to a Snapshot).
+        let (nx, ny) = self.n_bins;
+        IndexMap::from([(
+            "fields".to_string(),
+            Schema::Map {
+                value: Box::new(Schema::Array {
+                    shape: vec![ny, nx],
+                    element: Box::new(Schema::float()),
+                }),
+            },
+        )])
     }
 
     fn interval(&self) -> f64 {
@@ -338,5 +352,21 @@ mod tests {
             (initial_mass - final_mass).abs() < 1.0,
             "Mass not conserved: {initial_mass} -> {final_mass}"
         );
+    }
+
+    #[test]
+    fn outputs_declare_the_real_array_field_not_any() {
+        // Regression (diffusion-section): outputs() must declare Map[Array[[ny,nx]]],
+        // NOT Schema::Any. Simulate carries this as the trace's element type, so
+        // prism_viz renders a heatmap; Any made it a Snapshot. (The engine tolerated
+        // Any by falling back to the state schema; the trace/plot path cannot.)
+        let p = DiffusionAdvection::new((3, 3), (3.0, 3.0), IndexMap::new(), 1.0);
+        match p.outputs().get("fields") {
+            Some(Schema::Map { value }) => assert!(
+                matches!(value.as_ref(), Schema::Array { .. }),
+                "fields must be Map[Array], got Map[{value:?}]"
+            ),
+            other => panic!("fields output must be Map[Array], got {other:?}"),
+        }
     }
 }

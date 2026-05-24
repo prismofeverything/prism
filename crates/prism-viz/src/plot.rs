@@ -215,12 +215,29 @@ fn collect_scalars(v: &Value, prefix: &str, emit: &mut impl FnMut(&str, f64)) {
 
 /// The first list-of-floats field in a frame (a flattened spatial grid).
 fn first_field(frame: &Value) -> Option<Vec<f64>> {
-    let m = frame.as_map()?;
-    for (_k, v) in m {
-        if let Some(list) = v.as_list() {
-            let floats: Vec<f64> = list.iter().filter_map(|x| x.as_f64()).collect();
-            if floats.len() == list.len() && !floats.is_empty() {
-                return Some(floats);
+    // A grid: flat floats, or rows-of-floats (row-major, e.g. [[a,b,c],[d,e,f],…]).
+    if let Some(items) = frame.as_list() {
+        let mut out = Vec::with_capacity(items.len());
+        for item in items {
+            if let Some(f) = item.as_f64() {
+                out.push(f);
+            } else if let Some(row) = item.as_list() {
+                out.extend(row.iter().filter_map(|c| c.as_f64()));
+            } else {
+                return None; // not a numeric grid
+            }
+        }
+        return (!out.is_empty()).then_some(out);
+    }
+    // Dig through named ports — the spatial state's field lives under one, e.g.
+    // `{fields: {glucose: [...]}}`. Return the first grid found.
+    if let Some(m) = frame.as_map() {
+        for (k, v) in m {
+            if k.as_str() == "_type" {
+                continue;
+            }
+            if let Some(grid) = first_field(v) {
+                return Some(grid);
             }
         }
     }
@@ -304,5 +321,43 @@ mod tests {
         // The animation is itself place-graph data: an <animate> child of a cell.
         let s = to_svg(&doc);
         assert!(s.contains("<animate attributeName=\"fill\""), "cells animate over the trace; got:\n{s}");
+    }
+
+    #[test]
+    fn nested_port_field_plots_as_heatmap() {
+        // Regression (diffusion-section): a spatial field nested under a named port
+        // — `{fields: {glucose: [...]}}`, the real engine-state shape — must be
+        // found by first_field and rendered as a heatmap, not the "(no field)"
+        // placeholder. The element is a Tree carrying the array type.
+        let frame = |base: f64| {
+            Value::Map(IM::from([(
+                "fields".into(),
+                Value::Map(IM::from([(
+                    "glucose".into(),
+                    Value::List((0..9).map(|i| Value::float(base + i as f64)).collect()),
+                )])),
+            )]))
+        };
+        let elem = Schema::Tree {
+            branches: IM::from([(
+                "fields".into(),
+                Schema::Map {
+                    value: Box::new(Schema::Array { shape: vec![3, 3], element: Box::new(Schema::float()) }),
+                },
+            )]),
+        };
+        assert_eq!(characteristic(&elem), View::Field, "a tree with an array branch is a field");
+        let doc = plot(&elem, &[frame(0.0), frame(5.0)], "glucose");
+        let s = to_svg(&doc);
+        assert!(!s.contains("no field"), "the nested field is found, not missed:\n{s}");
+        assert!(s.contains("<animate attributeName=\"fill\""), "cells animate over the trace");
+        let cells = doc
+            .get_field("children")
+            .and_then(|c| c.as_list())
+            .unwrap()
+            .iter()
+            .filter(|k| k.get_field("_type").and_then(|t| t.as_str()) == Some("rect"))
+            .count();
+        assert!(cells >= 9, "3x3 grid (+bg); got {cells}");
     }
 }
