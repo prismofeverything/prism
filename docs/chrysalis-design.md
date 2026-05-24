@@ -56,13 +56,13 @@ bigraph export/import | server | repl` are all live over the bundled std library
 `export`/`import` make the process-bigraph document a runnable artifact
 (`import(export(f)) ≡ run(f)`); `server` exposes a `Core` over REST; `repl` is an
 interactive homoiconic prompt (eval, `:type`/`:env`, live syntax highlighting,
-completion, multi-line). The one remaining piece is **`compile`** — programs
-importing *non-std* native packages (spatio-flux's FBA/particles) need the codegen
-path (generate a runner crate, `cargo build`, cache, run; a `project.ys` manifest
-mapping modules → crates). `run`/`server`/`import` all share that one
-package-resolution + `Core`-assembly path. The consumer that proves it is
-rewriting the spatio-flux demo suite as `.ys` (`sf_core`/`sf_*` + the `sf` bin are
-the in-tree prototype of the generated runner).
+completion, multi-line). **`compile`/codegen is live**: a program importing a
+*non-std* native package (spatio-flux's FBA/particles) runs via the codegen path —
+`chrysalis run` generates a runner crate, `cargo build`s + caches it (cargo-driven
+staleness, so prism edits rebuild it), and runs it; a `project.ys` manifest names
+the package. `run`/`server`/`import` share that one package-resolution +
+`Core`-assembly path. The consumer that proved it: the whole spatio-flux demo
+suite, rewritten as `.ys` (layer 5).
 
 **4. The boundary, made real.** A process or composite is a black box reachable
 through **protocols** (`local` in-process; `rest` / `parallel` remote) — the
@@ -75,14 +75,39 @@ message** (`Core::missing_process_refs` / `Engine::check_references` / a server
 400), not silently run as a partial graph — the first instance of the diagnostics
 discipline below.
 
-**5. The road ahead.** Comprehensible **diagnostics** — every way a `.ys` can be
-wrong should yield a located, actionable, *educational* error in surface terms
-(generalize the missing-reference error; see NEXT-SESSION #16). The
-**codegen/packages** path and **spatio-flux-in-`.ys`**. The **report as one
-expirable step-DAG** over the incremental-step cache. **First-class `Custom`
-types** (`type Name = <repr> with {…}`). **SBML / repressilator** import. **Tier 2**
-— process bodies as first-class values, evolving M/R. And **grow-divide over
-REST** end to end (needs discovery to resolve `rest:` addresses found in state).
+**5. The full circle — the spatio-flux report regenerates from `.ys`.** All six
+families now run as `.ys` report sections through codegen —
+`{kinetics,diffusion,dfba,brownian,newtonian,comet}-section.ys`, each
+`Simulate[proc: <sim>] → trace → traj.plot → figure.svg`. The dogfooding loop
+(turn a sim into `.ys`, find the gap, fix it IN the core —
+`feedback_integrate_into_core`) drove the core additions:
+- **delta-traces** (`prism_trace`: a `Trace` = `initial` + `deltas`,
+  `state(t)=fold(apply,…)`, Arrow IPC codec) + **`Simulate`**, the engine-faithful
+  runner (same-name wiring; folds the inner's REAL output schema — `RunProcess` is
+  the integrator special case). The `stream:` protocol proxies a `.ys` as a
+  `Process` over that trace wire.
+- **schema-driven views** (`prism_viz`): a trace plots BY ITS ELEMENT TYPE —
+  scalars→line, array fields→animated heatmap (`View::Field`), particles→scatter
+  (`View::Particles`), field+particles→comet overlay (`View::Spatial`) — all
+  place-graph SVG values.
+- **the particle delta-motion model**: spatial movers emit **Δposition/Δvelocity**,
+  folded additively (`Array[[2]]`), so Brownian + drift + interactions +
+  boundary-correction *superpose* — particles fit the same fold-via-`apply` algebra
+  as everything else (retiring their `Map[Any]` dodge + two more `Schema::Any` leaks).
+- **`.ys` file modules**: `from <pkg>.<sub>.<file> import <Def>` resolves a sibling
+  `.ys` (package-rooted, recursive; the module's types + host imports ride along).
+  The six sections are DRYed into shared modules — `report/section.ys`
+  (Trace/Figure/Plot/Output) + `composites/comets.ys` (the Comet system).
+
+**6. The road ahead.** Assemble the six sections into ONE report *workflow*
+(run-all → a combined report; the report as an expirable step-DAG over the
+incremental-step cache). The `import <module>` namespace forms (`comets.Comet`).
+**SVG-as-place-graph everywhere** (retire the graphviz `render_dot` bigraph viz +
+the string `render_timeseries_svg`). Comprehensible **diagnostics** (generalize the
+missing-reference error; NEXT-SESSION #16). The `chrysalis new` scaffolder.
+**First-class `Custom` types**. **SBML / repressilator** import. **Tier 2** —
+process bodies as first-class values, evolving M/R. Then the **performance sweep**
+(after features).
 
 ## Two kinds of process
 

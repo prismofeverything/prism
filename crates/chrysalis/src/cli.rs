@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use prism_bigraph::ProcessRegistry;
 use prism_schema::MethodRegistry;
 
-use crate::ast::Def;
+use crate::ast::{Def, Expr, TermArg};
 use crate::compile::ModuleRegistry;
 use crate::parse::parse_file;
 use crate::runner::{invoke, invoke_driven, invoke_trace, run, serve_stream};
@@ -40,24 +40,179 @@ fn resolve_file_modules(
                 let mut imported = parse_file(&file)
                     .map_err(|e| format!("import from `{module}` ({}): {e}", file.display()))?;
                 resolve_file_modules(&mut imported, ys_root)?;
+                // The module's host imports + TYPE vocabulary always come along; its
+                // VALUE defs come by transitive reachability from the imported names
+                // (so `import CometSection` pulls `Comet`, `Plot`, `Output`, … it
+                // references — #25 transitive value-deps).
+                let mut value_defs: std::collections::HashMap<String, Def> =
+                    std::collections::HashMap::new();
                 for d in imported.defs {
-                    let keep = match &d {
-                        // The module's host imports + its TYPE vocabulary always come
-                        // along (a named def's interface may reference those types);
-                        // value defs come only when explicitly imported by name.
-                        Def::Use { .. } | Def::Type(_) => true,
-                        other => names.iter().any(|n| crate::ast::def_name(other) == n.as_str()),
-                    };
-                    if keep {
+                    if matches!(d, Def::Use { .. } | Def::Type(_)) {
                         prefix.push(d);
+                    } else {
+                        value_defs.insert(crate::ast::def_name(&d).to_string(), d);
+                    }
+                }
+                let mut want: Vec<String> = names.iter().map(|n| n.to_string()).collect();
+                let mut taken: std::collections::HashSet<String> = std::collections::HashSet::new();
+                while let Some(name) = want.pop() {
+                    if !taken.insert(name.clone()) {
+                        continue;
+                    }
+                    if let Some(d) = value_defs.get(&name) {
+                        let mut refs = std::collections::HashSet::new();
+                        collect_def_refs(d, &mut refs);
+                        for r in refs {
+                            if !taken.contains(&r) && value_defs.contains_key(&r) {
+                                want.push(r);
+                            }
+                        }
+                        prefix.push(d.clone());
                     }
                 }
             }
             _ => kept.push(def),
         }
     }
-    program.defs = prefix.into_iter().chain(kept).collect();
+    // Merge imported defs (prefix) ahead of the program's own (kept), so the
+    // importer's last-def entry is preserved; de-duplicate by content so several
+    // sections re-importing the shared report.section module don't duplicate
+    // Trace/Figure or `from io import Path` (a duplicate type import would clash).
+    let mut seen = std::collections::HashSet::new();
+    program.defs = prefix
+        .into_iter()
+        .chain(kept)
+        .filter(|d| {
+            let key = match d {
+                Def::Use { module, names } => format!("use:{module}:{}", names.join(",")),
+                other => format!("def:{}", crate::ast::def_name(other)),
+            };
+            seen.insert(key)
+        })
+        .collect();
     Ok(())
+}
+
+/// The other-def names a def REFERENCES in its body (controls + bare vars) — to
+/// pull a module's transitive value-deps when importing one of its defs.
+fn collect_def_refs(def: &Def, out: &mut std::collections::HashSet<String>) {
+    match def {
+        Def::Composite(d) => collect_refs(&d.body, out),
+        Def::Process(d) => collect_refs(&d.body, out),
+        Def::Step(d) => collect_refs(&d.body, out),
+        Def::Function(d) => collect_refs(&d.body, out),
+        _ => {}
+    }
+}
+
+fn collect_refs(e: &Expr, out: &mut std::collections::HashSet<String>) {
+    match e {
+        Expr::Var(n) => {
+            out.insert(n.to_string());
+        }
+        Expr::Term { control, args, body, .. } => {
+            out.insert(control.to_string());
+            for a in args {
+                collect_refs(arg_expr(a), out);
+            }
+            if let Some(b) = body {
+                collect_refs(b, out);
+            }
+        }
+        Expr::Parallel(v) | Expr::List(v) => {
+            for x in v {
+                collect_refs(x, out);
+            }
+        }
+        Expr::KeyedEntry { value, .. } => collect_refs(value, out),
+        Expr::Map(pairs) => {
+            for (_, x) in pairs {
+                collect_refs(x, out);
+            }
+        }
+        Expr::Record(m) => {
+            for x in m.values() {
+                collect_refs(x, out);
+            }
+        }
+        Expr::Block(b) => {
+            for (_, x) in &b.bindings {
+                collect_refs(x, out);
+            }
+            collect_refs(&b.value, out);
+        }
+        Expr::Let { bindings, body } => {
+            for (_, x) in bindings {
+                collect_refs(x, out);
+            }
+            collect_refs(body, out);
+        }
+        Expr::If { cond, then_, else_ } => {
+            collect_refs(cond, out);
+            collect_refs(then_, out);
+            if let Some(e) = else_ {
+                collect_refs(e, out);
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_refs(lhs, out);
+            collect_refs(rhs, out);
+        }
+        Expr::UnaryOp { operand, .. } => collect_refs(operand, out),
+        Expr::Method { receiver, args, .. } => {
+            collect_refs(receiver, out);
+            for x in args {
+                collect_refs(x, out);
+            }
+        }
+        Expr::Field { base, .. } => collect_refs(base, out),
+        Expr::Call { func, args } => {
+            collect_refs(func, out);
+            for x in args {
+                collect_refs(x, out);
+            }
+        }
+        Expr::Comprehension { source, filter, body, .. } => {
+            collect_refs(source, out);
+            if let Some(f) = filter {
+                collect_refs(f, out);
+            }
+            collect_refs(body, out);
+        }
+        Expr::Rule { redex, reactum } => {
+            collect_refs(redex, out);
+            collect_refs(reactum, out);
+        }
+        Expr::Site { sort, .. } => {
+            if let Some(s) = sort {
+                collect_refs(s, out);
+            }
+        }
+        Expr::ReplaceWith { id, with } => {
+            collect_refs(id, out);
+            collect_refs(with, out);
+        }
+        Expr::Where { inner, predicate } => {
+            collect_refs(inner, out);
+            collect_refs(predicate, out);
+        }
+        // Literals + place/link forms reference no other def.
+        Expr::Unit
+        | Expr::Bool(_)
+        | Expr::Int(_)
+        | Expr::Float(_)
+        | Expr::Str(_)
+        | Expr::Path(_)
+        | Expr::Unbound
+        | Expr::LinkVar(_) => {}
+    }
+}
+
+fn arg_expr(a: &TermArg) -> &Expr {
+    match a {
+        TermArg::Positional(e) => e,
+        TermArg::Named { value, .. } => value,
+    }
 }
 
 /// `run <file.ys> [--time T] [--<port> SOURCE ...] [--in TRACE] [--out FILE]

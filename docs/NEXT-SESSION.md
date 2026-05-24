@@ -1,5 +1,66 @@
 # Next session — launch prompt & plan
 
+## Where we are (2026-05-24 — spatio-flux-report-as-.ys + delta-motion + .ys-modules)
+
+The **full-circle challenge landed: the entire spatio-flux report is regenerable
+from `.ys`.** All 6 simulation families run as `.ys` sections through the codegen
+path, each plotting itself BY ITS SCHEMA. The dogfooding loop (turn a sim into
+`.ys`, find the gap, fix it IN the core — memory `feedback_integrate_into_core`)
+drove every fix below. Full workspace green throughout.
+
+### The report, as `.ys` (the 6 families)
+`crates/spatio-flux/ys/{kinetics,diffusion,dfba,brownian,newtonian,comet}-section.ys`
+— kinetics·line, diffusion·heatmap, dFBA(HiGHS)·line, brownian·scatter,
+newtonian·scatter, comet·heatmap+particle-overlay. Each is just
+`Simulate[proc: <sim>] → trace → traj.plot → figure.svg`.
+
+### Core capabilities folded in (each surfaced by the challenge)
+- **delta-traces kernel** — `prism_trace` (Trace = `initial` + `deltas`,
+  `state(t)=fold(apply,…)`; Arrow IPC codec) + `prism_std::Simulate`, the
+  engine-faithful runner (same-name wiring, folds the inner's REAL output schema).
+  `RunProcess` is the integrator special case; `Simulate` is the general one.
+- **`stream:` protocol** — a `.ys` proxied as a `Process` over the Arrow trace wire
+  (parent `StreamProcess` ⇄ child `--serve-stream`), lock-step or bulk.
+- **dynamic timesteps** — interval read from state (`overwrite[T]`); `MinimalGillespie`
+  recreated (Rust test + `ys/gillespie.ys`).
+- **particle DELTA-MOTION model** — movers emit Δposition/Δvelocity, `apply` SUMS
+  (additive `Array[[2]]`), so Brownian + drift + interactions + boundary-correction
+  SUPERPOSE. Retired the particle `Map[Any]` dodge (`motion_schema`; boundaries →
+  corrective Δ). Proven: `motion_deltas_superpose`.
+- **schema-driven views** (`prism_viz`) — line / heatmap (`View::Field`) / scatter
+  (`View::Particles`) / comet overlay (`View::Spatial`), all place-graph SVG values;
+  `first_field` digs nested ports.
+- **retired 3 `Schema::Any` leaks** — diffusion output, particle-mover outputs, AND
+  composite outputs (`composite_inner_schema` now types the interface ports →
+  `Composite.outputs()` honest → composites-via-`Simulate` plot by schema).
+- **codegen staleness → cargo-driven** (prism edits rebuild the cached runner).
+
+### `.ys` FILE MODULES + unified modules
+- `from <pkg>.<sub>.<file> import <Def>` → `<ys_root>/<sub>/<file>.ys` (package-rooted,
+  recursive; the module's host imports + type vocabulary ride along). Parser accepts
+  hyphenated/dotted paths (`spatio-flux.composites`). `resolve_file_modules` (cli.rs),
+  `parse_module_path` (parse.rs).
+- Sections DRYed into shared modules: `report/section.ys` (Trace/Figure/Plot/Output) +
+  `composites/comets.ys` (the Comet composite), imported by all 6 sections.
+
+### Next (half-done → finish, then new)
+- **Report workflow DONE**: `report.ys` runs all 6 sections in one pass (`chrysalis run
+  report.ys` → each self-outputs its SVG); `.ys` imports now pull TRANSITIVE value-deps,
+  so `report.ys` is just the 6 section imports. REMAINING: a single COMBINED artifact
+  (index / stacked SVG); `spatioflux_reference_demo`; parallel section execution (#27).
+- **Complete `.ys` modules**: transitive value-deps DONE; REMAINING: the `import
+  <module>` namespace forms (`comets.Comet`) + `import <module>.Def`; validate the
+  package segment vs `project.ys`.
+- **Retire `extern` (#14) is a refactor, not a cleanup**: woven through ~9 src files AND
+  the old-import-form fixtures (`ys/culture.ys` + `ys/dish.ys` + `parse_import`, whose
+  `diffusion_natives()` registry is keyed on the `Diffusion` extern). No `.ys` *uses* the
+  `extern` declaration except that fixture. One focused pass.
+- **SVG-as-place-graph everywhere (#12)**: retire `render_dot` (graphviz bigraph viz) →
+  place-graph SVG; retire `render_timeseries_svg` (→ plot's `line_chart`).
+- **Grow the command**: `chrysalis new <name>` scaffolder (#21); multi-line config
+  unparse + emacs mode (#24); the `.ys` vs process-bigraph-JSON vs Python comparison (#23).
+- **Then** the perf sweep (#20, AFTER features).
+
 ## Where we are (2026-05-22 — post runtime + toolchain session)
 
 The language foundation (import model, `def` + first-class functions, process

@@ -1,0 +1,20 @@
+# report.ys — the FULL spatio-flux report as ONE workflow. Each of the six section
+# composites lives in its own file; importing one pulls its transitive value-deps
+# (its sim, Plot, Output, the Comet composite, …), so this just composes the six.
+# `chrysalis run report.ys` regenerates the whole report — every section
+# self-outputs its SVG — in one pass.
+from spatio-flux.kinetics-section import KineticsSection
+from spatio-flux.diffusion-section import DiffusionSection
+from spatio-flux.dfba-section import DFBASection
+from spatio-flux.brownian-section import BrownianSection
+from spatio-flux.newtonian-section import NewtonianSection
+from spatio-flux.comet-section import CometSection
+
+composite Report (
+  kinetics: KineticsSection[] |
+  diffusion: DiffusionSection[] |
+  dfba: DFBASection[] |
+  brownian: BrownianSection[] |
+  newtonian: NewtonianSection[] |
+  comet: CometSection[]
+)
