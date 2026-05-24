@@ -15,6 +15,48 @@ use crate::compile::ModuleRegistry;
 use crate::parse::parse_file;
 use crate::runner::{invoke, invoke_driven, invoke_trace, run, serve_stream};
 
+/// Resolve `.ys`-file imports before compiling: a DOTTED `from <pkg>.<sub> import
+/// <file>` is a file module — it brings in the top-level defs of
+/// `<ys_root>/<sub>/<file>.ys` (recursively for that file's own `.ys` imports),
+/// PREPENDED so the importer's own entry (its LAST interfaced def) is preserved.
+/// Single-segment (host) modules are left for compile's `resolve_imports`. The
+/// `ys_root` (the entry file's dir) is threaded constant so a nested import
+/// resolves from the same package root, not the importer's subdir. (#25)
+fn resolve_file_modules(
+    program: &mut crate::ast::Program,
+    ys_root: &std::path::Path,
+) -> Result<(), String> {
+    let mut prefix: Vec<Def> = Vec::new();
+    let mut kept: Vec<Def> = Vec::new();
+    for def in std::mem::take(&mut program.defs) {
+        match &def {
+            // Dotted module ⇒ a `.ys` file module (host modules are single-segment).
+            // The dotted path IS the module file: `<ys_root>/<path-after-pkg>.ys`.
+            // Import the NAMED defs from it (+ the module's own host imports, so
+            // those defs' references resolve) — like Python's `from mod import x`.
+            Def::Use { module, names } if module.contains('.') => {
+                let rel: std::path::PathBuf = module.split('.').skip(1).collect();
+                let file = ys_root.join(&rel).with_extension("ys");
+                let mut imported = parse_file(&file)
+                    .map_err(|e| format!("import from `{module}` ({}): {e}", file.display()))?;
+                resolve_file_modules(&mut imported, ys_root)?;
+                for d in imported.defs {
+                    let keep = match &d {
+                        Def::Use { .. } => true, // the module's own (host) imports
+                        other => names.iter().any(|n| crate::ast::def_name(other) == n.as_str()),
+                    };
+                    if keep {
+                        prefix.push(d);
+                    }
+                }
+            }
+            _ => kept.push(def),
+        }
+    }
+    program.defs = prefix.into_iter().chain(kept).collect();
+    Ok(())
+}
+
 /// `run <file.ys> [--time T] [--<port> SOURCE ...] [--in TRACE] [--out FILE]
 /// [--trace [--sample-dt DT]]` over the given packages. Returns a process exit
 /// code; prints results to stdout, errors to stderr. A `composite` entry with no
@@ -71,13 +113,21 @@ pub fn run_command(
         eprintln!("usage: run <file.ys> [--time T] [--<port> SOURCE ...] [--in TRACE | --serve-stream] [--out FILE] [--trace [--sample-dt DT]]");
         return 2;
     };
-    let prog = match parse_file(&path) {
+    let mut prog = match parse_file(&path) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("parse {path}: {e}");
             return 1;
         }
     };
+    // Resolve `.ys`-file imports (a dotted `from pkg.sub import file`): merge the
+    // imported files' defs into this program before compiling (#25).
+    let ys_root =
+        std::path::Path::new(&path).parent().unwrap_or_else(|| std::path::Path::new("."));
+    if let Err(e) = resolve_file_modules(&mut prog, ys_root) {
+        eprintln!("{e}");
+        return 1;
+    }
 
     // A `composite` entry with no explicit `main` ⇒ compositional invocation.
     let invokes =

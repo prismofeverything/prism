@@ -1,0 +1,16 @@
+# composites/comets.ys — the COMET composite as its OWN module: brownian
+# particles drifting through a diffusing nutrient field. A system of its own —
+# imported by a section (or another composite) via
+# `from spatio-flux.composites import comets`. The file resolver brings this
+# file's top-level defs (Comet, + its own host imports) into the importer.
+from diffusion import DiffusionAdvection
+from particles import BrownianMovement
+
+composite Comet[diffusion_coeff :: float = 0.25]
+  ~{fields :: map[array[[5, 5], float]], particles :: map[{position: array[[2], float]}]}
+  ->{fields :: map[array[[5, 5], float]], particles :: map[{position: array[[2], float]}]} (
+  diffusion: DiffusionAdvection[n_bins: [5, 5], bounds: [5.0, 5.0], diffusion_coeffs: {glucose: diffusion_coeff}]
+    ~{fields: fields} ->{fields: fields} |
+  brownian: BrownianMovement[diffusion_rate: 0.2, advection_rate: [0.3, 0.2], bounds: [5.0, 5.0]]
+    ~{particles: particles} ->{particles: particles}
+)

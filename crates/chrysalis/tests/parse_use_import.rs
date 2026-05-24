@@ -80,3 +80,18 @@ fn use_import_round_trips_through_unparse() {
         "unparse should emit the use-import, got: {out}"
     );
 }
+
+#[test]
+fn parses_dotted_hyphenated_module_paths() {
+    // `.ys`-file imports (#25): a package name may contain `-` (cargo names) and
+    // submodules are dotted, so `from spatio-flux.composites import comets` must
+    // parse as ONE module string (the lexer splits `-`/`.`; the parser reassembles).
+    let src = "from spatio-flux.composites.comets import Comet\n";
+    assert_eq!(uses(src), vec![("spatio-flux.composites.comets".into(), vec!["Comet".into()])]);
+    // …and round-trips through unparse.
+    let prog = parse_program(src).expect("parse");
+    assert!(
+        unparse(&prog).contains("from spatio-flux.composites.comets import Comet"),
+        "dotted/hyphenated module path should round-trip"
+    );
+}

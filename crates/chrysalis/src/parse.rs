@@ -635,10 +635,29 @@ impl Parser {
     // `from <module> import <name> (, <name>)*` — pull native processes /
     // functions into scope (replaces `extern`). `from`/the module/the names are
     // identifiers; `import` is the keyword token.
+    /// A module path: `ident (("-" | ".") ident)*` — package names may contain `-`
+    /// (`spatio-flux`) and submodules are dotted (`spatio-flux.composites`); the
+    /// lexer splits these, so reassemble into one string.
+    fn parse_module_path(&mut self) -> Result<String, ParseError> {
+        let mut module = self.ident()?;
+        loop {
+            if self.accept(&Tok::Minus) {
+                module.push('-');
+                module.push_str(&self.ident()?);
+            } else if self.accept(&Tok::Dot) {
+                module.push('.');
+                module.push_str(&self.ident()?);
+            } else {
+                break;
+            }
+        }
+        Ok(module)
+    }
+
     fn parse_use_def(&mut self) -> Result<Def, ParseError> {
         let kw = self.ident()?; // contextual `from`
         debug_assert_eq!(kw, "from");
-        let module = self.ident()?;
+        let module = self.parse_module_path()?;
         match self.bump() {
             Tok::Import => {}
             other => {
