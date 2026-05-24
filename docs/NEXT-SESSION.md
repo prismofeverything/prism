@@ -238,7 +238,25 @@ from state each tick (a step can rewrite it — a Gillespie τ), and nested
 `Overwrite` outputs are now honored in `apply_reconciled` (the per-port schema is
 nested back into the store, not dropped). Proven by the `MinimalGillespie` port in
 `crates/prism-bigraph/tests/gillespie.rs` (event Process + interval Step → the
-engine schedules by the dynamic τ = 1/(k·a)). *Medium.*
+engine schedules by the dynamic τ = 1/(k·a)).
+**Principled shape (2026-05-24):** there is no separate "default wire" mechanism —
+a port's default *is* its type's `default`. The `Link`/edge `default` (upstream
+`default_wires`) gives every port its default wiring, today uniformly same-name
+`[port]`. Make `interval` a port of an **inner-wire type** whose `default` is
+`%.port` (self-local) instead of `[port]` — so `default` *earns its keep* (the
+self-wire is a `default` output, consulted per-port in the `Link` arm), `interval`
+is "just another type" with no engine/chrysalis special-case, and an **override**
+is an ordinary explicit wire (`~{interval: clock}` → a shared clock driving many
+processes). The engine then reads the **resolved** `interval` input each tick
+(self default → `[name,"interval"]`; override → the wired target), replacing the
+current engine special-case (which only sees the self default).
+**STATUS (2026-05-24):** the OVERRIDE half shipped — the engine reads `interval`
+as the *resolved input* (overridable to a shared clock; `[name,"interval"]`
+fallback), `.ys` gained `overwrite[Float]` (`SchemaExpr::Overwrite`), and
+`crates/chrysalis/ys/gillespie.ys` + the Rust port (`prism-bigraph/tests/
+gillespie.rs`) prove the dynamic τ = 1/(k·A) (full workspace green). REMAINING:
+the **inner-wire type** producing `interval`'s `%.port` default wire via
+`default_wires`, retiring the `[name,"interval"]` engine side-channel. *Medium.*
 
 ✍️ **#22 — enforce `::`=type / `:`=value / `fulfills`-contract** (decided
 2026-05-23; chrysalis-design.md resolved decision #22). `::` ascribes a TYPE

@@ -116,6 +116,10 @@ pub enum SchemaExpr {
         shape: Vec<usize>,
         element: Box<SchemaExpr>,
     },
+    /// `overwrite[T]` — a [`prism_schema::Schema::Overwrite`] wrapper: updates
+    /// REPLACE the value instead of accumulating (e.g. a Gillespie τ a step sets
+    /// each tick). The additive default would wrongly sum successive writes.
+    Overwrite(Box<SchemaExpr>),
 }
 
 impl SchemaExpr {
@@ -124,6 +128,9 @@ impl SchemaExpr {
     }
     pub fn list_of(inner: SchemaExpr) -> Self {
         Self::List(Box::new(inner))
+    }
+    pub fn overwrite_of(inner: SchemaExpr) -> Self {
+        Self::Overwrite(Box::new(inner))
     }
     pub fn custom(name: impl Into<Name>) -> Self {
         Self::Custom {

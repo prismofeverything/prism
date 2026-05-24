@@ -805,6 +805,12 @@ impl Parser {
                         self.expect(&Tok::RBrack)?;
                         Ok(SchemaExpr::map_of(inner))
                     }
+                    "overwrite" => {
+                        self.expect(&Tok::LBrack)?;
+                        let inner = self.parse_schema()?;
+                        self.expect(&Tok::RBrack)?;
+                        Ok(SchemaExpr::overwrite_of(inner))
+                    }
                     // `array[[d1, d2, …], element]` — a fixed-shape numeric
                     // array (the additive field type; element may be dimensioned).
                     "array" => {

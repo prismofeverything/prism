@@ -123,6 +123,9 @@ pub fn lower_schema(s: &SchemaExpr) -> Schema {
             shape: shape.clone(),
             element: Box::new(lower_schema(element)),
         },
+        SchemaExpr::Overwrite(inner) => Schema::Overwrite {
+            inner: Box::new(lower_schema(inner)),
+        },
     }
 }
 

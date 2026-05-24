@@ -844,24 +844,30 @@ impl Engine {
                 Some(f) => (f.next_time, f.interval),
                 None => continue,
             };
-            // The timestep is STATE: a step can overwrite `[name, "interval"]`
-            // (e.g. a Gillespie τ), so the engine re-reads it each tick — a
-            // process always runs its CURRENT local interval. Falls back to the
-            // front's (construction-time) value when absent or non-positive.
-            let interval = self
-                .state
-                .get_path(&[Key::from(name.as_str()), Key::from("interval")])
-                .and_then(Value::as_f64)
-                .filter(|dt| dt.is_finite() && *dt > 0.0)
-                .unwrap_or(front_interval);
             if process_time <= self.time {
+                // `interval` is an ordinary wired input — a process runs its
+                // CURRENT local interval, read fresh each tick from the resolved
+                // `interval` input (wired by default to its own slot, overridable
+                // to a shared clock). Falls back to the stored `[name, "interval"]`
+                // slot, then the front's construction value — so a step can drive
+                // the timestep dynamically (e.g. a Gillespie τ).
+                let input = match self.interfaces.get(name) {
+                    Some(iface) => iface.view(&self.state),
+                    None => continue,
+                };
+                let interval = input
+                    .get_field("interval")
+                    .and_then(Value::as_f64)
+                    .or_else(|| {
+                        self.state
+                            .get_path(&[Key::from(name.as_str()), Key::from("interval")])
+                            .and_then(Value::as_f64)
+                    })
+                    .filter(|dt| dt.is_finite() && *dt > 0.0)
+                    .unwrap_or(front_interval);
                 let future = process_time + interval;
                 full_step = full_step.min(future - self.time);
                 if future <= end_time {
-                    let input = match self.interfaces.get(name) {
-                        Some(iface) => iface.view(&self.state),
-                        None => continue,
-                    };
                     let update = match self.nodes.get(name) {
                         Some(ProcessNode::Process(p)) => p.update(&input, interval),
                         _ => continue,

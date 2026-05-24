@@ -356,6 +356,8 @@ fn kind_family(s: &SchemaExpr) -> &'static str {
         SchemaExpr::Record(_) => "record",
         SchemaExpr::Array { .. } => "array",
         SchemaExpr::Custom { .. } => "custom",
+        // `overwrite[T]` is a delta-semantics wrapper — its kind is its inner's.
+        SchemaExpr::Overwrite(inner) => kind_family(inner),
         SchemaExpr::Any | SchemaExpr::SelfType => "any",
     }
 }

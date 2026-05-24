@@ -572,6 +572,7 @@ fn unparse_schema(s: &SchemaExpr) -> String {
             let dims: Vec<String> = shape.iter().map(|d| d.to_string()).collect();
             format!("array[[{}], {}]", dims.join(", "), unparse_schema(element))
         }
+        SchemaExpr::Overwrite(inner) => format!("overwrite[{}]", unparse_schema(inner)),
     }
 }
 

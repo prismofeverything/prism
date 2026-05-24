@@ -1,0 +1,40 @@
+# MinimalGillespie as a chrysalis composite — a Gillespie made of TWO separate
+# processes (port of ../process-bigraph minimal_gillespie.py):
+#
+#   • GillespieEvent (a process) fires the next reaction, A -> B.
+#   • GillespieInterval (a step) chooses the wait τ and OVERWRITES the shared
+#     `clock` that drives the event's interval.
+#
+# `interval` is an ordinary, overridable input port: here the event's interval is
+# wired to a shared `clock`, and the step rewrites that clock each tick. As A
+# depletes, τ = 1/(k·A) grows — a DYNAMIC timestep chosen by a separate step, the
+# whole point of the example. (Deterministic τ in place of the stochastic
+# exponential(1/Σpropensity); the dynamic-interval mechanism is identical.)
+
+process GillespieEvent[k :: Float = 1.0]
+  ~{a :: Float, b :: Float, interval :: Float}
+  ->{a :: Float, b :: Float}
+(
+  fired = if a > 0.0 then 1.0 else 0.0 |
+  {a: -fired, b: fired}
+)
+
+# The step's `interval` output is `overwrite` — it SETS the clock (a Gillespie τ),
+# it does not accumulate.
+step GillespieInterval[k :: Float = 1.0]
+  ~{a :: Float}
+  ->{interval :: overwrite[Float]}
+(
+  prop = k * a |
+  {interval: if prop > 0.0 then 1.0 / prop else 1.0}
+)
+
+composite Gillespie[k :: Float = 1.0, a0 :: Float = 5.0]
+  ->{a :: Float @ a, b :: Float @ b}
+(
+  a: a0 |
+  b: 0.0 |
+  clock: 0.2 |
+  GillespieEvent[k: k] ~{a: a, b: b, interval: clock} ->{a: a, b: b} |
+  GillespieInterval[k: k] ~{a: a} ->{interval: clock}
+)
