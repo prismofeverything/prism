@@ -546,23 +546,23 @@ impl Engine {
                             instances,
                         );
                     }
-                    // Also check state keys not in schema (might have _type annotations)
-                    for (key, child_state) in map {
-                        if !branches.contains_key(key) && !key.starts_with('_') {
-                            let mut child_path = path.to_vec();
-                            child_path.push(key.clone());
-                            let inferred = Schema::infer(child_state);
-                            Self::extract_processes(
-                                &inferred,
-                                child_state,
-                                &child_path,
-                                protocols,
-                                registry,
-                                specs,
-                                instances,
-                            );
-                        }
-                    }
+                    // Schema-first discovery (#28): every process node is declared
+                    // as a Link in the schema (chrysalis emits Links; the engine
+                    // reconciles them from instances at `add_process`). So a state
+                    // key the schema didn't declare is NOT a process — the old
+                    // infer-and-address-scan fallback is retired. Fail loudly if a
+                    // producer left a process node (a map with `address`) undeclared.
+                    debug_assert!(
+                        !map.iter().any(|(key, child)| {
+                            !branches.contains_key(key)
+                                && !key.starts_with('_')
+                                && child.as_map().is_some_and(|m| m.contains_key("address"))
+                        }),
+                        "extract_processes: a state key carries an `address` but the \
+                         schema didn't declare it as a Link — its producer must \
+                         declare a Link (schema-first discovery; address scan \
+                         retired). See #28."
+                    );
                 }
             }
             Schema::Map { value } => {
@@ -1396,7 +1396,10 @@ impl Engine {
     /// any ancestor is a `Map`/`Array`/`Link`/leaf (governed by its value schema).
     fn is_stampable_node_path(schema: &Schema, path: &[Key]) -> bool {
         match path.split_first() {
-            None => matches!(schema, Schema::Any | Schema::Tree { .. }),
+            None => matches!(
+                schema,
+                Schema::Any | Schema::Tree { .. } | Schema::Link { .. }
+            ),
             Some((head, rest)) => match schema {
                 Schema::Tree { branches } => match branches.get(head) {
                     Some(child) => Self::is_stampable_node_path(child, rest),
@@ -1589,21 +1592,21 @@ impl Engine {
                     }
                 }
 
-                // Check schema first — if it declares any link variant, this
-                // is a process node.
-                let child_schema = self.schema.schema_at_path(&child_path);
-                let is_link = child_schema.is_link_kind();
-                if is_link {}
-
-                // Fall back to address-scanning when schema is Any
-                let has_address = !is_link
-                    && child_map
-                        .get("address")
-                        .map(|a| a.as_map().is_some() || a.as_str().is_some())
-                        .unwrap_or(false);
-
+                // Schema-FIRST discovery (#28): a process node is one the SCHEMA
+                // declares as a Link (chrysalis emits Links; the engine reconciles
+                // them from instances at `add_process`). Step A+B make every STATIC
+                // node a declared Link, so `is_link` carries the find. The `address`
+                // path remains ONLY for DYNAMIC entities created at runtime inside a
+                // `Map[…]` collection (e.g. grow/divide's `cells`): the declared
+                // `Map` collapses to a concrete `Tree` once `infer` sees its keys, so
+                // the entity isn't typed as a Link — it's found by `address`. Fully
+                // schema-first dynamic discovery (keep Maps as Maps + per-entity
+                // Links + match/divide on `CompositeLink`) is the dynamic-structure
+                // schema, task #9.
+                let is_link = self.schema.schema_at_path(&child_path).is_link_kind();
+                let has_address = child_map.contains_key("address");
                 if !is_link && !has_address {
-                    // Not a process — recurse into children
+                    // Not a process node — recurse to find nested links.
                     self.scan_for_processes(child_map, &child_path, registry, results);
                     continue;
                 }

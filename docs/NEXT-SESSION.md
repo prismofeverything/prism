@@ -1,5 +1,67 @@
 # Next session — launch prompt & plan
 
+## ⏯️ NEXT-SESSION PROMPT (2026-05-24 part 2)
+
+> Continue prism (Rust process-bigraphs + the `.ys` language). Workspace is green
+> (530/0); read this section + the task list first. The thread I most want back is
+> **real parallelism (#27)** — the original goal that got pushed down the stack.
+> Steps 1–2 are done (the engine runs invoke→Defer→flush→collect; `ParallelPool` +
+> blocking `Defer::slot`; pool wall-clock test green). Pick up at **step 2.5**:
+> register the pool as a `ProtocolRuntime` (add `Protocol::runtime()`), add an
+> engine-level wall-clock integration test (build via `Topology`/instances, NOT
+> `Schema::Any`), then **step 3** (`rest`/`stream` concurrent dispatch) and **step
+> 4** (batched `ray`). See `docs/execution-model.md`.
+>
+> Also fresh + ready: `docs/cells-and-division.md` — cells-as-composites +
+> boundary-respecting, distributable division-through-reaction (#9); implement §6 in
+> order (the **division-over-`stream`** test is the boundary proof — top priority).
+> And #28 (Schema::Any: static done, cells part = #9), #29 (core unification, before
+> perf #20). Keep the composite-boundary principle front of mind (memory
+> `feedback_composite_boundary`): a composite may be remote; never reach into its
+> internals; all I/O via the bridge. Start with #27 unless I say otherwise.
+
+## This session (2026-05-24 part 2 — parallelism + extern + schema-threading + cells/division design)
+
+Started as "real parallelism (#27)"; the no-half-measures/dogfooding loop pulled in
+extern retirement, `Schema::Any` threading, and a foundational cells/division
+redesign. **Workspace green: 530/0.** Changes uncommitted (user commits).
+
+- **#27 real parallelism — steps 1+2 DONE (resume here).** Engine runs
+  invoke→Defer→flush→collect (`ProcessFront.pending: Option<Defer<Update>>`; invoke
+  pass calls `p.invoke()`; `flush_protocol_runtimes()` between invoke+collect;
+  collect resolves `.get()` — byte-identical for local `Defer::immediate`).
+  `Defer::slot()` → blocking one-shot (`sync_channel`; dead `Slot` variant removed).
+  `ParallelPool` (shared worker pool + `flush_pending` barrier) + `ParallelProcess`
+  (`invoke` enqueues → slot-`Defer`); pool wall-clock test green (4×50ms < 150ms).
+  REMAINING: step 2.5 register pool as a `ProtocolRuntime` (`Protocol::runtime()`);
+  engine-level wall-clock test (build via `Topology`/instances); step 3 rest/stream
+  concurrent; step 4 batched ray. (`engine.rs`, `defer.rs`,
+  `protocols/parallel.rs`, `protocol_runtime.rs`; `docs/execution-model.md`.)
+- **#14 extern — FULLY RETIRED.** Removed from grammar/AST/parse/eval/compile/
+  check/unparse/repl; `dish.ys` → `from diffusion import DiffusionAdvection`
+  (`sf_modules` already exports it); converted parse_import/chrysalis_port/
+  composite_process/parse_contract.
+- **#28 Schema::Any — STATIC schema-first DONE.** chrysalis `branch_schema` emits a
+  base `Link` MARKER for native controls (no compile-time `Any`); the engine stamps
+  each node's REAL Link from its INSTANCE into `self.schema` at `add_process`
+  (`stamp_instance_link` / `is_stampable_node_path`); cycle detection in chrysalis
+  lowering (`composite_link` + `building` stack); `extract_processes` infer-keys
+  deleted; `scan_for_processes` schema-first-primary (address fallback only for
+  dynamic/homoiconic). Test `native_node_found_by_address_…`. Dynamic (cells) → #9.
+- **#9 cells & division — DESIGN WRITTEN: `docs/cells-and-division.md`.** A cell is
+  just a composite that EXPORTS its `mass` across the bridge (`cells.N.mass`,
+  populated from the bridge — the matchable/divisible face). Division-through-a-
+  reaction is a STRUCTURAL BRIDGE UPDATE the composite emits itself
+  (`{cells:{_remove:[self], _add:{daughters}}}` out `->{environment}`), carried by
+  invoke→Defer over ANY protocol — no division-specific code; `stream` is the
+  boundary-proof test. `divide_by_schema(inner_schema)` runs INSIDE the composite.
+  Implement §6 in order. (Memory `feedback_composite_boundary`.) The cells-as-
+  `CompositeLink` attempt bounced on the homoiconic representation → became this
+  design; cells currently reverted to the instance schema (green).
+- **#29 core unification** created — collapse `composite_instance_schema` vs the
+  `CompositeLink`, the address scan, the two discovery walks, the ~150 remaining
+  `Schema::Any` — gated before the perf sweep (#20).
+
 ## Where we are (2026-05-24 — spatio-flux-report-as-.ys + delta-motion + .ys-modules)
 
 The **full-circle challenge landed: the entire spatio-flux report is regenerable

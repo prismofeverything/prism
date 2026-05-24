@@ -471,11 +471,18 @@ pub fn divide_by_schema(
         }
         Schema::Tuple { elements } => divide_tuple(elements, state, ctx, registry, n),
 
-        // ── Process / composite: share the spec; daughters re-realize ──
-        Schema::Link { .. }
-        | Schema::ProcessLink { .. }
-        | Schema::StepLink { .. }
-        | Schema::CompositeLink { .. } => share(state, n),
+        // ── Composite node: a cell IS divisible — split its exported data
+        //    fields (extensive `Delta`/`Integer` split, intensive `Float` share)
+        //    and share the rest (the subengine body + spec) so daughters
+        //    re-realize. Folds the composite's divide into the core (was
+        //    chrysalis's instance schema + a separate divide method).
+        Schema::CompositeLink { .. } => {
+            divide_named(&schema.composite_data_branches(), state, ctx, registry, n)
+        }
+        // ── Process / step node: share the spec; daughters re-realize ──
+        Schema::Link { .. } | Schema::ProcessLink { .. } | Schema::StepLink { .. } => {
+            share(state, n)
+        }
 
         // ── Rich type: dispatch through the registry ──
         Schema::Custom { name, .. } => registry.type_divide(name, state, ctx),

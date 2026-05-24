@@ -800,6 +800,30 @@ impl Schema {
     /// The apply op's core (dispatch on sort). **Module-private**: external
     /// crates call [`crate::algebra::apply`] — the single public door — so the
     /// apply surface stays inside the algebra.
+    /// For a `CompositeLink`, the divisible/applicable DATA fields it exports —
+    /// its scalar output ports (`Float`/`Delta`/`Integer`), keyed by port name.
+    /// These are the fields a composite instance (e.g. a cell) carries in its
+    /// state: extensive `Delta`/`Integer` split on divide + apply additively;
+    /// intensive `Float` shares; the subengine body + spec pass through. Folds
+    /// chrysalis's `composite_instance_schema` into the core so `apply`/`divide`
+    /// handle a `CompositeLink` directly (a composite IS data-bearing + divisible).
+    /// Empty for non-composite schemas.
+    pub(crate) fn composite_data_branches(&self) -> IndexMap<Key, Schema> {
+        match self {
+            Schema::CompositeLink { outputs, .. } => outputs
+                .iter()
+                .filter(|(_, s)| {
+                    matches!(
+                        s,
+                        Schema::Float { .. } | Schema::Delta { .. } | Schema::Integer { .. }
+                    )
+                })
+                .map(|(k, s)| (k.clone(), s.clone()))
+                .collect(),
+            _ => IndexMap::new(),
+        }
+    }
+
     pub(crate) fn apply_update(&self, current: &Value, update: &Value) -> Value {
         match self {
             // Const: immutable — apply is a no-op, current value preserved.
@@ -977,11 +1001,22 @@ impl Schema {
                 }
             }
 
-            // Link: not a data type — replace entirely if updated
-            Self::Link { .. }
-            | Self::StepLink { .. }
-            | Self::ProcessLink { .. }
-            | Self::CompositeLink { .. } => update.clone(),
+            // CompositeLink: a composite NODE carries data state (a cell's
+            // exported scalar fields). Apply STRUCTURALLY over those fields
+            // (extensive `Delta` additive, etc.) rather than blind-replace, so a
+            // bridged delta (e.g. `{mass: +Δ}`) composes; the subengine body +
+            // non-data keys pass through. Folds the composite's data handling
+            // into the core (was chrysalis's instance schema).
+            Self::CompositeLink { .. } => Schema::Tree {
+                branches: self.composite_data_branches(),
+            }
+            .apply_update(current, update),
+
+            // Link / ProcessLink / StepLink: process NODE specs (no data state) —
+            // replaced wholesale if updated.
+            Self::Link { .. } | Self::StepLink { .. } | Self::ProcessLink { .. } => {
+                update.clone()
+            }
 
             // Bridge: wiring data, replaced wholesale on update.
             Self::Bridge { .. } => update.clone(),

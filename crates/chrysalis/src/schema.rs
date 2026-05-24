@@ -40,26 +40,45 @@ use crate::ast::{CompositeDef, ContractRef, Def, Expr, PortDecl, Program, Schema
 ///   - a process / step → its [`Schema::ProcessLink`] / [`Schema::StepLink`].
 /// Genuine data types (no matching definer) stay [`Schema::Custom`].
 pub fn lower_schema_in_program(s: &SchemaExpr, program: &Program) -> Schema {
+    lower_in_prog(s, program, &mut Vec::new())
+}
+
+/// [`lower_schema_in_program`] threading a `building` stack of composites
+/// currently being expanded — so a composite reference builds its REAL inner
+/// schema, with only a back-edge to an ancestor composite (e.g. `Cell`'s
+/// `environment` → the enclosing `Environment`) marked, never looping. (#9.)
+fn lower_in_prog(s: &SchemaExpr, program: &Program, building: &mut Vec<crate::ast::Name>) -> Schema {
     match s {
         SchemaExpr::Map(inner) => Schema::Map {
-            value: Box::new(lower_schema_in_program(inner, program)),
+            value: Box::new(lower_in_prog(inner, program, building)),
         },
         SchemaExpr::List(inner) => Schema::List {
-            element: Box::new(lower_schema_in_program(inner, program)),
+            element: Box::new(lower_in_prog(inner, program, building)),
         },
         SchemaExpr::Record(fields) => Schema::Tree {
             branches: fields
                 .iter()
-                .map(|(k, v)| (Key::from(k.as_str()), lower_schema_in_program(v, program)))
+                .map(|(k, v)| (Key::from(k.as_str()), lower_in_prog(v, program, building)))
                 .collect(),
         },
         SchemaExpr::Array { shape, element } => Schema::Array {
             shape: shape.clone(),
-            element: Box::new(lower_schema_in_program(element, program)),
+            element: Box::new(lower_in_prog(element, program, building)),
         },
         SchemaExpr::Custom { name, .. } => match program.lookup(name) {
+            // A composite as a map ELEMENT (e.g. `cells: map[Cell]`) → its INSTANCE
+            // schema (the exported scalar fields), which apply/divide/match handle.
+            // NOT a Link: a cell in a Map is found by the address scan, which
+            // RECURSES into the container to discover the body subengine. Making it
+            // a CompositeLink (schema-first) is blocked by the HOMOICONIC
+            // container/body representation — the container `{_type, mass, body}`
+            // has no `address`, so `is_link` would make discovery try to
+            // instantiate the container (skip) instead of recursing to find the
+            // body's `grow`. Reworking cells into addressed process nodes is the
+            // dynamic-structure rework, task #9. (`building` is still threaded for
+            // the def_schema path → cycle-safe composite inner.)
             Some(Def::Composite(c)) => composite_instance_schema(c),
-            Some(d @ (Def::Process(_) | Def::Step(_))) => def_schema(d, program),
+            Some(d @ (Def::Process(_) | Def::Step(_))) => def_schema_in(d, program, building),
             // Genuine data type (or unknown) → the opaque-but-dispatchable form.
             _ => lower_schema(s),
         },
@@ -188,6 +207,10 @@ fn port_schemas(ports: &IndexMap<crate::ast::Name, PortDecl>) -> IndexMap<Key, S
 
 /// The link schema for a definition as it sits in the state tree.
 pub fn def_schema(def: &Def, program: &Program) -> Schema {
+    def_schema_in(def, program, &mut Vec::new())
+}
+
+fn def_schema_in(def: &Def, program: &Program, building: &mut Vec<crate::ast::Name>) -> Schema {
     match def {
         Def::Process(p) => Schema::ProcessLink {
             inputs: port_schemas(&p.interface.inputs),
@@ -199,13 +222,38 @@ pub fn def_schema(def: &Def, program: &Program) -> Schema {
             outputs: port_schemas(&s.interface.outputs),
             priority: 0.0,
         },
-        Def::Composite(c) => Schema::CompositeLink {
-            inputs: port_schemas(&c.interface.inputs),
-            outputs: port_schemas(&c.interface.outputs),
-            interval: 1.0,
-            inner_schema: Box::new(composite_inner_schema(c, program)),
-        },
+        Def::Composite(c) => composite_link(c, program, building),
         _ => Schema::Any,
+    }
+}
+
+/// A composite's `CompositeLink` (interface + inner-state schema), with CYCLE
+/// DETECTION: if `c` is already being built (a back-edge to an ancestor
+/// composite — e.g. `Environment[cells: map[Cell]]` ↔ `Cell`'s `environment`),
+/// emit the interface with an EMPTY inner instead of recursing (which would
+/// loop forever). Forward edges build the real inner. (#9 — the dynamic-
+/// structure schema that lets a cell in a Map be discovered schema-first with a
+/// working subengine body.)
+fn composite_link(
+    c: &CompositeDef,
+    program: &Program,
+    building: &mut Vec<crate::ast::Name>,
+) -> Schema {
+    let inner = if building.contains(&c.name) {
+        Schema::Tree {
+            branches: IndexMap::new(),
+        }
+    } else {
+        building.push(c.name.clone());
+        let inner = composite_inner_in(c, program, building);
+        building.pop();
+        inner
+    };
+    Schema::CompositeLink {
+        inputs: port_schemas(&c.interface.inputs),
+        outputs: port_schemas(&c.interface.outputs),
+        interval: 1.0,
+        inner_schema: Box::new(inner),
     }
 }
 
@@ -214,13 +262,24 @@ pub fn def_schema(def: &Def, program: &Program) -> Schema {
 /// output ports; sub-process / sub-composite slots get their link
 /// schema.
 pub fn composite_inner_schema(def: &CompositeDef, program: &Program) -> Schema {
+    // Seed the `building` stack with this composite so a self/back reference in
+    // the body doesn't loop (see [`composite_link`]).
+    let mut building = vec![def.name.clone()];
+    composite_inner_in(def, program, &mut building)
+}
+
+fn composite_inner_in(
+    def: &CompositeDef,
+    program: &Program,
+    building: &mut Vec<crate::ast::Name>,
+) -> Schema {
     // Slot types we can resolve by name: config params + declared ports.
-    // Program-aware so a `custom(CompositeName)` param (e.g.
-    // `cells: map[Cell]`) expands to the composite's instance schema rather
-    // than an opaque `Custom` — see [`lower_schema_in_program`].
+    // Program-aware so a `custom(CompositeName)` param (e.g. `cells: map[Cell]`)
+    // expands to the composite's CompositeLink (cycle-broken) — see
+    // [`lower_in_prog`] / [`composite_link`].
     let mut known: IndexMap<String, Schema> = IndexMap::new();
     for p in &def.params {
-        known.insert(p.name.clone(), lower_schema_in_program(&p.schema, program));
+        known.insert(p.name.clone(), lower_in_prog(&p.schema, program, building));
     }
     for (n, d) in def
         .interface
@@ -228,13 +287,14 @@ pub fn composite_inner_schema(def: &CompositeDef, program: &Program) -> Schema {
         .iter()
         .chain(def.interface.outputs.iter())
     {
-        known
-            .entry(n.clone())
-            .or_insert_with(|| lower_schema_in_program(&d.schema, program));
+        if !known.contains_key(n) {
+            let ty = lower_in_prog(&d.schema, program, building);
+            known.insert(n.clone(), ty);
+        }
     }
 
     let mut branches: IndexMap<Key, Schema> = IndexMap::new();
-    collect_branches(&def.body, program, &known, &mut branches);
+    collect_branches(&def.body, program, &known, building, &mut branches);
     // The interface PORTS are inner-state slots too — the body's wires read/write
     // them — typed by their declarations, at their bridge paths. The body's keyed
     // nodes alone MISS them (a port isn't a keyed entry), which left a composite
@@ -247,7 +307,7 @@ pub fn composite_inner_schema(def: &CompositeDef, program: &Program) -> Schema {
         .iter()
         .chain(def.interface.outputs.iter())
     {
-        let ty = lower_schema_in_program(&d.schema, program);
+        let ty = lower_in_prog(&d.schema, program, building);
         let path = d.bridge.clone().unwrap_or_else(|| vec![n.clone()]);
         insert_at_path(&mut branches, &path, ty);
     }
@@ -277,17 +337,21 @@ fn collect_branches(
     e: &Expr,
     program: &Program,
     known: &IndexMap<String, Schema>,
+    building: &mut Vec<crate::ast::Name>,
     out: &mut IndexMap<Key, Schema>,
 ) {
     match e {
         Expr::Parallel(items) => {
             for i in items {
-                collect_branches(i, program, known, out);
+                collect_branches(i, program, known, building, out);
             }
         }
         Expr::KeyedEntry { key, value } => {
             if let Some(k) = key.as_plain() {
-                out.insert(Key::from(k.as_str()), branch_schema(value, program, known));
+                out.insert(
+                    Key::from(k.as_str()),
+                    branch_schema(value, program, known, building),
+                );
             }
         }
         _ => {}
@@ -295,14 +359,44 @@ fn collect_branches(
 }
 
 /// Schema of a single body-entry value.
-fn branch_schema(e: &Expr, program: &Program, known: &IndexMap<String, Schema>) -> Schema {
+fn branch_schema(
+    e: &Expr,
+    program: &Program,
+    known: &IndexMap<String, Schema>,
+    building: &mut Vec<crate::ast::Name>,
+) -> Schema {
     match e {
         // A sub-term whose control names a definer → its link schema.
-        Expr::Term { control, .. } => match program.lookup(control) {
+        Expr::Term { control, ports, .. } => match program.lookup(control) {
             Some(d @ (Def::Process(_) | Def::Step(_) | Def::Composite(_))) => {
-                def_schema(d, program)
+                def_schema_in(d, program, building)
             }
-            _ => Schema::Any, // built-ins (BRS), plain ions, etc.
+            // A native process control (no user def) with a `~{}->{}` interface →
+            // a kind-agnostic base `Link` MARKER, so the engine sees a process
+            // node (schema-first discovery) rather than an opaque `Any`. Port
+            // types are best-effort from the wired slots (`known`); the engine
+            // reconciles the precise `ProcessLink`/`StepLink` + real port types
+            // from the instance at init (the schema-as-state reconcile).
+            _ if !ports.outputs.is_empty() || !ports.inputs.is_empty() => {
+                let keyed = |binds: &IndexMap<crate::ast::Name, Expr>| -> IndexMap<Key, Schema> {
+                    binds
+                        .iter()
+                        .map(|(n, w)| {
+                            let ty = match w {
+                                Expr::Var(v) => known.get(v).cloned().unwrap_or(Schema::Any),
+                                _ => Schema::Any,
+                            };
+                            (Key::from(n.as_str()), ty)
+                        })
+                        .collect()
+                };
+                Schema::Link {
+                    inputs: keyed(&ports.inputs),
+                    outputs: keyed(&ports.outputs),
+                    temporal: None,
+                }
+            }
+            _ => Schema::Any, // genuine data (a plain ion / value node)
         },
         // A bare reference (`mass: mass`) → the param/port's schema.
         Expr::Var(n) => known.get(n).cloned().unwrap_or(Schema::Any),
@@ -417,8 +511,9 @@ mod tests {
             Some(Schema::Map { value }) => {
                 assert!(
                     matches!(value.as_ref(), Schema::Tree { .. }),
-                    "cells element should be the composite instance schema (a Tree), \
-                     not an opaque Custom; got {value:?}"
+                    "cells element should be the composite instance schema (a Tree); \
+                     schema-first cells (a CompositeLink) is blocked by the homoiconic \
+                     container/body representation — task #9; got {value:?}"
                 );
             }
             other => panic!("cells should be a Map, got {other:?}"),
