@@ -226,7 +226,19 @@ construction (a partial record/term gets its missing fields from the schema's
 `default`); defaults through composite config / contract pins / the REPL; a
 value-method to ask a schema for its default. Where a default exists, missing →
 filled (not an error; coordinate with diagnostics #16 for genuinely-required
-fields). The op is ported — this surfaces it through parse→eval→compile. *Medium.*
+fields). The op is ported — this surfaces it through parse→eval→compile.
+**INCLUDE the process `interval` wire default** (noted 2026-05-24): a process's
+`interval` is an automatic wire to `%.interval` (its own local interval slot) —
+inconsistent with other same-name auto-wires (which bind to the enclosing scope).
+Make it an *explicit, overridable* default in the process schema (`interval`
+defaults to `%.interval`), so a process can instead wire its interval to a
+**shared clock** driving many processes at once. This rides the **dynamic-timestep
+engine mechanism shipped 2026-05-24**: the scheduler re-reads `[name, "interval"]`
+from state each tick (a step can rewrite it — a Gillespie τ), and nested
+`Overwrite` outputs are now honored in `apply_reconciled` (the per-port schema is
+nested back into the store, not dropped). Proven by the `MinimalGillespie` port in
+`crates/prism-bigraph/tests/gillespie.rs` (event Process + interval Step → the
+engine schedules by the dynamic τ = 1/(k·a)). *Medium.*
 
 ✍️ **#22 — enforce `::`=type / `:`=value / `fulfills`-contract** (decided
 2026-05-23; chrysalis-design.md resolved decision #22). `::` ascribes a TYPE

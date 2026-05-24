@@ -110,7 +110,7 @@ fn pipe_round_trip_drives_b_from_a_over_arrow() {
     // B: driven by A's trace, echoes n→out each tick.
     let b = chrysalis::parse::parse_program(ECHO).expect("parse B");
     let b_trace =
-        invoke_driven(&b, std_registry(), std_methods(), std_modules(), &args(&[]), &b_input, 1.0)
+        invoke_driven(&b, std_registry(), std_methods(), std_modules(), &args(&[]), &b_input)
             .expect("B driven");
 
     let outs: Vec<f64> =
@@ -127,8 +127,46 @@ fn mismatched_input_stream_is_rejected_at_connect() {
     // A trace of bare Floats cannot drive a composite wanting ~{n :: Float}.
     let bad = prism_trace::trace_of("bad", &Schema::float(), vec![(0.0, Value::float(1.0))]);
     let b = chrysalis::parse::parse_program(ECHO).expect("parse");
-    let err = invoke_driven(&b, std_registry(), std_methods(), std_modules(), &args(&[]), &bad, 1.0)
+    let err = invoke_driven(&b, std_registry(), std_methods(), std_modules(), &args(&[]), &bad)
         .expect_err("a non-refining input stream should be rejected");
     let msg = err.to_string().to_lowercase();
     assert!(msg.contains("refine") || msg.contains("input"), "clear connect-time error; got: {err}");
+}
+
+// An accumulator: `Bump` adds 1.0 to `total` every interval (1.0), so `total`
+// tracks cumulative *sim time* — making it sensitive to the per-step dt.
+const ACC: &str = "\
+process Bump ~{total :: Float} ->{total :: Float} ( {total: 1.0} )
+
+composite Acc ~{tick :: Float @ marker} ->{total :: Float @ total} (
+  total: 0.0 |
+  marker: 0.0 |
+  Bump ~{total: total} ->{total: total}
+)
+";
+
+#[test]
+fn driven_advances_by_irregular_frame_times() {
+    // An input trace with IRREGULAR times (gaps 2, then 3). Because the consumer
+    // advances by each frame's actual time-delta, `total` = cumulative sim time:
+    // [0, 0+2, 2+3] = [0, 2, 5] — NOT [0,1,2] as a fixed dt=1 would give.
+    let elem = Schema::Tree {
+        branches: [(prism_schema::Key::from("tick"), Schema::float())].into_iter().collect(),
+    };
+    let rec = |t: f64| Value::tree([("tick", Value::float(t))]);
+    let input = prism_trace::trace_of(
+        "drive",
+        &elem,
+        vec![(0.0, rec(0.0)), (2.0, rec(0.0)), (5.0, rec(0.0))],
+    );
+
+    let acc = chrysalis::parse::parse_program(ACC).expect("parse acc");
+    let out = invoke_driven(&acc, std_registry(), std_methods(), std_modules(), &args(&[]), &input)
+        .expect("driven");
+
+    let totals: Vec<f64> = prism_trace::frames(&out)
+        .iter()
+        .map(|f| f.get_field("total").and_then(|v| v.as_f64()).unwrap_or(f64::NAN))
+        .collect();
+    assert_eq!(totals, vec![0.0, 2.0, 5.0], "the consumer advances by each frame's real dt");
 }

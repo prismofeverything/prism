@@ -17,6 +17,26 @@ use crate::core::Core;
 use crate::factory::ProcessRegistry;
 use crate::step_cache::StepCache;
 
+/// Nest `leaf` at `path` inside `schema`, growing `Tree` branches as needed (an
+/// empty `path` sets the whole node to `leaf`). Used by `apply_reconciled` to
+/// reassemble a top-level store's schema from its per-port (possibly nested)
+/// writer schemas, so a nested `Overwrite` output is honored.
+fn insert_nested(schema: &mut Schema, path: &[Key], leaf: Schema) {
+    if path.is_empty() {
+        *schema = leaf;
+        return;
+    }
+    if !matches!(schema, Schema::Tree { .. }) {
+        *schema = Schema::Tree { branches: IndexMap::new() };
+    }
+    if let Schema::Tree { branches } = schema {
+        let child = branches
+            .entry(path[0].clone())
+            .or_insert_with(|| Schema::Tree { branches: IndexMap::new() });
+        insert_nested(child, &path[1..], leaf);
+    }
+}
+
 /// The process class named by an address. A `local` address carries the class as
 /// a bare string (`local:Cell` → `"Cell"`); a remote address (`rest`/`parallel`)
 /// carries a map whose `process` field is the class (`{process: Cell, host, …}`).
@@ -820,10 +840,20 @@ impl Engine {
         // 1. invoke pass — all reads against the pre-step snapshot.
         let mut full_step = f64::INFINITY;
         for name in &names {
-            let (process_time, interval) = match self.fronts.get(name) {
+            let (process_time, front_interval) = match self.fronts.get(name) {
                 Some(f) => (f.next_time, f.interval),
                 None => continue,
             };
+            // The timestep is STATE: a step can overwrite `[name, "interval"]`
+            // (e.g. a Gillespie τ), so the engine re-reads it each tick — a
+            // process always runs its CURRENT local interval. Falls back to the
+            // front's (construction-time) value when absent or non-positive.
+            let interval = self
+                .state
+                .get_path(&[Key::from(name.as_str()), Key::from("interval")])
+                .and_then(Value::as_f64)
+                .filter(|dt| dt.is_finite() && *dt > 0.0)
+                .unwrap_or(front_interval);
             if process_time <= self.time {
                 let future = process_time + interval;
                 full_step = full_step.min(future - self.time);
@@ -929,14 +959,23 @@ impl Engine {
         // Apply the combined update one top-level store at a time (each subtree
         // carries its own nested `_add`/`_remove`), carrying the writer's port
         // schema so `apply` promotes the slot's additive type (law #5).
+        // Reassemble each top-level store's schema by NESTING every writer's port
+        // schema at its full path — so a nested `Overwrite` (e.g.
+        // `[event, "interval"]`, a Gillespie τ) is honored, not just top-level
+        // slots. (Previously the schema was looked up by the top-level key alone,
+        // silently dropping nested ones → nested overwrites fell back to additive.)
+        let mut store_schemas: HashMap<Key, Schema> = HashMap::new();
+        for (full_path, leaf) in &port_schema {
+            let Some(top) = full_path.first() else { continue };
+            let entry = store_schemas
+                .entry(top.clone())
+                .or_insert_with(|| Schema::Tree { branches: IndexMap::new() });
+            insert_nested(entry, &full_path[1..], leaf.clone());
+        }
         let projections: Vec<(Path, Value, Option<Schema>)> = match combined.as_map() {
             Some(m) => m
                 .iter()
-                .map(|(k, v)| {
-                    let path = vec![k.clone()];
-                    let sch = port_schema.get(&path).cloned();
-                    (path, v.clone(), sch)
-                })
+                .map(|(k, v)| (vec![k.clone()], v.clone(), store_schemas.get(k).cloned()))
                 .collect(),
             None => return (Vec::new(), false),
         };

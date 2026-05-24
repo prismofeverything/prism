@@ -13,7 +13,7 @@ use prism_schema::MethodRegistry;
 use crate::ast::Def;
 use crate::compile::ModuleRegistry;
 use crate::parse::parse_file;
-use crate::runner::{invoke, invoke_driven, invoke_trace, run};
+use crate::runner::{invoke, invoke_driven, invoke_trace, run, serve_stream};
 
 /// `run <file.ys> [--time T] [--<port> SOURCE ...] [--in TRACE] [--out FILE]
 /// [--trace [--sample-dt DT]]` over the given packages. Returns a process exit
@@ -35,6 +35,7 @@ pub fn run_command(
     let mut out: Option<String> = None;
     let mut input: Option<String> = None;
     let mut trace = false;
+    let mut serve = false;
     let mut sample_dt = 1.0_f64;
     let mut inputs: BTreeMap<String, String> = BTreeMap::new();
     let mut i = 0;
@@ -53,6 +54,7 @@ pub fn run_command(
                 input = args.get(i).cloned();
             }
             "--trace" => trace = true,
+            "--serve-stream" => serve = true,
             "--sample-dt" => {
                 i += 1;
                 sample_dt = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(sample_dt);
@@ -66,7 +68,7 @@ pub fn run_command(
         i += 1;
     }
     let Some(path) = path else {
-        eprintln!("usage: run <file.ys> [--time T] [--<port> SOURCE ...] [--in TRACE] [--out FILE] [--trace [--sample-dt DT]]");
+        eprintln!("usage: run <file.ys> [--time T] [--<port> SOURCE ...] [--in TRACE | --serve-stream] [--out FILE] [--trace [--sample-dt DT]]");
         return 2;
     };
     let prog = match parse_file(&path) {
@@ -81,6 +83,26 @@ pub fn run_command(
     let invokes =
         matches!(prog.entry(), Some(Def::Composite(_))) && prog.lookup("main").is_none();
     if invokes {
+        // Live streaming filter (`--serve-stream`): the `stream:` protocol's child
+        // side — read input frames from stdin, emit output frames to stdout.
+        if serve {
+            return match serve_stream(
+                &prog,
+                registry,
+                methods,
+                modules,
+                &inputs,
+                std::io::stdin().lock(),
+                std::io::stdout().lock(),
+            ) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("serve-stream {path}: {e}");
+                    1
+                }
+            };
+        }
+
         // Driven (input→trace): `--in` feeds an Arrow trace into the inputs.
         if let Some(src) = input {
             let bytes = match read_input_bytes(&src) {
@@ -98,7 +120,7 @@ pub fn run_command(
                 }
             };
             let out_trace = match invoke_driven(
-                &prog, registry, methods, modules, &inputs, &in_trace, sample_dt,
+                &prog, registry, methods, modules, &inputs, &in_trace,
             ) {
                 Ok(t) => t,
                 Err(e) => {

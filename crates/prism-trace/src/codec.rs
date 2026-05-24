@@ -177,6 +177,13 @@ impl<W: Write> TraceWriter<W> {
         Ok(())
     }
 
+    /// Flush the underlying writer — call after each [`push`](Self::push) so a
+    /// lock-step consumer (a pipe) receives the frame immediately.
+    pub fn flush(&mut self) -> Result<(), CodecError> {
+        self.inner.flush()?;
+        Ok(())
+    }
+
     /// Flush the IPC end-of-stream marker.
     pub fn finish(mut self) -> Result<(), CodecError> {
         self.inner.finish()?;

@@ -260,7 +260,6 @@ pub fn invoke_driven(
     modules: ModuleRegistry,
     args: &BTreeMap<String, String>,
     input_trace: &Value,
-    sample_dt: f64,
 ) -> Result<Value, RunError> {
     let entry = resolve_entry(program)?;
 
@@ -288,25 +287,136 @@ pub fn invoke_driven(
     let (mut engine, entry) = engine_for(program, registry, methods, modules, &seed)?;
     let element = output_schema(&entry, program);
 
-    // Drive: inject each input frame at its bridge path, advance, capture output.
+    // Drive: advance by each frame's actual time-delta (dynamic dt — the input
+    // trace's `times` ARE the schedule, so the inner process sees the real
+    // per-step interval; the first frame is the t=0 seed). Same per-step body as
+    // the streaming filter.
+    let in_times = prism_trace::times(input_trace);
     let mut out_samples: Vec<(f64, Value)> = Vec::with_capacity(in_frames.len());
+    let mut prev_t = in_times.first().copied().unwrap_or(0.0);
     for (k, frame) in in_frames.iter().enumerate() {
-        let mut changed: Vec<Vec<Key>> = Vec::new();
-        for (name, port) in &entry.interface.inputs {
-            if let Some(v) = frame.get_field(name) {
-                let path = output_path(name, port);
-                let schema = lower_schema_in_program(&port.schema, program);
-                engine.state_mut().set_path(&path, algebra::realize(&schema, v));
-                changed.push(path);
-            }
-        }
-        engine.queue_changes(changed); // so change-triggered steps also see the input
-        if k > 0 {
-            engine.run(sample_dt);
-        }
-        out_samples.push((k as f64 * sample_dt, output_raw(engine.state(), &entry)));
+        let t = in_times.get(k).copied().unwrap_or(prev_t);
+        let out = drive_step(&mut engine, &entry, program, frame, t - prev_t, k > 0);
+        out_samples.push((t, out));
+        prev_t = t;
     }
     Ok(prism_trace::trace_of(&entry.name, &element, out_samples))
+}
+
+/// One driven step: inject an input `frame` at the input bridge paths (queueing
+/// the changed paths so change-triggered steps fire), optionally advance the
+/// engine by `sample_dt`, and read back the output record. Shared by
+/// [`invoke_driven`] and [`serve_stream`].
+fn drive_step(
+    engine: &mut Engine,
+    entry: &CompositeDef,
+    program: &Program,
+    frame: &Value,
+    sample_dt: f64,
+    run: bool,
+) -> Value {
+    let mut changed: Vec<Vec<Key>> = Vec::new();
+    for (name, port) in &entry.interface.inputs {
+        if let Some(v) = frame.get_field(name) {
+            let path = output_path(name, port);
+            let schema = lower_schema_in_program(&port.schema, program);
+            engine.state_mut().set_path(&path, algebra::realize(&schema, v));
+            changed.push(path);
+        }
+    }
+    engine.queue_changes(changed);
+    if run {
+        engine.run(sample_dt);
+    }
+    output_raw(engine.state(), entry)
+}
+
+/// **Streaming filter** (decision #24 — the `stream:` protocol's child side): run
+/// the entry composite as a *live* `Trace[In] → Trace[Out]` filter. Read input
+/// frames from `input` (an Arrow trace stream), step one tick per frame, and emit
+/// the output frame to `output` as a delta-log (first output absolute, the rest
+/// diffs), flushing each (lock-step). Unbounded — runs until `input` hits EOF.
+/// The connect-time `refines` check uses the stream header. This is what
+/// `chrysalis run f.ys --serve-stream` runs, and what a parent `stream:` process
+/// drives over OS pipes — proxying the program as a process.
+pub fn serve_stream(
+    program: &Program,
+    registry: ProcessRegistry,
+    methods: MethodRegistry,
+    modules: ModuleRegistry,
+    args: &BTreeMap<String, String>,
+    input: impl std::io::Read,
+    output: impl std::io::Write,
+) -> Result<(), RunError> {
+    let entry = resolve_entry(program)?;
+    let mut reader = prism_trace::TraceReader::new(input)
+        .map_err(|e| RunError::Invoke(format!("open input stream: {e}")))?;
+
+    // Connect-time type check against the stream header.
+    let in_elem = value_to_schema(reader.element()).unwrap_or(Schema::Any);
+    let want = input_schema(&entry, program);
+    if !algebra::refines(&in_elem, &want) {
+        return Err(RunError::Invoke(format!(
+            "input stream does not fit this file's inputs: {in_elem:?} does not refine {want:?}"
+        )));
+    }
+
+    // Read the first frame to seed the t=0 inputs, then build the engine.
+    let first = match reader.next() {
+        Some(r) => r.map_err(|e| RunError::Invoke(format!("read frame: {e}")))?,
+        None => return Ok(()), // empty stream: nothing to filter
+    };
+    let mut seed = args.clone();
+    for (name, _) in &entry.interface.inputs {
+        if let Some(v) = first.1.get_field(name) {
+            seed.entry(name.clone()).or_insert_with(|| serde_json::to_string(v).unwrap_or_default());
+        }
+    }
+    let (mut engine, entry) = engine_for(program, registry, methods, modules, &seed)?;
+
+    let out_schema = output_schema(&entry, program);
+    let mut writer = prism_trace::TraceWriter::new(output, &entry.name, &schema_to_value(&out_schema))
+        .map_err(|e| RunError::Invoke(format!("open output stream: {e}")))?;
+
+    // Each input row is folded back into a full frame (the stream is a delta-log:
+    // first row absolute, the rest diffs — exactly `prism_trace::frames` done
+    // incrementally), stepped, then the output emitted the same way (first
+    // absolute, the rest diffs), one frame at a time (lock-step).
+    let mut pending = Some(first);
+    let mut cur_in: Option<Value> = None;
+    let mut prev_out: Option<Value> = None;
+    let mut prev_time: Option<f64> = None;
+    loop {
+        let (time, in_payload) = match pending.take() {
+            Some(f) => f,
+            None => match reader.next() {
+                Some(r) => r.map_err(|e| RunError::Invoke(format!("read frame: {e}")))?,
+                None => break,
+            },
+        };
+        let frame = match &cur_in {
+            None => in_payload.clone(),
+            Some(prev) if matches!(in_payload, Value::None) => prev.clone(),
+            Some(prev) => algebra::apply(&in_elem, prev, &in_payload),
+        };
+        cur_in = Some(frame.clone());
+
+        // Advance by this frame's time-delta (dynamic dt; the `time`s are the
+        // schedule). The first frame seeds — no advance. So the inner process
+        // sees the real per-step interval, not a fixed rate.
+        let dt = prev_time.map_or(0.0, |p| time - p);
+        let out = drive_step(&mut engine, &entry, program, &frame, dt, prev_time.is_some());
+        prev_time = Some(time);
+        let out_payload = match &prev_out {
+            None => out.clone(),
+            Some(p) => algebra::diff(&out_schema, p, &out).unwrap_or(Value::None),
+        };
+        writer.push(time, &out_payload).map_err(|e| RunError::Invoke(format!("write frame: {e}")))?;
+        writer.flush().map_err(|e| RunError::Invoke(format!("flush frame: {e}")))?;
+        prev_out = Some(out);
+    }
+    writer.finish().map_err(|e| RunError::Invoke(format!("finish stream: {e}")))?;
+    Ok(())
 }
 
 /// The carried element schema of the *input* interface: a `Tree` of the input
