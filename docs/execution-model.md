@@ -143,8 +143,13 @@ sections.
    wall-clock ≈ slowest child. Proven concurrent + correct by
    `chrysalis/tests/grow_divide_stream.rs` (16 stream cells; runtime 0.40s → 0.15s
    after the change).
-5. ⏳ **step 3 (rest) — `rest:` concurrent dispatch.** `RestProcess::update` still
-   blocks on the HTTP round-trip; mirror the stream change (fire the request in
-   `invoke`, await in the `Defer`) so `rest:` nodes also overlap.
+5. ✅ **step 3 (rest) — `rest:` concurrent dispatch.** `RestProcess::invoke` fires
+   the HTTP round-trip on its own thread and joins in the `Defer` (mirror of the
+   stream change), and `RestProcessServer` now CLONES the process handle out and
+   RELEASES the map lock before `update()` (each `ProcessNode` behind its own `Arc`)
+   — without that the server serialized concurrent updates on the shared map.
+   Proven: `prism-bigraph/tests/rest_engine.rs` (4 × 50ms remote sleeps finish in
+   one tick ≈ 50ms, not 200ms — the analog of `parallel_engine.rs`, over real HTTP);
+   correctness unchanged (`cells_division.rs` rest == local).
 6. ⏳ A batched `ray:`-style protocol (collate → one packet per shard, Form A).
 7. (Later) `tick_lifecycle` + the cluster/pool/session lifecycle.

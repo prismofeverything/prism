@@ -45,6 +45,7 @@ use prism_schema::{
     schema::{json_to_value, value_to_json},
 };
 
+use crate::defer::Defer;
 use crate::factory::ProcessRegistry;
 use crate::ports::PortSchema;
 use crate::process::{Process, ProcessNode};
@@ -160,7 +161,15 @@ impl Process for RestProcess {
     fn outputs(&self) -> PortSchema {
         self.cached_outputs.clone()
     }
-    fn update(&self, state: &Value, interval: f64) -> Update {
+    /// Non-blocking: **fire the HTTP request on its own thread now, join it in
+    /// `.get()`.** This is the seam that parallelizes `rest:` nodes (mirror of the
+    /// `stream:` concurrent dispatch). The engine's invoke pass calls `invoke` on
+    /// every due process *before* collecting any result, so all `rest:` round-trips
+    /// are in flight concurrently; the collect pass joins them. Wall-clock per tick
+    /// ≈ the slowest call, not the sum. `ureq` is synchronous, so concurrency comes
+    /// from the spawned thread (not an async future) — one blocking POST per thread.
+    fn invoke(&self, state: &Value, interval: f64) -> Defer<Update> {
+        // Build the payload EAGERLY (state is borrowed) so the thread owns it.
         let url = format!(
             "{}/process/{}/update/{}",
             self.base_url, self.process_class, self.process_id
@@ -169,26 +178,25 @@ impl Process for RestProcess {
             "state": value_to_json(state),
             "interval": interval,
         });
-        match self.agent.post(&url).send_json(body) {
-            Ok(resp) => {
-                let raw = match resp.into_json::<serde_json::Value>() {
-                    Ok(v) => v,
-                    Err(_) => return Update::Noop,
-                };
-                if raw.is_null() {
-                    return Update::Noop;
-                }
-                let update_val = json_to_value(&raw);
-                Update::value(update_val)
-            }
+        let agent = self.agent.clone(); // cheap: Arc inside
+        let label = format!("{}/{}", self.process_class, self.process_id);
+        let handle = std::thread::spawn(move || match agent.post(&url).send_json(body) {
+            Ok(resp) => match resp.into_json::<serde_json::Value>() {
+                Ok(raw) if !raw.is_null() => Update::value(json_to_value(&raw)),
+                _ => Update::Noop,
+            },
             Err(e) => {
-                eprintln!(
-                    "RestProcess update {}/{}: {e}",
-                    self.process_class, self.process_id
-                );
+                eprintln!("RestProcess update {label}: {e}");
                 Update::Noop
             }
-        }
+        });
+        Defer::lazy(move || handle.join().unwrap_or(Update::Noop))
+    }
+
+    /// Blocking convenience — a direct `update()` caller still gets the result.
+    /// The engine uses `invoke` for concurrency.
+    fn update(&self, state: &Value, interval: f64) -> Update {
+        self.invoke(state, interval).get()
     }
     fn as_any(&self) -> &dyn std::any::Any {
         self

@@ -36,7 +36,10 @@ use crate::process::ProcessNode;
 
 /// Live process instances, keyed by the id `initialize` handed out. Shared across
 /// connection-handler threads (each `Process`/`Step` is `Send + Sync`).
-type Processes = Arc<Mutex<HashMap<String, ProcessNode>>>;
+// Each process behind its OWN `Arc` so a handler can CLONE it out and release the
+// map lock before running `update()` — otherwise concurrent updates serialize on
+// the map (the rest-concurrency bottleneck, #21).
+type Processes = Arc<Mutex<HashMap<String, Arc<ProcessNode>>>>;
 
 /// An HTTP server exposing a [`ProcessRegistry`] over the rest-process wire
 /// protocol. [`start`](RestProcessServer::start) binds an ephemeral port and
@@ -208,7 +211,7 @@ fn route(
             match registry.create(class, config) {
                 Some(node) => {
                     let id = format!("{class}-{}", next_id.fetch_add(1, Ordering::SeqCst));
-                    processes.lock().unwrap().insert(id.clone(), node);
+                    processes.lock().unwrap().insert(id.clone(), Arc::new(node));
                     ("200 OK", json_string(&id))
                 }
                 None => (
@@ -229,11 +232,17 @@ fn route(
                 .get("interval")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(1.0);
-            let map = processes.lock().unwrap();
-            let Some(node) = map.get(*id) else {
-                return ("404 Not Found", "null".to_string());
+            // Clone the handle out and RELEASE the map lock BEFORE update(), so
+            // concurrent updates (each on its own connection thread) run in
+            // parallel instead of serializing on the shared map (#21).
+            let node = {
+                let map = processes.lock().unwrap();
+                let Some(n) = map.get(*id) else {
+                    return ("404 Not Found", "null".to_string());
+                };
+                Arc::clone(n)
             };
-            let update = match node {
+            let update = match &*node {
                 ProcessNode::Process(p) => p.update(&state, interval),
                 ProcessNode::Step(s) => s.update(&state),
             };
