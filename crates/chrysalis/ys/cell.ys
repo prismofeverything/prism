@@ -21,8 +21,12 @@ process Metabolism[k :: Float = 0.35, yield :: Float = 0.6]
   ~{mass :: Float, glucose :: Float, interval :: Float = 1.0}
   ->{mass :: Mass, glucose :: Float, acetate :: Float}
 (
-  raw = k * glucose * mass * interval |
-  u   = if raw > glucose then glucose else raw |
+  raw    = k * glucose * mass * interval |
+  capped = if raw > glucose then glucose else raw |
+  u      = if capped > 0.0 then capped else 0.0 |   # clamp u ≥ 0: with cells sharing
+                                                    # the pool (BSP snapshot), an
+                                                    # over-draw can take glucose < 0;
+                                                    # without this, u<0 runs away.
   {mass: u * yield, glucose: -u, acetate: u * (1.0 - yield)}
 )
 

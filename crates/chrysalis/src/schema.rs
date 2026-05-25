@@ -409,9 +409,36 @@ fn branch_schema(
         Expr::Int(_) => Schema::Integer { default: None },
         Expr::Bool(_) => Schema::Bool { default: None },
         Expr::Str(_) => Schema::String { default: None },
-        Expr::Map(_) => Schema::Map {
-            value: Box::new(Schema::Any),
-        },
+        // A map LITERAL (`{ '0': Cell[...], … }`, STRING keys): type the element
+        // from its VALUES — the schema we already know — not `Any`. The first
+        // entry's schema (e.g. a `Cell[...]` composite term → `CompositeLink`)
+        // becomes the Map value, so a map of composites is `Map{CompositeLink}`:
+        // members are discovered + divided schema-first, and `%`-wired face slots
+        // resolve to `Delta` so self-output deltas ACCUMULATE (not dropped under
+        // `Any`). Empty → `Any`.
+        Expr::Map(entries) => {
+            let element = match entries.first() {
+                Some((_, v)) => branch_schema(v, program, known, building),
+                None => Schema::Any,
+            };
+            Schema::Map {
+                value: Box::new(element),
+            }
+        }
+        // A record LITERAL (`{ c0: Cell[...], … }`, IDENTIFIER keys): recurse, typing
+        // each field from its value (the same the algebra's `infer` does) — NOT the
+        // old `Any` dump. So `cells` of `Cell`s → `Tree{c0: CompositeLink, …}`; each
+        // member is a declared `CompositeLink` (stamping leaves it alone) and
+        // `[cells,c0,mass]` resolves to `Delta`. A declared `map[Cell]` port then
+        // refines this to `Map{CompositeLink}` via `resolve` (Link-value Map wins).
+        Expr::Record(fields) => {
+            let mut branches: IndexMap<Key, Schema> = IndexMap::new();
+            for (k, v) in fields {
+                let s = branch_schema(v, program, known, building);
+                branches.insert(Key::from(k.as_str()), s);
+            }
+            Schema::Tree { branches }
+        }
         _ => Schema::Any,
     }
 }
