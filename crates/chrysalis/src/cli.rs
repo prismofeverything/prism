@@ -15,12 +15,16 @@ use crate::compile::ModuleRegistry;
 use crate::parse::parse_file;
 use crate::runner::{invoke, invoke_driven, invoke_trace, run, serve_process, serve_stream};
 
-/// Resolve `.ys`-file imports before compiling: a DOTTED `from <pkg>.<sub> import
-/// <file>` is a file module — it brings in the top-level defs of
-/// `<ys_root>/<sub>/<file>.ys` (recursively for that file's own `.ys` imports),
-/// PREPENDED so the importer's own entry (its LAST interfaced def) is preserved.
-/// Single-segment (host) modules are left for compile's `resolve_imports`. The
-/// `ys_root` (the entry file's dir) is threaded constant so a nested import
+/// Resolve `.ys`-file imports before compiling. A `from <module> import <names>`
+/// is a **file module** when a `.ys` file backs it — it brings in that file's
+/// top-level defs (recursively for its own `.ys` imports), PREPENDED so the
+/// importer's own entry (its LAST interfaced def) is preserved:
+///   - single-segment `from cell import Cell` ⇒ `<ys_root>/cell.ys` **iff it
+///     exists** (a sibling file); otherwise it's a native/host import, left for
+///     compile's `resolve_imports`;
+///   - dotted `from <pkg>.<sub>.<file> import …` ⇒ `<ys_root>/<sub>/<file>.ys`
+///     (package-rooted), always a file module.
+/// The `ys_root` (the entry file's dir) is threaded constant so a nested import
 /// resolves from the same package root, not the importer's subdir. (#25)
 fn resolve_file_modules(
     program: &mut crate::ast::Program,
@@ -29,17 +33,31 @@ fn resolve_file_modules(
     let mut prefix: Vec<Def> = Vec::new();
     let mut kept: Vec<Def> = Vec::new();
     for def in std::mem::take(&mut program.defs) {
-        match &def {
-            // Dotted module ⇒ a `.ys` file module (host modules are single-segment).
-            // The dotted path IS the module file: `<ys_root>/<path-after-pkg>.ys`.
-            // Import the NAMED defs from it (+ the module's own host imports, so
-            // those defs' references resolve) — like Python's `from mod import x`.
-            Def::Use { module, names } if module.contains('.') => {
-                let rel: std::path::PathBuf = module.split('.').skip(1).collect();
-                let file = ys_root.join(&rel).with_extension("ys");
-                let mut imported = parse_file(&file)
-                    .map_err(|e| format!("import from `{module}` ({}): {e}", file.display()))?;
-                resolve_file_modules(&mut imported, ys_root)?;
+        let (module, names) = match &def {
+            Def::Use { module, names } => (module.clone(), names.clone()),
+            _ => {
+                kept.push(def);
+                continue;
+            }
+        };
+        // The `.ys` file backing this module, if any: dotted skips the package
+        // segment, single-segment is a sibling of the entry file.
+        let file = if module.contains('.') {
+            let rel: std::path::PathBuf = module.split('.').skip(1).collect();
+            ys_root.join(&rel).with_extension("ys")
+        } else {
+            ys_root.join(&module).with_extension("ys")
+        };
+        // A single-segment module is a file module only if its `.ys` exists; else
+        // it's a native/host import (kept for compile's `resolve_imports`).
+        if !module.contains('.') && !file.exists() {
+            kept.push(def);
+            continue;
+        }
+        {
+            let mut imported = parse_file(&file)
+                .map_err(|e| format!("import from `{module}` ({}): {e}", file.display()))?;
+            resolve_file_modules(&mut imported, ys_root)?;
                 // The module's host imports + TYPE vocabulary always come along; its
                 // VALUE defs come by transitive reachability from the imported names
                 // (so `import CometSection` pulls `Comet`, `Plot`, `Output`, … it
@@ -70,8 +88,6 @@ fn resolve_file_modules(
                         prefix.push(d.clone());
                     }
                 }
-            }
-            _ => kept.push(def),
         }
     }
     // Merge imported defs (prefix) ahead of the program's own (kept), so the

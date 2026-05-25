@@ -1202,6 +1202,15 @@ impl Parser {
                 self.bump();
                 Ok(Expr::Path(PlacePath::here()))
             }
+            // `^` — the PARENT place (one level up the place graph). In a unit
+            // EXPRESSION `^` is the power operator (parsed separately); here in
+            // place/value position it is the parent reference, used in wire targets
+            // like `~{glucose: ^.glucose}` — a cell reading its enclosing env's
+            // pool (two levels up: cell → cells-map → env). Lowers to `[".."]`.
+            Tok::Caret => {
+                self.bump();
+                Ok(Expr::Path(PlacePath::parent()))
+            }
             // `replace <id> with <value>` — a structural rewrite directive.
             Tok::Replace => {
                 self.bump();

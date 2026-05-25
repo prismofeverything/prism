@@ -119,5 +119,19 @@ address value is what it lowers to.
      `chrysalis/tests/ys_files_run.rs` — `chrysalis run`s every `.ys` (9 clean; 4
      skip-listed with reasons: the two legacy `env.run()` files, `mapk` rot, `cell.ys`
      stream-child) — the missing run-coverage that let `.ys` rot behind "still parses".
-   - ⏳ **3d — `env.ys`** + a `Divide` step, run via `chrysalis run env.ys` over local +
-     stream, asserting the same conservation + division as the Rust proof.
+   - 🚧 **3d — `env.ys`** (IN PROGRESS). `crates/chrysalis/ys/environment.ys` runs via
+     `chrysalis run` (a file-as-composite entry; cells in a `map[Cell]`). Built along
+     the way: `build_composite_outer` seeds the `%`-wired output **face** onto the
+     node (`seed_self_face`); `^` parses as the **parent** place wire (`^.glucose` →
+     `[".."]`, 2-up env pool) in place position (unit-power `^` is a separate parse);
+     `from cell import Cell` resolves a **sibling** `cell.ys` (file-first
+     single-segment resolution in `resolve_file_modules`, native fallback).
+     **Glucose/acetate exchange works** (the `^` env-pool outputs: glucose 40→0,
+     acetate 0→16). **OPEN BUG:** the `%`-wired SELF outputs (the `mass`/`divide`
+     face) are dropped by the engine in this path — biomass made but not on
+     `cells.N.mass` (conservation 18 vs 42). Identical wires work in
+     `prism-bigraph/tests/cells_division.rs` (Rust), so it's a chrysalis-path apply
+     issue (applying a composite output to a sub-field of a `Link` node under the
+     *derived* `CompositeLink` schema). REMAINING after the fix: the stream variant
+     (cell path resolution) + the `Divide` step; assert conservation + division ==
+     the Rust proof.

@@ -1,0 +1,28 @@
+# An environment of cells on a shared, finite glucose pool — the Form-3 surface
+# (protocols-as-types 3d). Each cell is the `Cell` composite from cell.ys: it
+# takes up glucose (env→cell), converts it to biomass + acetate conserving mass
+# (cell→env), and exposes its `mass` + `divide` on its OWN node (the `%` self
+# wire — the matchable/divisible face). The env pool is two levels up (`^`).
+#
+# `chrysalis run environment.ys --time N` runs the whole environment; the cells
+# run LOCAL here. The stream variant only changes the cell's address (the
+# `protocol` line) — the rest is identical. Mass is CONSERVED throughout:
+# glucose + Σ(cell mass) + acetate = const.
+
+from cell import Cell
+
+
+composite Environment[glucose0 :: Float = 40.0]
+  ->{glucose :: Float @ glucose, acetate :: Float @ acetate, cells :: map[Cell] @ cells}
+(
+  glucose: glucose0 |
+  acetate: 0.0 |
+  cells: {
+    c0: Cell[mass0: 1.0]
+          ~{mass: %.mass, glucose: ^.glucose}
+          ->{mass: %.mass, glucose: ^.glucose, acetate: ^.acetate, divide: %.divide},
+    c1: Cell[mass0: 1.0]
+          ~{mass: %.mass, glucose: ^.glucose}
+          ->{mass: %.mass, glucose: ^.glucose, acetate: ^.acetate, divide: %.divide}
+  }
+)

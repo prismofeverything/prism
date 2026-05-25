@@ -741,6 +741,13 @@ impl Evaluator {
         if let Value::Map(m) = &mut spec {
             m.insert(Key::from("config"), config);
         }
+        // Seed the EXPORTED FACE: each output port wired to `%.field` (the own
+        // node) gets its initial value placed ON the node, so `cells.N.field`
+        // exists from t=0 — the parent can match it (`?c.mass > …`) and the input
+        // bridge can read it back each tick (the Form-3 self face;
+        // cells-and-division §4.1). The value is the inner state at the port's
+        // bridge path. Ports wired elsewhere (`^.glucose`, …) are untouched.
+        seed_self_face(&mut spec);
         Ok(spec)
     }
 
@@ -1480,6 +1487,55 @@ fn lower_target_to_segments(
             context: "port wiring".into(),
             message: format!("not a valid wire target: {:?}", other),
         }),
+    }
+}
+
+/// Seed a composite node's exported **self face**: for each output port whose
+/// outer wire is `["%", field]` (the own node), copy the initial value from the
+/// inner state (at the port's bridge path) onto `node[field]`. So `cells.N.mass`
+/// (and `divide`, …) exist at t=0 — matchable by the parent and readable by the
+/// input bridge — the Form-3 face. Single-segment `%.field` faces only.
+fn seed_self_face(spec: &mut Value) {
+    let Some(m) = spec.as_map() else { return };
+    let outputs = m
+        .get("outputs")
+        .and_then(|v| v.as_map())
+        .cloned()
+        .unwrap_or_default();
+    let config = m.get("config");
+    let state = config
+        .and_then(|c| c.get_field("state"))
+        .cloned()
+        .unwrap_or(Value::None);
+    let bridge_out = config
+        .and_then(|c| c.get_field("bridge"))
+        .and_then(|b| b.get_field("outputs"))
+        .and_then(|o| o.as_map().cloned())
+        .unwrap_or_default();
+
+    let mut to_set: Vec<(Key, Value)> = Vec::new();
+    for (port, wire) in &outputs {
+        let segs: Vec<String> = wire
+            .as_list()
+            .map(|l| l.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        // Only a single-field self face: `["%", field]`.
+        if segs.len() != 2 || segs[0] != "%" {
+            continue;
+        }
+        let inner_bridge: Vec<Key> = bridge_out
+            .get(port)
+            .and_then(|v| v.as_list())
+            .map(|l| l.iter().filter_map(|v| v.as_str().map(Key::from)).collect())
+            .unwrap_or_default();
+        if let Some(val) = state.get_path(&inner_bridge) {
+            to_set.push((Key::from(segs[1].as_str()), val.clone()));
+        }
+    }
+    if let Some(m) = spec.as_map_mut() {
+        for (k, v) in to_set {
+            m.insert(k, v);
+        }
     }
 }
 
