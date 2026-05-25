@@ -738,7 +738,7 @@ impl Evaluator {
         // Outputs land on the PARENT via normal (parent-relative) wires.
         // See crates/prism-bigraph/tests/growth_division.rs for the proven
         // subengine grow/divide pattern.
-        let resolved = self.resolve_args_against_params(&def.name, args, &def.params, env)?;
+        let resolved = self.composite_param_env(def, args, env)?;
         let inner_state = self.eval_value(&def.body, &resolved)?;
         // Each port's bridge wire: the explicit `@ internal.path` if declared,
         // else name-inference (the same-named top-level field).
@@ -808,17 +808,46 @@ impl Evaluator {
     ) -> Result<Value, EvalError> {
         if let Expr::Term { control, args, .. } = expr {
             if let Some(crate::ast::Def::Composite(def)) = self.program.lookup(control) {
-                let resolved =
-                    self.resolve_args_against_params(&def.name, args, &def.params, env)?;
-                // The composite body sees the outer (top-level) bindings, with
-                // its own params shadowing them — so a shared `network :: CRN =
-                // …` resolves inside the body.
+                // The composite body sees the outer (top-level) bindings, with its
+                // own params + input defaults shadowing them — so a shared
+                // `network :: CRN = …` resolves inside the body, and an input
+                // (`amount: value`) isn't unbound. One binding rule for the body:
+                // [`composite_param_env`].
+                let resolved = self.composite_param_env(def, args, env)?;
                 let mut body_env = env.clone();
                 body_env.extend(resolved);
                 return self.eval_value(&def.body, &body_env);
             }
         }
         self.eval_value(expr, env)
+    }
+
+    /// The parameter env for evaluating a composite's BODY: config params (from
+    /// `args` or their defaults) PLUS each input port's declared default. This is
+    /// the SINGLE eval-side rule for binding a composite's interface, shared by
+    /// `eval_top_level` (the compile-time inline) and `build_composite_outer` (a
+    /// composite used as a value/node) — so a body's input reference resolves
+    /// the same way everywhere. An input's real value arrives per-tick via the
+    /// bridge (driven) or via `--port` (invoke rebinds in `engine_for`); this is
+    /// the t=0 seed. (Config defaults were always honored; input defaults were the
+    /// gap — an input default made a composite "bare-runnable" → eagerly inlined →
+    /// unbound input var.)
+    fn composite_param_env(
+        &self,
+        def: &crate::ast::CompositeDef,
+        args: &[TermArg],
+        env: &IndexMap<Name, Value>,
+    ) -> Result<IndexMap<Name, Value>, EvalError> {
+        let mut resolved = self.resolve_args_against_params(&def.name, args, &def.params, env)?;
+        for (name, decl) in &def.interface.inputs {
+            if !resolved.contains_key(name) {
+                if let Some(default) = &decl.default {
+                    let v = self.eval_value(default, &resolved)?;
+                    resolved.insert(name.clone(), v);
+                }
+            }
+        }
+        Ok(resolved)
     }
 
     /// Build a "pure" process / step spec — a `{address, config, inputs,

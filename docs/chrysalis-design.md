@@ -236,6 +236,34 @@ param is a located diagnostic (#16): *"`rate` is config (construction-time); it
 can't be driven per-frame — pass `--rate`."* The distinction teaches itself where
 it bites.
 
+### Every definer runs standalone — the default harness
+
+A composite carries its own place-graph (its body), so `chrysalis run env.ys`
+just inlines it. A bare `process`/`step` does not — its ports dangle (*where do
+inputs come from, where do outputs go?*). So running a `process`/`step` entry
+**realizes it in a synthesized default harness**: a state slot per port, the
+process self-wired to those slots (a read-modify-write port like `mass` thus
+*accumulates* its delta), input slots seeded from `--port` (defaulted to a
+type-zero), every slot exposed as an output. `chrysalis run grow.ys --mass 1
+--glucose 5 --time 30` then runs the process on a bench — a heart beating outside
+the body — and a composite is the degenerate case where the harness *is* the
+composite (`cli::harness_process_entry`). So there are no second-class files:
+every definer is runnable, and the *mode* is the invocation (default bench /
+`--serve-process` driven child / `--trace`), never the filename.
+
+This also closes a defaults gap. **Input-port defaults** (`~{glucose :: Float @
+glucose = 0.0}`) must be honored when a composite's BODY references an input
+(`glucose: glucose`) — otherwise the input is unbound at construction (and an
+input default, by making the composite "bare-runnable", forces exactly that
+eval). The single eval-side rule is `Evaluator::composite_param_env` (config
+params *and* input-port defaults), shared by `eval_top_level` (the compile-time
+inline) and `build_composite_outer` (a composite used as a value/node); the
+runner's invoke/serve paths bind the same defaults via `bind_arg`. So a driven
+component is also seedable on a bench: `chrysalis run cell.ys --glucose 5`
+metabolizes the seeded pool (conserving mass), while the env still drives it each
+tick when embedded. (Config defaults were always honored; input defaults were the
+gap. Guarded by `tests/bench_run.rs`.)
+
 ### The command surface
 
 There are not two input *mechanisms* (flags vs stdin); there is **one input

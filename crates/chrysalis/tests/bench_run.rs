@@ -79,3 +79,24 @@ fn divide_on_a_bench_flips_when_over_threshold() {
     assert_eq!(run("divide.ys", &[("mass", "3.0")], "1")["divide"], 1.0);
     assert_eq!(run("divide.ys", &[("mass", "1.0")], "1")["divide"], 0.0);
 }
+
+#[test]
+fn cell_composite_runs_standalone_off_a_seeded_pool() {
+    // A COMPOSITE (not just a process) run standalone: seeding its `glucose` input
+    // (an input DEFAULT, honored now) drives the inner metabolism off a finite
+    // pool — mass grows, acetate is excreted, glucose is consumed, total conserved
+    // (1 + 5 = 6), and the cell proposes division. The regression guard for the
+    // input-default fix (`composite_param_env`).
+    let s = run("cell.ys", &[("glucose", "5.0")], "6");
+    let (mass, glucose, acetate) = (s["mass"], s["glucose"], s["acetate"]);
+    assert!(mass > 1.0 && acetate > 0.0 && glucose < 5.0, "metabolized: {s:?}");
+    assert!(
+        (mass + glucose + acetate - 6.0).abs() < 1e-6,
+        "conserved standalone: {} (cell.ys --glucose 5)",
+        mass + glucose + acetate
+    );
+
+    // No glucose ⇒ inert but runs (input defaults to 0).
+    let inert = run("cell.ys", &[], "3");
+    assert_eq!(inert["mass"], 1.0, "no fuel, no growth");
+}

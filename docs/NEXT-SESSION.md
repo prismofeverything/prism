@@ -30,6 +30,20 @@
 > units/context break: `using ctx(f: @.slot)` injected an own-node `%` wire instead
 > of a container sibling (`sibling_wire`; `units_engine.rs` guards it).
 >
+> **ALSO this session — every definer runs standalone (the default harness) + the
+> input-defaults fix.** A bare `process`/`step` entry is wrapped in a synthesized
+> harness (`cli::harness_process_entry`): a slot per port, self-wired (read-modify-
+> write ports accumulate), `--port` seeds, every slot an output — so `chrysalis run
+> grow.ys --mass 1 --glucose 5` runs it "on a bench." `.ys` also gained MAP
+> comprehensions. And the defaults gap closed: input-port defaults were honored
+> runner-side (`bind_arg`) but NOT eval-side, so a composite body referencing an
+> input (`glucose: glucose`) was unbound → `Evaluator::composite_param_env` (config
+> + input defaults) is now the ONE eval-side rule (shared by `eval_top_level` +
+> `build_composite_outer`). cell.ys now runs standalone (`--glucose 5` drives its
+> metabolism, conserves 6) AND driven (env). Guard: `tests/bench_run.rs`. Full suite
+> green (68 groups + doctests). See memory `defaults_and_binding_paths`,
+> `composite_is_a_type`, docs/chrysalis-design.md §"Every definer runs standalone".
+>
 > **NEXT (pick up #21 parallelism follow-ups, or the cleanups):** #21 rest-concurrent
 > dispatch + batched ray (the stream cells already overlap via the invoke/Defer
 > seam; rest is the remaining concurrent transport). Also ripe: #5/#11 (complete law

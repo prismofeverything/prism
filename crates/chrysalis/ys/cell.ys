@@ -22,10 +22,12 @@ composite Cell[k :: Float = 0.35, yield :: Float = 0.6, threshold :: Float = 2.0
   ->{mass :: Mass @ mass, glucose :: Float @ glucose, acetate :: Float @ acetate, divide :: Bool @ divide}
 (
   mass: mass0 |         # `mass` is the cell's OWN state (the %.mass face the env
-                        # divides); `glucose` is driven by the env pool each tick.
-  glucose: 0.0 |        # Inputs are DEFAULTED (`@ … = …` above) so the cell also
-  acetate: 0.0 |        # runs standalone (inert without a glucose source — seeding
-  divide: false |       # a composite's input on a bench is the open defaults gap).
+                        # divides), so it stays internal.
+  glucose: glucose |    # `glucose` is a real external input: the env pool drives it
+                        # each tick (DRIVEN), and standalone you seed the initial
+                        # pool — `chrysalis run cell.ys --glucose 5` (it defaults to
+  acetate: 0.0 |        # 0, so a no-flag run is inert but still runs).
+  divide: false |
   grow: Grow[k: k, yield: yield]
     ~{mass: mass, glucose: glucose}
     ->{mass: mass, glucose: glucose, acetate: acetate} |
