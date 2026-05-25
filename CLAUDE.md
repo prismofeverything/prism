@@ -13,11 +13,20 @@ application domain.
   inconsistent) state / schema / node representations and the plan to
   unify them into one schema-always-present, algebraic core. Read before
   any engine/core work; schema and state are inseparable.
-- **`docs/NEXT-SESSION.md`** — status of the fresh-core **schema-algebra
-  rebuild**, now **complete** (2026-05-21): closure achieved,
-  `prism_schema::algebra` is the single door, 13 laws + closure-guard green.
-  Read it for the current core state and the follow-up milestones
-  (first-class `Custom` types; `.ys` workflow composites).
+- **`docs/NEXT-SESSION.md`** — **READ FIRST on boot.** Top has the `⏯️ ON BOOT`
+  prompt + the **durable canonical task list** (rebuild the ephemeral harness panel
+  from it) + dated `⏯️ NEXT-SESSION PROMPT`s (latest = current status) + the task
+  tracker + long-run milestones. The durable record of where we are and what's next.
+- **`docs/execution-model.md`** — how prism runs + parallelizes: the BSP tick and
+  the one seam (`invoke() → Defer → flush → collect`) that makes
+  `local`/`parallel`/`rest`/`stream`/batched-`ray` all parallelize through the same
+  code. Read before any parallelism/scheduling work.
+- **`docs/distributed-execution.md`** — the plan for **planet-scale** colonies:
+  the fractal/octree vision = SOTA HPC (domain decomposition + halo exchange +
+  FMM aggregation + adaptive octrees), how prism's composites/protocols/bridge/
+  encapsulation/BSP already encode it, the gaps, a phased plan (#25–#29), and the
+  build-vs-adopt decision (cluster = a protocol with a pluggable backend). Read
+  before distributed/scaling work.
 - **`docs/schema-algebra.md`** — the schema layer stated as an **algebra**:
   the sorts, the closed set of operations (`default`/`check`/`apply`/
   `reconcile`/`resolve`/`promote`/`merge`/`diff`/`generalize`/`coerce`/

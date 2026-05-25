@@ -1,5 +1,69 @@
 # Next session — launch prompt & plan
 
+## ⏯️ ON BOOT — paste this to rebuild the task list
+
+> Resume prism (Rust process-bigraphs + the `.ys` language). Read this prompt +
+> the latest dated `⏯️ NEXT-SESSION PROMPT` below + the `MEMORY.md` index. Then
+> **rebuild the harness task list** from "## Task list (durable canonical)" below:
+> `TaskCreate` one task per entry, `status: completed` for ✅, `pending` for ⏳/🧩.
+> Then continue from the NEXT items in the latest dated prompt. (The harness task
+> panel is EPHEMERAL — it does not survive a restart; THIS file + MEMORY are the
+> durable record. The IDs below match the panel so reconstruction is faithful.)
+
+## Task list (durable canonical — rebuild on boot)
+
+- ✅ #1 standalone cell.ys + failing stream conservation test
+- ✅ #2 serve_stream / serve_process delta-forwarder
+- ✅ #3 grow-divide over stream == rest (boundary proof)
+- ✅ #4 real parallelism — Defer seam, ParallelPool, stream concurrent (steps 2.5/3/4)
+- ⏳ #5 complete law generators over node sorts + fix flaky law + uniform node-data
+- ⏳ #6 explicit bridge conduits (today inferred by inner-slot absence)
+- ⏳ #7 cleanup — collapse address-scan + the two discovery walks
+- ⏳ #8 SBML→CRN importer / repressilator (original science goal)
+- ⏳ #9 dt-refinement convergence sweep
+- ⏳ #10 comment-preserving parse/unparse + retire extern
+- ⏳ #11 prism-svg: SVG as place-graph values
+- ⏳ #12 real contract enforcement through RunProcess
+- ⏳ #13 spatio-flux as a `.ys` project (codegen slices 3-4)
+- ⏳ #14 chrysalis diagnostics: comprehensible `.ys` errors
+- ⏳ #15 schema-as-state: meta-schema, reconcile state to match
+- 🧩 #16 surface-language defaults — input defaults + default harness DONE (`composite_param_env`, `cli::harness_process_entry`, `bench_run.rs`); REMAINING: interval inner-wire type; fully merge eval-side vs runner-side binding (low-value)
+- ⏳ #17 enforce `::`=type / `:`=value / `fulfills`-contract syntax
+- ⏳ #18 file-as-composite streaming slices + type-driven outputs
+- ⏳ #19 performance sweep (LAST, after features)
+- ✅ #20 run parallel stream cells from env.ys (end-to-end surface)
+- 🧩 #21 parallelism follow-ups — rest-concurrent DONE (`rest_engine.rs`); REMAINING: batched ray (now #25)
+- ✅ #22 protocols as Custom types + composite IS-A type (one program-aware lowering; `composite_is_a_type`)
+- 🧩 #23 modernize `.ys` files — grow/divide/cell/environment run+divide+conserve, `ys_files_run` guards; REMAINING: grow-divide-unbounded/glucose (legacy `env.run`), mapk (unbound `phosphorylate`)
+- ✅ #24 RETIRE branch_schema — derive inner schema via the algebra
+- ⏳ #25 distributed: batched `ray:` protocol (Form A — `flush_pending`, one packet/shard) — `docs/distributed-execution.md` phase 1
+- ⏳ #26 distributed: halo/neighbor exchange + 2-environment diffusion-across-a-boundary demo — phase 2
+- ⏳ #27 distributed: static spatial-partition protocol (the octree; environment-of-environments across machines) — phase 3
+- ⏳ #28 distributed: dynamic load balancing (split/migrate overflowing subdomains) — phase 4
+- ⏳ #29 distributed: adopt a cluster backend (Charm++ / Ray / MPI) behind the `Protocol` interface — phase 5
+
+## ⏯️ NEXT-SESSION PROMPT (2026-05-24 part 6 — rest-concurrency + the defaults/harness fix; distributed plan drafted)
+
+> Workspace GREEN (69 groups + doctests). This session, after the part-5 milestone
+> (committed): **rest-concurrency** (#21) — `RestProcess::invoke` fires the POST on a
+> thread + the server releases the map-lock before `update()` (`rest_engine.rs`: 4×50ms
+> remote ≈ one tick); the **default harness** — any `process`/`step` runs standalone
+> (`chrysalis run grow.ys --mass 1 --glucose 5`; `cli::harness_process_entry`); and the
+> **input-defaults fix** — `composite_param_env` is the one eval-side binding rule, so
+> `cell.ys --glucose 5` drives its metabolism (`bench_run.rs`). Then drafted
+> **`docs/distributed-execution.md`** — the plan for planet-scale colonies (your
+> octree/fractal vision = domain decomposition + FMM aggregation + adaptive octrees;
+> prism's composite-of-composites + protocol boundary + encapsulation + BSP tick already
+> encode the skeleton). UNCOMMITTED at break: rest.rs, rest_server.rs, rest_engine.rs,
+> bench_run.rs, the defaults/harness edits (eval.rs/cli.rs/cell.ys), execution-model.md,
+> distributed-execution.md.
+>
+> **NEXT:** #25 (batched `ray:` protocol — finishes #21, smallest concrete step toward
+> scale) → #26/#27 (halo exchange + the static octree — the fractal vision at modest
+> scale). Or a cleanup pass (#5 laws / #7 discovery). See `docs/distributed-execution.md`
+> for the full phased plan + the build-vs-adopt decision (cluster = a protocol with a
+> pluggable backend; do NOT rebuild Ray's runtime).
+
 ## ⏯️ NEXT-SESSION PROMPT (2026-05-24 part 5 — env.ys divides over STREAM in parallel; schema-name machinery unified)
 
 > Continue prism (Rust process-bigraphs + the `.ys` language). Workspace GREEN
@@ -669,6 +733,19 @@ this session: Core unification, StepCache, rest server + discovery, per-composit
 cache, missing-ref, **#17/#18/#19** CLI + REPL.)
 
 ## Long-run milestones (beyond the tracker)
+- **Distributed execution at scale (`docs/distributed-execution.md`)** — giant
+  colonies growing exponentially across arbitrary machines. The fractal/octree
+  vision = the SOTA HPC pattern (spatial domain decomposition + halo exchange +
+  Barnes-Hut/FMM aggregation + adaptive forest-of-octrees). prism's
+  composite-of-composites (= the octree), protocol boundary (= a remote subdomain),
+  bridge (= halo exchange), encapsulation (= FMM aggregation), and BSP tick (= the
+  superstep) already encode the skeleton. Gaps: batched RPC (#25), halo/neighbor
+  exchange (#26), spatial-partition protocol (#27), dynamic load balancing (#28),
+  a cluster backend (#29). Key decision: the cluster is a **protocol with a
+  pluggable backend** — adopt Charm++ (closest fit: migratable objects + auto load
+  balancing) / Ray (FT + autoscale) / MPI (raw halo speed); do NOT rebuild Ray's
+  runtime. What matters most: locality, dynamic load balancing, hierarchical
+  aggregation, relaxed/local sync, compute/comm overlap.
 - **First-class `Custom` types** — `type Name = <repr> with { op = …,
   method(args) = … }` (the algebraic-effects handler model): make a `Custom`
   indistinguishable from a built-in sort by threading a registry through the
