@@ -1,16 +1,25 @@
 //! The `stream:` protocol — a `.ys` program proxied as a LOCAL process over OS
-//! pipes + the Arrow trace wire (the mirror of [`prism_bigraph`]'s `rest:` over
-//! HTTP). The realization (co-designed): "run a whole simulation" and "be one
-//! component" are the SAME stepper `(state, dt) → update`, differing only in who
-//! supplies the clock. So the child here is the *same* `--serve-stream` mode the
-//! pipe `A | B` uses; [`StreamProcess`] just drives it **lock-step** — one frame
-//! per engine tick, the clock riding in the frame `time` (the dynamic-dt).
+//! pipes + the Arrow trace wire (the pipe-transport mirror of [`prism_bigraph`]'s
+//! `rest:` over HTTP). The child runs `chrysalis run <prog> --serve-process`
+//! (`runner::serve_process`): it builds the entry as a real `Composite` and
+//! FORWARDS the composite's reconciled UPDATE each tick — exactly as a local
+//! `Composite::update` / the rest server do. [`StreamProcess`] drives it
+//! **lock-step**, one frame per engine tick, the clock riding in the frame `time`.
 //!
-//! Each `update(state, interval)`: stamp cumulative time, push the input as a
-//! delta-frame (first absolute, then diffs), read one output delta-frame back,
-//! and return it as the engine update. The parent's state at the child's output
-//! ports thus tracks the child's output. So a child `.ys` is stepped by the
-//! parent engine indistinguishably from an in-thread process.
+//! This is a *delta-forwarder*, not the `--serve-stream` trace FILTER (which emits
+//! absolute output frames as a replayable delta-log). The difference is
+//! load-bearing: a snapshot `diff` double-counts a shared pool once two cells draw
+//! on it (and drops structural `_add`/`_remove`); forwarding the inner update
+//! carries the exact per-process delta — so `stream:` behaves identically to
+//! `local:`/`rest:` (additive faces accumulate, pools net, structure crosses
+//! intact). See `runner::serve_process` vs `runner::serve_stream`.
+//!
+//! Each `update(state, interval)`: push the input as a delta-frame (first absolute,
+//! then diffs — the child folds it back to a full input record), stamp cumulative
+//! time AFTER the step (so the first frame is a full-interval step, no lag), read
+//! one output update-delta back, and return it as the engine update. So a child
+//! `.ys` is stepped by the parent engine indistinguishably from an in-thread
+//! process.
 
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -102,7 +111,7 @@ impl StreamProcess {
         first_state: &Value,
     ) -> std::io::Result<(Child, ChildStdout, TraceWriter<ChildStdin>, Schema)> {
         let mut child = Command::new(&self.binary)
-            .args(["run", self.program.as_str(), "--serve-stream"])
+            .args(["run", self.program.as_str(), "--serve-process"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -172,12 +181,16 @@ impl Process for StreamProcess {
             }
         }
 
-        // Push the input as a delta-frame (first absolute, then diffs), stamped
-        // with cumulative time = the parent's clock for the child.
+        // Push the input as a delta-frame (first absolute, then diffs); the child
+        // folds it back to the full input record. Stamp cumulative time AFTER this
+        // step so the child's first frame carries a full `interval` dt (no one-tick
+        // lag vs a local composite — the child steps on every frame, none is a
+        // seed-only frame, because the parent already holds the node's state).
         let payload = match &inner.prev_input {
             None => state.clone(),
             Some(prev) => algebra::diff(&inner.element, prev, state).unwrap_or(Value::None),
         };
+        inner.time += interval;
         let t = inner.time;
         if let Some(w) = inner.writer.as_mut() {
             if w.push(t, &payload).is_err() || w.flush().is_err() {
@@ -186,7 +199,6 @@ impl Process for StreamProcess {
             }
         }
         inner.prev_input = Some(state.clone());
-        inner.time += interval;
 
         // Lazily open the reader (the child emits its output header only AFTER it
         // has read the first input frame).

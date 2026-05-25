@@ -115,17 +115,28 @@ pub fn resolve(current: &Schema, update: &Schema) -> Schema {
         (Tree { branches: a }, Tree { branches: b }) => Tree { branches: union_resolve(a, b) },
         // Map{value} ≈ upstream Map: uniform element.
         (Map { value: a }, Map { value: b }) => Map { value: Box::new(resolve(a, b)) },
-        // Map ⊓ Tree: the per-key `Tree` is the **more specific** type —
-        // `Tree{k:V}` refines `Map[V]` (a fixed struct IS a dict, not vice
-        // versa), so the meet ("most-specific schema satisfying both") keeps
-        // the Tree. Push the Map's uniform element type onto each branch so a
-        // declared element semantics (e.g. additive `Array`, `Delta`) survives
-        // there. The argument order — `resolve(branch, map_value)` /
-        // `resolve(map_value, branch)` — keeps the **second** (update) side
-        // authoritative, which is how `from_state`'s `resolve(infer(state),
-        // declared)` keeps the *declared* type winning over the inferred
-        // snapshot (so a declared per-agent `Link`/`Array` isn't dropped for
-        // the structural `{address,…}` / `List` that inference saw).
+        // Map ⊓ Tree where the Map's value is a process-node `Link`: a
+        // **dynamic collection** (cells that grow/divide). The per-key `Tree` is
+        // only a snapshot of the entries present *right now*, NOT a fixed struct,
+        // so KEEP the `Map` — every entry, including future daughters, is typed
+        // by its uniform `Link` value. Without this, `from_state`'s
+        // `resolve(infer(state), declared)` collapses a declared
+        // `cells: Map[Cell]` to `Tree{c0:…}` at init: the `_divide` sentinel
+        // (a Map op) stops applying, and a daughter `c0_0` — absent from the
+        // snapshot's branches — falls through to `Schema::Any`. The declared
+        // Link value is authoritative for a process node (inference can't improve
+        // it), so we keep it as-is. (cells-and-division.md §6.2.)
+        (Map { value }, Tree { .. }) | (Tree { .. }, Map { value }) if value.is_link_kind() => {
+            Map { value: value.clone() }
+        }
+        // Map ⊓ Tree (data map): the per-key `Tree` is the **more specific**
+        // type — `Tree{k:V}` refines `Map[V]` (a fixed struct IS a dict, not
+        // vice versa), so the meet keeps the Tree. Push the Map's uniform
+        // element type onto each branch so declared element semantics (e.g.
+        // additive `Array`, `Delta`) survive there. The argument order keeps the
+        // **second** (update/declared) side authoritative over the inferred
+        // snapshot (so a declared per-key `Array` isn't dropped for the `List`
+        // inference saw).
         (Map { value }, Tree { branches }) => Tree {
             branches: branches.iter().map(|(k, v)| (k.clone(), resolve(value, v))).collect(),
         },

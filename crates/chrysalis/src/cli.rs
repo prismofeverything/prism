@@ -13,7 +13,7 @@ use prism_schema::MethodRegistry;
 use crate::ast::{Def, Expr, TermArg};
 use crate::compile::ModuleRegistry;
 use crate::parse::parse_file;
-use crate::runner::{invoke, invoke_driven, invoke_trace, run, serve_stream};
+use crate::runner::{invoke, invoke_driven, invoke_trace, run, serve_process, serve_stream};
 
 /// Resolve `.ys`-file imports before compiling: a DOTTED `from <pkg>.<sub> import
 /// <file>` is a file module — it brings in the top-level defs of
@@ -246,6 +246,7 @@ pub fn run_command(
     let mut input: Option<String> = None;
     let mut trace = false;
     let mut serve = false;
+    let mut serve_node = false;
     let mut sample_dt = 1.0_f64;
     let mut inputs: BTreeMap<String, String> = BTreeMap::new();
     let mut i = 0;
@@ -265,6 +266,7 @@ pub fn run_command(
             }
             "--trace" => trace = true,
             "--serve-stream" => serve = true,
+            "--serve-process" => serve_node = true,
             "--sample-dt" => {
                 i += 1;
                 sample_dt = args
@@ -309,8 +311,31 @@ pub fn run_command(
     // A `composite` entry with no explicit `main` ⇒ compositional invocation.
     let invokes = matches!(prog.entry(), Some(Def::Composite(_))) && prog.lookup("main").is_none();
     if invokes {
-        // Live streaming filter (`--serve-stream`): the `stream:` protocol's child
-        // side — read input frames from stdin, emit output frames to stdout.
+        // Process proxy (`--serve-process`): the `stream:` protocol's child side —
+        // run the entry as a faithful subengine, FORWARDING its update delta each
+        // tick (the pipe mirror of the `rest:` server). Distinct from the
+        // `--serve-stream` trace filter below.
+        if serve_node {
+            return match serve_process(
+                &prog,
+                registry,
+                methods,
+                modules,
+                &inputs,
+                std::io::stdin().lock(),
+                std::io::stdout().lock(),
+            ) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("serve-process {path}: {e}");
+                    1
+                }
+            };
+        }
+
+        // Live streaming filter (`--serve-stream`): a `Trace[In] → Trace[Out]`
+        // transformer — read input frames from stdin, emit absolute output frames
+        // (a replayable delta-log) to stdout. The data-pipeline (`A | B`) mode.
         if serve {
             return match serve_stream(
                 &prog,

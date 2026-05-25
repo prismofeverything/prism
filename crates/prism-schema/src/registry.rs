@@ -471,15 +471,13 @@ pub fn divide_by_schema(
         }
         Schema::Tuple { elements } => divide_tuple(elements, state, ctx, registry, n),
 
-        // ── Composite node: a cell IS divisible — split its exported data
-        //    fields (extensive `Delta`/`Integer` split, intensive `Float` share)
-        //    and share the rest (the subengine body + spec) so daughters
-        //    re-realize. Folds the composite's divide into the core (was
-        //    chrysalis's instance schema + a separate divide method).
+        // ── Composite NODE: split its exported data face (extensive `Delta`/
+        //    `Integer` split, intensive `Float` share) and SHARE the spec
+        //    (`address`/`config`/wiring) so daughters re-realize fresh instances.
         Schema::CompositeLink { .. } => {
-            divide_named(&schema.composite_data_branches(), state, ctx, registry, n)
+            divide_named(&schema.node_data_branches(), state, ctx, registry, n)
         }
-        // ── Process / step node: share the spec; daughters re-realize ──
+        // ── Pure process/step NODE: share the spec; daughters re-realize. ──
         Schema::Link { .. } | Schema::ProcessLink { .. } | Schema::StepLink { .. } => {
             share(state, n)
         }
@@ -1288,6 +1286,65 @@ mod tests {
                 "{k}: composite body shared (re-realizes)"
             );
         }
+    }
+
+    #[test]
+    fn divide_composite_link_node_halves_face_shares_spec() {
+        // A cell is an ADDRESSED CompositeLink node `{address, config, mass}` —
+        // not a container. Its `CompositeLink` schema exposes `mass: Delta` as its
+        // outer FACE (an output port bridged onto its own node via `%.mass`).
+        // `divide_by_schema(CompositeLink, node)` halves the on-node face and
+        // SHARES the rest of the spec — crucially `address`, so daughters
+        // re-realize on the SAME protocol (this is what makes division
+        // cross-protocol "for free": the parent that holds the node holds the
+        // address). The shared `config.state.mass` is stale, but the face is
+        // authoritative — the `%`-self reseed corrects each daughter on tick 1 —
+        // so face-only division conserves mass without dividing `inner_schema`.
+        let reg = TypeRegistry::new();
+        let schema = Schema::CompositeLink {
+            inputs: IndexMap::from([(Key::from("mass"), Schema::Delta { default: None })]),
+            outputs: IndexMap::from([(Key::from("mass"), Schema::Delta { default: None })]),
+            interval: 1.0,
+            inner_schema: Box::new(Schema::Tree {
+                branches: IndexMap::from([(Key::from("mass"), Schema::Delta { default: None })]),
+            }),
+        };
+        // The node carries its spec + the current exported face (mass=2.0, grown
+        // past its t=0 seed of 1.2).
+        let config = Value::tree([
+            ("state", Value::tree([("mass", Value::float(1.2))])),
+            ("bridge", Value::map()),
+        ]);
+        let node = Value::tree([
+            ("address", Value::String("local:Composite".into())),
+            ("config", config.clone()),
+            ("mass", Value::float(2.0)),
+        ]);
+
+        let daughters = divide_by_schema(&schema, &node, &DivideContext::binary(), &reg);
+        assert_eq!(daughters.len(), 2);
+        for d in &daughters {
+            assert_eq!(
+                d.get_field("mass").and_then(|v| v.as_f64()),
+                Some(1.0),
+                "the on-node face (mass:Delta) halves"
+            );
+            assert_eq!(
+                d.get_field("address").and_then(|v| v.as_str()),
+                Some("local:Composite"),
+                "address SHARED → daughters re-realize on the SAME protocol (cross-protocol division)"
+            );
+            assert_eq!(
+                d.get_field("config"),
+                Some(&config),
+                "config (the re-realization seed) shared; the face is authoritative via the %-self reseed"
+            );
+        }
+        let total: f64 = daughters
+            .iter()
+            .map(|d| d.get_field("mass").and_then(|v| v.as_f64()).unwrap())
+            .sum();
+        assert_eq!(total, 2.0, "extensive face conserved across daughters — no mass from nothing");
     }
 
     #[test]

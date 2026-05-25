@@ -127,15 +127,19 @@ fn cell_spec(mass: f64, id: &str) -> Value {
             Value::tree([("environment", wire(&["environment"]))]),
         ),
     ]);
+    // NO inner `environment` slot: that makes the `environment` output port a
+    // pure CONDUIT — the Divide step's structural `{_remove,_add}` is forwarded
+    // to the PARENT intact (mother removed → true division 1→2), never applied
+    // inside the cell (which would nest daughters → explosion). An inner slot
+    // here would make the bridge round-trip through state and drop the `_remove`.
     let state = Value::tree([
         ("mass", Value::float(mass)),
         ("grow", grow),
         ("divide", divide),
-        ("environment", Value::map()),
     ]);
     let bridge = Value::tree([
         ("inputs", Value::map()),
-        // expose the inner `environment` slot as the composite's port
+        // the `environment` port has no inner slot → conduit to the parent
         (
             "outputs",
             Value::tree([("environment", wire(&["environment"]))]),
@@ -203,8 +207,31 @@ fn subengine_cell_grows_and_divides_via_bridge() {
         "environment",
         Value::tree([("cell", cell_spec(1.6, "cell"))]),
     )]);
+    // The REAL schema (not Schema::Any): the environment is a Map of cell
+    // composites. Typed so the engine resolves cells as CompositeLink nodes and
+    // apply handles the division `_remove`/`_add` — so the mother is actually
+    // removed (true division 1→2) instead of lingering as a zombie (the
+    // Schema::Any path → full binary tree → explosion).
+    let cell_link = Schema::CompositeLink {
+        inputs: IndexMap::new(),
+        outputs: IndexMap::from([(Key::from("environment"), Schema::map(Schema::Any))]),
+        interval: 1.0,
+        inner_schema: Box::new(Schema::Tree {
+            branches: IndexMap::from([
+                (Key::from("mass"), Schema::float()),
+                (Key::from("environment"), Schema::map(Schema::Any)),
+            ]),
+        }),
+    };
+    let real_schema = Schema::Tree {
+        branches: IndexMap::from([(
+            Key::from("environment"),
+            Schema::Map { value: Box::new(cell_link) },
+        )]),
+    };
     let mut engine =
-        Engine::from_state(Schema::Any, topo.initial_state.clone(), core).expect("engine");
+        Engine::from_state(real_schema, topo.initial_state.clone(), core).expect("engine");
+    engine.set_max_nodes(64); // bounded if correct; trips fast + light if not
     engine.discover_all_processes();
 
     let count = |e: &Engine| {
@@ -216,22 +243,42 @@ fn subengine_cell_grows_and_divides_via_bridge() {
             })
             .unwrap_or(0)
     };
-    eprintln!("cells before: {}", count(&engine));
-    engine.run(8.0);
-    let after = count(&engine);
-    eprintln!(
-        "cells after run(8.0): {after}\n  root keys: {:?}\n  env keys: {:?}",
-        engine
-            .state()
-            .as_map()
-            .map(|m| m.keys().collect::<Vec<_>>()),
-        engine
-            .state()
+    let keys = |e: &Engine| -> Vec<String> {
+        e.state()
             .get_field("environment")
-            .and_then(|v| v.as_map().map(|m| m.keys().collect::<Vec<_>>()))
-    );
+            .and_then(|v| {
+                v.as_map().map(|m| {
+                    m.keys()
+                        .filter(|k| !k.starts_with('_'))
+                        .map(|k| k.to_string())
+                        .collect()
+                })
+            })
+            .unwrap_or_default()
+    };
+    // A few ticks: the cell grows past threshold and divides via the bridge. With
+    // the bridge forwarding the division UPDATE intact (the `environment` port is
+    // a conduit), the mother is truly REMOVED and replaced by its daughters.
+    for _ in 0..4 {
+        engine.run(1.0);
+    }
+    let final_keys = keys(&engine);
+    let n = final_keys.len();
+
+    assert!(n >= 2, "the cell should grow past threshold and divide (got {n})");
+    // TRUE division (not zombie budding): the root mother and every intermediate
+    // mother were removed — no surviving cell is an ancestor of another. The old
+    // diff-bridge dropped the `_remove`, leaving the whole ancestor tree (zombies)
+    // → exponential blow-up. The conduit bridge forwards `_remove` intact.
     assert!(
-        after >= 2,
-        "subengine cell should grow past threshold and divide (got {after} cells)"
+        !final_keys.iter().any(|k| k == "cell"),
+        "root mother `cell` removed by true division: {final_keys:?}"
     );
+    for a in &final_keys {
+        let prefix = format!("{a}_");
+        assert!(
+            !final_keys.iter().any(|b| b != a && b.starts_with(&prefix)),
+            "no surviving cell is an ancestor of another (zombie!): {a} among {final_keys:?}"
+        );
+    }
 }

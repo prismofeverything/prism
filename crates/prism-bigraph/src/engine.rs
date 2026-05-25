@@ -63,13 +63,25 @@ fn address_class(parsed: &crate::protocol::ParsedAddress) -> Option<String> {
 /// If the wire path starts with "..", resolve relative to the process's location
 /// (each ".." pops one level). Otherwise, treat as absolute from the state root.
 fn resolve_wires_from_process(wires: &Value, process_path: &[Key]) -> IndexMap<String, Vec<Key>> {
+    // A wire resolves against a BASE. Two bases, distinguished by a leading
+    // marker:
+    //   - default → the process's CONTAINER (`parent`). A bare segment `["x"]`
+    //     is a sibling slot; `[]` is the container itself; `[".."]` pops up.
+    //     This is the place-graph-relative wiring composites have always used.
+    //   - leading `"%"` → the process's OWN node (`own` = `process_path`). So
+    //     `["%","mass"]` is the node's own `mass` field (e.g. `cells.N.mass`),
+    //     the slot a composite exports its FACE onto so a parent can match it
+    //     WITHOUT knowing the dynamic key `N`. The engine supplies the path; the
+    //     process never hard-codes its own key (deployment-agnostic). This is the
+    //     self-node wire — the seam division's exposed face + intent ride on.
     let parent: Vec<Key> = if !process_path.is_empty() {
         process_path[..process_path.len() - 1].to_vec()
     } else {
         vec![]
     };
+    let own: Vec<Key> = process_path.to_vec();
 
-    fn resolve_one(path_list: &[Value], parent: &[Key]) -> Vec<Key> {
+    fn resolve_one(path_list: &[Value], parent: &[Key], own: &[Key]) -> Vec<Key> {
         let elems: Vec<Key> = path_list
             .iter()
             .filter_map(|v| match v {
@@ -80,8 +92,14 @@ fn resolve_wires_from_process(wires: &Value, process_path: &[Key]) -> IndexMap<S
             })
             .collect();
 
-        let mut resolved = parent.to_vec();
-        for elem in &elems {
+        // The self-node marker `%` rebases onto the process's own node; it is
+        // consumed (not a path segment).
+        let (base, rest): (&[Key], &[Key]) = match elems.first() {
+            Some(first) if first.as_str() == "%" => (own, &elems[1..]),
+            _ => (parent, &elems[..]),
+        };
+        let mut resolved = base.to_vec();
+        for elem in rest {
             if elem.as_str() == ".." {
                 resolved.pop();
             } else {
@@ -95,11 +113,12 @@ fn resolve_wires_from_process(wires: &Value, process_path: &[Key]) -> IndexMap<S
         prefix: &str,
         target: &Value,
         parent: &[Key],
+        own: &[Key],
         result: &mut IndexMap<String, Vec<Key>>,
     ) {
         match target {
             Value::List(list) => {
-                result.insert(prefix.to_string(), resolve_one(list, parent));
+                result.insert(prefix.to_string(), resolve_one(list, parent, own));
             }
             Value::Map(map) => {
                 // Nested wires: {"substrates": {"glucose": ["fields","glucose",5,5]}}
@@ -110,7 +129,7 @@ fn resolve_wires_from_process(wires: &Value, process_path: &[Key]) -> IndexMap<S
                     } else {
                         format!("{prefix}.{key}")
                     };
-                    flatten_nested(&sub_prefix, sub_target, parent, result);
+                    flatten_nested(&sub_prefix, sub_target, parent, own, result);
                 }
             }
             _ => {}
@@ -120,7 +139,7 @@ fn resolve_wires_from_process(wires: &Value, process_path: &[Key]) -> IndexMap<S
     let mut result = IndexMap::new();
     if let Some(map) = wires.as_map() {
         for (port, target) in map {
-            flatten_nested(port, target, &parent, &mut result);
+            flatten_nested(port, target, &parent, &own, &mut result);
         }
     }
     result
@@ -146,6 +165,15 @@ struct ProcessFront {
     pending: Option<crate::defer::Defer<crate::Update>>,
 }
 
+/// Default structural-explosion BACKSTOP (nodes per engine) — *not* a sim-size
+/// limit. Set high so genuinely large sims never suffer (a 1000×1000 spatial grid
+/// is 1e6 nodes); a runaway is *exponential* (→ ∞) so it trips any finite cap
+/// fast regardless. It exists only to fail a non-terminating discovery/division
+/// loud + fast instead of OOMing the machine. A debug/test that wants a tight
+/// fast-fail lowers it via [`Engine::set_max_nodes`] (the grow/divide tests use
+/// 64); a genuinely huge sim raises it. A runaway is a code bug to fix.
+const DEFAULT_MAX_NODES: usize = 10_000_000;
+
 /// A running composition of processes and shared state.
 #[derive(Debug)]
 pub struct Engine {
@@ -161,18 +189,39 @@ pub struct Engine {
     /// Pending changed paths to trigger steps at start of next run.
     pending_changes: Vec<Path>,
 
-    /// Passthrough paths: projections to these root paths are captured
-    /// as raw deltas (not applied to state). Used by Composite bridge.
+    /// Bridge-out roots: a composite TAPS the reconciled inner UPDATE at these
+    /// roots each tick (accumulated over inner ticks) and forwards it intact —
+    /// the one way anything leaves a composite (identical to a `stream:` delta-
+    /// frame). Set by `Composite` to all its output ports' inner roots. This
+    /// replaced `diff(pre,post)`, which was lossy (dropped structural `_remove`)
+    /// and redundant (the delta already existed).
+    bridge_out_paths: HashSet<Key>,
+
+    /// Of `bridge_out_paths`, the roots that are pure OUTWARD CONDUITS (no inner
+    /// slot — e.g. a cell's division output): captured + forwarded but NOT applied
+    /// to inner state (else daughters would nest inside the cell). An inner-slot
+    /// output (e.g. `mass`) is captured + forwarded AND applied normally. Same
+    /// forward rule; this only gates inner application.
     passthrough_paths: HashSet<Key>,
 
-    /// Captured passthrough deltas from the last run.
-    passthrough_deltas: IndexMap<Key, Value>,
+    /// Captured bridge-out deltas (the forwarded updates) from the last run.
+    bridge_out_deltas: IndexMap<Key, Value>,
 
     /// Current simulation time.
     time: f64,
 
     /// Instantiated process/step nodes, keyed by name.
     nodes: HashMap<String, ProcessNode>,
+
+    /// Structural-explosion guard: the most process nodes this engine will hold
+    /// before `add_process` panics. A runaway (division that doesn't terminate —
+    /// daughters not falling below threshold because mass wasn't conserved/halved)
+    /// otherwise creates nodes without bound and OOMs the machine. This fails it
+    /// FAST and loud instead — a code bug, not patience (see
+    /// memory feedback_grow_divide_runaway). Per-engine, so it also bounds a
+    /// composite's inner engine. Raise it via [`Engine::set_max_nodes`] for a
+    /// genuinely large sim.
+    max_nodes: usize,
 
     /// Wiring interfaces for each node.
     interfaces: HashMap<String, Interface>,
@@ -299,6 +348,7 @@ impl Engine {
             schema,
             time: 0.0,
             nodes: instances,
+            max_nodes: DEFAULT_MAX_NODES,
             interfaces,
             fronts,
             step_triggers,
@@ -308,8 +358,9 @@ impl Engine {
             protocol_runtimes: crate::protocol_runtime::ProtocolRuntimes::new(),
             last_structural: false,
             pending_changes: Vec::new(),
+            bridge_out_paths: HashSet::new(),
             passthrough_paths: HashSet::new(),
-            passthrough_deltas: IndexMap::new(),
+            bridge_out_deltas: IndexMap::new(),
             step_cache,
         };
 
@@ -599,15 +650,18 @@ impl Engine {
         self.pending_changes.extend(paths);
     }
 
-    /// Set passthrough paths — projections to these root paths are captured
-    /// as raw deltas instead of applied to state.
-    pub fn set_passthrough_paths(&mut self, paths: HashSet<Key>) {
-        self.passthrough_paths = paths;
+    /// Set the bridge-out roots a composite TAPS + forwards each tick (the inner
+    /// reconciled update at these roots is captured intact). `conduits` ⊆ these
+    /// are the pure outward conduits (no inner slot) that must NOT be applied to
+    /// inner state; the rest are captured AND applied normally.
+    pub fn set_bridge_out_paths(&mut self, capture: HashSet<Key>, conduits: HashSet<Key>) {
+        self.bridge_out_paths = capture;
+        self.passthrough_paths = conduits;
     }
 
-    /// Take the passthrough deltas captured during the last run.
-    pub fn take_passthrough_deltas(&mut self) -> IndexMap<Key, Value> {
-        std::mem::take(&mut self.passthrough_deltas)
+    /// Take the bridge-out deltas (forwarded updates) captured during the last run.
+    pub fn take_bridge_out_deltas(&mut self) -> IndexMap<Key, Value> {
+        std::mem::take(&mut self.bridge_out_deltas)
     }
 
     /// Public wrapper for trigger_steps.
@@ -1012,7 +1066,7 @@ impl Engine {
         &mut self,
         projections: &[(Path, Value, Option<Schema>)],
     ) -> (Vec<Path>, bool) {
-        if self.passthrough_paths.is_empty() {
+        if self.bridge_out_paths.is_empty() {
             let result = apply_projections_to(
                 &mut self.state,
                 &self.schema,
@@ -1023,11 +1077,15 @@ impl Engine {
             return result;
         }
 
-        // Separate passthrough from normal projections
+        // The ONE way out of a composite: TAP the reconciled inner update at each
+        // bridge-out root (accumulate over inner ticks) and forward it intact —
+        // no diff. A bridge-out root is ALSO applied to inner state normally,
+        // UNLESS it is a pure conduit (`passthrough_paths`, no inner slot — e.g.
+        // the division output), which must not land inner (else daughters nest).
         let mut normal = Vec::new();
         for proj in projections {
             let root = proj.0.first().map(|k| k.as_str()).unwrap_or("");
-            if self.passthrough_paths.contains(root) {
+            if self.bridge_out_paths.contains(root) {
                 let root_key = Key::from(root);
                 let mut delta = proj.1.clone();
                 if proj.0.len() > 1 {
@@ -1035,13 +1093,12 @@ impl Engine {
                         delta = Value::tree([(key.as_str(), delta)]);
                     }
                 }
-                if let Some(existing) = self.passthrough_deltas.get(&root_key) {
-                    // Combine the two passthrough deltas through `reconcile`
-                    // (the update monoid): union structural `_add`/`_remove`,
-                    // fold value deltas. Passthrough roots are absent from the
-                    // inner schema (that is what makes them passthrough), so
-                    // fall back to a dynamic `Map` schema — enough for
-                    // reconcile to union the structural sentinels.
+                if let Some(existing) = self.bridge_out_deltas.get(&root_key) {
+                    // Accumulate concurrent / multi-inner-tick deltas at this root
+                    // via `reconcile` (the update monoid): union structural
+                    // `_add`/`_remove`, fold value deltas. A conduit root is absent
+                    // from the inner schema, so fall back to a dynamic `Map` schema
+                    // — enough for reconcile to union the structural sentinels.
                     let root_schema = self.schema.schema_at_path(std::slice::from_ref(&root_key));
                     let map_any;
                     let s = if matches!(root_schema, Schema::Any) {
@@ -1057,8 +1114,10 @@ impl Engine {
                     )
                     .unwrap_or(delta);
                 }
-                self.passthrough_deltas.insert(root_key, delta);
-            } else {
+                self.bridge_out_deltas.insert(root_key, delta);
+            }
+            // Apply to inner state unless this root is a pure conduit.
+            if !self.passthrough_paths.contains(root) {
                 normal.push(proj.clone());
             }
         }
@@ -1069,12 +1128,19 @@ impl Engine {
             &normal,
             Some(self.core.types.as_ref()),
         );
-        let has_passthrough = !self.passthrough_deltas.is_empty();
-        self.last_structural = structural || has_passthrough;
+        // A conduit forwards a (possibly structural) delta outward without
+        // applying it inner — mark the tick structural so the PARENT re-discovers
+        // (e.g. division → new cell nodes), and surface the conduit roots as
+        // changed so the forwarded delta reaches the parent.
+        let conduit_delta = self
+            .passthrough_paths
+            .iter()
+            .any(|r| self.bridge_out_deltas.contains_key(r));
+        self.last_structural = structural || conduit_delta;
         for root in self.passthrough_paths.iter() {
             changed.push(vec![root.clone()]);
         }
-        (changed, structural || has_passthrough)
+        (changed, structural || conduit_delta)
     }
 
     /// Fire any steps whose inputs overlap with the changed paths.
@@ -1279,8 +1345,28 @@ impl Engine {
         Some((value, projections))
     }
 
+    /// Set the structural-explosion cap (nodes before `add_process` panics).
+    pub fn set_max_nodes(&mut self, n: usize) {
+        self.max_nodes = n;
+    }
+
     /// Dynamically add a process to the running engine.
     pub fn add_process(&mut self, name: String, spec: ProcessSpec, mut node: ProcessNode) {
+        // Structural-explosion guard. Runaway division (daughters that don't fall
+        // below threshold — mass not conserved/halved — so they re-divide
+        // unbounded) otherwise creates nodes without end and OOMs the machine.
+        // Fail FAST and loud here instead: this is a code bug (division must
+        // TERMINATE), not patience. (memory feedback_grow_divide_runaway.)
+        if self.nodes.len() >= self.max_nodes {
+            panic!(
+                "structural explosion: engine reached {} process nodes (cap {}) while adding {name:?} — \
+                 runaway discovery/division that is not terminating. Fix the non-termination \
+                 (conserve + halve mass so daughters drop below threshold; remove the divided mother); \
+                 do not just raise the cap.",
+                self.nodes.len(),
+                self.max_nodes
+            );
+        }
         let mut interface = spec.interface();
         interface.output_schemas = node.outputs();
         // The instance's REAL interface, captured before `node` is moved — used
@@ -1520,18 +1606,20 @@ impl Engine {
         unique_paths.sort();
         unique_paths.dedup();
 
-        // Remove processes whose state was replaced by _add or whose parent
-        // was removed. This must happen BEFORE scanning so that replaced
-        // entries are re-discovered with their new config/wiring.
+        // Remove a process whose OWN node is gone — true removal via a structural
+        // `_remove`/`_divide` that deleted its slot (e.g. a mother cell replaced
+        // by its daughters), which also covers an ancestor subtree being removed
+        // (the own path is then absent too). Checking only the *parent* missed the
+        // single-key case, so a divided-away mother's instance LINGERED as a
+        // zombie — re-creating its node via its own output bridge and re-dividing
+        // (the grow/divide runaway). A re-`_add` at the same key leaves the node
+        // present (new config), handled by the config-changed re-add below — not
+        // here. This must happen BEFORE scanning so replaced entries re-discover.
         let existing_names: Vec<String> = self.specs.keys().cloned().collect();
         for name in &existing_names {
-            if let Some(dot_pos) = name.rfind('.') {
-                let parent_path: Vec<Key> =
-                    name[..dot_pos].split('.').map(|s| Key::from(s)).collect();
-                if self.state.get_path(&parent_path).is_none() {
-                    // Parent state was removed (_remove)
-                    to_remove.push(name.clone());
-                }
+            let own_path: Vec<Key> = name.split('.').map(Key::from).collect();
+            if self.state.get_path(&own_path).is_none() {
+                to_remove.push(name.clone());
             }
         }
         for name in &to_remove {
@@ -1777,6 +1865,64 @@ mod tests {
         fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
             self
         }
+    }
+
+    #[test]
+    fn self_node_wire_resolves_to_own_node() {
+        // A process at `cells.c0`. Wires resolve against two bases:
+        //   - default (container-relative): `["mass"]` → `cells.mass` (a sibling
+        //     slot in the container), `[]` → `cells` (the container itself).
+        //   - self-node (`%`): `["%","mass"]` → `cells.c0.mass` (the node's OWN
+        //     field — where a composite exports its face), `["%"]` → `cells.c0`.
+        // The process never names its own key `c0`; the engine supplies the path.
+        let process_path = [Key::from("cells"), Key::from("c0")];
+        let wires = Value::Map(IndexMap::from([
+            // self-node face: own `mass`
+            (
+                Key::from("face"),
+                Value::List(vec![Value::String("%".into()), Value::String("mass".into())]),
+            ),
+            // self-node root: the node itself
+            (Key::from("node"), Value::List(vec![Value::String("%".into())])),
+            // container-relative sibling (the existing default)
+            (
+                Key::from("sibling"),
+                Value::List(vec![Value::String("mass".into())]),
+            ),
+            // container itself (empty wire — the existing `@`/`%`-as-here behavior)
+            (Key::from("container"), Value::List(vec![])),
+            // up one level from the container, then a field (existing `..`)
+            (
+                Key::from("up"),
+                Value::List(vec![Value::String("..".into()), Value::String("glucose".into())]),
+            ),
+        ]));
+        let resolved = resolve_wires_from_process(&wires, &process_path);
+        assert_eq!(
+            resolved.get("face"),
+            Some(&vec![Key::from("cells"), Key::from("c0"), Key::from("mass")]),
+            "`%`-rooted wire lands on the node's OWN field (cells.c0.mass)"
+        );
+        assert_eq!(
+            resolved.get("node"),
+            Some(&vec![Key::from("cells"), Key::from("c0")]),
+            "`[%]` is the node itself"
+        );
+        assert_eq!(
+            resolved.get("sibling"),
+            Some(&vec![Key::from("cells"), Key::from("mass")]),
+            "a bare segment stays container-relative (cells.mass) — unchanged"
+        );
+        assert_eq!(
+            resolved.get("container"),
+            Some(&vec![Key::from("cells")]),
+            "the empty wire is the container — unchanged"
+        );
+        assert_eq!(
+            resolved.get("up"),
+            Some(&vec![Key::from("glucose")]),
+            "`..` pops from the container to root, then `glucose` — unchanged"
+        );
     }
 
     #[test]

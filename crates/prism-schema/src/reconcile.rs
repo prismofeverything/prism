@@ -143,11 +143,24 @@ pub fn reconcile_with(
             None => last_non_none(updates),
         },
 
-        // Link, Any, typed link variants, Bridge: opaque — last non-None wins.
+        // A composite NODE carries a data face (`mass: Delta`, …) plus markers.
+        // Concurrent writes to DIFFERENT fields of one cell in a tick — e.g. a
+        // grow `mass` delta AND a `divide` marker — MUST merge, not last-wins.
+        // Reconcile the data face like a Tree (additive `Delta`, etc.) and union
+        // the rest, exactly as `apply`/`divide` route a composite through
+        // `node_data_branches`. Plain last-wins dropped the mass delta in any tick
+        // that also set another field — the grow/divide mass-conservation leak.
+        Schema::CompositeLink { .. } => {
+            reconcile_tree(registry, &schema.node_data_branches(), updates)
+        }
+
+        // Pure process/step specs + Bridge + Any: opaque — last non-None wins.
+        // (Uniform node-field merge here is the ideal but is NOT yet law-covered
+        // — generators don't produce node sorts — and applying it unvalidated
+        // regressed growth_division. Re-generalize once the laws cover nodes #11.)
         Schema::Link { .. }
         | Schema::StepLink { .. }
         | Schema::ProcessLink { .. }
-        | Schema::CompositeLink { .. }
         | Schema::Bridge { .. }
         | Schema::Any => last_non_none(updates),
     }

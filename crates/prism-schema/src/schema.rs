@@ -800,28 +800,36 @@ impl Schema {
     /// The apply op's core (dispatch on sort). **Module-private**: external
     /// crates call [`crate::algebra::apply`] — the single public door — so the
     /// apply surface stays inside the algebra.
-    /// For a `CompositeLink`, the divisible/applicable DATA fields it exports —
-    /// its scalar output ports (`Float`/`Delta`/`Integer`), keyed by port name.
-    /// These are the fields a composite instance (e.g. a cell) carries in its
-    /// state: extensive `Delta`/`Integer` split on divide + apply additively;
-    /// intensive `Float` shares; the subengine body + spec pass through. Folds
-    /// chrysalis's `composite_instance_schema` into the core so `apply`/`divide`
-    /// handle a `CompositeLink` directly (a composite IS data-bearing + divisible).
-    /// Empty for non-composite schemas.
-    pub(crate) fn composite_data_branches(&self) -> IndexMap<Key, Schema> {
-        match self {
-            Schema::CompositeLink { outputs, .. } => outputs
-                .iter()
-                .filter(|(_, s)| {
-                    matches!(
-                        s,
-                        Schema::Float { .. } | Schema::Delta { .. } | Schema::Integer { .. }
-                    )
-                })
-                .map(|(k, s)| (k.clone(), s.clone()))
-                .collect(),
-            _ => IndexMap::new(),
-        }
+    /// The DATA face of a process/composite **node** — its scalar output ports
+    /// (`Float`/`Delta`/`Integer`), keyed by port name. These are the fields a
+    /// node carries *on itself* when it exports a face onto its own node (a cell's
+    /// `mass` via `%.mass`): extensive `Delta`/`Integer` split on divide + apply
+    /// additively; intensive `Float` shares; the spec (`address`/`config`/wiring)
+    /// and any non-scalar keys pass through. This is **uniform across node kinds**
+    /// — `Link`/`ProcessLink`/`StepLink`/`CompositeLink` — so `apply`/`divide`/
+    /// `reconcile` treat a node's concurrent field-writes identically regardless
+    /// of kind (a composite was special-cased; a pure process that self-exports a
+    /// face was silently mishandled). A node with no exported scalar face → empty
+    /// → the value passes through unchanged (the old replace/share/last-wins
+    /// behaviour for pure specs). Empty for non-node schemas.
+    pub(crate) fn node_data_branches(&self) -> IndexMap<Key, Schema> {
+        let outputs = match self {
+            Schema::Link { outputs, .. }
+            | Schema::ProcessLink { outputs, .. }
+            | Schema::StepLink { outputs, .. }
+            | Schema::CompositeLink { outputs, .. } => outputs,
+            _ => return IndexMap::new(),
+        };
+        outputs
+            .iter()
+            .filter(|(_, s)| {
+                matches!(
+                    s,
+                    Schema::Float { .. } | Schema::Delta { .. } | Schema::Integer { .. }
+                )
+            })
+            .map(|(k, s)| (k.clone(), s.clone()))
+            .collect()
     }
 
     pub(crate) fn apply_update(&self, current: &Value, update: &Value) -> Value {
@@ -1001,19 +1009,20 @@ impl Schema {
                 }
             }
 
-            // CompositeLink: a composite NODE carries data state (a cell's
-            // exported scalar fields). Apply STRUCTURALLY over those fields
-            // (extensive `Delta` additive, etc.) rather than blind-replace, so a
-            // bridged delta (e.g. `{mass: +Δ}`) composes; the subengine body +
-            // non-data keys pass through. Folds the composite's data handling
-            // into the core (was chrysalis's instance schema).
+            // A composite NODE carries a data face on itself (a cell's exported
+            // `mass` via `%.mass`). Apply STRUCTURALLY over that face (extensive
+            // `Delta` additive, etc.) so a bridged delta (`{mass:+Δ}`) composes;
+            // the spec (`address`/`config`/wiring) + non-face keys pass through.
             Self::CompositeLink { .. } => Schema::Tree {
-                branches: self.composite_data_branches(),
+                branches: self.node_data_branches(),
             }
             .apply_update(current, update),
 
-            // Link / ProcessLink / StepLink: process NODE specs (no data state) —
-            // replaced wholesale if updated.
+            // Pure process/step NODE specs (no self-exported data face) — replaced
+            // wholesale if updated. (Generalizing field-merge here is the uniform
+            // ideal, but it is NOT yet covered by the algebra laws — generators
+            // don't produce node sorts — and applying it unvalidated regressed
+            // growth_division. Re-generalize only once the laws cover nodes (#11).)
             Self::Link { .. } | Self::StepLink { .. } | Self::ProcessLink { .. } => {
                 update.clone()
             }
@@ -1127,8 +1136,24 @@ impl Schema {
         // bigraph-schema `_handle_divide_sentinel`; needs the registry to
         // run the schema-driven divide.
         if let (Self::Map { value }, Some(reg)) = (self, registry) {
-            if update.as_map().is_some_and(|u| u.contains_key("_divide")) {
-                return apply_divide_sentinel(value, reg, current, update.as_map().unwrap());
+            if let Some(um) = update.as_map() {
+                if um.contains_key("_divide") {
+                    // Apply the regular (non-`_divide`) part FIRST — sibling
+                    // entries' deltas AND the mother's own delta from the same
+                    // tick — THEN enact the divide on the result. So a tick that
+                    // both grows and divides conserves mass (the mother is split
+                    // at its post-growth value, and no co-located delta is
+                    // dropped). Returning early on `_divide` alone silently
+                    // discarded those deltas — a conservation leak.
+                    let mut rest = um.clone();
+                    rest.shift_remove("_divide");
+                    let base = if rest.is_empty() {
+                        current.clone()
+                    } else {
+                        self.apply_update_with(registry, current, &Value::Map(rest))
+                    };
+                    return apply_divide_sentinel(value, reg, &base, um);
+                }
             }
         }
         self.apply_update(current, update)

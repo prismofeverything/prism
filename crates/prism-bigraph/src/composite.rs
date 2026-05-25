@@ -207,87 +207,64 @@ impl Process for Composite {
             }
         }
 
-        // 2. Identify passthrough ports (not in inner state — used for
-        //    _add/_remove that passes through to parent).
-        let mut passthrough = std::collections::HashSet::new();
-        for (_port, internal_path) in &self.output_bridge.mappings {
-            if engine.state().get_path(internal_path).is_none() {
-                if let Some(root) = internal_path.first() {
-                    passthrough.insert(root.clone());
+        // 2. Bridge-out: TAP + forward the inner UPDATE at every output port's
+        //    inner root — the one way out of a composite, identical to a `stream:`
+        //    delta-frame (no diff of state). A root with NO inner slot is a pure
+        //    CONDUIT (e.g. a structural division delta destined for the parent):
+        //    captured + forwarded but NOT applied to inner state (else the
+        //    daughters would nest inside the cell). A root backed by an inner slot
+        //    (e.g. `mass`) is captured + forwarded AND applied normally.
+        let mut capture = std::collections::HashSet::new();
+        let mut conduits = std::collections::HashSet::new();
+        for internal_path in self.output_bridge.mappings.values() {
+            if let Some(root) = internal_path.first() {
+                capture.insert(root.clone());
+                if engine.state().get_path(internal_path).is_none() {
+                    conduits.insert(root.clone());
                 }
             }
         }
-        engine.set_passthrough_paths(passthrough.clone());
-        engine.take_passthrough_deltas();
+        engine.set_bridge_out_paths(capture, conduits);
+        engine.take_bridge_out_deltas(); // clear any stale
 
-        // 3. Snapshot ONLY non-passthrough output ports.
-        //    Passthrough ports skip snapshot entirely (no cloning!).
-        let mut pre_run: IndexMap<String, Value> = IndexMap::new();
-        for (port, internal_path) in &self.output_bridge.mappings {
-            let root = internal_path.first().map(|k| k.as_str()).unwrap_or("");
-            if passthrough.contains(root) {
-                continue; // Skip — handled by passthrough
-            }
-            let val = engine
-                .state()
-                .get_path(internal_path)
-                .cloned()
-                .unwrap_or(Value::None);
-            pre_run.insert(port.clone(), val);
-        }
-
-        // 4. If the inner engine has no temporal processes, queue bridged
-        //    paths so steps fire from bridge input alone. If there ARE
-        //    processes, they'll trigger steps naturally via their outputs.
+        // 3. If the inner engine has no temporal processes, queue bridged paths so
+        //    steps fire from bridge input alone.
         if engine.fronts_count() == 0 {
             let bridged_paths: Vec<Path> = self.input_bridge.mappings.values().cloned().collect();
             engine.queue_changes(bridged_paths);
         }
 
-        // 5. Run inner engine.
+        // 4. Run inner engine.
         engine.run(interval);
 
-        // 5. Build output deltas.
-        //    Passthrough ports: use captured raw deltas (preserves _add/_remove).
-        //    Regular ports: diff pre/post (preserves List/Array structure).
-        let pt_deltas = engine.take_passthrough_deltas();
+        // 5. Forward the captured updates INTACT — the reconciled inner delta at
+        //    each output root (accumulated over inner ticks), navigated to the
+        //    port's sub-path. No diff. Structural `_remove`/`_add` survive
+        //    because we never round-tripped through state.
+        let deltas = engine.take_bridge_out_deltas();
+        engine.set_bridge_out_paths(
+            std::collections::HashSet::new(),
+            std::collections::HashSet::new(),
+        );
         let mut output: IndexMap<Key, Value> = IndexMap::new();
         for (port, internal_path) in &self.output_bridge.mappings {
-            let port_key = Key::from(port.as_str());
-            let root = internal_path.first().map(|k| k.clone()).unwrap_or_default();
-
-            if let Some(pt_delta) = pt_deltas.get(&root) {
-                // Passthrough: raw delta with _add/_remove intact
-                if !is_zero_delta(pt_delta) {
-                    output.insert(port_key, pt_delta.clone());
+            let Some(root) = internal_path.first() else {
+                continue;
+            };
+            let sub = &internal_path[1..];
+            let delta = deltas.get(root).and_then(|d| {
+                if sub.is_empty() {
+                    Some(d.clone())
+                } else {
+                    d.get_path(sub).cloned()
                 }
-            } else {
-                // Regular: the output update is `diff` of pre/post under the
-                // inner slot's schema (the algebra's view/bridge-out) — a
-                // numeric `Delta`, a per-key Map delta with `_add`/`_remove`,
-                // etc. This replaces the hand-rolled `compute_delta`.
-                let new_val = engine
-                    .state()
-                    .get_path(internal_path)
-                    .cloned()
-                    .unwrap_or(Value::None);
-                let old_val = pre_run.get(port).unwrap_or(&Value::None);
-                let slot_schema = engine.schema().schema_at_path(internal_path);
-                if let Some(delta) = prism_schema::algebra::diff_with(
-                    engine.type_registry().map(|r| &**r),
-                    slot_schema,
-                    old_val,
-                    &new_val,
-                ) {
-                    if !is_zero_delta(&delta) {
-                        output.insert(port_key, delta);
-                    }
+            });
+            if let Some(delta) = delta {
+                if !is_zero_delta(&delta) {
+                    output.insert(Key::from(port.as_str()), delta);
                 }
             }
         }
-
-        // Clear passthrough for next tick
-        engine.set_passthrough_paths(std::collections::HashSet::new());
 
         if output.is_empty() {
             Update::Noop

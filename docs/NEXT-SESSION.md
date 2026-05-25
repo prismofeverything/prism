@@ -1,5 +1,80 @@
 # Next session — launch prompt & plan
 
+## ⏯️ NEXT-SESSION PROMPT (2026-05-24 part 4 — division proven over STREAM; parallelism next)
+
+> Continue prism (Rust process-bigraphs + the `.ys` language). Workspace green
+> (chrysalis suite all-pass incl. the new `grow_divide_stream`). Read
+> `docs/cells-and-division.md` §"RESOLVED (part 4)" + memory
+> `composite_bridge_forwards_updates` first.
+>
+> **DONE THIS SESSION — cell division over the `stream:` protocol, conserving mass.**
+> The `stream:` child was still a delta-LOG *filter* (`serve_stream` `diff`ed absolute
+> `output_raw` snapshots — double-counts a shared pool once ≥2 cells draw on it, drops
+> structure). Fixed: new **`runner::serve_process`** (CLI `--serve-process`;
+> `StreamProcess` spawns it) runs the entry as a real `Composite` and **forwards
+> `Composite::update`'s delta** — the pipe mirror of the rest server (no `refines`
+> handshake, no one-tick lag: parent stamps cumulative time *after* the step).
+> `serve_stream` stays the `A|B` trace FILTER. New `crates/chrysalis/ys/cell.ys` (a
+> streamable Cell; its ENTRY is the composite — no trailing `Cell[]`). Proof:
+> `crates/chrysalis/tests/grow_divide_stream.rs` — a `stream:cell.ys` cell (separate
+> OS process, Arrow over pipes) grows + divides + **conserves `glucose+Σmass+acetate=41`
+> EVERY tick**, terminating at a stable 16 cells, terminal numbers IDENTICAL to
+> local/rest. The 2 `stream_protocol.rs` echo tests were rewritten to a delta-emitting
+> Counter (a passthrough forwards nothing — correct, same as local).
+>
+> **NEXT: real parallelism (#27 / task #4)** — the user's stated goal, rides this same
+> protocol seam. Steps 1+2 done; pick up at step 2.5 (register the pool as a
+> `ProtocolRuntime` via `Protocol::runtime()`), an engine-level wall-clock test, then
+> step 3 (`rest`/`stream` concurrent dispatch — the `stream:` cells can now run
+> truly concurrently) and step 4 (batched ray). See `docs/execution-model.md`.
+>
+> **ALSO available (not blocking):** the env.ys surface (#20 / task #20) — thread
+> `map[Cell]→Map{CompositeLink}`, retire the `composite_instance_schema` dodge, the `%`
+> surface wire, surface stream addressing — so the WHOLE environment runs as
+> `chrysalis run env.ys` (today the proof builds the env in Rust). A convenience, not a
+> capability gap.
+
+## ⏯️ NEXT-SESSION PROMPT (2026-05-24 part 3 — bridge unified, division proven over rest)
+
+> Continue prism (Rust process-bigraphs + the `.ys` language). Workspace green
+> (94 test groups; one *rare pre-existing* flake `law_reconcile_coherence` — fold
+> into #11). Read `docs/cells-and-division.md` **§"✅ RESOLVED"** (top) + memory
+> `composite_bridge_forwards_updates` + the task list first.
+>
+> **THE FOUNDATIONAL SHIFT THIS SESSION:** the composite bridge now **forwards the
+> inner UPDATE (delta) intact — `diff(pre,post)` deleted**. Updates ARE deltas, so
+> **local bridge == `stream:` wire == `rest:` == trace == command** (one way across
+> every boundary). This is what makes protocol-equivalence real. Division is **Form
+> 3 canonical** (cell proposes via `%.divide` self-node face → env enacts via the
+> `_divide` sentinel → schema splits via `divide_by_schema(CompositeLink)`; daughters
+> inherit the cell's protocol via shared `address`). Proven: a mass-balanced
+> grow-divide-glucose cell divides + conserves (`glucose+Σmass+acetate=const` every
+> tick), **identical local AND over `rest:` (real HTTP)** — `prism-bigraph/tests/
+> cells_division.rs`. `growth_division` is true division now (1→2→4, 0.01s, was a
+> 46s zombie explosion). Algebra holes fixed: `resolve` Map-preservation,
+> `reconcile` node-field merge, own-path instance removal, the `%` self-node wire,
+> the `add_process` explosion backstop (generous; tests set `set_max_nodes(64)`).
+>
+> **FIRST: the `stream:` half = `chrysalis run cell.ys --serve-stream` (#6→#7→#8).**
+> The rest half is proven at the prism level; stream needs the `.ys` cell. (#6)
+> Thread the chrysalis lowering `map[Cell] → Map{CompositeLink}` (retire the
+> `composite_instance_schema` dodge at `chrysalis/src/schema.rs:80`; cell value is
+> already an addressed CompositeLink node via `build_composite_outer`) + the `%`
+> self-node wire at the **surface** (engine side done — `["%",…]`); update the
+> dependent `schema.rs` tests. (#7) Write the grow-divide-glucose `.ys` (Form 3:
+> cell + Divide reaction + environment; mass-balanced uptake). (#8) `chrysalis run`
+> it over local + `stream:`, asserting the SAME division + conservation as rest —
+> the same cell, only the address changes.
+>
+> **THEN:** #11 complete the law generators to cover node sorts (so node-holes fail
+> `cargo test` — would have caught this session's `reconcile`/`resolve` holes) +
+> fix the flaky law deterministically, THEN re-apply the *uniform node-data
+> handling* (reverted this session — apply/divide/reconcile for ALL link sorts via
+> `node_data_branches`, validated by the now-complete laws). #13 design explicit
+> bridge **conduits** (today inferred by inner-slot absence — a wart). #9 cleanup
+> (#29 collapse the address-scan / two discovery walks now that cells are
+> schema-first). Then real parallelism (#27) rides the same seam.
+
 ## ⏯️ NEXT-SESSION PROMPT (2026-05-24 part 2)
 
 > Continue prism (Rust process-bigraphs + the `.ys` language). Workspace is green

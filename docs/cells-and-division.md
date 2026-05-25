@@ -12,6 +12,81 @@ ops), #28/#29 (retire `Schema::Any` / unify code paths).
 
 ---
 
+## ✅ RESOLVED (2026-05-24) — the implemented model
+
+The sections below were the design exploration. What was actually built + proven:
+
+- **The bridge forwards the inner UPDATE (delta) intact — `diff(pre,post)` is
+  deleted.** "Updates ARE deltas," so a composite emitting its update is the same
+  operation as a `stream:` delta-frame, a `rest:` delta, a trace entry, a pipe.
+  **local bridge == stream wire == rest == trace.** The old diff was lossy (dropped
+  structural `_remove`) and inconsistent with streaming. Engine taps the reconciled
+  delta at every output-bridge root (`set_bridge_out_paths`, accumulated over inner
+  ticks); a **conduit** (output port with no inner slot, e.g. the division output)
+  is forwarded-only (not applied inner); an inner-slot face (`mass`) is forwarded
+  AND applied. (memory `composite_bridge_forwards_updates`; conduit-declaration is
+  a wart → design task #13.)
+- **Division is Form 3, canonical** (1 & 2 are derived): the cell **proposes** by
+  setting its `%.divide` self-node face (an inner Trigger), the environment
+  **enacts** via the `_divide` sentinel (a Divider step), and the schema-holding
+  `apply` performs the split (`apply_divide_sentinel` → `divide_by_schema`). Neither
+  reaches across the boundary — the cell exposes a face, the *container* rewrites
+  its own membership (place-graph law: siblinghood is the parent's).
+- **A cell is an addressed `CompositeLink` node** (`{address, config, mass, …}`),
+  not a `{_type,mass,body}` container. `cells: Map{CompositeLink}`. The **`%`
+  self-node wire** (engine, `["%",…]` bases on the process's own node) exports the
+  `mass`/`divide` face onto `cells.N.*` so a parent can match it without knowing
+  the dynamic key.
+- **`divide_by_schema(CompositeLink)`** halves the on-node face (extensive `Delta`)
+  and **shares `address`** → daughters re-realize on the SAME protocol (division is
+  cross-protocol for free).
+- **Algebra holes fixed (were the real bugs):** `resolve(Tree, Map{Link})` now
+  preserves the Map (was collapsing → daughters `Schema::Any`);
+  `reconcile(CompositeLink)` merges node fields (was last-wins → dropped the `mass`
+  delta = conservation leak); instance removal checks the node's OWN path (was
+  parent → zombie mother).
+- **Guard:** `Engine::add_process` panics on structural explosion (a generous
+  backstop, not a size limit; `set_max_nodes` lowers it for fast-fail).
+
+**Proven (prism-bigraph tests/cells_division.rs + growth_division.rs):** a
+mass-balanced grow-divide-glucose cell (uptake → biomass + acetate, `glucose +
+Σmass + acetate = const` every tick) divides via Form 3, bounded; **identical over
+local AND `rest:` (a real HTTP wire)**; `growth_division` does true division
+(1→2→4) at 0.01s (was a 46s zombie explosion).
+
+## ✅ RESOLVED (2026-05-24, part 4) — the `stream:` half, over a real wire
+
+The cell now divides + conserves over the **`stream:` protocol** too — a separate
+OS process per cell, Arrow frames over pipes — proven by
+`crates/chrysalis/tests/grow_divide_stream.rs` (conservation `glucose+Σmass+acetate=41`
+EVERY tick across growth AND division; terminates at a stable 16 cells of 1.5625 pg;
+terminal numbers IDENTICAL to the proven local/rest run). Only the address changed
+(`local:Composite` → `stream:cell.ys`); the cell, its bridge, and the division are
+the same. `crates/chrysalis/ys/cell.ys` is the streamable cell (its ENTRY is the
+`Cell` composite — no trailing `Cell[]`, so `chrysalis run cell.ys` invokes it as a
+composite, not a one-shot script).
+
+**The load-bearing fix — the stream child became a delta-FORWARDER.** The `stream:`
+protocol's child was still a *delta-LOG filter*: `serve_stream` synthesized the wire
+frame by `diff`-ing absolute output snapshots (`output_raw` + `algebra::diff`).
+That double-counts a shared pool the instant two cells draw on it (and drops
+structural `_add`/`_remove`) — it had never received the "forward the inner UPDATE"
+fix the **local** `Composite::update` got (memory `composite_bridge_forwards_updates`).
+New `runner::serve_process` (CLI `--serve-process`; `StreamProcess` now spawns it)
+runs the entry as a real `Composite` and forwards `Composite::update`'s reconciled
+delta each tick — byte-identical to local / the rest server. No `refines` handshake
+(like rest), no one-tick lag (the parent stamps cumulative time *after* the step, so
+the first frame is a full interval). `serve_stream` stays as the `A | B` trace
+**filter** (absolute, replayable delta-log) — a genuinely different transport.
+
+**Remaining:** only the surface sugar — `chrysalis run env.ys` with the whole
+environment in `.ys` (thread `map[Cell] → Map{CompositeLink}`, retire the
+`composite_instance_schema` dodge, the `%` surface wire, and surface stream
+addressing). The proof above builds the environment in Rust (mirroring the rest
+test); the `.ys` env is a convenience, not a capability gap (#20).
+
+---
+
 ## 1. The problem
 
 There are two cell representations, and one violates the boundary:

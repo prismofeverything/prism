@@ -11,7 +11,8 @@ use std::collections::BTreeMap;
 use std::io::Read;
 
 use indexmap::IndexMap;
-use prism_bigraph::{Core, Document, Engine, ProcessRegistry};
+use prism_bigraph::composite::Composite;
+use prism_bigraph::{Core, Document, Engine, Process, ProcessRegistry};
 use prism_schema::{Key, MethodRegistry, Schema, Value, algebra, schema_to_value, value_to_schema};
 
 use crate::ast::{CompositeDef, Def, Expr, Name, PortDecl, Program, SchemaExpr};
@@ -464,6 +465,151 @@ pub fn serve_stream(
         .finish()
         .map_err(|e| RunError::Invoke(format!("finish stream: {e}")))?;
     Ok(())
+}
+
+/// **Process proxy** (the `stream:` protocol's child side) — run the entry
+/// composite as a faithful subengine over pipes: the pipe-transport mirror of the
+/// `rest:` server. Where [`serve_stream`] is a trace FILTER (it emits the absolute
+/// output as a *replayable* delta-log: first frame absolute, the rest `diff`s of
+/// snapshots), this **FORWARDS the composite's reconciled UPDATE** each tick —
+/// byte-identical to a local [`Composite::update`] or the rest server. That
+/// distinction is load-bearing: a snapshot `diff` double-counts a shared pool the
+/// moment two cells draw on it (and drops structural `_add`/`_remove`), whereas
+/// forwarding the inner update carries the exact per-process delta. So a
+/// `stream:cell.ys` node behaves *exactly* like `local:`/`rest:` — additive faces
+/// accumulate, shared pools net across many cells, structural deltas cross intact —
+/// which is what makes grow-divide-over-stream conserve mass. The parent has the
+/// node's initial state, so the wire is a pure delta stream (every frame, no
+/// absolute seed) and there is no connect-time `refines` handshake: the composite
+/// consumes whatever its parent routes to its input ports, exactly as the rest
+/// server does (the parent engine already validated the wiring).
+pub fn serve_process(
+    program: &Program,
+    registry: ProcessRegistry,
+    methods: MethodRegistry,
+    modules: ModuleRegistry,
+    args: &BTreeMap<String, String>,
+    input: impl std::io::Read,
+    output: impl std::io::Write,
+) -> Result<(), RunError> {
+    let entry = resolve_entry(program)?;
+    let mut reader = prism_trace::TraceReader::new(input)
+        .map_err(|e| RunError::Invoke(format!("open input stream: {e}")))?;
+    // The header is only the Arrow decode shape (the parent infers it from the
+    // routed input values); no `refines` check — see the rest server.
+    let in_elem = value_to_schema(reader.element()).unwrap_or(Schema::Any);
+
+    let composite = build_entry_composite(program, registry, methods, modules, args, &entry)?;
+    let out_schema = output_schema(&entry, program);
+    let mut writer =
+        prism_trace::TraceWriter::new(output, &entry.name, &schema_to_value(&out_schema))
+            .map_err(|e| RunError::Invoke(format!("open output stream: {e}")))?;
+
+    // Fold the input delta-log back to a full input record, step the composite by
+    // the frame's dt, and forward its update delta (NO diff). The parent stamps
+    // cumulative time AFTER each step, so the first frame's dt is a full interval
+    // (no one-tick lag vs a local composite).
+    let mut cur_in: Option<Value> = None;
+    let mut prev_time: f64 = 0.0;
+    while let Some(row) = reader.next() {
+        let (time, payload) = row.map_err(|e| RunError::Invoke(format!("read frame: {e}")))?;
+        let full = match &cur_in {
+            None => payload.clone(),
+            Some(prev) if matches!(payload, Value::None) => prev.clone(),
+            Some(prev) => algebra::apply(&in_elem, prev, &payload),
+        };
+        cur_in = Some(full.clone());
+        let dt = time - prev_time;
+        prev_time = time;
+        let delta = composite.update(&full, dt).into_value().unwrap_or(Value::None);
+        writer
+            .push(time, &delta)
+            .map_err(|e| RunError::Invoke(format!("write frame: {e}")))?;
+        writer
+            .flush()
+            .map_err(|e| RunError::Invoke(format!("flush frame: {e}")))?;
+    }
+    writer
+        .finish()
+        .map_err(|e| RunError::Invoke(format!("finish stream: {e}")))?;
+    Ok(())
+}
+
+/// Build the entry as a real [`Composite`] (the same artifact a `local:`/`rest:`
+/// cell is): inner `state` = the entry body evaluated with its config params
+/// (defaults + any `args`) — inputs are left to be driven per-tick through the
+/// bridge; `bridge` = each port → its `@` inner path (else `[name]`); `schema` =
+/// the declared inner schema. Then `Composite::from_config` against the program's
+/// core, so the child forwards updates via the very same bridge machinery as local.
+fn build_entry_composite(
+    program: &Program,
+    registry: ProcessRegistry,
+    methods: MethodRegistry,
+    modules: ModuleRegistry,
+    args: &BTreeMap<String, String>,
+    entry: &CompositeDef,
+) -> Result<Composite, RunError> {
+    let result = compile_with_modules(program, registry, methods, modules)?;
+    let ev = &result.evaluator;
+    let mut env = collect_top_level_bindings(program, ev)?;
+    for p in &entry.params {
+        bind_arg(
+            &mut env, ev, program, args, &p.name, &p.schema, &p.default, "config",
+        )?;
+    }
+    // Input ports default at construction (or take an explicit flag); each tick's
+    // frame overwrites them through the input bridge.
+    for (name, port) in &entry.interface.inputs {
+        if args.contains_key(name) || port.default.is_some() {
+            bind_arg(
+                &mut env,
+                ev,
+                program,
+                args,
+                name,
+                &port.schema,
+                &port.default,
+                "input",
+            )?;
+        }
+    }
+    let state = ev
+        .eval_value(&entry.body, &env)
+        .map_err(CompileError::from)?;
+    let bridge = bridge_value(entry);
+    let schema = composite_inner_schema(entry, program);
+    let config = Value::Map(IndexMap::from([
+        (Key::from("state"), state),
+        (Key::from("bridge"), bridge),
+        (Key::from("schema"), schema_to_value(&schema)),
+    ]));
+    Composite::from_config(&config, &result.core)
+        .ok_or_else(|| RunError::Invoke("could not build entry composite from config".into()))
+}
+
+/// The entry's interface as a Composite `bridge` value: `{inputs:{port:[path]},
+/// outputs:{port:[path]}}`, each path the port's `@` bridge (else `[name]`).
+fn bridge_value(entry: &CompositeDef) -> Value {
+    let path_list = |name: &Name, port: &PortDecl| -> Value {
+        let segs = port.bridge.clone().unwrap_or_else(|| vec![name.clone()]);
+        Value::List(segs.into_iter().map(Value::String).collect())
+    };
+    let inputs: IndexMap<Key, Value> = entry
+        .interface
+        .inputs
+        .iter()
+        .map(|(n, p)| (Key::from(n.as_str()), path_list(n, p)))
+        .collect();
+    let outputs: IndexMap<Key, Value> = entry
+        .interface
+        .outputs
+        .iter()
+        .map(|(n, p)| (Key::from(n.as_str()), path_list(n, p)))
+        .collect();
+    Value::Map(IndexMap::from([
+        (Key::from("inputs"), Value::Map(inputs)),
+        (Key::from("outputs"), Value::Map(outputs)),
+    ]))
 }
 
 /// The carried element schema of the *input* interface: a `Tree` of the input
