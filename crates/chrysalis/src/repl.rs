@@ -512,6 +512,7 @@ fn def_kind(d: &Def) -> &'static str {
         Def::Unit(_) => "unit",
         Def::Context(_) => "context",
         Def::Function(_) => "function",
+        Def::Protocol(_) => "protocol",
         Def::Binding { .. } => "def",
         Def::Use { .. } | Def::Import { .. } => "import",
     }

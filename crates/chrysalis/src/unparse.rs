@@ -138,6 +138,19 @@ fn unparse_def(def: &Def) -> String {
         }
         Def::Import { name, path } => format!("import {name} from '{path}'"),
         Def::Use { module, names } => format!("from {module} import {}", names.join(", ")),
+        Def::Protocol(p) => {
+            let fields = p
+                .fields
+                .iter()
+                .map(|(f, v)| format!("{f}: {}", unparse_expr(v)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if fields.is_empty() {
+                format!("protocol {} = {}<{}>", p.name, p.protocol, p.wrapped)
+            } else {
+                format!("protocol {} = {}<{}, {fields}>", p.name, p.protocol, p.wrapped)
+            }
+        }
         Def::Binding {
             name,
             schema,

@@ -467,6 +467,12 @@ pub enum Def {
     /// contracts is `refines` over their lowered `Tree` schemas — no new
     /// algebra op. See [`ContractDef`] and docs/process-contracts.md.
     Contract(ContractDef),
+    /// `protocol Name = stream<Cell, path: 'cell.ys'>` — bind a composite/process
+    /// to a transport protocol + its typed address fields, producing a reusable
+    /// addressed control. `Name[config] ~{} ->{}` places the wrapped composite at
+    /// the typed address `{_type: protocol, …fields}` (the transport realizes it
+    /// into a live process). See docs/protocols-as-types.md.
+    Protocol(ProtocolDef),
     /// `import Name from "path.ys"` — pull another file's definitions into
     /// scope. Resolved by [`crate::parse::parse_file`] (load the file, merge
     /// its defs); after resolution no `Import` remains in a `Program`.
@@ -494,6 +500,22 @@ pub enum Def {
         schema: Option<SchemaExpr>,
         value: Expr,
     },
+}
+
+/// `protocol Name = <protocol><Wrapped, field: value, …>` — a composite/process
+/// bound to a transport protocol with its typed address fields. The wrapped
+/// control is placed at the typed address `{_type: protocol, …fields}`.
+#[derive(Clone, Debug)]
+pub struct ProtocolDef {
+    /// The alias name (`StreamingCell`).
+    pub name: Name,
+    /// The transport / address-type tag (`stream`, `rest`, `parallel`, `local`).
+    pub protocol: Name,
+    /// The composite/process control being addressed (`Cell`).
+    pub wrapped: Name,
+    /// The protocol's address fields (`path: 'cell.ys'`, `host`/`port`, …), each an
+    /// expression evaluated against the program's bindings.
+    pub fields: Vec<(Name, Expr)>,
 }
 
 /// `type Name = <representation> with { method(args) = body }`.
@@ -640,6 +662,7 @@ pub fn def_name(def: &Def) -> &str {
         Def::Context(d) => &d.name,
         Def::Type(d) => &d.name,
         Def::Contract(d) => &d.name,
+        Def::Protocol(d) => &d.name,
         Def::Import { name, .. } => name,
         Def::Use { module, .. } => module,
         Def::Binding { name, .. } => name,

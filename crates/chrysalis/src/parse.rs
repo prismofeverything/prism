@@ -589,6 +589,12 @@ impl Parser {
             // `extern` replacement). `from` is a contextual keyword, so guard on
             // it not being a `from = …` binding.
             Tok::Ident(s) if s == "from" && *self.peek2() != Tok::Eq => self.parse_use_def(),
+            // `protocol Name = stream<Cell, path: '…'>` — a protocol-bound control.
+            // `protocol` is CONTEXTUAL (a `{protocol: …}` field key stays an ident);
+            // it's a def only when followed by the alias name (an ident).
+            Tok::Ident(s) if s == "protocol" && matches!(self.peek2(), Tok::Ident(_)) => {
+                self.parse_protocol_def()
+            }
             // `name = expr` binding (e.g. `growth = 0.02`), OR a trailing bare
             // expression — the file's root VALUE, which becomes the implicit
             // `main` (so `Environment[…]` on the last line needs no `main =`).
@@ -731,6 +737,35 @@ impl Parser {
             params: vec![],
             representation,
             methods,
+        }))
+    }
+
+    // ── protocol-bound control ──────────────────────────────────────
+    // `protocol Name = stream<Cell, path: '…'>` — bind a composite/process to a
+    // transport + its typed address fields. The wrapped control is the (single)
+    // positional arg; the named args are the protocol's address fields. Field
+    // values are parsed at postfix level (not full comparison) so the closing `>`
+    // is unambiguous (`<>` is the free bracket — see docs/protocols-as-types.md).
+    fn parse_protocol_def(&mut self) -> Result<Def, ParseError> {
+        self.bump(); // the contextual `protocol` ident
+        let name = self.ident()?;
+        self.expect(&Tok::Eq)?;
+        let protocol = self.ident()?; // the transport / address-type tag
+        self.expect(&Tok::Lt)?;
+        let wrapped = self.ident()?; // the composite/process being addressed
+        let mut fields = Vec::new();
+        while self.accept(&Tok::Comma) {
+            let field = self.ident()?;
+            self.expect(&Tok::Colon)?;
+            let value = self.parse_postfix()?; // literal / var — stops before `>`
+            fields.push((field, value));
+        }
+        self.expect(&Tok::Gt)?;
+        Ok(Def::Protocol(crate::ast::ProtocolDef {
+            name,
+            protocol,
+            wrapped,
+            fields,
         }))
     }
 

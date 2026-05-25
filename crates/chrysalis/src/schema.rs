@@ -66,18 +66,23 @@ fn lower_in_prog(s: &SchemaExpr, program: &Program, building: &mut Vec<crate::as
             element: Box::new(lower_in_prog(element, program, building)),
         },
         SchemaExpr::Custom { name, .. } => match program.lookup(name) {
-            // A composite as a map ELEMENT (e.g. `cells: map[Cell]`) → its INSTANCE
-            // schema (the exported scalar fields), which apply/divide/match handle.
-            // NOT a Link: a cell in a Map is found by the address scan, which
-            // RECURSES into the container to discover the body subengine. Making it
-            // a CompositeLink (schema-first) is blocked by the HOMOICONIC
-            // container/body representation — the container `{_type, mass, body}`
-            // has no `address`, so `is_link` would make discovery try to
-            // instantiate the container (skip) instead of recursing to find the
-            // body's `grow`. Reworking cells into addressed process nodes is the
-            // dynamic-structure rework, task #9. (`building` is still threaded for
-            // the def_schema path → cycle-safe composite inner.)
-            Some(Def::Composite(c)) => composite_instance_schema(c),
+            // A composite as a map ELEMENT (e.g. `cells: map[Cell]`) → its
+            // [`Schema::CompositeLink`] (schema-first). A cell VALUE is an
+            // addressed node (`{address, config, inputs, outputs}` from
+            // `build_composite_outer`), so it is discovered AND divided by schema —
+            // no address-scan. (Retires the `composite_instance_schema` dodge: the
+            // homoiconic `{_type, mass, body}` container it guarded against no
+            // longer exists — composites compile to addressed process nodes, and a
+            // protocol-bound cell carries a typed `{_type: stream, …}` address.)
+            Some(Def::Composite(c)) => composite_link(c, program, building),
+            // A protocol-bound control (`map[StreamingCell]` where
+            // `protocol StreamingCell = stream<Cell, …>`) → the WRAPPED composite's
+            // CompositeLink: the interface/divide semantics are the wrapped
+            // composite's; only the address (on the value) differs.
+            Some(Def::Protocol(pd)) => match program.lookup(&pd.wrapped) {
+                Some(Def::Composite(c)) => composite_link(c, program, building),
+                _ => lower_schema(s),
+            },
             Some(d @ (Def::Process(_) | Def::Step(_))) => def_schema_in(d, program, building),
             // Genuine data type (or unknown) → the opaque-but-dispatchable form.
             _ => lower_schema(s),
@@ -498,22 +503,16 @@ mod tests {
         let Schema::Tree { branches } = inner_schema.as_ref() else {
             panic!("inner should be a Tree");
         };
-        // `cells: map[Cell]` → Map of the Cell composite's INSTANCE schema
-        // (its exported scalar fields), NOT an opaque `Custom("Cell")`. A
-        // composite is not a registered data type, so threading `Custom` makes
-        // `apply` blind-replace the cell; expanding to the instance schema
-        // keeps cell updates structural (exported `mass` is a `Delta` that
-        // grows additively and halves on divide). The internal-division Cell
-        // here exposes only the non-scalar `environment`, so its instance
-        // schema is a (currently empty) `Tree` — the point is it's a `Tree`,
-        // not `Custom`.
+        // `cells: map[Cell]` → `Map{CompositeLink}` (schema-first), NOT the old
+        // `composite_instance_schema` Tree dodge and NOT an opaque `Custom("Cell")`.
+        // A cell VALUE is an addressed node, so it's discovered + divided by schema;
+        // the CompositeLink carries the Cell's interface (`outputs` = the matchable/
+        // divisible face) + its `inner_schema`.
         match branches.get(&k("cells")) {
             Some(Schema::Map { value }) => {
                 assert!(
-                    matches!(value.as_ref(), Schema::Tree { .. }),
-                    "cells element should be the composite instance schema (a Tree); \
-                     schema-first cells (a CompositeLink) is blocked by the homoiconic \
-                     container/body representation — task #9; got {value:?}"
+                    matches!(value.as_ref(), Schema::CompositeLink { .. }),
+                    "cells element should be a CompositeLink (schema-first cells); got {value:?}"
                 );
             }
             other => panic!("cells should be a Map, got {other:?}"),

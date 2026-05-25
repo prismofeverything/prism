@@ -373,6 +373,10 @@ pub fn compile_with_modules(
             // Contracts are type-level metadata (consumed by `check` +
             // schema lowering); they register no process factory.
             | Def::Contract(_)
+            // A `protocol` alias registers no factory: its uses build the WRAPPED
+            // composite via the generic `Composite` factory, with the address
+            // overridden to the typed protocol address (see eval::build_protocol_outer).
+            | Def::Protocol(_)
             // `Import` is resolved away by `parse::parse_file`; a leftover one
             // registers no factory. `Use` (native host imports) is resolved
             // separately (binds imported names); registers no factory here.

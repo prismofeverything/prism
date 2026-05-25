@@ -71,6 +71,15 @@ fn divide_method_is_type_relative_and_schema_driven() {
     }
 }
 
+#[ignore = "Form-1 container cells {_type,mass,body} are superseded by Form-3 \
+            addressed cells: with `map[Cell] → Map{CompositeLink}` (protocols-as-types \
+            3b) a cell is discovered by its `address`, but this fixture's containers \
+            have none. Re-enable after migrating the fixture to addressed cells with a \
+            `mass` face (needs the face/`%` surface wire — 3c; cells-and-division #9 \
+            step 5). The reaction `.divide()` itself stays covered by \
+            `divide_method_is_type_relative_and_schema_driven` above; Form-3 division \
+            is proven by prism-bigraph/tests/cells_division.rs + \
+            chrysalis/tests/grow_divide_stream.rs."]
 #[test]
 fn homoiconic_grow_divide_runs() {
     let program = gd::program();

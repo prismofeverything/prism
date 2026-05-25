@@ -90,7 +90,29 @@ address value is what it lowers to.
    `data` (a `String`) the legacy `"local:Cell"`/`{protocol,data}` forms produced —
    `instantiate` is unchanged; `rest`'s `{process,host,port}` stays a record. Proven:
    `typed_address_parses_to_legacy_data` + `engine_discovers_and_runs_a_typed_address_node`.
-3. ⏳ **Surface**: a protocol control lowering to a typed address; `env.ys` places cells
-   over `stream:`/`parallel:`; the whole environment runs via `chrysalis run env.ys`.
-   (Needs the `map[Cell]→Map{CompositeLink}` threading + the `%` self-node surface wire
-   too — task #20.)
+3. **Surface** — incrementally:
+   - ✅ **3a — the `protocol` control.** `protocol Name = proto<Wrapped, field: val>`
+     (contextual `protocol` keyword; `<>` the free bracket; field values parsed at
+     postfix level so `>` is unambiguous). `Name[config]` lowers the wrapped composite
+     to a node whose `address` is the typed value `{_type: proto, …fields}` — only
+     *where it runs* changes. Round-trips through unparse. Proven:
+     `chrysalis/tests/protocol_surface.rs`. (`Def::Protocol`; `eval::build_protocol_outer`.)
+   - ✅ **3b — `map[Cell] → Map{CompositeLink}`** (retired the `composite_instance_schema`
+     dodge at schema.rs:80; added a `Def::Protocol` arm → the wrapped composite's
+     CompositeLink). A cell value is an addressed node, so it's discovered + divided
+     schema-first. The `composite_instance_schema` Tree it guarded is gone from the
+     map-element path (still used for the Form-1 `.divide()` method face). **Casualty:**
+     the legacy Form-1 `homoiconic_grow_divide_runs` engine test (cells were
+     `{_type,mass,body}` *containers* with no `address`) — `#[ignore]`d with a note; its
+     migration to addressed cells with a `mass` face rides 3c (cells-and-division #9
+     step 5). The `.divide()` method unit test + all Form-3 division stay green.
+   - ⏳ **3c — the `%` self-node surface wire** (`%.mass` → `["%","mass"]`). **Ripple:**
+     `%` is overloaded today — bare `%` means the *container* (`grow_divide.ys`
+     `->{environment: %}` → `[]`) while `%.volume` (`nuclear-shuttle.ys`) is a self
+     field. Correcting `%` to own-node wires (`["%",…]`) must migrate those `.ys` +
+     their tests (likely bare-`%`-as-container → `^`, keeping `%.field` = self). Do
+     deliberately; the wire lowering (`lower_place_path`) is separate from
+     expression/units-context eval, so the `using concentration(volume: %.volume)`
+     path may be unaffected — verify.
+   - ⏳ **3d — `env.ys`** + a `Divide` step, run via `chrysalis run env.ys` over local +
+     stream, asserting the same conservation + division as the Rust proof.

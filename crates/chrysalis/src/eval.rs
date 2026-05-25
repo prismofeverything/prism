@@ -538,6 +538,10 @@ impl Evaluator {
                 let def = reaction_def.clone();
                 self.build_reaction_value(&def, args, env)
             }
+            Some(Def::Protocol(protocol_def)) => {
+                let pd = protocol_def.clone();
+                self.build_protocol_outer(&pd, args, ports, env)
+            }
             Some(Def::Function(_)) => Err(EvalError::InvalidForm {
                 context: "value-term".into(),
                 message: format!(
@@ -605,6 +609,57 @@ impl Evaluator {
         spec.insert("inputs".into(), Value::Map(inputs_map));
         spec.insert("outputs".into(), Value::Map(outputs_map));
         Ok(Value::Map(spec))
+    }
+
+    /// A protocol-bound control (`protocol StreamingCell = stream<Cell, …>` used as
+    /// `StreamingCell[config] ~{} ->{}`): build the WRAPPED composite's node, then
+    /// **override its `address`** with the typed protocol address `{_type: protocol,
+    /// …fields}` so the engine instantiates it over that transport. The wrapped
+    /// composite's config / bridge / wiring are unchanged — only *where it runs*
+    /// changes (and daughters inherit the address on division). See
+    /// docs/protocols-as-types.md.
+    fn build_protocol_outer(
+        &self,
+        pd: &crate::ast::ProtocolDef,
+        args: &[TermArg],
+        ports: &PortBindings,
+        env: &IndexMap<Name, Value>,
+    ) -> Result<Value, EvalError> {
+        let wrapped = match self.program.lookup(&pd.wrapped) {
+            Some(Def::Composite(c)) => c.clone(),
+            _ => {
+                return Err(EvalError::InvalidForm {
+                    context: "protocol".into(),
+                    message: format!(
+                        "`protocol {} = {}<{}, …>`: `{}` must be a composite in scope",
+                        pd.name, pd.protocol, pd.wrapped, pd.wrapped
+                    ),
+                });
+            }
+        };
+        let mut node = self.build_composite_outer(&wrapped, args, ports, env)?;
+        let address = self.build_protocol_address(pd, env)?;
+        if let Value::Map(m) = &mut node {
+            m.insert(Key::from("address"), address);
+        }
+        Ok(node)
+    }
+
+    /// The typed protocol address value `{_type: <protocol>, <field>: <value>, …}`
+    /// — a first-class Custom value of the protocol's registered address type. Its
+    /// `_type` tag selects both the schema type (for the algebra) and the transport
+    /// (for `instantiate`).
+    fn build_protocol_address(
+        &self,
+        pd: &crate::ast::ProtocolDef,
+        env: &IndexMap<Name, Value>,
+    ) -> Result<Value, EvalError> {
+        let mut m: IndexMap<Key, Value> = IndexMap::new();
+        m.insert(Key::from("_type"), Value::String(pd.protocol.clone()));
+        for (field, expr) in &pd.fields {
+            m.insert(Key::from(field.as_str()), self.eval_value(expr, env)?);
+        }
+        Ok(Value::Map(m))
     }
 
     /// Build an outer-map for a composite call site.
