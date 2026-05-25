@@ -424,6 +424,13 @@ impl Engine {
         topology.initial_state = state;
         let mut engine = Engine::new(topology, HashMap::new());
         engine.set_core(core);
+        // Register each protocol's batching runtime (e.g. the `parallel` pool) so
+        // the engine flushes it between invoke and collect. Only the TOP-LEVEL
+        // engine does this — a subengine (`Composite::from_config`) shares the same
+        // pool and its slot-`Defer`s already block on `.get()`, so a nested flush
+        // would only over-synchronize (and could deadlock a fixed pool under nested
+        // `parallel:`). One barrier, at the top.
+        engine.register_core_protocol_runtimes();
         // Reject a document that references a process the core can't build — a
         // missing reference is an error, not a silently-dropped node.
         engine.check_references()?;
@@ -731,6 +738,16 @@ impl Engine {
     /// Borrow the method registry (always present in the core; may be empty).
     pub fn method_registry(&self) -> Option<&Arc<prism_schema::MethodRegistry>> {
         Some(&self.core.methods)
+    }
+
+    /// Register every batching runtime exposed by the core's protocols
+    /// ([`crate::protocol::ProtocolRegistry::runtimes`]) — the auto-wired form of
+    /// [`Engine::register_protocol_runtime`]. Idempotent per registration; call
+    /// once after `set_core` on the top-level engine.
+    pub fn register_core_protocol_runtimes(&mut self) {
+        for rt in self.core.protocols.runtimes() {
+            self.protocol_runtimes.register(rt);
+        }
     }
 
     /// Register a protocol-level batching runtime. The engine calls

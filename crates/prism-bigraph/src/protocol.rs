@@ -55,6 +55,17 @@ pub trait Protocol: Send + Sync + std::fmt::Debug {
         config: Value,
         registry: &Arc<ProcessRegistry>,
     ) -> Result<ProcessNode, ProtocolError>;
+
+    /// The protocol's per-tick batching runtime, if it has one. The engine
+    /// registers this (via [`crate::Core`]) and calls
+    /// [`crate::protocol_runtime::ProtocolRuntime::flush_pending`] between the
+    /// invoke and collect passes — the explicit invoke→collect barrier a
+    /// batching transport needs (e.g. the `parallel` pool, a future `ray:`).
+    /// Default `None`: synchronous protocols (`local`, `rest`, `stream`) finish
+    /// their work inside `Process::invoke` and need no flush.
+    fn runtime(&self) -> Option<Arc<dyn crate::protocol_runtime::ProtocolRuntime>> {
+        None
+    }
 }
 
 #[derive(Debug, Error)]
@@ -193,6 +204,12 @@ impl ProtocolRegistry {
 
     pub fn names(&self) -> Vec<&str> {
         self.protocols.keys().map(|s| s.as_str()).collect()
+    }
+
+    /// Every registered protocol's batching [`runtime`](Protocol::runtime), if any
+    /// — the engine registers these so each is flushed between invoke and collect.
+    pub fn runtimes(&self) -> Vec<Arc<dyn crate::protocol_runtime::ProtocolRuntime>> {
+        self.protocols.values().filter_map(|p| p.runtime()).collect()
     }
 
     /// Look up the protocol for a parsed address and dispatch

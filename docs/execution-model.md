@@ -127,11 +127,24 @@ sections.
 
 ## Implementation path (incremental, test-guarded)
 
-1. `Process::invoke → Defer` (default = sync `update`); engine invoke pass uses it.
+1. ✅ `Process::invoke → Defer` (default = sync `update`); engine invoke pass uses it.
    *Pure refactor — results byte-identical.* (The highest-leverage, lowest-risk step.)
-2. `parallel:` → thread-pool Defer + flush. Test: a multi-process composite runs
-   concurrently (wall-clock).
-3. `rest:`/`stream:` → concurrent dispatch. Test: `report.ys`'s six sections run
-   concurrently.
-4. A batched `ray:`-style protocol (collate → one packet).
-5. (Later) `tick_lifecycle` + the cluster/pool/session lifecycle.
+2. ✅ `parallel:` → thread-pool Defer + flush (`ParallelPool` + `ParallelProcess`).
+3. ✅ **step 2.5 — `Protocol::runtime()` + auto-registration.** A protocol exposes its
+   batching runtime (`ParallelProtocol::runtime()` → the shared pool); the top-level
+   engine registers every `core.protocols.runtimes()` in `from_state_core` (NOT in
+   subengines — one barrier at the top; a nested flush over-synchronizes / can deadlock
+   a fixed pool). Proven: `prism-bigraph/tests/parallel_engine.rs` (4 × 50ms sleeping
+   `parallel:` processes finish in ~50ms, built via a real typed schema).
+4. ✅ **step 3 (stream) — `stream:` concurrent dispatch.** `StreamProcess::invoke` is
+   now non-blocking: it WRITES the input frame eagerly and returns a `Defer::lazy`
+   that READS the output in the collect pass. So the engine hands every stream child
+   its input first (all separate OS processes overlap), then gathers outputs —
+   wall-clock ≈ slowest child. Proven concurrent + correct by
+   `chrysalis/tests/grow_divide_stream.rs` (16 stream cells; runtime 0.40s → 0.15s
+   after the change).
+5. ⏳ **step 3 (rest) — `rest:` concurrent dispatch.** `RestProcess::update` still
+   blocks on the HTTP round-trip; mirror the stream change (fire the request in
+   `invoke`, await in the `Defer`) so `rest:` nodes also overlap.
+6. ⏳ A batched `ray:`-style protocol (collate → one packet per shard, Form A).
+7. (Later) `tick_lifecycle` + the cluster/pool/session lifecycle.

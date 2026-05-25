@@ -26,8 +26,8 @@ use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
 use prism_bigraph::{
-    PortSchema, Process, ProcessNode, ProcessRegistry, Protocol, ProtocolError, ProtocolRegistry,
-    Update,
+    Defer, PortSchema, Process, ProcessNode, ProcessRegistry, Protocol, ProtocolError,
+    ProtocolRegistry, Update,
 };
 use prism_schema::{Key, Schema, Value, algebra, schema_to_value};
 use prism_trace::{TraceReader, TraceWriter};
@@ -51,7 +51,10 @@ fn chrysalis_binary() -> String {
 pub struct StreamProcess {
     program: String,
     binary: String,
-    inner: Mutex<Inner>,
+    // `Arc` so a non-blocking `invoke` can hand the read half to a lazy `Defer`
+    // resolved later in the engine's collect pass (the seam that parallelizes
+    // stream cells — see `invoke`).
+    inner: Arc<Mutex<Inner>>,
 }
 
 struct Inner {
@@ -99,7 +102,7 @@ impl StreamProcess {
         Self {
             program: program.into(),
             binary: binary.into(),
-            inner: Mutex::new(Inner::empty()),
+            inner: Arc::new(Mutex::new(Inner::empty())),
         }
     }
 
@@ -159,68 +162,93 @@ impl Process for StreamProcess {
         IndexMap::new()
     }
 
-    fn update(&self, state: &Value, interval: f64) -> Update {
-        let mut inner = match self.inner.lock() {
-            Ok(g) => g,
-            Err(_) => return Update::Noop,
-        };
+    /// Non-blocking: **write the input frame now, defer the read to `.get()`.**
+    /// This is the seam that parallelizes stream cells. The engine's invoke pass
+    /// calls `invoke` on every due process *before* collecting any result, so all
+    /// stream children receive their input frames first and compute concurrently
+    /// (each is a separate OS process); the collect pass then gathers the outputs.
+    /// Wall-clock per tick ≈ the slowest child, not the sum.
+    fn invoke(&self, state: &Value, interval: f64) -> Defer<Update> {
+        // ── WRITE phase (eager) ──────────────────────────────────────────
+        {
+            let mut inner = match self.inner.lock() {
+                Ok(g) => g,
+                Err(_) => return Defer::immediate(Update::Noop),
+            };
 
-        // Lazily spawn the child + write the input header on the first tick.
-        if inner.child.is_none() {
-            match self.spawn(state) {
-                Ok((child, stdout, writer, element)) => {
-                    inner.child = Some(child);
-                    inner.stdout = Some(stdout);
-                    inner.writer = Some(writer);
-                    inner.element = element;
-                }
-                Err(e) => {
-                    eprintln!("StreamProcess spawn {}: {e}", self.program);
-                    return Update::Noop;
-                }
-            }
-        }
-
-        // Push the input as a delta-frame (first absolute, then diffs); the child
-        // folds it back to the full input record. Stamp cumulative time AFTER this
-        // step so the child's first frame carries a full `interval` dt (no one-tick
-        // lag vs a local composite — the child steps on every frame, none is a
-        // seed-only frame, because the parent already holds the node's state).
-        let payload = match &inner.prev_input {
-            None => state.clone(),
-            Some(prev) => algebra::diff(&inner.element, prev, state).unwrap_or(Value::None),
-        };
-        inner.time += interval;
-        let t = inner.time;
-        if let Some(w) = inner.writer.as_mut() {
-            if w.push(t, &payload).is_err() || w.flush().is_err() {
-                eprintln!("StreamProcess write {}", self.program);
-                return Update::Noop;
-            }
-        }
-        inner.prev_input = Some(state.clone());
-
-        // Lazily open the reader (the child emits its output header only AFTER it
-        // has read the first input frame).
-        if inner.reader.is_none() {
-            match inner.stdout.take() {
-                Some(stdout) => match TraceReader::new(stdout) {
-                    Ok(r) => inner.reader = Some(r),
+            // Lazily spawn the child + write the input header on the first tick.
+            if inner.child.is_none() {
+                match self.spawn(state) {
+                    Ok((child, stdout, writer, element)) => {
+                        inner.child = Some(child);
+                        inner.stdout = Some(stdout);
+                        inner.writer = Some(writer);
+                        inner.element = element;
+                    }
                     Err(e) => {
-                        eprintln!("StreamProcess reader {}: {e}", self.program);
+                        eprintln!("StreamProcess spawn {}: {e}", self.program);
+                        return Defer::immediate(Update::Noop);
+                    }
+                }
+            }
+
+            // Push the input as a delta-frame (first absolute, then diffs); the
+            // child folds it back to the full input record. Stamp cumulative time
+            // AFTER this step so the child's first frame carries a full `interval`
+            // dt (no one-tick lag vs a local composite — every frame is a step,
+            // because the parent already holds the node's state).
+            let payload = match &inner.prev_input {
+                None => state.clone(),
+                Some(prev) => algebra::diff(&inner.element, prev, state).unwrap_or(Value::None),
+            };
+            inner.time += interval;
+            let t = inner.time;
+            if let Some(w) = inner.writer.as_mut() {
+                if w.push(t, &payload).is_err() || w.flush().is_err() {
+                    eprintln!("StreamProcess write {}", self.program);
+                    return Defer::immediate(Update::Noop);
+                }
+            }
+            inner.prev_input = Some(state.clone());
+        } // unlock — the child now computes while the engine invokes the next process
+
+        // ── READ phase (deferred to `.get()`, run in the engine's collect pass) ──
+        let inner = Arc::clone(&self.inner);
+        let program = self.program.clone();
+        Defer::lazy(move || {
+            let mut g = match inner.lock() {
+                Ok(g) => g,
+                Err(_) => return Update::Noop,
+            };
+            // Open the reader lazily (the child emits its output header only AFTER
+            // reading its first input frame; this blocks until then — but by now
+            // every child has its input and they overlap).
+            if g.reader.is_none() {
+                let stdout = match g.stdout.take() {
+                    Some(s) => s,
+                    None => return Update::Noop,
+                };
+                match TraceReader::new(stdout) {
+                    Ok(r) => g.reader = Some(r),
+                    Err(e) => {
+                        eprintln!("StreamProcess reader {program}: {e}");
                         return Update::Noop;
                     }
-                },
-                None => return Update::Noop,
+                }
             }
-        }
+            // Read one output delta-frame → the engine update. A `None` payload is
+            // a no-change tick — apply nothing.
+            match g.reader.as_mut().and_then(Iterator::next) {
+                Some(Ok((_t, output))) if !matches!(output, Value::None) => Update::value(output),
+                _ => Update::Noop,
+            }
+        })
+    }
 
-        // Read one output delta-frame → the engine update. A `None` payload is a
-        // no-change tick — apply nothing.
-        match inner.reader.as_mut().and_then(Iterator::next) {
-            Some(Ok((_t, output))) if !matches!(output, Value::None) => Update::value(output),
-            _ => Update::Noop,
-        }
+    /// Blocking convenience — a direct `update()` caller still gets the result.
+    /// The engine uses `invoke` for concurrency.
+    fn update(&self, state: &Value, interval: f64) -> Update {
+        self.invoke(state, interval).get()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

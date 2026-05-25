@@ -315,6 +315,12 @@ impl Protocol for ParallelProtocol {
             ProcessNode::Step(s) => Ok(ProcessNode::Step(s)),
         }
     }
+
+    /// The shared pool IS this protocol's batching runtime — the engine registers
+    /// it (via the `Core`) and flushes it as the invoke→collect barrier.
+    fn runtime(&self) -> Option<Arc<dyn ProtocolRuntime>> {
+        Some(Arc::clone(&self.pool) as Arc<dyn ProtocolRuntime>)
+    }
 }
 
 #[cfg(test)]
