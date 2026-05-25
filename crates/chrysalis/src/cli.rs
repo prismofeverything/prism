@@ -7,10 +7,14 @@
 
 use std::collections::BTreeMap;
 
+use indexmap::IndexMap;
+
 use prism_bigraph::ProcessRegistry;
 use prism_schema::MethodRegistry;
 
-use crate::ast::{Def, Expr, TermArg};
+use crate::ast::{
+    CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, SchemaExpr, TermArg,
+};
 use crate::compile::ModuleRegistry;
 use crate::parse::parse_file;
 use crate::runner::{invoke, invoke_driven, invoke_trace, run, serve_process, serve_stream};
@@ -150,6 +154,115 @@ fn resolve_stream_paths(program: &mut crate::ast::Program, ys_root: &std::path::
                 *value = Expr::Str(crate::ast::StringLit::plain(s));
             }
         }
+    }
+}
+
+/// If the file's entry is a bare `process`/`step` (no place-graph to live in),
+/// wrap it in a synthesized **default harness** composite so it runs standalone —
+/// "a heart beating on a bench." The harness gives every port a state slot, wires
+/// the process to those slots (same-name self-loop, so a read-modify-write port
+/// like `mass` ACCUMULATES its delta), seeds the input slots from config params
+/// (`--mass 1.0` etc., defaulted to a type-zero), and exposes every slot as an
+/// output so the run reports the evolved state. `interval` is engine-supplied, not
+/// a slot. A composite entry already carries its own place-graph (its body), so it
+/// is left alone. The harness is appended as the new entry (`prog.entry()` = last
+/// interfaced def).
+fn harness_process_entry(prog: &mut Program) {
+    let (name, params, interface) = match prog.entry() {
+        Some(Def::Process(p)) => (p.name.clone(), p.params.clone(), p.interface.clone()),
+        Some(Def::Step(s)) => (s.name.clone(), s.params.clone(), s.interface.clone()),
+        _ => return,
+    };
+    prog.push(Def::Composite(harness_composite(&name, &params, &interface)));
+}
+
+/// Build the default-harness composite wrapping a `process`/`step` named `entry`.
+fn harness_composite(entry: &str, params: &[Param], interface: &Interface) -> CompositeDef {
+    let is_slot = |n: &str| n != "interval";
+    // Slots = union of in/out ports (minus `interval`), typed by their decl
+    // (input type preferred). IndexMap preserves a stable order.
+    let mut slots: IndexMap<crate::ast::Name, SchemaExpr> = IndexMap::new();
+    for (n, d) in interface.inputs.iter().chain(interface.outputs.iter()) {
+        if is_slot(n) {
+            slots.entry(n.clone()).or_insert_with(|| d.schema.clone());
+        }
+    }
+
+    // Config: the process's own params (passthrough, keep defaults) + each input
+    // port as a seedable, defaulted config param (so `--port v` initializes it).
+    let mut config: Vec<Param> = params.to_vec();
+    for (n, d) in &interface.inputs {
+        if is_slot(n) {
+            let default = d.default.clone().unwrap_or_else(|| default_expr_for(&d.schema));
+            config.push(Param::with_default(n.clone(), d.schema.clone(), default));
+        }
+    }
+
+    // Body: each slot initialized (input slot ← its config param; output-only slot
+    // ← a type-zero) + the process term, self-wired (same-name in/out, no interval),
+    // its own config args threaded from the harness params.
+    let mut body: Vec<Expr> = Vec::new();
+    for (slot, ty) in &slots {
+        let init = if interface.inputs.contains_key(slot) {
+            Expr::var(slot.clone())
+        } else {
+            default_expr_for(ty)
+        };
+        body.push(Expr::entry(slot.clone(), init));
+    }
+    let mut term = Expr::term(entry);
+    for p in params {
+        term = term.arg_named(p.name.clone(), Expr::var(p.name.clone()));
+    }
+    for (n, _) in &interface.inputs {
+        if is_slot(n) {
+            term = term.input(n.clone(), Expr::var(n.clone()));
+        }
+    }
+    for (n, _) in &interface.outputs {
+        term = term.output(n.clone(), Expr::var(n.clone()));
+    }
+    body.push(Expr::entry(lower_first(entry), term.build()));
+
+    // Every slot is an output port (bridged to itself), so the run reports it.
+    let mut iface = Interface::new();
+    for (slot, ty) in &slots {
+        iface = iface.with_output(
+            slot.clone(),
+            PortDecl {
+                schema: ty.clone(),
+                default: None,
+                contract: None,
+                bridge: Some(vec![slot.clone()]),
+            },
+        );
+    }
+
+    CompositeDef {
+        name: format!("{entry}__bench"),
+        params: config,
+        interface: iface,
+        using: vec![],
+        body: Expr::parallel(body),
+    }
+}
+
+/// A type-appropriate zero literal for an unseeded harness slot.
+fn default_expr_for(schema: &SchemaExpr) -> Expr {
+    match schema {
+        SchemaExpr::Bool => Expr::bool(false),
+        SchemaExpr::Int => Expr::int(0),
+        // Float / Quantity / Custom-numeric (e.g. a `Mass` alias) / fallback.
+        _ => Expr::float(0.0),
+    }
+}
+
+/// Lowercase the first character (a process `Grow` keys its harness node `grow`).
+fn lower_first(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_lowercase().chain(c).collect(),
+        None => String::new(),
     }
 }
 
@@ -374,6 +487,13 @@ pub fn run_command(
     // Absolutize relative `stream:<.ys>` child paths against the entry file's dir
     // (so a `stream<Cell, path: 'cell.ys'>` cell spawns regardless of cwd).
     resolve_stream_paths(&mut prog, ys_root);
+    // A bare `process`/`step` entry gets a default harness so it runs standalone
+    // (`chrysalis run grow.ys --mass 1 --glucose 5`). Skip when serving as a
+    // stream child (`--serve-process`): there the entry is driven over the bridge,
+    // not run on a bench.
+    if !serve_node {
+        harness_process_entry(&mut prog);
+    }
 
     // A `composite` entry with no explicit `main` ⇒ compositional invocation.
     let invokes = matches!(prog.entry(), Some(Def::Composite(_))) && prog.lookup("main").is_none();

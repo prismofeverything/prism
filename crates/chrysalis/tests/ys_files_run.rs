@@ -15,11 +15,6 @@ use std::process::Command;
 /// for migration to the execution model (#24) / `%`=self / BRS (#16).
 const SKIP: &[(&str, &str)] = &[
     (
-        "cell.ys",
-        "stream-protocol CHILD — run via `--serve-process` (covered by \
-         grow_divide_stream.rs); a batch run needs `--mass`/`--glucose`",
-    ),
-    (
         "grow-divide-unbounded.ys",
         "legacy `env.run(t)` trailing form (#24: run isn't a method) — migrate to a \
          composite entry + `--time`",

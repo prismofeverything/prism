@@ -196,6 +196,10 @@ fn engine_for(
             &mut env, ev, program, args, &p.name, &p.schema, &p.default, "config",
         )?;
     }
+    // Inputs flow through the body's env: each `~{port}` is bound from `--port`
+    // (or its default), and the body consumes it (`amount: value * factor`, or a
+    // cell's `glucose: glucose`). A required input with no default + no flag errors
+    // clearly (it's a missing seed), exactly as a driven port would be supplied.
     for (name, port) in &entry.interface.inputs {
         bind_arg(
             &mut env,

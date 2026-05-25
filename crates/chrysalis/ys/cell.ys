@@ -18,13 +18,14 @@ from divide import Divide
 # them in and reads the exported face out. `acetate`/`divide` are output-only
 # faces. Daughters re-realize from this same file at the same address.
 composite Cell[k :: Float = 0.35, yield :: Float = 0.6, threshold :: Float = 2.0, mass0 :: Mass = 1.0]
-  ~{mass :: Mass @ mass, glucose :: Float @ glucose}
+  ~{mass :: Mass @ mass = mass0, glucose :: Float @ glucose = 0.0}
   ->{mass :: Mass @ mass, glucose :: Float @ glucose, acetate :: Float @ acetate, divide :: Bool @ divide}
 (
-  mass: mass0 |
-  glucose: 0.0 |
-  acetate: 0.0 |
-  divide: false |
+  mass: mass0 |         # `mass` is the cell's OWN state (the %.mass face the env
+                        # divides); `glucose` is driven by the env pool each tick.
+  glucose: 0.0 |        # Inputs are DEFAULTED (`@ … = …` above) so the cell also
+  acetate: 0.0 |        # runs standalone (inert without a glucose source — seeding
+  divide: false |       # a composite's input on a bench is the open defaults gap).
   grow: Grow[k: k, yield: yield]
     ~{mass: mass, glucose: glucose}
     ->{mass: mass, glucose: glucose, acetate: acetate} |
