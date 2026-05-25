@@ -273,6 +273,15 @@ impl Protocol for RestProtocol {
         let rest_process = RestProcess::initialize(base_url, process, config)?;
         Ok(ProcessNode::Process(Box::new(rest_process)))
     }
+
+    /// Address type — the typed REST endpoint (matches upstream
+    /// `RestProtocol.data: RestData{process, host, port}`).
+    fn address_type(&self) -> Option<(String, prism_schema::Schema)> {
+        Some((
+            "rest".into(),
+            crate::protocol::string_record(&["process", "host", "port"]),
+        ))
+    }
 }
 
 #[cfg(test)]

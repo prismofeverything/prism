@@ -59,6 +59,7 @@ impl Core {
     /// Builder: set the Custom type registry.
     pub fn with_types(mut self, types: Arc<TypeRegistry>) -> Self {
         self.types = types;
+        self.register_protocol_address_types();
         self
     }
     /// Builder: set the value-method registry.
@@ -69,7 +70,24 @@ impl Core {
     /// Builder: set the protocol registry.
     pub fn with_protocols(mut self, protocols: Arc<ProtocolRegistry>) -> Self {
         self.protocols = protocols;
+        self.register_protocol_address_types();
         self
+    }
+
+    /// Register every protocol's [`address_type`](crate::protocol::Protocol::address_type)
+    /// into the type registry, so a process address is a first-class typed value
+    /// (`check`/`serialize`/`realize`/`divide` via the closed algebra). Idempotent
+    /// — re-run whenever protocols or types change. See docs/protocols-as-types.md.
+    fn register_protocol_address_types(&mut self) {
+        let address_types = self.protocols.address_types();
+        if address_types.is_empty() {
+            return;
+        }
+        let mut types = (*self.types).clone();
+        for (name, schema) in address_types {
+            types.register(name, schema, None);
+        }
+        self.types = Arc::new(types);
     }
 
     /// `local:` process classes referenced anywhere in `state` (via an `address`)

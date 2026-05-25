@@ -314,6 +314,12 @@ impl Protocol for StreamProtocol {
         };
         Ok(ProcessNode::Process(Box::new(proc)))
     }
+
+    /// Address type: the child `.ys` path (the single-field record matching the
+    /// single-field upstream protocols). Remote spawn (`{host, port, path}`) later.
+    fn address_type(&self) -> Option<(String, Schema)> {
+        Some(("stream".into(), prism_bigraph::protocol::string_record(&["path"])))
+    }
 }
 
 /// A [`ProtocolRegistry`] with `local` + `stream`, folded into the chrysalis

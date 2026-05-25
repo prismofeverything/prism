@@ -321,6 +321,12 @@ impl Protocol for ParallelProtocol {
     fn runtime(&self) -> Option<Arc<dyn ProtocolRuntime>> {
         Some(Arc::clone(&self.pool) as Arc<dyn ProtocolRuntime>)
     }
+
+    /// Address type: the wrapped process class name (matches upstream
+    /// `ParallelProtocol.data: String`).
+    fn address_type(&self) -> Option<(String, prism_schema::Schema)> {
+        Some(("parallel".into(), crate::protocol::string_record(&["process"])))
+    }
 }
 
 #[cfg(test)]

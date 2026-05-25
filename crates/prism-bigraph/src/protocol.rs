@@ -25,11 +25,24 @@
 
 use std::sync::Arc;
 
-use prism_schema::Value;
+use indexmap::IndexMap;
+use prism_schema::{Key, Schema, Value};
 use thiserror::Error;
 
 use crate::factory::ProcessRegistry;
 use crate::process::ProcessNode;
+
+/// A schema record of `String`-typed fields — the common shape of a protocol's
+/// address type (`{process}`, `{path}`, `{process, host, port}`). All fields are
+/// intensive (`String`), so a divide *shares* an address (daughters inherit it).
+pub fn string_record(fields: &[&str]) -> Schema {
+    Schema::Tree {
+        branches: fields
+            .iter()
+            .map(|f| (Key::from(*f), Schema::String { default: None }))
+            .collect::<IndexMap<Key, Schema>>(),
+    }
+}
 
 /// One protocol's resolver — given the address's `data` payload and a
 /// process config, returns a runnable [`ProcessNode`].
@@ -55,6 +68,17 @@ pub trait Protocol: Send + Sync + std::fmt::Debug {
         config: Value,
         registry: &Arc<ProcessRegistry>,
     ) -> Result<ProcessNode, ProtocolError>;
+
+    /// The protocol's **address type** — `(type name, representation schema)` —
+    /// registered into the `Core`'s `TypeRegistry` so an address is a first-class
+    /// typed value (`check`/`serialize`/`realize`/`divide` flow through the closed
+    /// algebra), not an untyped blob. The type name == [`Protocol::name`], so an
+    /// address value's `_type` tag selects both the schema type and this transport.
+    /// `None` ⇒ no declared address type (validated structurally). See
+    /// docs/protocols-as-types.md.
+    fn address_type(&self) -> Option<(String, Schema)> {
+        None
+    }
 
     /// The protocol's per-tick batching runtime, if it has one. The engine
     /// registers this (via [`crate::Core`]) and calls
@@ -101,11 +125,33 @@ impl ParsedAddress {
         match address {
             Value::String(s) => Ok(Self::parse_string(s)),
             Value::Map(map) => {
+                // Typed Custom form (the principled one): `{_type: <protocol>,
+                // ...fields}` — the `_type` tag IS the protocol. A single-field
+                // record unwraps to its value, so a single-field protocol
+                // (`local`/`stream`/`parallel`) normalizes to the same `data`
+                // (a String) the legacy forms produced; `rest`'s multi-field
+                // record stays a map. So `instantiate` reads `data` unchanged.
+                if let Some(ty) = map.get("_type").and_then(|v| v.as_str()) {
+                    let mut fields: IndexMap<Key, Value> = map.clone();
+                    fields.shift_remove("_type");
+                    let data = if fields.len() == 1 {
+                        fields.into_iter().next().map(|(_, v)| v).unwrap_or(Value::None)
+                    } else {
+                        Value::Map(fields)
+                    };
+                    return Ok(Self {
+                        protocol: ty.to_string(),
+                        data,
+                    });
+                }
+                // Legacy canonical form: `{protocol, data}`.
                 let protocol = map
                     .get("protocol")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| {
-                        ProtocolError::MalformedAddress("map address missing `protocol`".into())
+                        ProtocolError::MalformedAddress(
+                            "map address missing `protocol`/`_type`".into(),
+                        )
                     })?
                     .to_string();
                 let data = map.get("data").cloned().unwrap_or(Value::None);
@@ -163,6 +209,10 @@ impl Protocol for LocalProtocol {
             .create(class_name, config)
             .ok_or_else(|| ProtocolError::UnknownClass(class_name.to_string(), "local".into()))
     }
+
+    fn address_type(&self) -> Option<(String, Schema)> {
+        Some(("local".into(), string_record(&["process"])))
+    }
 }
 
 // =============================================================================
@@ -210,6 +260,12 @@ impl ProtocolRegistry {
     /// — the engine registers these so each is flushed between invoke and collect.
     pub fn runtimes(&self) -> Vec<Arc<dyn crate::protocol_runtime::ProtocolRuntime>> {
         self.protocols.values().filter_map(|p| p.runtime()).collect()
+    }
+
+    /// Every registered protocol's [`address_type`](Protocol::address_type) — the
+    /// `Core` registers these into its `TypeRegistry` so addresses are typed values.
+    pub fn address_types(&self) -> Vec<(String, Schema)> {
+        self.protocols.values().filter_map(|p| p.address_type()).collect()
     }
 
     /// Look up the protocol for a parsed address and dispatch
