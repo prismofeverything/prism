@@ -319,15 +319,22 @@ fn composite_inner_in(
     Schema::Tree { branches }
 }
 
-/// Insert `schema` at `path` in `branches`, building nested `Tree`s; never
-/// clobbers an existing (body-derived) branch — ports only DEFAULT a slot type.
+/// Overlay the DECLARED port type `schema` at `path`, building nested `Tree`s.
+/// The declared type is **authoritative**: it is `resolve`d over any body-derived
+/// branch (so e.g. a `cells :: map[Cell]` port refines a body `Tree{c0:
+/// CompositeLink}` to `Map{CompositeLink}` — the Link-value Map wins). Uses the
+/// closed algebra's `resolve`, not a hand-rolled merge.
 fn insert_at_path(branches: &mut IndexMap<Key, Schema>, path: &[String], schema: Schema) {
     let Some((head, rest)) = path.split_first() else {
         return;
     };
     let key = Key::from(head.as_str());
     if rest.is_empty() {
-        branches.entry(key).or_insert(schema);
+        let resolved = match branches.get(&key) {
+            Some(existing) => prism_schema::algebra::resolve(existing, &schema),
+            None => schema,
+        };
+        branches.insert(key, resolved);
     } else {
         let child = branches.entry(key).or_insert_with(|| Schema::Tree {
             branches: IndexMap::new(),
@@ -338,6 +345,9 @@ fn insert_at_path(branches: &mut IndexMap<Key, Schema>, path: &[String], schema:
     }
 }
 
+/// Collect the body entries whose schema `algebra::infer` can't recover — only
+/// those (each a `Some` from [`branch_schema`]) are inserted; pure-data entries
+/// (a `None`) are left for `infer` to type from the evaluated value.
 fn collect_branches(
     e: &Expr,
     program: &Program,
@@ -353,35 +363,48 @@ fn collect_branches(
         }
         Expr::KeyedEntry { key, value } => {
             if let Some(k) = key.as_plain() {
-                out.insert(
-                    Key::from(k.as_str()),
-                    branch_schema(value, program, known, building),
-                );
+                if let Some(s) = branch_schema(value, program, known, building) {
+                    out.insert(Key::from(k.as_str()), s);
+                }
             }
         }
         _ => {}
     }
 }
 
-/// Schema of a single body-entry value.
+/// The DECLARED schema for a body entry that `algebra::infer` **cannot recover**
+/// from the evaluated value — and ONLY that. This is NOT a parallel inference: it
+/// returns `Some` for a process/composite/step **Link** (infer sees only the
+/// `{address, config, …}` map), a param/port's **declared** type (infer can't
+/// recover `Delta`/`Array`/`Custom` from a runtime float/list), or a collection
+/// CONTAINING those; and `None` for pure data (literals, `map[float]`, records),
+/// which the algebra infers from the value at the engine's `resolve(infer(state),
+/// declared)`. (Retires the old hand-rolled data arms — task #24.)
 fn branch_schema(
     e: &Expr,
     program: &Program,
     known: &IndexMap<String, Schema>,
     building: &mut Vec<crate::ast::Name>,
-) -> Schema {
+) -> Option<Schema> {
     match e {
-        // A sub-term whose control names a definer → its link schema.
+        // A sub-term whose control names a definer → its Link schema (infer sees
+        // only `{address, config, …}`, never the Link).
         Expr::Term { control, ports, .. } => match program.lookup(control) {
             Some(d @ (Def::Process(_) | Def::Step(_) | Def::Composite(_))) => {
-                def_schema_in(d, program, building)
+                Some(def_schema_in(d, program, building))
             }
+            // A protocol-bound control (`StreamingCell[…]`) → the WRAPPED
+            // composite's CompositeLink (the address is on the value; the schema
+            // is the wrapped interface).
+            Some(Def::Protocol(pd)) => match program.lookup(&pd.wrapped) {
+                Some(d @ Def::Composite(_)) => Some(def_schema_in(d, program, building)),
+                _ => None,
+            },
             // A native process control (no user def) with a `~{}->{}` interface →
             // a kind-agnostic base `Link` MARKER, so the engine sees a process
             // node (schema-first discovery) rather than an opaque `Any`. Port
             // types are best-effort from the wired slots (`known`); the engine
-            // reconciles the precise `ProcessLink`/`StepLink` + real port types
-            // from the instance at init (the schema-as-state reconcile).
+            // reconciles the precise `ProcessLink`/`StepLink` from the instance.
             _ if !ports.outputs.is_empty() || !ports.inputs.is_empty() => {
                 let keyed = |binds: &IndexMap<crate::ast::Name, Expr>| -> IndexMap<Key, Schema> {
                     binds
@@ -395,51 +418,44 @@ fn branch_schema(
                         })
                         .collect()
                 };
-                Schema::Link {
+                Some(Schema::Link {
                     inputs: keyed(&ports.inputs),
                     outputs: keyed(&ports.outputs),
                     temporal: None,
-                }
+                })
             }
-            _ => Schema::Any, // genuine data (a plain ion / value node)
+            // Genuine data (a plain ion / value node) → `infer` types it.
+            _ => None,
         },
-        // A bare reference (`mass: mass`) → the param/port's schema.
-        Expr::Var(n) => known.get(n).cloned().unwrap_or(Schema::Any),
-        Expr::Float(_) => Schema::Float { default: None },
-        Expr::Int(_) => Schema::Integer { default: None },
-        Expr::Bool(_) => Schema::Bool { default: None },
-        Expr::Str(_) => Schema::String { default: None },
-        // A map LITERAL (`{ '0': Cell[...], … }`, STRING keys): type the element
-        // from its VALUES — the schema we already know — not `Any`. The first
-        // entry's schema (e.g. a `Cell[...]` composite term → `CompositeLink`)
-        // becomes the Map value, so a map of composites is `Map{CompositeLink}`:
-        // members are discovered + divided schema-first, and `%`-wired face slots
-        // resolve to `Delta` so self-output deltas ACCUMULATE (not dropped under
-        // `Any`). Empty → `Any`.
-        Expr::Map(entries) => {
-            let element = match entries.first() {
-                Some((_, v)) => branch_schema(v, program, known, building),
-                None => Schema::Any,
-            };
-            Schema::Map {
-                value: Box::new(element),
-            }
-        }
-        // A record LITERAL (`{ c0: Cell[...], … }`, IDENTIFIER keys): recurse, typing
-        // each field from its value (the same the algebra's `infer` does) — NOT the
-        // old `Any` dump. So `cells` of `Cell`s → `Tree{c0: CompositeLink, …}`; each
-        // member is a declared `CompositeLink` (stamping leaves it alone) and
-        // `[cells,c0,mass]` resolves to `Delta`. A declared `map[Cell]` port then
-        // refines this to `Map{CompositeLink}` via `resolve` (Link-value Map wins).
+        // A bare reference (`mass: mass0`) → the param/port's DECLARED type — infer
+        // can't recover `Delta`/`Array`/`Custom`/`Link` from a runtime value.
+        Expr::Var(n) => known.get(n).cloned(),
+        // A collection LITERAL: recurse for any DECLARED element/fields (e.g. a
+        // `cells` map of `Cell`s → `Map{CompositeLink}`). Pure-data collections
+        // (`map[float]`, plain records) → `None`: `infer` recovers them faithfully.
+        Expr::Map(entries) => entries
+            .first()
+            .and_then(|(_, v)| branch_schema(v, program, known, building))
+            .map(|elem| Schema::Map {
+                value: Box::new(elem),
+            }),
         Expr::Record(fields) => {
             let mut branches: IndexMap<Key, Schema> = IndexMap::new();
             for (k, v) in fields {
-                let s = branch_schema(v, program, known, building);
-                branches.insert(Key::from(k.as_str()), s);
+                if let Some(s) = branch_schema(v, program, known, building) {
+                    branches.insert(Key::from(k.as_str()), s);
+                }
             }
-            Schema::Tree { branches }
+            (!branches.is_empty()).then_some(Schema::Tree { branches })
         }
-        _ => Schema::Any,
+        Expr::List(items) => items
+            .first()
+            .and_then(|v| branch_schema(v, program, known, building))
+            .map(|elem| Schema::List {
+                element: Box::new(elem),
+            }),
+        // Pure data literals → `None`: `algebra::infer` types them from the value.
+        _ => None,
     }
 }
 
