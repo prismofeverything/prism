@@ -912,6 +912,59 @@ inside update bodies and inside reaction redex/reactum positions.
 The trailing line without `|` carries semantic weight: it's the
 return value, and the lack of separator marks it visually.
 
+## Type names resolve through one registry (a composite *is-a* type)
+
+A surface type name (`Cell`, `Mass`) appears in two guises — nominally (the name
+`Cell`) and structurally (the schema it stands for). Chrysalis used to bridge them
+by **eagerly resolving names to structural schemas in several different lowering
+functions**, some program-aware (→ `CompositeLink`), some not (→ opaque
+`Custom{"Cell"}`). They disagreed, and the looser result kept winning — a step's
+`cells :: map[Cell]` lowered program-unaware to `Map{Custom{Cell}}`, the engine
+`promote`d it over the slot's declared `Map{CompositeLink}`, and
+`divide_by_schema` then saw an unregistered `Custom` and *shared* a cell's
+extensive `mass` instead of halving it. Re-deriving and tweaking the schema at
+runtime to chase the answer.
+
+The model now is single-sourced:
+
+- **A named type is one entry in the `TypeRegistry`, and its representation is its
+  real schema.** A `composite C` registers with representation =
+  its `CompositeLink` (`register_user_types`); a type alias `Mass =
+  Quantity[…, extensive]` registers with representation = `Delta`. So a
+  `Custom{Cell}` value — however a slot got lowered — **delegates the whole
+  algebra** (`divide`/`apply`/`serialize`) to its structural representation:
+  `divide_by_schema(Custom{Cell})` → `type_divide("Cell")` →
+  `divide_by_schema(CompositeLink)`. "Nominal `Cell` *is-a* structural
+  `CompositeLink`" — the delegation a typeclass/representation gives you, without
+  Rust inheritance. (This *defines* the composite-as-`Custom` case rather than
+  forbidding it.)
+- **One name-resolving lowering** (`lower_schema_in_program`), used at every site —
+  composite/process/step ports, `ExprProcess` and `ExprStep` ports (via the
+  evaluator's program). The program-unaware `lower_schema` survives only as the
+  leaf base it delegates to and as the `composite_link` cycle terminator. There is
+  no second way to turn a type name into a schema, so nothing can disagree.
+- **Type aliases are first-class `Def::Type`** (recorded for same-file inlining so
+  the units pass still sees the `Quantity`, *and* emitted as a def) — so a
+  cross-file `mass :: Mass` (alias from `grow.ys`, used in `cell.ys`) carries
+  through `.ys` imports and registers, instead of resolving to nothing.
+- **The declared schema is authoritative; the runtime doesn't degrade it.** The
+  composite-as-type registration makes the algebra robust to whichever schema a
+  slot carries, so a stray `Custom{Cell}` still divides correctly.
+
+Gotcha for maintainers: `composite_link`'s cycle guard (`building` stack) must
+wrap the **ports**, not just the inner schema — once ports lower program-aware
+they reference composites (`Cell`'s `environment :: map[Cell]`), and computing
+them after the guard popped recurses forever. A back-edge emits a shallow link
+(empty inner + program-unaware ports = the terminator).
+
+The modular cell library demonstrates the whole thing: `grow.ys` (metabolism),
+`divide.ys` (the propose step), `cell.ys` (imports both), `environment.ys`
+(stream-addressed, parallel cells + a `.ys` `Divider` step that scans the cells
+**map** — `.ys` now has map comprehensions, `{k: v for k, x in m if p}`). `chrysalis
+run environment.ys` runs parallel `stream:cell.ys` children that grow, divide, and
+**conserve mass (42.0)**, terminating — the surface twin of
+`prism-bigraph/tests/cells_division.rs`.
+
 ## Compilation map
 
 | Chrysalis | Prism target |
@@ -924,8 +977,8 @@ return value, and the lack of separator marks it visually.
 | `expr { … }` block (tier 2) | `Value` with `_type: "Expr"` + inferred return-schema field; constructors live in `MethodRegistry`. `ProcessDef.from_expr(e, schema)` lifts to an installable process if `e.schema` matches |
 | `~{port: target}` | `Interface.inputs` IndexMap (domain of the morphism) |
 | `->{port: target}` | `Interface.outputs` IndexMap (codomain of the morphism) |
-| `^` in path | `..` in prism wire-resolution |
-| `%` in path | empty / current relative root (self / here) |
+| `^` in path | `..` in prism wire-resolution (one level up — the place-graph container) |
+| `%` in path | `["%", …]` — the process's OWN node (self face, e.g. a Map cell's `%.mass`). NOT the container; a child reading its composite's slot is a bare sibling `["slot"]`. (A `using ctx(f: @.slot)` factor injected onto a child rebases `@.slot` to that bare sibling — see `sibling_wire`.) |
 | `port :: T @ inner.path` | explicit `config.bridge` wire (else name-inferred `[port]`) |
 | `Cell[mass: 0.5]` inside a delta | `Value::Map` with `_type: "Cell"`, `config: {…}` — `discover_processes` instantiates |
 | `replace x with {…}` | `Value::Map` with `_remove: [x]`, `_add: {…}` |

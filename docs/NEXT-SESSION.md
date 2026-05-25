@@ -1,5 +1,43 @@
 # Next session — launch prompt & plan
 
+## ⏯️ NEXT-SESSION PROMPT (2026-05-24 part 5 — env.ys divides over STREAM in parallel; schema-name machinery unified)
+
+> Continue prism (Rust process-bigraphs + the `.ys` language). Workspace GREEN
+> (67 test groups across chrysalis + prism-schema + prism-bigraph + prism-std, 0
+> failures). Read memory `composite_is_a_type` + `using_injection_sibling_wire` +
+> `docs/chrysalis-design.md` §"Type names resolve through one registry" first.
+>
+> **DONE THIS SESSION — `chrysalis run environment.ys` runs PARALLEL STREAM cells
+> that divide and conserve mass, end-to-end in the surface language.** The cell
+> model is now a modular `.ys` library: `grow.ys` (←Metabolism), `divide.ys`
+> (←Trigger, the propose step), `cell.ys` (imports both), `environment.ys`
+> (stream-addressed cells via `protocol StreamingCell = stream<Cell, path:'cell.ys'>`
+> + a `.ys` `Divider` step). 32 parallel `stream:cell.ys` children grow, divide,
+> terminate, conserve `glucose+Σmass+acetate=42.0`. `.ys` gained **map
+> comprehensions** (`{k: v for k, x in m if p}`) so the env-side `Divider` can scan
+> the cells map in surface syntax.
+>
+> **THE UNIFICATION (the real work):** the schema-name machinery was collapsed to one
+> principle — *a named type is one registry entry whose representation is its real
+> schema; ONE program-aware lowering; the algebra/engine resolve `Custom→
+> representation` at use; nothing infers/promotes/tweaks the schema at runtime.*
+> Concretely: composites register as types (`Cell→CompositeLink`), type aliases are
+> real `Def::Type` (carry across imports; `Mass→Delta`), `lower_schema_in_program`
+> is the single name lowering (incl. `ExprProcess`/`ExprStep` ports), the
+> `composite_link` cycle guard wraps ports. This killed a chain of latent "we
+> weren't using the real schema" bugs (mass not halving; promote-degrade;
+> cross-file alias `lookup=NONE`; infinite recursion). Also fixed a latent
+> units/context break: `using ctx(f: @.slot)` injected an own-node `%` wire instead
+> of a container sibling (`sibling_wire`; `units_engine.rs` guards it).
+>
+> **NEXT (pick up #21 parallelism follow-ups, or the cleanups):** #21 rest-concurrent
+> dispatch + batched ray (the stream cells already overlap via the invoke/Defer
+> seam; rest is the remaining concurrent transport). Also ripe: #5/#11 (complete law
+> generators over node sorts — would have caught the schema-name holes mechanically),
+> #7 (#29 collapse the address-scan / two discovery walks now cells are schema-first),
+> #6 (#13 explicit bridge conduits). The schema layer is now genuinely
+> single-sourced — a good moment to lean on the laws.
+
 ## ⏯️ NEXT-SESSION PROMPT (2026-05-24 part 4 — division proven over STREAM; parallelism next)
 
 > Continue prism (Rust process-bigraphs + the `.ys` language). Workspace green
