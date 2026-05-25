@@ -1486,7 +1486,11 @@ fn lower_target_to_segments(
 fn lower_place_path(path: &PlacePath) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     match &path.root {
-        PathRoot::Here => {} // empty — relative to self
+        // `%` = SELF (one meaning): the process's OWN node. The engine bases a
+        // wire starting with `"%"` on the node itself, so `%.mass` → `["%","mass"]`
+        // = `cells.cX.mass` (the exported face), `%` → `["%"]` = the node. (Was
+        // `[]` = the container; that "bare-%-as-container" use moved to `^`.)
+        PathRoot::Here => out.push("%".into()),
         PathRoot::Parent => out.push("..".into()),
         PathRoot::Local(name) => out.push(name.clone()),
     }

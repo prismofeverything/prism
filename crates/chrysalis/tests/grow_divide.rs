@@ -68,6 +68,14 @@ fn debug_state_shape(state: &Value, indent: usize) -> String {
     }
 }
 
+#[ignore = "Form-1 internal division writes daughters to the cell's CONTAINER via \
+            `->{environment: %}` (the 1-up `[]` wire). With `%`=self (protocols-as-types \
+            3c), `%` is the own node and the 1-up container has no sigil (`^` is the \
+            2-up grandparent, needed by the env pool). Form-1 (internal/`replace`) is \
+            superseded by Form-3 (Divider + `_divide`), proven in \
+            prism-bigraph/tests/cells_division.rs + chrysalis/tests/grow_divide_stream.rs. \
+            Re-enable after migrating this fixture to Form-3 addressed cells \
+            (cells-and-division #9 step 5)."]
 #[test]
 fn grow_divide_pipeline_runs() {
     // Tier-1 chrysalis acceptance for grow/divide:

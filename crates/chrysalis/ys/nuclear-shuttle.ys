@@ -87,7 +87,7 @@ process Transport[perm: Clear = 5.0]
 # ── Compartments (each scopes a concentration context over its body) ──
 
 composite Cytoplasm[volume: Volume = 1000.0, tf: Count = 0.0, synth: Synth = 50.0]
-  using concentration(volume: %.volume)
+  using concentration(volume: volume)
   ~{}
   ->{tf, volume}
 (
@@ -98,7 +98,7 @@ composite Cytoplasm[volume: Volume = 1000.0, tf: Count = 0.0, synth: Synth = 50.
 
 
 composite Nucleus[volume: Volume = 100.0, tf: Count = 0.0, k_on: Conc = 0.5]
-  using concentration(volume: %.volume)
+  using concentration(volume: volume)
   ~{}
   ->{tf, volume, active}
 (

@@ -106,13 +106,18 @@ address value is what it lowers to.
      `{_type,mass,body}` *containers* with no `address`) — `#[ignore]`d with a note; its
      migration to addressed cells with a `mass` face rides 3c (cells-and-division #9
      step 5). The `.divide()` method unit test + all Form-3 division stay green.
-   - ⏳ **3c — the `%` self-node surface wire** (`%.mass` → `["%","mass"]`). **Ripple:**
-     `%` is overloaded today — bare `%` means the *container* (`grow_divide.ys`
-     `->{environment: %}` → `[]`) while `%.volume` (`nuclear-shuttle.ys`) is a self
-     field. Correcting `%` to own-node wires (`["%",…]`) must migrate those `.ys` +
-     their tests (likely bare-`%`-as-container → `^`, keeping `%.field` = self). Do
-     deliberately; the wire lowering (`lower_place_path`) is separate from
-     expression/units-context eval, so the `using concentration(volume: %.volume)`
-     path may be unaffected — verify.
+   - ✅ **3c — `%` = SELF, one meaning** (`lower_place_path`: `PathRoot::Here` →
+     `["%"]`). The engine has THREE cell-relative targets but only sigils for two:
+     self (0-up, `["%"]` = `%`), grandparent (2-up, `[".."]` = `^`, **required** by
+     the env pool `^.glucose` → `env.glucose`). The **1-up container** (`[]`) has no
+     sigil — and old `%` was secretly doing all three. So `%`=self serves Form-3
+     (env.ys: `%.mass` self face + `^.glucose` pool) cleanly; the casualties are the
+     other old `%` uses: `nuclear-shuttle.ys` `%.volume` was a **sibling** ref →
+     migrated to bare `volume` (runs clean again); Form-1 `environment: %` =
+     container has no sigil → its tests (`grow_divide_pipeline_runs`, already
+     `homoiconic_*`) `#[ignore]`d pending Form-3 migration (#9 step 5). **New guard:**
+     `chrysalis/tests/ys_files_run.rs` — `chrysalis run`s every `.ys` (9 clean; 4
+     skip-listed with reasons: the two legacy `env.run()` files, `mapk` rot, `cell.ys`
+     stream-child) — the missing run-coverage that let `.ys` rot behind "still parses".
    - ⏳ **3d — `env.ys`** + a `Divide` step, run via `chrysalis run env.ys` over local +
      stream, asserting the same conservation + division as the Rust proof.
