@@ -84,7 +84,17 @@ fn lower_in_prog(s: &SchemaExpr, program: &Program, building: &mut Vec<crate::as
                 _ => lower_schema(s),
             },
             Some(d @ (Def::Process(_) | Def::Step(_))) => def_schema_in(d, program, building),
-            // Genuine data type (or unknown) → the opaque-but-dispatchable form.
+            // A pure type ALIAS (no methods) → its REAL representation, not an
+            // opaque `Custom`. `Mass = Quantity[…, extensive]` must become the
+            // `Delta` it names so the face it types is divisible/additive — else
+            // `node_data_branches` (Float/Delta/Integer only) drops it and
+            // `divide_by_schema` shares the whole node (mass never halves). A type
+            // WITH methods stays a dispatchable `Custom` (the TypeRegistry owns its
+            // algebra). This is "use the real schema, not the inferred one."
+            Some(Def::Type(td)) if td.methods.is_empty() => {
+                lower_in_prog(&td.representation, program, building)
+            }
+            // Genuine (rich) data type, or unknown → the opaque-but-dispatchable form.
             _ => lower_schema(s),
         },
         // Non-container, non-custom: identical to the program-free lowering.
@@ -210,6 +220,28 @@ fn port_schemas(ports: &IndexMap<crate::ast::Name, PortDecl>) -> IndexMap<Key, S
         .collect()
 }
 
+/// Like [`port_schemas`] but PROGRAM-AWARE: each port type is lowered with
+/// [`lower_in_prog`], so a port `mass :: Mass` (a type alias to an extensive
+/// `Quantity`) resolves to the real `Delta` — not an opaque `Custom` the
+/// divide/face logic (`node_data_branches`) can't see. This is what makes a
+/// `CompositeLink`/`ProcessLink`'s exported faces carry their true
+/// extensive/intensive semantics.
+fn port_schemas_in(
+    ports: &IndexMap<crate::ast::Name, PortDecl>,
+    program: &Program,
+    building: &mut Vec<crate::ast::Name>,
+) -> IndexMap<Key, Schema> {
+    ports
+        .iter()
+        .map(|(n, d)| {
+            (
+                Key::from(n.as_str()),
+                lower_in_prog(&d.schema, program, building),
+            )
+        })
+        .collect()
+}
+
 /// The link schema for a definition as it sits in the state tree.
 pub fn def_schema(def: &Def, program: &Program) -> Schema {
     def_schema_in(def, program, &mut Vec::new())
@@ -218,13 +250,13 @@ pub fn def_schema(def: &Def, program: &Program) -> Schema {
 fn def_schema_in(def: &Def, program: &Program, building: &mut Vec<crate::ast::Name>) -> Schema {
     match def {
         Def::Process(p) => Schema::ProcessLink {
-            inputs: port_schemas(&p.interface.inputs),
-            outputs: port_schemas(&p.interface.outputs),
+            inputs: port_schemas_in(&p.interface.inputs, program, building),
+            outputs: port_schemas_in(&p.interface.outputs, program, building),
             interval: 1.0,
         },
         Def::Step(s) => Schema::StepLink {
-            inputs: port_schemas(&s.interface.inputs),
-            outputs: port_schemas(&s.interface.outputs),
+            inputs: port_schemas_in(&s.interface.inputs, program, building),
+            outputs: port_schemas_in(&s.interface.outputs, program, building),
             priority: 0.0,
         },
         Def::Composite(c) => composite_link(c, program, building),
@@ -244,19 +276,33 @@ fn composite_link(
     program: &Program,
     building: &mut Vec<crate::ast::Name>,
 ) -> Schema {
-    let inner = if building.contains(&c.name) {
-        Schema::Tree {
-            branches: IndexMap::new(),
-        }
-    } else {
-        building.push(c.name.clone());
-        let inner = composite_inner_in(c, program, building);
-        building.pop();
-        inner
-    };
+    // BACK-EDGE (a cycle, e.g. `Cell`'s `environment :: map[Cell]` while building
+    // `Cell`): emit a SHALLOW link — empty inner, ports lowered program-UNAWARE so
+    // a nested composite stays `Custom` (the cycle terminator) instead of
+    // recursing forever. The cycle-broken reference is just a type marker. The
+    // ports must be inside this guard too: they reference the composite (that was
+    // the infinite loop — ports were computed after the inner guard popped).
+    if building.contains(&c.name) {
+        return Schema::CompositeLink {
+            inputs: port_schemas(&c.interface.inputs),
+            outputs: port_schemas(&c.interface.outputs),
+            interval: 1.0,
+            inner_schema: Box::new(Schema::Tree {
+                branches: IndexMap::new(),
+            }),
+        };
+    }
+    // Forward edge: build the real inner AND ports with this composite on the
+    // `building` stack, so a self/back reference inside either resolves to the
+    // shallow back-edge above (no infinite recursion).
+    building.push(c.name.clone());
+    let inner = composite_inner_in(c, program, building);
+    let inputs = port_schemas_in(&c.interface.inputs, program, building);
+    let outputs = port_schemas_in(&c.interface.outputs, program, building);
+    building.pop();
     Schema::CompositeLink {
-        inputs: port_schemas(&c.interface.inputs),
-        outputs: port_schemas(&c.interface.outputs),
+        inputs,
+        outputs,
         interval: 1.0,
         inner_schema: Box::new(inner),
     }

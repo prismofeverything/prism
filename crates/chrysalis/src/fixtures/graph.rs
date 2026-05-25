@@ -71,10 +71,12 @@ fn coll(field: &str, op: &str, items: Expr) -> Expr {
 /// `[ body for var in src if filter ]`.
 fn comp(var: &str, src: Expr, filter: Expr, body: Expr) -> Expr {
     Expr::Comprehension {
+        key_var: None,
         var: var.to_string(),
         source: Box::new(src),
         filter: Some(Box::new(filter)),
         body: Box::new(body),
+        key: None,
     }
 }
 

@@ -477,7 +477,20 @@ pub fn parse_program(src: &str) -> Result<Program, ParseError> {
             let name = p.ident()?;
             p.expect(&Tok::Eq)?;
             let schema = p.parse_schema()?;
-            p.aliases.insert(name, schema);
+            // Record for same-file inlining (so the UNIT lowering sees the
+            // `Quantity` directly), AND emit a real `Def::Type` so the alias is a
+            // first-class type: carried across `.ys` imports and registered, so a
+            // CROSS-FILE reference (`cell.ys`'s `mass :: Mass` for `Mass` from
+            // `grow.ys`) resolves to its representation via the one lowering /
+            // the type registry — instead of vanishing (it was neither inlined
+            // across files nor carried as a def).
+            p.aliases.insert(name.clone(), schema.clone());
+            program.push(Def::Type(TypeDef {
+                name,
+                params: Vec::new(),
+                representation: schema,
+                methods: Vec::new(),
+            }));
             continue;
         }
         program.push(p.parse_def()?);
@@ -1304,6 +1317,7 @@ impl Parser {
         }
         let mut entries: Vec<(K, Expr)> = Vec::new();
         let mut any_str = false;
+        let mut first_entry = true;
         while !self.check(&Tok::RBrace) {
             let key = match self.bump() {
                 Tok::Ident(k) => K::Id(k),
@@ -1315,6 +1329,19 @@ impl Parser {
             };
             self.expect(&Tok::Colon)?;
             let value = self.parse_expr()?;
+            // `{ k: body for v in src (if p) }` — a MAP comprehension. Only valid
+            // as the sole entry; the key may be computed (a string literal,
+            // possibly interpolated) or a bare ident (e.g. `_divide`).
+            if first_entry && self.accept(&Tok::For) {
+                let key_expr = match key {
+                    K::Id(s) => Expr::Str(StringLit::plain(s)),
+                    K::S(s) => Expr::Str(self.parse_string_lit(&s)?),
+                };
+                let comp = self.parse_comprehension_tail(Some(key_expr), value)?;
+                self.expect(&Tok::RBrace)?;
+                return Ok(comp);
+            }
+            first_entry = false;
             entries.push((key, value));
             if !self.accept(&Tok::Comma) {
                 break;
@@ -1353,21 +1380,9 @@ impl Parser {
         }
         let first = self.parse_expr()?;
         if self.accept(&Tok::For) {
-            let var = self.ident()?;
-            self.expect(&Tok::In)?;
-            let source = self.parse_expr()?;
-            let filter = if self.accept(&Tok::If) {
-                Some(Box::new(self.parse_expr()?))
-            } else {
-                None
-            };
+            let comp = self.parse_comprehension_tail(None, first)?;
             self.expect(&Tok::RBrack)?;
-            return Ok(Expr::Comprehension {
-                var,
-                source: Box::new(source),
-                filter,
-                body: Box::new(first),
-            });
+            return Ok(comp);
         }
         let mut items = vec![first];
         while self.accept(&Tok::Comma) {
@@ -1378,6 +1393,38 @@ impl Parser {
         }
         self.expect(&Tok::RBrack)?;
         Ok(Expr::List(items))
+    }
+
+    /// Parse the tail of a comprehension after `for` has been consumed:
+    /// `v "in" src ("if" cond)?` or `kv, v "in" src ("if" cond)?`. `key` is
+    /// `Some` for a map comprehension (`{ k: body for … }`), `None` for a list
+    /// (`[ body for … ]`); `body` is the already-parsed body/value expression.
+    fn parse_comprehension_tail(
+        &mut self,
+        key: Option<Expr>,
+        body: Expr,
+    ) -> Result<Expr, ParseError> {
+        let first = self.ident()?;
+        let (key_var, var) = if self.accept(&Tok::Comma) {
+            (Some(first), self.ident()?) // `for kv, v in …`
+        } else {
+            (None, first) // `for v in …`
+        };
+        self.expect(&Tok::In)?;
+        let source = self.parse_expr()?;
+        let filter = if self.accept(&Tok::If) {
+            Some(Box::new(self.parse_expr()?))
+        } else {
+            None
+        };
+        Ok(Expr::Comprehension {
+            key_var,
+            var,
+            source: Box::new(source),
+            filter,
+            body: Box::new(body),
+            key: key.map(Box::new),
+        })
     }
 }
 

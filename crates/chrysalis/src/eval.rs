@@ -239,36 +239,82 @@ impl Evaluator {
             Expr::Call { func, args } => self.eval_call(func, args, env),
 
             Expr::Comprehension {
+                key_var,
                 var,
                 source,
                 filter,
                 body,
+                key,
             } => {
                 let source_val = self.eval_value(source, env)?;
-                let Value::List(items) = source_val else {
-                    return Err(EvalError::InvalidForm {
-                        context: "comprehension".into(),
-                        message: format!(
-                            "`for {var} in …` expects a list, got {}",
-                            value_type_name(&source_val)
-                        ),
-                    });
+                // Iterate a list (key = index) or a map (key = entry key). Both
+                // bind the value to `var`; `key_var`, if present, binds the
+                // key/index.
+                let entries: Vec<(Value, Value)> = match source_val {
+                    Value::List(items) => items
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, v)| (Value::Int(i as i64), v))
+                        .collect(),
+                    Value::Map(m) => m
+                        .into_iter()
+                        .map(|(k, v)| (Value::String(k.to_string()), v))
+                        .collect(),
+                    Value::Struct { values, .. } => values
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, v)| (Value::Int(i as i64), v))
+                        .collect(),
+                    other => {
+                        return Err(EvalError::InvalidForm {
+                            context: "comprehension".into(),
+                            message: format!(
+                                "`for {var} in …` expects a list or map, got {}",
+                                value_type_name(&other)
+                            ),
+                        });
+                    }
                 };
-                let mut out: Vec<Value> = Vec::new();
-                for item in items {
+                let mut list_out: Vec<Value> = Vec::new();
+                let mut map_out: IndexMap<Key, Value> = IndexMap::new();
+                for (k, v) in entries {
                     let mut scope = env.clone();
-                    scope.insert(var.clone(), item);
+                    if let Some(kv) = key_var {
+                        scope.insert(kv.clone(), k);
+                    }
+                    scope.insert(var.clone(), v);
                     let keep = match filter {
                         Some(pred) => {
                             matches!(self.eval_value(pred, &scope)?, Value::Bool(true))
                         }
                         None => true,
                     };
-                    if keep {
-                        out.push(self.eval_value(body, &scope)?);
+                    if !keep {
+                        continue;
+                    }
+                    let body_val = self.eval_value(body, &scope)?;
+                    match key {
+                        // Map comprehension: insert key→body (later keys win, so a
+                        // constant key collapses to the last match).
+                        Some(key_expr) => {
+                            let key_val = self.eval_value(key_expr, &scope)?;
+                            let key_str = key_val.as_str().ok_or_else(|| EvalError::InvalidForm {
+                                context: "comprehension".into(),
+                                message: format!(
+                                    "a map-comprehension key must be a string, got {}",
+                                    value_type_name(&key_val)
+                                ),
+                            })?;
+                            map_out.insert(Key::from(key_str), body_val);
+                        }
+                        None => list_out.push(body_val),
                     }
                 }
-                Ok(Value::List(out))
+                Ok(if key.is_some() {
+                    Value::Map(map_out)
+                } else {
+                    Value::List(list_out)
+                })
             }
 
             Expr::ReplaceWith { id, with } => {

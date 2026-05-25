@@ -804,17 +804,31 @@ pub enum Expr {
         func: Box<Expr>,
         args: Vec<Expr>,
     },
-    /// `[ body for var in source if filter ]` — a list comprehension (map +
-    /// optional filter over a list). The iteration construct the surface
-    /// language was missing; it makes traversal/queries (e.g. a graph type's
-    /// `neighbors`) expressible *in chrysalis*. `var` is bound to each element
-    /// of `source` (a list); when `filter` holds (or is absent), `body` is
-    /// evaluated and collected.
+    /// A comprehension over a list OR a map — the surface iteration construct.
+    ///
+    /// - `[ body for v in src (if p) ]` ⇒ a **list** comprehension (`key: None`):
+    ///   `v` binds each element of a list (or each value of a map); kept bodies
+    ///   are collected into a list.
+    /// - `{ k: body for v in src (if p) }` ⇒ a **map** comprehension
+    ///   (`key: Some(k)`): each kept iteration inserts `k → body`, so later keys
+    ///   overwrite earlier ones (a constant key collapses to the last match — how
+    ///   the env-side division enactor selects one `_divide` per tick).
+    /// - `for kv, v in src` binds the key/index too (`key_var: Some(kv)`): for a
+    ///   map `kv` is the entry key, for a list it is the index.
+    ///
+    /// Makes traversal/queries (a graph type's `neighbors`, the cells-map
+    /// division scan) expressible *in chrysalis* — see environment.ys.
     Comprehension {
+        /// `for kv, v in …` — the key/index binding, when present.
+        key_var: Option<Name>,
+        /// The value binding (each element / each map value).
         var: Name,
         source: Box<Expr>,
         filter: Option<Box<Expr>>,
         body: Box<Expr>,
+        /// `Some(k)` ⇒ a MAP comprehension keyed by `k` (evaluated per iteration,
+        /// must be a string); `None` ⇒ a LIST comprehension.
+        key: Option<Box<Expr>>,
     },
 
     // ── Sugar ──

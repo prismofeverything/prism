@@ -647,15 +647,38 @@ fn register_user_type_methods(methods: &mut MethodRegistry, program: &Arc<Progra
 /// `Custom(Name)` slot is first-class: the algebra runs on its representation.
 fn register_user_types(types: &mut TypeRegistry, program: &Arc<Program>) {
     for def in &program.defs {
-        let Def::Type(td) = def else { continue };
-        let repr = crate::schema::lower_schema_in_program(&td.representation, program);
-        types.register_full(
-            td.name.clone(),
-            repr,
-            None,
-            Some(Arc::new(RepresentationType)),
-            Vec::new(),
-        );
+        match def {
+            Def::Type(td) => {
+                let repr = crate::schema::lower_schema_in_program(&td.representation, program);
+                types.register_full(
+                    td.name.clone(),
+                    repr,
+                    None,
+                    Some(Arc::new(RepresentationType)),
+                    Vec::new(),
+                );
+            }
+            // A composite IS a type whose REPRESENTATION is its `CompositeLink`
+            // (nominal `Custom{Cell}` "is-a" structural `CompositeLink`). So a
+            // `Custom{Cell}` slot — however it was lowered — polymorphically
+            // delegates the whole algebra (divide/apply/serialize) to the
+            // composite's real structural schema: `divide_by_schema(Custom{Cell})`
+            // → `type_divide("Cell")` → `divide_by_schema(CompositeLink)`, so the
+            // cell's extensive `mass` face halves instead of an unknown-type share.
+            // (Resolves the old "composite as Custom = category error" by giving the
+            // name a definition, rather than forbidding the name.)
+            Def::Composite(c) => {
+                let repr = crate::schema::def_schema(def, program);
+                types.register_full(
+                    c.name.clone(),
+                    repr,
+                    None,
+                    Some(Arc::new(RepresentationType)),
+                    Vec::new(),
+                );
+            }
+            _ => {}
+        }
     }
 }
 
@@ -805,6 +828,27 @@ fn lower_program(program: &Program, env: Option<&UnitEnv>) -> Program {
     out
 }
 
+/// Rebase a `using` arg into a wire on a CHILD process. A `using ctx(factor:
+/// @.slot)` arg `@.slot` names the *composite's* `slot`; from a child process
+/// inside that composite the composite's slot is the child's CONTAINER (a
+/// sibling), so the `@`-rooted (own-scope) path must become a bare `Local` one,
+/// which lowers container-relative (`["slot"]`). Without this the factor wire
+/// resolves to `["%","slot"]` = the *process node's* own slot (empty) and the
+/// coercion silently reads `None`. Non-`@.x` args pass through unchanged.
+fn sibling_wire(value: &Expr) -> Expr {
+    if let Expr::Path(pp) = value {
+        if matches!(pp.root, crate::ast::PathRoot::Here) && !pp.segments.is_empty() {
+            let mut segments = pp.segments.clone();
+            let head = segments.remove(0);
+            return Expr::Path(crate::ast::PlacePath {
+                root: crate::ast::PathRoot::Local(head),
+                segments,
+            });
+        }
+    }
+    value.clone()
+}
+
 /// Inject `using`-bound context factors as input wirings on the child
 /// process terms that declare them. An explicit call-site binding wins
 /// (explicit beats implicit).
@@ -825,7 +869,7 @@ fn inject_using_factors(
                     for arg in &cu.args {
                         if let TermArg::Named { name, value } = arg {
                             if inputs.contains(name) && !ports.inputs.contains_key(name) {
-                                ports.inputs.insert(name.clone(), value.clone());
+                                ports.inputs.insert(name.clone(), sibling_wire(value));
                             }
                         }
                     }

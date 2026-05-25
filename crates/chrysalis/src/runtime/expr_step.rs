@@ -10,7 +10,7 @@ use prism_schema::Value;
 
 use crate::ast::{Expr, Name, StepDef};
 use crate::eval::Evaluator;
-use crate::schema::lower_schema;
+use crate::schema::lower_schema_in_program;
 
 pub struct ExprStep {
     pub label: String,
@@ -37,17 +37,21 @@ impl ExprStep {
         priority: f64,
         evaluator: Arc<Evaluator>,
     ) -> Self {
+        // Program-aware port lowering (the one lowering): `cells :: map[Cell]`
+        // resolves to `Map{CompositeLink}`, not an opaque `Map{Custom{Cell}}` that
+        // the engine would promote over a slot's declared schema and degrade it.
+        let prog = &evaluator.program;
         let input_schemas: PortSchema = def
             .interface
             .inputs
             .iter()
-            .map(|(n, d)| (n.clone(), lower_schema(&d.schema)))
+            .map(|(n, d)| (n.clone(), lower_schema_in_program(&d.schema, prog)))
             .collect();
         let output_schemas: PortSchema = def
             .interface
             .outputs
             .iter()
-            .map(|(n, d)| (n.clone(), lower_schema(&d.schema)))
+            .map(|(n, d)| (n.clone(), lower_schema_in_program(&d.schema, prog)))
             .collect();
         Self {
             label: def.name.clone(),

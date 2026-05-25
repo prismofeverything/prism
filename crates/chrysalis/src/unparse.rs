@@ -425,20 +425,28 @@ pub fn unparse_expr(e: &Expr) -> String {
             format!("{}({})", unparse_expr(func), a.join(", "))
         }
         Expr::Comprehension {
+            key_var,
             var,
             source,
             filter,
             body,
+            key,
         } => {
-            let mut s = format!(
-                "[{} for {var} in {}",
-                unparse_expr(body),
-                unparse_expr(source)
-            );
+            // `for kv, v in …` when the key/index is bound.
+            let binder = match key_var {
+                Some(kv) => format!("{kv}, {var}"),
+                None => var.clone(),
+            };
+            let mut s = match key {
+                // Map comprehension: `{ k: body for … }`.
+                Some(k) => format!("{{{}: {} for {binder} in {}", unparse_expr(k), unparse_expr(body), unparse_expr(source)),
+                // List comprehension: `[ body for … ]`.
+                None => format!("[{} for {binder} in {}", unparse_expr(body), unparse_expr(source)),
+            };
             if let Some(f) = filter {
                 s.push_str(&format!(" if {}", unparse_expr(f)));
             }
-            s.push(']');
+            s.push(if key.is_some() { '}' } else { ']' });
             s
         }
         Expr::ReplaceWith { id, with } => {

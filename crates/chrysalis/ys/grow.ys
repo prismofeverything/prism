@@ -1,0 +1,23 @@
+# Grow — the cell's mass-balanced metabolism, as a standalone importable process.
+# (Formerly `Metabolism` inside cell.ys; extracted so cell.ys composes imported
+# pieces — `from grow import Grow`.)
+#
+# Mass-balanced uptake (no mass from nothing): glucose → biomass + excreted
+# acetate, conserving the total —
+#   Δmass = u·yield,  Δglucose = −u,  Δacetate = u·(1−yield)  ⇒  Σ Δ = 0.
+# `u` is bounded by the available glucose so a shared pool can never go negative
+# (cells share the env pool; under the BSP snapshot every cell reads the same
+# pre-tick glucose, so an unbounded draw could take it < 0 and run away).
+
+unit pg : [mass] = 1e-12 kg
+Mass = Quantity[unit: pg, extensive]    # extensive ⇒ Schema::Delta (splits on divide)
+
+process Grow[k :: Float = 0.35, yield :: Float = 0.6]
+  ~{mass :: Float, glucose :: Float, interval :: Float = 1.0}
+  ->{mass :: Mass, glucose :: Float, acetate :: Float}
+(
+  raw    = k * glucose * mass * interval |
+  capped = if raw > glucose then glucose else raw |
+  u      = if capped > 0.0 then capped else 0.0 |   # clamp u ≥ 0 (see header)
+  {mass: u * yield, glucose: -u, acetate: u * (1.0 - yield)}
+)

@@ -1,0 +1,15 @@
+# Divide — the inside half of Form-3 division, as a standalone importable process.
+# (Formerly `Trigger` inside cell.ys; extracted — `from divide import Divide`.)
+#
+# The cell PROPOSES: it raises its `divide` face when biomass crosses the
+# threshold. It never reaches up to its container — it only exposes its readiness
+# on its OWN node (`%.divide`). The environment DISPOSES (enacts the split); see
+# environment.ys. This keeps the cell position-agnostic: it knows nothing about
+# its key in the parent map, so it behaves identically addressed local / stream.
+
+process Divide[threshold :: Float = 2.0]
+  ~{mass :: Float}
+  ->{divide :: Bool}
+(
+  {divide: if mass > threshold then true else false}
+)

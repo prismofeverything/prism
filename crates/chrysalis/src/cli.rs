@@ -65,7 +65,20 @@ fn resolve_file_modules(
                 let mut value_defs: std::collections::HashMap<String, Def> =
                     std::collections::HashMap::new();
                 for d in imported.defs {
-                    if matches!(d, Def::Use { .. } | Def::Type(_)) {
+                    // Host imports + the whole VOCABULARY (types, units, contexts,
+                    // contracts) always travel with a module: a `type Mass =
+                    // Quantity[unit: pg, …]` is useless without its `unit pg`, and
+                    // unit/context defs aren't reachable through value-ref scanning.
+                    // VALUE defs come by transitive reachability from the imported
+                    // names (below).
+                    if matches!(
+                        d,
+                        Def::Use { .. }
+                            | Def::Type(_)
+                            | Def::Unit(_)
+                            | Def::Context(_)
+                            | Def::Contract(_)
+                    ) {
                         prefix.push(d);
                     } else {
                         value_defs.insert(crate::ast::def_name(&d).to_string(), d);
@@ -107,6 +120,37 @@ fn resolve_file_modules(
         })
         .collect();
     Ok(())
+}
+
+/// Resolve a `stream` protocol's relative `.ys` `path` against the entry file's
+/// dir (`ys_root`), exactly like a sibling `from cell import` — so a child cell
+/// runs no matter the caller's cwd. A `protocol StreamingCell = stream<Cell,
+/// path: 'cell.ys'>` declares the child by a path relative to the file it's
+/// written in; absolutize it here (the one place that knows that file's dir)
+/// rather than leaking cwd-dependence into the protocol runtime. A plain
+/// relative string is rewritten; absolute / interpolated paths are left alone.
+fn resolve_stream_paths(program: &mut crate::ast::Program, ys_root: &std::path::Path) {
+    for def in &mut program.defs {
+        let Def::Protocol(pd) = def else { continue };
+        if pd.protocol != "stream" {
+            continue;
+        }
+        for (field, value) in &mut pd.fields {
+            if field != "path" {
+                continue;
+            }
+            let Expr::Str(lit) = value else { continue };
+            let Some(rel) = lit.as_plain() else { continue }; // interpolated → leave
+            let path = std::path::Path::new(&rel);
+            if path.is_absolute() {
+                continue;
+            }
+            let abs = ys_root.join(path);
+            if let Some(s) = abs.to_str() {
+                *value = Expr::Str(crate::ast::StringLit::plain(s));
+            }
+        }
+    }
 }
 
 /// The other-def names a def REFERENCES in its body (controls + bare vars) — to
@@ -197,6 +241,7 @@ fn collect_refs(e: &Expr, out: &mut std::collections::HashSet<String>) {
             source,
             filter,
             body,
+            key,
             ..
         } => {
             collect_refs(source, out);
@@ -204,6 +249,9 @@ fn collect_refs(e: &Expr, out: &mut std::collections::HashSet<String>) {
                 collect_refs(f, out);
             }
             collect_refs(body, out);
+            if let Some(k) = key {
+                collect_refs(k, out);
+            }
         }
         Expr::Rule { redex, reactum } => {
             collect_refs(redex, out);
@@ -323,6 +371,9 @@ pub fn run_command(
         eprintln!("{e}");
         return 1;
     }
+    // Absolutize relative `stream:<.ys>` child paths against the entry file's dir
+    // (so a `stream<Cell, path: 'cell.ys'>` cell spawns regardless of cwd).
+    resolve_stream_paths(&mut prog, ys_root);
 
     // A `composite` entry with no explicit `main` ⇒ compositional invocation.
     let invokes = matches!(prog.entry(), Some(Def::Composite(_))) && prog.lookup("main").is_none();

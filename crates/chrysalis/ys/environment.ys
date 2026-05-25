@@ -1,15 +1,47 @@
-# An environment of cells on a shared, finite glucose pool — the Form-3 surface
-# (protocols-as-types 3d). Each cell is the `Cell` composite from cell.ys: it
-# takes up glucose (env→cell), converts it to biomass + acetate conserving mass
-# (cell→env), and exposes its `mass` + `divide` on its OWN node (the `%` self
-# wire — the matchable/divisible face). The env pool is two levels up (`^`).
+# An environment of cells on a shared, finite glucose pool — the Form-3 surface.
+# Each cell is the `Cell` composite from cell.ys, addressed over the `stream:`
+# protocol (`StreamingCell`): it runs as its OWN `chrysalis run cell.ys
+# --serve-process` child, driven over Arrow pipes. The cells run CONCURRENTLY —
+# the engine writes every child's input frame before collecting any output, so
+# wall-clock per tick ≈ the slowest cell, not the sum.
 #
-# `chrysalis run environment.ys --time N` runs the whole environment; the cells
-# run LOCAL here. The stream variant only changes the cell's address (the
-# `protocol` line) — the rest is identical. Mass is CONSERVED throughout:
-# glucose + Σ(cell mass) + acetate = const.
+# Mass is CONSERVED throughout: glucose + Σ(cell mass) + acetate = const. The
+# cells take up glucose (env→cell), convert it to biomass + acetate conserving
+# mass (cell→env), and expose `mass` + `divide` on their OWN node (the `%` self
+# wire). The env pool is one level up (`^`).
+#
+# Division is Form 3 — PROPOSE then DISPOSE: the cell proposes by raising its
+# `%.divide` face (divide.ys); the environment disposes via the `Divider` step
+# below, which scans the cells map and emits the structural `_divide` intent the
+# algebra splits (`divide_by_schema`: mass halves, the address is inherited so
+# daughters are themselves stream cells). The cell never names its own key — the
+# container owns the split — so this is IDENTICAL whether cells are local or
+# streamed. Swap `StreamingCell` for `Cell` and nothing else changes.
+#
+# `chrysalis run environment.ys --time N` runs the whole environment.
 
 from cell import Cell
+
+protocol StreamingCell = stream<Cell, path: 'cell.ys'>
+
+
+# The environment's division ENACTOR (the outside half of Form 3). It scans the
+# cells map for the first/last cell whose exposed `%.divide` face is set and emits
+# one `_divide` intent per tick (the map-comprehension's constant `_divide` key
+# collapses multiple proposers to one). It authors no daughter contents — the
+# schema-holding apply splits the mother via `divide_by_schema`; the override just
+# resets each daughter's `divide` so a daughter below threshold won't re-propose.
+step Divider
+  ~{cells :: map[Cell]}
+  ->{cells :: map[Cell]}
+(
+  { cells:
+      { _divide: { mother: id,
+                   daughters: { '{id}_0': { divide: false },
+                                '{id}_1': { divide: false } } }
+        for id, cell in cells if cell.divide }
+  }
+)
 
 
 composite Environment[glucose0 :: Float = 40.0]
@@ -18,11 +50,12 @@ composite Environment[glucose0 :: Float = 40.0]
   glucose: glucose0 |
   acetate: 0.0 |
   cells: {
-    c0: Cell[mass0: 1.0]
+    c0: StreamingCell[mass0: 1.0]
           ~{mass: %.mass, glucose: ^.glucose}
           ->{mass: %.mass, glucose: ^.glucose, acetate: ^.acetate, divide: %.divide},
-    c1: Cell[mass0: 1.0]
+    c1: StreamingCell[mass0: 1.0]
           ~{mass: %.mass, glucose: ^.glucose}
           ->{mass: %.mass, glucose: ^.glucose, acetate: ^.acetate, divide: %.divide}
-  }
+  } |
+  divider: Divider ~{cells: cells} ->{cells: cells}
 )

@@ -1,50 +1,22 @@
-# A single cell as a standalone, streamable composite — the `stream:` protocol's
-# CHILD. Run as `chrysalis run cell.ys --serve-stream` it becomes a live
-# `Trace[In] -> Trace[Out]` process the parent engine steps over OS pipes, exactly
-# as a `stream:cell.ys` node. The Rust twin is the cell in
-# crates/prism-bigraph/tests/cells_division.rs (addressed local:/rest:); here only
-# the address changes — the cell, its bridge, and its conservation are identical.
+# A single cell as a standalone, streamable composite, COMPOSED from imported
+# pieces: `Grow` (mass-balanced metabolism, grow.ys) and `Divide` (the propose
+# step, divide.ys). Run as `chrysalis run cell.ys --serve-process` it becomes a
+# live `Trace[In] -> Trace[Out]` process the parent engine steps over OS pipes,
+# exactly as a `stream:cell.ys` node — and identically to a `local:`/`rest:` cell.
+# The Rust twin is the cell in crates/prism-bigraph/tests/cells_division.rs.
 #
-# Mass-balanced metabolism (no mass from nothing): uptake u draws glucose and
-# splits it between biomass and excreted acetate, conserving the total —
-#   Δmass = u·yield,  Δglucose = −u,  Δacetate = u·(1−yield)  ⇒  Σ Δ = 0.
 # The cell exposes its `mass` (extensive — halves on divide) and a `divide` flag
-# (the inside half of Form-3 division: it proposes; the environment enacts).
+# on its OWN node (`%`). It is POSITION-AGNOSTIC: it never names its key in the
+# parent map, so the environment (not the cell) owns the structural split. That is
+# exactly why the cell is identical across protocols — see environment.ys.
 
-unit pg : [mass] = 1e-12 kg
-Mass = Quantity[unit: pg, extensive]    # extensive ⇒ Schema::Delta (splits on divide)
-
-
-# Mass-balanced uptake: glucose → biomass + acetate. `u` is bounded by the
-# available glucose so the shared pool can never go negative.
-process Metabolism[k :: Float = 0.35, yield :: Float = 0.6]
-  ~{mass :: Float, glucose :: Float, interval :: Float = 1.0}
-  ->{mass :: Mass, glucose :: Float, acetate :: Float}
-(
-  raw    = k * glucose * mass * interval |
-  capped = if raw > glucose then glucose else raw |
-  u      = if capped > 0.0 then capped else 0.0 |   # clamp u ≥ 0: with cells sharing
-                                                    # the pool (BSP snapshot), an
-                                                    # over-draw can take glucose < 0;
-                                                    # without this, u<0 runs away.
-  {mass: u * yield, glucose: -u, acetate: u * (1.0 - yield)}
-)
+from grow import Grow       # also brings the `Mass` / `pg` vocabulary
+from divide import Divide
 
 
-# The inside half of Form-3 division: propose by raising `divide` when biomass
-# crosses the threshold. The cell never reaches up to its container — it only
-# exposes its readiness on its own face; the environment disposes.
-process Trigger[threshold :: Float = 2.0]
-  ~{mass :: Float}
-  ->{divide :: Bool}
-(
-  {divide: if mass > threshold then true else false}
-)
-
-
-# The cell. Its `mass`/`glucose` ports bridge to the inner slots (`@`), so the
-# parent seeds them in and reads the exported face out. `acetate`/`divide` are
-# output-only faces. Daughters re-realize from this same file at the same address.
+# Its `mass`/`glucose` ports bridge to the inner slots (`@`), so the parent seeds
+# them in and reads the exported face out. `acetate`/`divide` are output-only
+# faces. Daughters re-realize from this same file at the same address.
 composite Cell[k :: Float = 0.35, yield :: Float = 0.6, threshold :: Float = 2.0, mass0 :: Mass = 1.0]
   ~{mass :: Mass @ mass, glucose :: Float @ glucose}
   ->{mass :: Mass @ mass, glucose :: Float @ glucose, acetate :: Float @ acetate, divide :: Bool @ divide}
@@ -53,10 +25,10 @@ composite Cell[k :: Float = 0.35, yield :: Float = 0.6, threshold :: Float = 2.0
   glucose: 0.0 |
   acetate: 0.0 |
   divide: false |
-  metabolism: Metabolism[k: k, yield: yield]
+  grow: Grow[k: k, yield: yield]
     ~{mass: mass, glucose: glucose}
     ->{mass: mass, glucose: glucose, acetate: acetate} |
-  trigger: Trigger[threshold: threshold]
+  propose: Divide[threshold: threshold]
     ~{mass: mass}
     ->{divide: divide}
 )
