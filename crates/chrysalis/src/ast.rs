@@ -631,6 +631,30 @@ impl Program {
         self.defs.iter().find(|d| def_name(d) == name)
     }
 
+    /// One named entity, viewed as the union of every Def in this program that
+    /// shares `name` — the homoiconic frame "a type is a control with extras":
+    /// one identity carrying optional slots (`process` / `composite` /
+    /// `reaction` / `type` / `function` / …) filled by whichever lowercase
+    /// definers contributed them. `None` if no Def names `name`.
+    ///
+    /// The view borrows — it doesn't restructure the AST, just indexes it. A
+    /// future slice can collapse `Def` into `EntityDef` and have this be the
+    /// owning struct; today it's a derived lookup. See `#30` in
+    /// `docs/NEXT-SESSION.md`.
+    pub fn entity(&self, name: &str) -> Option<EntityView<'_>> {
+        // The view borrows the Program's own name (lifetime `'self`) so the
+        // returned EntityView isn't tied to the caller-supplied `name`'s
+        // lifetime — letting consumers compare by short-lived string.
+        let first = self.defs.iter().find(|d| def_name(d) == name)?;
+        let mut view = EntityView::empty(def_name(first));
+        for def in &self.defs {
+            if def_name(def) == name {
+                view.absorb(def);
+            }
+        }
+        Some(view)
+    }
+
     /// The file's runnable **entry point** — its *last* top-level definition that
     /// carries an interface: a `composite`/`process`/`step` (a simulation) or a
     /// `def` function (a pure transform). This realizes the rule "a file's value
@@ -647,6 +671,95 @@ impl Program {
                 Def::Composite(_) | Def::Process(_) | Def::Step(_) | Def::Function(_)
             )
         })
+    }
+}
+
+/// A unified view of every Def in a [`Program`] that shares a name — the
+/// concrete shape of #30's "a type is a control with extras". One name maps
+/// to one `EntityView` with optional slots; consumers ask for the slots they
+/// care about and the view tells them which definer kinds contributed.
+///
+/// Borrowed view; lifetime tied to the program. See [`Program::entity`].
+#[derive(Debug, Clone)]
+pub struct EntityView<'a> {
+    pub name: &'a str,
+    pub function: Option<&'a FunctionDef>,
+    pub process: Option<&'a ProcessDef>,
+    pub step: Option<&'a StepDef>,
+    pub composite: Option<&'a CompositeDef>,
+    pub reaction: Option<&'a ReactionDef>,
+    pub pattern: Option<&'a PatternDef>,
+    pub type_def: Option<&'a TypeDef>,
+    pub contract: Option<&'a ContractDef>,
+    pub protocol: Option<&'a ProtocolDef>,
+    pub unit: Option<&'a UnitDef>,
+    pub context: Option<&'a ContextDef>,
+    /// `def name [:: T] = expr` — a top-level binding. The pair is
+    /// `(optional type ascription, value expression)`.
+    pub binding: Option<(&'a Option<SchemaExpr>, &'a Expr)>,
+}
+
+impl<'a> EntityView<'a> {
+    fn empty(name: &'a str) -> Self {
+        Self {
+            name,
+            function: None,
+            process: None,
+            step: None,
+            composite: None,
+            reaction: None,
+            pattern: None,
+            type_def: None,
+            contract: None,
+            protocol: None,
+            unit: None,
+            context: None,
+            binding: None,
+        }
+    }
+
+    /// Fill the slot named by `def`'s kind. Later defs of the same kind
+    /// overwrite earlier ones (matching today's "first match wins" if callers
+    /// scan with [`Program::lookup`], extended to "last contributor wins"
+    /// here — semantically a duplicate-name overwrite, which the parser
+    /// doesn't yet reject).
+    fn absorb(&mut self, def: &'a Def) {
+        match def {
+            Def::Function(d) => self.function = Some(d),
+            Def::Process(d) => self.process = Some(d),
+            Def::Step(d) => self.step = Some(d),
+            Def::Composite(d) => self.composite = Some(d),
+            Def::Reaction(d) => self.reaction = Some(d),
+            Def::Pattern(d) => self.pattern = Some(d),
+            Def::Type(d) => self.type_def = Some(d),
+            Def::Contract(d) => self.contract = Some(d),
+            Def::Protocol(d) => self.protocol = Some(d),
+            Def::Unit(d) => self.unit = Some(d),
+            Def::Context(d) => self.context = Some(d),
+            Def::Binding { schema, value, .. } => self.binding = Some((schema, value)),
+            // Import / Use are directives, not entities: they don't fill a slot.
+            Def::Import { .. } | Def::Use { .. } => {}
+        }
+    }
+
+    /// Methods declared on this entity's type, if any. (Other definer kinds
+    /// may eventually attach methods too — composites already have implicit
+    /// methods via the algebra; for now only `type Name = … with { … }`
+    /// carries explicit methods.)
+    pub fn methods(&self) -> &[MethodDef] {
+        self.type_def.map_or(&[], |t| t.methods.as_slice())
+    }
+
+    /// True if a bare reference (`Expr::Var(name)`) to this entity should
+    /// resolve to a value — i.e. some value-form slot is filled. The set
+    /// matches the arms of eval's Var lookup.
+    pub fn has_value_form(&self) -> bool {
+        self.function.is_some()
+            || self.composite.is_some()
+            || self.process.is_some()
+            || self.step.is_some()
+            || self.reaction.is_some()
+            || self.protocol.is_some()
     }
 }
 

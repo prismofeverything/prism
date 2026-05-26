@@ -16,16 +16,9 @@ use std::process::Command;
 const SKIP: &[(&str, &str)] = &[
     (
         "grow-divide-glucose.ys",
-        "tier-1 stretch (#30): the reaction's `?c.divide()` reactum is a \
+        "tier-1 stretch (#30 slice 3): the reaction's `?c.divide()` reactum is a \
          homoiconic method call on a sited cell — needs `?c :: Cell` + \
          `divide()` as a first-class entity method. Runs once that lands.",
-    ),
-    (
-        "mapk.ys",
-        "the trailing `Mapk[...]` entry references `phosphorylate`/etc by name, \
-         but `reaction` defs aren't yet resolvable as values in the eval env \
-         (pre-req for #30: reactions are entities you can reference). The \
-         reactions themselves parse and pretty-print cleanly.",
     ),
 ];
 

@@ -142,28 +142,18 @@ impl Evaluator {
 
             Expr::Var(name) | Expr::Site { name, .. } => {
                 if let Some(v) = env.get(name).or_else(|| self.imports.get(name)) {
-                    Ok(v.clone())
-                } else if matches!(
-                    self.program.lookup(name),
-                    Some(crate::ast::Def::Function(_))
-                ) {
-                    // A bare reference to a `def`ined function → a first-class
-                    // function value (passable to / returnable from functions).
-                    Ok(function_value(name))
-                } else if matches!(
-                    self.program.lookup(name),
-                    Some(
-                        crate::ast::Def::Composite(_)
-                            | crate::ast::Def::Process(_)
-                            | crate::ast::Def::Step(_)
-                    )
-                ) {
-                    // A bare reference to a composite/process/step definer → its
-                    // no-arg instantiation (the composite-as-data spec), so
-                    // `all` ≡ `all[]`. A definer needing args reports the missing
-                    // arg — still informative, and signals it's a definer rather
-                    // than "unbound".
-                    self.eval_value(
+                    return Ok(v.clone());
+                }
+                // The unified entity lookup (#30): one name → one `EntityView`,
+                // and a bare reference resolves to the entity's value-form when
+                // it has one. Function slots become first-class function values;
+                // composite/process/step/reaction slots become no-arg term
+                // evaluations (the spec/Rule value). So `all` ≡ `all[]`,
+                // `phosphorylate` ≡ `phosphorylate[]`. A definer that needs args
+                // still reports the missing arg via `Term` evaluation.
+                match self.program.entity(name) {
+                    Some(entity) if entity.function.is_some() => Ok(function_value(name)),
+                    Some(entity) if entity.has_value_form() => self.eval_value(
                         &Expr::Term {
                             control: name.clone(),
                             args: vec![],
@@ -171,9 +161,8 @@ impl Evaluator {
                             body: None,
                         },
                         env,
-                    )
-                } else {
-                    Err(EvalError::UnboundVar(name.clone()))
+                    ),
+                    _ => Err(EvalError::UnboundVar(name.clone())),
                 }
             }
 
@@ -567,53 +556,59 @@ impl Evaluator {
         body: Option<&Expr>,
         env: &IndexMap<Name, Value>,
     ) -> Result<Value, EvalError> {
-        match self.program.lookup(control) {
-            Some(Def::Composite(composite_def)) => {
-                let def = composite_def.clone();
-                self.build_composite_outer(&def, args, ports, env)
+        // The unified entity dispatch (#30): one lookup returns every slot for
+        // this name; priority order is composite > process > step > reaction >
+        // protocol — matching the historical Def-variant precedence. Slice 2b
+        // (when type/control declarations gain instantiation semantics) will
+        // extend the priority list without changing this dispatch shape.
+        if let Some(entity) = self.program.entity(control) {
+            if let Some(def) = entity.composite {
+                let def = def.clone();
+                return self.build_composite_outer(&def, args, ports, env);
             }
-            Some(Def::Process(process_def)) => {
-                let def = process_def.clone();
-                self.build_pure_spec(control, "process", args, ports, &def.params, &def.interface, env)
+            if let Some(def) = entity.process {
+                let def = def.clone();
+                return self.build_pure_spec(
+                    control, "process", args, ports, &def.params, &def.interface, env,
+                );
             }
-            Some(Def::Step(step_def)) => {
-                let def = step_def.clone();
-                self.build_pure_spec(control, "step", args, ports, &def.params, &def.interface, env)
+            if let Some(def) = entity.step {
+                let def = def.clone();
+                return self.build_pure_spec(
+                    control, "step", args, ports, &def.params, &def.interface, env,
+                );
             }
-            Some(Def::Reaction(reaction_def)) => {
-                let def = reaction_def.clone();
-                self.build_reaction_value(&def, args, env)
+            if let Some(def) = entity.reaction {
+                let def = def.clone();
+                return self.build_reaction_value(&def, args, env);
             }
-            Some(Def::Protocol(protocol_def)) => {
-                let pd = protocol_def.clone();
-                self.build_protocol_outer(&pd, args, ports, env)
+            if let Some(def) = entity.protocol {
+                let def = def.clone();
+                return self.build_protocol_outer(&def, args, ports, env);
             }
-            Some(Def::Function(_)) => Err(EvalError::InvalidForm {
-                context: "value-term".into(),
-                message: format!(
-                    "`{control}` is a function — call it as `{control}(args)`, not `{control}[args]`"
-                ),
-            }),
-            Some(Def::Pattern(_))
-            | Some(Def::Unit(_))
-            | Some(Def::Context(_))
-            | Some(Def::Type(_))
-            | Some(Def::Contract(_))
-            | Some(Def::Import { .. })
-            | Some(Def::Use { .. })
-            | Some(Def::Binding { .. }) => Err(EvalError::InvalidForm {
+            if entity.function.is_some() {
+                return Err(EvalError::InvalidForm {
+                    context: "value-term".into(),
+                    message: format!(
+                        "`{control}` is a function — call it as `{control}(args)`, not `{control}[args]`"
+                    ),
+                });
+            }
+            return Err(EvalError::InvalidForm {
                 context: "value-term".into(),
                 message: format!("control `{}` is not callable in value context", control),
-            }),
-            None if self.imported_processes.contains(control) => {
-                // A wholesale native process import (`from core import …`):
-                // no Def, no declared interface — wire straight from the call.
-                self.build_native_spec(control, args, ports, env)
-            }
-            None => match control.as_str() {
-                "BRS" => self.build_brs_value(args, ports, env),
-                _ => self.build_plain_map_value(control, args, body, env),
-            },
+            });
+        }
+        // No entity in the program: a free control. Native imports (`from core
+        // import …`) bypass interface-redeclaration; built-ins like `BRS` have
+        // hand-rolled value builders; everything else is a plain control whose
+        // value is its bigraph atom (`{_type: <control>, …args}`).
+        if self.imported_processes.contains(control) {
+            return self.build_native_spec(control, args, ports, env);
+        }
+        match control.as_str() {
+            "BRS" => self.build_brs_value(args, ports, env),
+            _ => self.build_plain_map_value(control, args, body, env),
         }
     }
 
