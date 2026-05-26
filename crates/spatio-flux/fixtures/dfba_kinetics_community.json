@@ -2,6 +2,7 @@
     "state": {
         "global_time": 0.0,
         "dFBA": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "DynamicFBA"
@@ -68,6 +69,7 @@
             }
         },
         "monod_kinetics": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "MonodKinetics"
@@ -131,6 +133,7 @@
             "kinetic biomass": 0.01
         },
         "emitter": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "RAMEmitter"

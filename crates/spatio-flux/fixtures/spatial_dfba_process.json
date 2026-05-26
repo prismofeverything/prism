@@ -356,6 +356,7 @@
             ]
         },
         "spatial_dFBA": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "SpatialDFBA"
@@ -624,6 +625,7 @@
             }
         },
         "emitter": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "RAMEmitter"

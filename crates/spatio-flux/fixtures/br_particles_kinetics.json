@@ -3,6 +3,7 @@
         "particles": {
             "Vj2FtpZF": {
                 "monod_kinetics": {
+                    "_type": "link",
                     "address": {
                         "protocol": "local",
                         "data": "MonodKinetics"
@@ -323,6 +324,7 @@
             ]
         },
         "brownian_movement": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "BrownianMovement"
@@ -357,6 +359,7 @@
             }
         },
         "enforce_boundaries": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "ManageBoundaries"
@@ -400,6 +403,7 @@
             }
         },
         "particle_exchange": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "ParticleExchange"
@@ -437,6 +441,7 @@
             }
         },
         "particle_division": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "ParticleDivision"
@@ -461,6 +466,7 @@
             }
         },
         "emitter": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "RAMEmitter"

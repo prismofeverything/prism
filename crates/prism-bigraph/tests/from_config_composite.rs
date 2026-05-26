@@ -78,6 +78,7 @@ fn from_config_builds_and_runs_a_composite() {
                 (
                     "grow",
                     Value::tree([
+                        ("_type", Value::String("process".into())),
                         ("address", Value::String("local:Grow".to_string())),
                         ("config", Value::tree([("rate", Value::float(0.5))])),
                         ("inputs", Value::tree([("mass", wire("mass"))])),

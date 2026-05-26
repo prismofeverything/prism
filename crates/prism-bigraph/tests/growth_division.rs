@@ -107,12 +107,14 @@ fn wire(segs: &[&str]) -> Value {
 /// (where Divide writes `_add`/`_remove`) up to its parent via `['..']`.
 fn cell_spec(mass: f64, id: &str) -> Value {
     let grow = Value::tree([
+        ("_type", Value::String("process".into())),
         ("address", Value::String("local:Grow".to_string())),
         ("config", Value::tree([("rate", Value::float(0.6))])),
         ("inputs", Value::tree([("mass", wire(&["mass"]))])),
         ("outputs", Value::tree([("mass", wire(&["mass"]))])),
     ]);
     let divide = Value::tree([
+        ("_type", Value::String("step".into())),
         ("address", Value::String("local:Divide".to_string())),
         (
             "config",
@@ -146,6 +148,7 @@ fn cell_spec(mass: f64, id: &str) -> Value {
         ),
     ]);
     Value::tree([
+        ("_type", Value::String("composite".into())),
         ("address", Value::String("local:Composite".to_string())),
         (
             "config",

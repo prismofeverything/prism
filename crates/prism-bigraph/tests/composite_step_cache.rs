@@ -113,6 +113,7 @@ fn step(tag: &str, in_seg: Option<&str>, out_seg: &str, add: f64) -> Value {
         None => Value::map(),
     };
     Value::tree([
+        ("_type", Value::String("step".into())),
         ("address", Value::String("local:Recording".into())),
         (
             "config",

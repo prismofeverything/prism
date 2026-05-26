@@ -1397,6 +1397,7 @@ impl DynamicWorker {
             (
                 "worker",
                 Value::Map(IndexMap::from([
+                    ("_type".into(), Value::String("process".into())),
                     (
                         "address".into(),
                         Value::String("local:DynamicWorker".into()),
@@ -1625,6 +1626,7 @@ fn make_worker_state(process_id: &str, propensity_rewire: f64) -> Value {
         ("spawn_value", Value::float(0.5)),
     ]);
     Value::Map(IndexMap::from([
+        ("_type".into(), Value::String("process".into())),
         (
             "address".into(),
             Value::String("local:DynamicWorker".into()),

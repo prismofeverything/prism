@@ -15,6 +15,7 @@
             }
         },
         "brownian_movement": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "BrownianMovement"
@@ -49,6 +50,7 @@
             }
         },
         "enforce_boundaries": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "ManageBoundaries"
@@ -92,6 +94,7 @@
             }
         },
         "emitter": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "RAMEmitter"

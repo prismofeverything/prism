@@ -98,11 +98,13 @@ fn step_drives_a_dynamic_process_interval() {
     // the EVENT node's interval slot — `[event, "interval"]` — which the engine
     // reads (and the Step overwrites) to schedule the event.
     let event = Value::tree([
+        ("_type", Value::from("process")),
         ("address", Value::from("local:GillespieEvent")),
         ("inputs", Value::tree([("a", wire(&["a"]))])),
         ("outputs", Value::tree([("a", wire(&["a"]))])),
     ]);
     let ticker = Value::tree([
+        ("_type", Value::from("step")),
         ("address", Value::from("local:GillespieInterval")),
         ("config", Value::tree([("k", Value::float(1.0))])),
         ("inputs", Value::tree([("a", wire(&["a"]))])),

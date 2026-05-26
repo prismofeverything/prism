@@ -18,29 +18,83 @@
 - ✅ #4 real parallelism — Defer seam, ParallelPool, stream concurrent (steps 2.5/3/4)
 - ⏳ #5 complete law generators over node sorts + fix flaky law + uniform node-data
 - ⏳ #6 explicit bridge conduits (today inferred by inner-slot absence)
-- ⏳ #7 cleanup — collapse address-scan + the two discovery walks
+- ✅ #7 cleanup — collapse address-scan + the two discovery walks (DONE 2026-05-25 — `extract_processes` + `discover_all_processes` collapsed into one `scan_for_processes` path; the address-fallback is EXPUNGED — discovery is schema-first via `is_link`, with explicit `_type: "process"|"step"|"link"|"composite"` (upstream process-bigraph convention) as the bootstrap for dynamic adds. Producers workspace-wide migrated.)
 - ⏳ #8 SBML→CRN importer / repressilator (original science goal)
 - ⏳ #9 dt-refinement convergence sweep
-- ⏳ #10 comment-preserving parse/unparse + retire extern
-- ⏳ #11 prism-svg: SVG as place-graph values
+- 🧩 #10 comment-preserving parse/unparse + retire extern — extern FULLY RETIRED (no `Tok::Extern`/`Def::Extern`); REMAINING: retain comments through `parse → unparse` (the lexer skips `#`-to-EOL; roundtrip tests verify AST, not comments)
+- 🧩 #11 prism-svg: SVG as place-graph values — typed SVG nodes DONE (`crates/prism-viz/src/svg.rs`: `el`/`svg`/`rect`/`line`/`text`/`group`/`polyline`/`animate`); `prism_viz::plot` emits typed SVG. REMAINING: retire `render_timeseries_svg`'s plotters-string path
 - ⏳ #12 real contract enforcement through RunProcess
-- ⏳ #13 spatio-flux as a `.ys` project (codegen slices 3-4)
+- 🧩 #13 spatio-flux as a `.ys` project (codegen slices 3-4) — codegen MVP DONE; `culture.ys`/`dish.ys` migrated to imports; 6 `*-section.ys` files cover one representative per family + `report.ys` composes them. REMAINING: 12/18 of `CANONICAL_ORDER` not yet ported (the rest of the dFBA family, comets variants, spatioflux_reference_demo)
 - ⏳ #14 chrysalis diagnostics: comprehensible `.ys` errors
 - ⏳ #15 schema-as-state: meta-schema, reconcile state to match
-- 🧩 #16 surface-language defaults — input defaults + default harness DONE (`composite_param_env`, `cli::harness_process_entry`, `bench_run.rs`); REMAINING: interval inner-wire type; fully merge eval-side vs runner-side binding (low-value)
-- ⏳ #17 enforce `::`=type / `:`=value / `fulfills`-contract syntax
-- ⏳ #18 file-as-composite streaming slices + type-driven outputs
+- 🧩 #16 surface-language defaults — input defaults + default harness + dynamic-τ OVERRIDE DONE (`composite_param_env`, `cli::harness_process_entry`, `bench_run.rs`, `overwrite[Float]`, `gillespie.ys`); REMAINING: an inner-wire-typed `interval` whose `default` is `%.port`, retiring the engine's `[name,"interval"]` side-channel
+- 🧩 #17 enforce `::`=type / `:`=value / `fulfills`-contract syntax — lenient phase LIVE (`accept_type_sep` accepts `::` or `:`; `accept_contract_sep` accepts `fulfills` or `::`); REMAINING: migrate every `.ys` + GUIDE/design to canonical `::`/`fulfills`, then tighten the parser
+- 🧩 #18 file-as-composite streaming slices + type-driven outputs — Trace kernel, delta-log/Arrow codec, `chrysalis run --<port> SOURCE`/`--in TRACE`/`--serve-stream`, schema-header + `refines` check at connect, `prism_viz::plot(schema, trace)` (line/animated-heatmap), `report-section.ys` ALL DONE. REMAINING: `--map out=in` + `--adapt adapter.ys`; 4D structural plot per `_add`/`_remove`; apply down `CANONICAL_ORDER` validating each family
 - ⏳ #19 performance sweep (LAST, after features)
 - ✅ #20 run parallel stream cells from env.ys (end-to-end surface)
-- 🧩 #21 parallelism follow-ups — rest-concurrent DONE (`rest_engine.rs`); REMAINING: batched ray (now #25)
+- 🧩 #21 parallelism follow-ups — rest-concurrent + `ParallelPool`/`flush_pending` DONE (`rest_engine.rs`, `protocols/parallel.rs`); REMAINING: batched ray (a `ray.rs` protocol with one packet/shard — same as canonical #25)
 - ✅ #22 protocols as Custom types + composite IS-A type (one program-aware lowering; `composite_is_a_type`)
-- 🧩 #23 modernize `.ys` files — grow/divide/cell/environment run+divide+conserve, `ys_files_run` guards; REMAINING: grow-divide-unbounded/glucose (legacy `env.run`), mapk (unbound `phosphorylate`)
+- 🧩 #23 modernize `.ys` files — grow/divide/cell/environment run+divide+conserve, `ys_files_run` guards; `mapk.ys`'s `phosphorylate` IS BOUND (corrected by audit). REMAINING: `grow-divide-unbounded.ys` and `grow-divide-glucose.ys` still end in legacy `env.run(t)` (which never ran via the bin) — migrate to composite + `--time`
 - ✅ #24 RETIRE branch_schema — derive inner schema via the algebra
 - ⏳ #25 distributed: batched `ray:` protocol (Form A — `flush_pending`, one packet/shard) — `docs/distributed-execution.md` phase 1
 - ⏳ #26 distributed: halo/neighbor exchange + 2-environment diffusion-across-a-boundary demo — phase 2
 - ⏳ #27 distributed: static spatial-partition protocol (the octree; environment-of-environments across machines) — phase 3
 - ⏳ #28 distributed: dynamic load balancing (split/migrate overflowing subdomains) — phase 4
 - ⏳ #29 distributed: adopt a cluster backend (Charm++ / Ray / MPI) behind the `Protocol` interface — phase 5
+
+## ⏯️ NEXT-SESSION PROMPT (2026-05-25 — schema-first discovery + canonical-list audit)
+
+> Workspace GREEN (101 groups, 546 passed, 0 failed). This session finished **#7
+> cleanup** end-to-end — both halves of "collapse address-scan + the two discovery
+> walks":
+>
+> **Part A (the discovery walks).** Collapsed `extract_processes` (schema-only,
+> init-time) + `discover_all_processes` (full-state) into ONE path through
+> `scan_for_processes` via `discover_processes`. `discover_all_processes` is now a
+> thin "from-root + settle_steps" wrapper. `merge_schema` goes through the same
+> path. Net −179 lines in `crates/prism-bigraph/src/engine.rs`.
+>
+> **Part B (the address-fallback).** **EXPUNGED address-as-hint from discovery.**
+> Previously `scan_for_processes` recognised a node as a process via `has_address`
+> — but many non-process values legitimately carry an `address` field (a contact
+> card, a webhook config, an OAuth grant). The principled fix: a node is a process
+> iff (a) the schema declares it as a `Link`-kind, or (b) the state value carries
+> an explicit `_type: "process"|"step"|"link"|"composite"` marker (upstream
+> process-bigraph's convention, already consumed by `Schema::infer`). Address is
+> for *instantiation only*. Producer migration: `chrysalis::eval::build_spec_value`
+> (the canonical chrysalis emitter) now takes a `kind` and threads `_type`;
+> `build_native_spec` emits `_type: "link"` (kind decided by the registry at
+> instantiation); ~10 Rust test fixtures + 17 spatio-flux JSON fixtures (778
+> `_type` additions) updated. Re-probe is empty: zero legacy `has_address && !is_link`
+> hits across the workspace.
+>
+> **Canonical-list audit.** Walked every still-open task and corrected statuses
+> against the code (deltas reflected in the list above): #10 extern is FULLY
+> RETIRED (only comment-preservation remains); #11 typed SVG nodes are DONE in
+> `prism-viz/src/svg.rs` (only `render_timeseries_svg`'s plotters string is left);
+> #13 codegen MVP + 6 representative `*-section.ys` are done (the rest of the
+> 18-member `CANONICAL_ORDER` is the remaining work); #16 dynamic-τ OVERRIDE half
+> shipped (the inner-wire-type half is the cleanup); #17 lenient `::`/`fulfills`
+> parsing is LIVE (tighten after migrating the `.ys` corpus); #18 Trace kernel +
+> `--in TRACE` + plot dispatch + Section template are all landed (only
+> `--map`/`--adapt` + the 4D structural plot remain); #21 `ParallelPool` +
+> `flush_pending` shipped (ray protocol is the remaining piece); #23 `mapk.ys`'s
+> `phosphorylate` is BOUND (corrected — only `grow-divide-unbounded/glucose`
+> legacy `env.run` remains).
+>
+> UNCOMMITTED at break: `engine.rs`, `chrysalis/src/eval.rs`, ~10 Rust test
+> fixtures, 17 spatio-flux JSON fixtures (`spatial_many_dfba.json` +
+> `spatioflux_reference_demo.json` are the bulk), `NEXT-SESSION.md` (this entry
+> and the refreshed canonical list).
+>
+> **NEXT (open work, in suggested order):** #9 dt-refinement convergence sweep
+> (small warm-up; uses the existing integrator-comparison + the type-driven plot
+> pipeline that #18 left ready) → #5 law generators over node sorts (the audit
+> confirmed `Link`/`StepLink`/`ProcessLink`/`CompositeLink` are absent from
+> `arb_additive()` — adding them would mechanically catch the kind of holes #7
+> just papered over) → #16 inner-wire type for `interval` (retire the engine
+> side-channel) → #10 comment-preserving unparse OR #21/#25 batched ray (depending
+> on whether you want a `.ys` polish vs. the first concrete distributed step).
 
 ## ⏯️ NEXT-SESSION PROMPT (2026-05-24 part 6 — rest-concurrency + the defaults/harness fix; distributed plan drafted)
 

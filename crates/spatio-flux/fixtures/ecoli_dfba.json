@@ -2,6 +2,7 @@
     "state": {
         "global_time": 0.0,
         "ecoli dFBA": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "DynamicFBA"
@@ -65,6 +66,7 @@
             "biomass": 0.1
         },
         "emitter": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "RAMEmitter"

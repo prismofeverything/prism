@@ -488,6 +488,7 @@
             ]
         },
         "diffusion": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "DiffusionAdvection"
@@ -536,6 +537,7 @@
             }
         },
         "emitter": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "RAMEmitter"

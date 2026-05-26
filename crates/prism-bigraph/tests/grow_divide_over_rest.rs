@@ -91,6 +91,7 @@ fn a_remote_process_is_discovered_and_driven_over_rest() {
         (
             "grower",
             Value::tree([
+                ("_type", Value::String("process".into())),
                 ("address", rest_addr("Grow", server.port())),
                 ("config", Value::tree([("rate", Value::float(2.0))])),
                 ("interval", Value::float(1.0)),
@@ -133,6 +134,7 @@ fn a_remote_process_is_discovered_and_driven_over_rest() {
 /// dataflow).
 fn rest_grow_node(port: u16) -> Value {
     Value::tree([
+        ("_type", Value::String("process".into())),
         ("address", rest_addr("Grow", port)),
         ("config", Value::tree([("rate", Value::float(1.0))])),
         ("inputs", Value::map()),

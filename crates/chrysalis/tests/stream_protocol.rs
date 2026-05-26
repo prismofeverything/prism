@@ -73,6 +73,7 @@ fn engine_steps_a_stream_node_over_pipes() {
     let counter = write_counter("counter_e2e");
 
     let driver = Value::tree([
+        ("_type", Value::from("process")),
         (
             "address",
             Value::from(format!("stream:{}", counter.to_str().unwrap()).as_str()),

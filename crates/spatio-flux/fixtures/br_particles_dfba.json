@@ -3,6 +3,7 @@
         "particles": {
             "YRdKa6aM": {
                 "dFBA": {
+                    "_type": "link",
                     "address": {
                         "protocol": "local",
                         "data": "DynamicFBA"
@@ -64,6 +65,7 @@
             },
             "of4GMuO6": {
                 "dFBA": {
+                    "_type": "link",
                     "address": {
                         "protocol": "local",
                         "data": "DynamicFBA"
@@ -378,6 +380,7 @@
             ]
         },
         "brownian_movement": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "BrownianMovement"
@@ -412,6 +415,7 @@
             }
         },
         "enforce_boundaries": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "ManageBoundaries"
@@ -455,6 +459,7 @@
             }
         },
         "particle_exchange": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "ParticleExchange"
@@ -492,6 +497,7 @@
             }
         },
         "particle_division": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "ParticleDivision"
@@ -516,6 +522,7 @@
             }
         },
         "emitter": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "RAMEmitter"

@@ -3,6 +3,7 @@
         "particles": {
             "sbdbc5ns": {
                 "monod_kinetics": {
+                    "_type": "link",
                     "address": {
                         "protocol": "local",
                         "data": "MonodKinetics"
@@ -70,6 +71,7 @@
             },
             "1xTFQcjF": {
                 "monod_kinetics": {
+                    "_type": "link",
                     "address": {
                         "protocol": "local",
                         "data": "MonodKinetics"
@@ -137,6 +139,7 @@
             },
             "McSndyTc": {
                 "monod_kinetics": {
+                    "_type": "link",
                     "address": {
                         "protocol": "local",
                         "data": "MonodKinetics"
@@ -581,6 +584,7 @@
             ]
         },
         "spatial_dFBA": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "SpatialDFBA"
@@ -882,6 +886,7 @@
             }
         },
         "diffusion": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "DiffusionAdvection"
@@ -930,6 +935,7 @@
             }
         },
         "brownian_movement": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "BrownianMovement"
@@ -964,6 +970,7 @@
             }
         },
         "enforce_boundaries": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "ManageBoundaries"
@@ -1007,6 +1014,7 @@
             }
         },
         "particle_exchange": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "ParticleExchange"
@@ -1044,6 +1052,7 @@
             }
         },
         "particle_division": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "ParticleDivision"
@@ -1068,6 +1077,7 @@
             }
         },
         "emitter": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "RAMEmitter"

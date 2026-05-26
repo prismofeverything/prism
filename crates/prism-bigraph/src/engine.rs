@@ -1485,9 +1485,13 @@ impl Engine {
 
     /// Recursively scan a map for process specs.
     ///
-    /// Uses schema-driven discovery when available: if the schema at a path
-    /// is `Schema::Link`, the node is a process/step. Falls back to scanning
-    /// for "address" fields when schema is `Any` (dynamic composition).
+    /// Schema-driven discovery: a node is a process iff its schema is a
+    /// `Schema::Link` variant. For nodes the schema doesn't yet declare
+    /// (e.g. dynamic adds into an `Any` slot), the state value's `_type:
+    /// "process"|"step"|"link"|"composite"` hint stands in — upstream
+    /// process-bigraph's explicit kind marker. The bare presence of an
+    /// `address` field is NEVER a type hint; many non-process values
+    /// legitimately carry one.
     fn scan_for_processes(
         &self,
         map: &prism_schema::StateMap,
@@ -1518,20 +1522,24 @@ impl Engine {
                     }
                 }
 
-                // Schema-FIRST discovery (#28): a process node is one the SCHEMA
-                // declares as a Link (chrysalis emits Links; the engine reconciles
-                // them from instances at `add_process`). Step A+B make every STATIC
-                // node a declared Link, so `is_link` carries the find. The `address`
-                // path remains ONLY for DYNAMIC entities created at runtime inside a
-                // `Map[…]` collection (e.g. grow/divide's `cells`): the declared
-                // `Map` collapses to a concrete `Tree` once `infer` sees its keys, so
-                // the entity isn't typed as a Link — it's found by `address`. Fully
-                // schema-first dynamic discovery (keep Maps as Maps + per-entity
-                // Links + match/divide on `CompositeLink`) is the dynamic-structure
-                // schema, task #9.
+                // Schema-FIRST discovery: a process node is one the SCHEMA
+                // declares as a Link (chrysalis emits Links; declared `Map[Cell]`
+                // stays a Map under resolve so per-entity nodes resolve to their
+                // `CompositeLink`). For nodes the schema doesn't yet declare —
+                // dynamic adds into an `Any` slot, raw fixtures without a
+                // declared schema — the state value MUST carry an explicit
+                // `_type` hint ("process"|"step"|"link"|"composite"; upstream
+                // process-bigraph convention; consumed by `Schema::infer`).
+                // `address` is for *instantiation*, never for *recognition* —
+                // many non-process values can also carry an `address` field
+                // (a contact card, a webhook config, a remote-resource handle).
                 let is_link = self.schema.schema_at_path(&child_path).is_link_kind();
-                let has_address = child_map.contains_key("address");
-                if !is_link && !has_address {
+                let type_hint = child_map.get("_type").and_then(|v| v.as_str());
+                let has_type_hint = matches!(
+                    type_hint,
+                    Some("process" | "step" | "link" | "composite")
+                );
+                if !is_link && !has_type_hint {
                     // Not a process node — recurse to find nested links.
                     self.scan_for_processes(child_map, &child_path, registry, results);
                     continue;
@@ -1797,19 +1805,21 @@ mod tests {
     }
 
     #[test]
-    fn native_node_found_by_address_gets_a_real_link_in_schema() {
+    fn native_node_with_type_hint_gets_a_real_link_in_schema() {
         // A native process spec sits in state at a `Tree` path with the engine
-        // schema `Any`, so discovery finds it via the ADDRESS scan, not
-        // schema-first. After discovery the node must carry the instance's REAL
+        // schema `Any`. The state value carries an explicit `_type: "process"`
+        // hint (upstream process-bigraph convention); discovery finds it via
+        // that hint, not by guessing from the `address` field — bare `address`
+        // is not a type hint (user profiles, webhook configs, etc. also have
+        // one). After discovery the node carries the instance's REAL
         // `ProcessLink` (the threaded interface) — no `Any` left at the node.
-        // This is the schema-as-state reconcile: the instance is the source of
-        // truth for a process's interface (Schema::Any retirement, #28 step B).
         let wire = || Value::List(vec![Value::String("level".into())]);
         let state = Value::tree([
             ("level", Value::float(1.0)),
             (
                 "growth",
                 Value::tree([
+                    ("_type", Value::String("process".into())),
                     ("address", Value::String("local:Growth".into())),
                     ("inputs", Value::tree([("level", wire())])),
                     ("outputs", Value::tree([("level", wire())])),

@@ -103,9 +103,13 @@ fn engine_discovers_and_runs_a_typed_address_node() {
     registry.register("Add5", |_| ProcessNode::Process(Box::new(Add5)));
 
     let node = Value::tree([
+        ("_type", Value::String("process".into())),
         (
             "address",
             Value::tree([
+                // address._type "local" is the PROTOCOL (transport); the
+                // outer `_type: "process"` above is the NODE-kind hint for
+                // schema-first discovery.
                 ("_type", Value::String("local".into())),
                 ("process", Value::String("Add5".into())),
             ]),

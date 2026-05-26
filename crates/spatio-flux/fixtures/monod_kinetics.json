@@ -2,6 +2,7 @@
     "state": {
         "global_time": 0.0,
         "monod_kinetics": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "MonodKinetics"
@@ -79,6 +80,7 @@
             "biomass": 0.1
         },
         "emitter": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "RAMEmitter"

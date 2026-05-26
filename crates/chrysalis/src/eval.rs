@@ -574,11 +574,11 @@ impl Evaluator {
             }
             Some(Def::Process(process_def)) => {
                 let def = process_def.clone();
-                self.build_pure_spec(control, args, ports, &def.params, &def.interface, env)
+                self.build_pure_spec(control, "process", args, ports, &def.params, &def.interface, env)
             }
             Some(Def::Step(step_def)) => {
                 let def = step_def.clone();
-                self.build_pure_spec(control, args, ports, &def.params, &def.interface, env)
+                self.build_pure_spec(control, "step", args, ports, &def.params, &def.interface, env)
             }
             Some(Def::Reaction(reaction_def)) => {
                 let def = reaction_def.clone();
@@ -650,6 +650,11 @@ impl Evaluator {
         let outputs_map = lower(&ports.outputs, self)?;
 
         let mut spec: IndexMap<Key, Value> = IndexMap::new();
+        // A native import's _type defaults to "link" (kind unknown from this
+        // side — the registry decides Process vs Step at instantiation).
+        // Discovery still finds it (any Link-kind in the schema, or this
+        // `_type` hint when the slot is `Any`).
+        spec.insert("_type".into(), Value::String("link".into()));
         spec.insert("address".into(), Value::String(format!("local:{control}")));
         spec.insert("config".into(), Value::Map(config_map));
         spec.insert("inputs".into(), Value::Map(inputs_map));
@@ -779,6 +784,7 @@ impl Evaluator {
         let composite_name: Name = "Composite".into();
         let mut spec = self.build_spec_value(
             &composite_name,
+            "composite",
             &IndexMap::new(),
             ports,
             &def.interface,
@@ -857,6 +863,7 @@ impl Evaluator {
     fn build_pure_spec(
         &self,
         control: &Name,
+        kind: &'static str,
         args: &[TermArg],
         ports: &PortBindings,
         params: &[crate::ast::Param],
@@ -864,13 +871,21 @@ impl Evaluator {
         env: &IndexMap<Name, Value>,
     ) -> Result<Value, EvalError> {
         let resolved = self.resolve_args_against_params(control, args, params, env)?;
-        self.build_spec_value(control, &resolved, ports, interface, env)
+        self.build_spec_value(control, kind, &resolved, ports, interface, env)
     }
 
-    /// Build just the `{address, config, inputs, outputs}` spec map.
+    /// Build just the `{_type, address, config, inputs, outputs}` spec map.
+    ///
+    /// `kind` is the type hint — `"process"`, `"step"`, or `"composite"` —
+    /// embedded as `_type` on the value (upstream process-bigraph convention).
+    /// Schema-first discovery uses this hint to recognise a process node when
+    /// the surrounding schema is `Any` (e.g. a value stuffed into an untyped
+    /// slot at runtime). `address` is for *instantiation*, NOT recognition —
+    /// other values can also legitimately carry an `address` field.
     fn build_spec_value(
         &self,
         control: &Name,
+        kind: &'static str,
         resolved_config: &IndexMap<Name, Value>,
         ports: &PortBindings,
         interface: &crate::ast::Interface,
@@ -905,6 +920,7 @@ impl Evaluator {
             .collect();
 
         let mut spec: IndexMap<Key, Value> = IndexMap::new();
+        spec.insert("_type".into(), Value::String(kind.to_string()));
         spec.insert(
             "address".into(),
             Value::String(format!("local:{}", control)),

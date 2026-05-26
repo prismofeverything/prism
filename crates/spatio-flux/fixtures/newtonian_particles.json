@@ -24,6 +24,7 @@
             }
         },
         "newtonian_particles": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "PymunkParticleMovement"
@@ -81,6 +82,7 @@
             }
         },
         "enforce_boundaries": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "ManageBoundaries"
@@ -124,6 +126,7 @@
             }
         },
         "emitter": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "RAMEmitter"

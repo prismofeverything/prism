@@ -2,6 +2,7 @@
     "state": {
         "global_time": 0.0,
         "ecoli core dFBA": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "DynamicFBA"
@@ -68,6 +69,7 @@
             }
         },
         "ecoli dFBA": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "DynamicFBA"
@@ -126,6 +128,7 @@
             }
         },
         "cdiff dFBA": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "DynamicFBA"
@@ -184,6 +187,7 @@
             }
         },
         "pputida dFBA": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "DynamicFBA"
@@ -255,6 +259,7 @@
             }
         },
         "yeast dFBA": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "DynamicFBA"
@@ -313,6 +318,7 @@
             }
         },
         "llactis dFBA": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "DynamicFBA"
@@ -384,6 +390,7 @@
             }
         },
         "monod_kinetics": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "MonodKinetics"
@@ -457,6 +464,7 @@
             "serine": 0.0
         },
         "emitter": {
+            "_type": "link",
             "address": {
                 "protocol": "local",
                 "data": "RAMEmitter"
