@@ -73,6 +73,10 @@ pub struct Evaluator {
     /// `{address: local:Name, config, inputs, outputs}` spec with config + ports
     /// taken straight from the call site (no interface declaration needed).
     pub imported_processes: HashSet<Name>,
+    /// Imported native FUNCTIONS (`from io import load`) — bare callables
+    /// dispatched as `name(args)`. The host functions take `&[Value]` and
+    /// return `Value`. Pairs with the `Expr::Call` resolution path.
+    pub imported_functions: IndexMap<Name, crate::compile::HostFn>,
 }
 
 impl Evaluator {
@@ -82,23 +86,26 @@ impl Evaluator {
             methods,
             imports: IndexMap::new(),
             imported_processes: HashSet::new(),
+            imported_functions: IndexMap::new(),
         }
     }
 
     /// Like [`Evaluator::new`], but seeded with native host imports resolved
-    /// from a `ModuleRegistry` (objects bound by name; process names recognised
-    /// as wholesale native controls).
+    /// from a `ModuleRegistry` (objects bound by name, process names recognised
+    /// as wholesale native controls, functions dispatchable as bare calls).
     pub fn with_native_imports(
         program: Arc<Program>,
         methods: Arc<MethodRegistry>,
         imports: IndexMap<Name, Value>,
         imported_processes: HashSet<Name>,
+        imported_functions: IndexMap<Name, crate::compile::HostFn>,
     ) -> Self {
         Self {
             program,
             methods,
             imports,
             imported_processes,
+            imported_functions,
         }
     }
 
@@ -401,6 +408,11 @@ impl Evaluator {
             if let Some(crate::ast::Def::Function(f)) = self.program.lookup(name) {
                 let f = f.clone();
                 return self.eval_function_body(&f.body, &f.params, &arg_vals);
+            }
+            // 1b. Or a native function imported via `from <module> import name`
+            // (`load("file.ys")`, …). Dispatched against the host function map.
+            if let Some(host) = self.imported_functions.get(name) {
+                return host(&arg_vals).map_err(EvalError::Method);
             }
         }
         // 2. Indirect: `func` evaluates to a first-class function value — a

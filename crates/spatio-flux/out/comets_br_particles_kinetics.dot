@@ -29,8 +29,8 @@ digraph {
     // Wiring
     state_fields -> proc_diffusion [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
     state_particles -> proc_movement [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
-    state_fields -> proc_exchange [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
     state_particles -> proc_exchange [style=dashed, penwidth=1, dir=both, label="particles", fontsize=10];
+    state_fields -> proc_exchange [style=dashed, penwidth=1, dir=both, label="fields", fontsize=10];
 
     // Hierarchy
     state_fields -> state_fields__acetate [arrowhead=none, penwidth=2];

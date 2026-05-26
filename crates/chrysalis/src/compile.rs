@@ -181,12 +181,29 @@ impl ModuleRegistry {
 /// `modules`: object exports bind by name (resolvable in any body), process
 /// exports are recognised as wholesale native controls, and type exports become
 /// synthetic `type` defs (so the import is a first-class type).
+/// Resolution of every `from <module> import …` declaration in a program:
+/// each imported name lands in exactly one of these buckets. Threaded into
+/// the [`Evaluator`](crate::eval::Evaluator) so bodies can reference the
+/// imports as plain identifiers.
+pub(crate) struct ResolvedImports {
+    /// Object exports — bound by name in the eval env (`rk4`, `Path`, …).
+    pub imports: IndexMap<Name, Value>,
+    /// Wholesale native processes — recognised in term position (`RunProcess[…]`).
+    pub processes: HashSet<Name>,
+    /// Bare native functions — callable as `name(args)` (`load("file.ys")`).
+    pub functions: IndexMap<Name, HostFn>,
+    /// Native types lowered to synthetic `Def::Type` entries so they integrate
+    /// with the regular type-resolution path.
+    pub type_defs: Vec<Def>,
+}
+
 fn resolve_imports(
     program: &Program,
     modules: &ModuleRegistry,
-) -> Result<(IndexMap<Name, Value>, HashSet<Name>, Vec<Def>), CompileError> {
+) -> Result<ResolvedImports, CompileError> {
     let mut imports: IndexMap<Name, Value> = IndexMap::new();
     let mut processes: HashSet<Name> = HashSet::new();
+    let mut functions: IndexMap<Name, HostFn> = IndexMap::new();
     let mut type_defs: Vec<Def> = Vec::new();
     for def in &program.defs {
         if let Def::Use { module, names } = def {
@@ -212,10 +229,8 @@ fn resolve_imports(
                             methods: vec![],
                         }));
                     }
-                    Some(Export::Function(_)) => {
-                        return Err(CompileError::Other(format!(
-                            "bare-function import `{module}::{name}` is not supported yet"
-                        )));
+                    Some(Export::Function(f)) => {
+                        functions.insert(name.clone(), f);
                     }
                     None => {
                         return Err(CompileError::Other(format!(
@@ -226,7 +241,12 @@ fn resolve_imports(
             }
         }
     }
-    Ok((imports, processes, type_defs))
+    Ok(ResolvedImports {
+        imports,
+        processes,
+        functions,
+        type_defs,
+    })
 }
 
 /// Compile a chrysalis program into prism runtime artifacts.
@@ -278,9 +298,14 @@ pub fn compile_with_modules(
     mut methods: MethodRegistry,
     modules: ModuleRegistry,
 ) -> Result<CompileResult, CompileError> {
-    // Resolve native host imports (`Def::Use`): object/process bindings plus
-    // synthetic `type` defs for imported native types (`from chem import CRN`).
-    let (imports, imported_processes, type_defs) = resolve_imports(program, &modules)?;
+    // Resolve native host imports (`Def::Use`): object/process bindings + bare
+    // native functions + synthetic `type` defs for imported native types.
+    let ResolvedImports {
+        imports,
+        processes: imported_processes,
+        functions: imported_functions,
+        type_defs,
+    } = resolve_imports(program, &modules)?;
     // Inject the imported types so they're first-class (resolve in annotations,
     // register in the TypeRegistry, carry methods) — indistinguishable from a
     // `type` declared in the `.ys`.
@@ -322,6 +347,7 @@ pub fn compile_with_modules(
         Arc::clone(&methods),
         imports,
         imported_processes,
+        imported_functions,
     ));
 
     // User `type` declarations → a TypeRegistry whose entries delegate the
