@@ -76,16 +76,27 @@ fn unparse_def(def: &Def) -> String {
             )
         }
         Def::Reaction(r) => {
+            // The rule body lives at indent 2 (inside `reaction NAME (\n  …`).
+            // Render redex/reactum with that indent so they break when long,
+            // pipes-at-end-of-line matching composite bodies.
             let redex = match &r.guard {
-                Some(g) => format!("{} where {}", unparse_expr(&r.redex), unparse_expr(g)),
-                None => unparse_expr(&r.redex),
+                Some(g) => format!("{} where {}", unparse_expr_at(&r.redex, 2), unparse_expr(g)),
+                None => unparse_expr_at(&r.redex, 2),
+            };
+            let reactum = unparse_expr_at(&r.reactum, 2);
+            let rule_inline = format!("{redex} => {reactum}");
+            let multi = redex.contains('\n')
+                || reactum.contains('\n')
+                || rule_inline.len() + 2 > MAX_WIDTH;
+            let rule = if multi {
+                format!("{redex}\n  =>\n  {reactum}")
+            } else {
+                rule_inline
             };
             format!(
-                "reaction {}{} (\n  {} => {}\n)",
+                "reaction {}{} (\n  {rule}\n)",
                 r.name,
                 unparse_bracket_params(&r.params),
-                redex,
-                unparse_expr(&r.reactum)
             )
         }
         Def::Unit(u) => format!(
@@ -304,21 +315,22 @@ fn unparse_interface_inner(iface: &Interface, hoisted: Option<&ContractRef>) -> 
 
 // ── bodies ───────────────────────────────────────────────────────────
 
-/// A declaration body `( … )`. Block/Parallel (multiple statements) and
-/// record/map literals render multi-line; a simple expression renders inline
-/// `( e )` (e.g. a one-liner `( rk4.integrate(network, state, interval) )`).
+/// A declaration body `( … )`. Block/Parallel (multiple statements) render
+/// multi-line with items at indent 2 (so nested terms know their column and
+/// can break at the same canonical indent); record/map and simple
+/// expressions render inline `( e )`.
 fn unparse_body(body: &Expr) -> String {
     match body {
         Expr::Block(Block { bindings, value }) => {
             let mut items: Vec<String> = bindings
                 .iter()
-                .map(|(n, e)| format!("{n} = {}", unparse_expr(e)))
+                .map(|(n, e)| format!("{n} = {}", unparse_expr_at(e, 2)))
                 .collect();
-            items.push(unparse_expr(value));
+            items.push(unparse_expr_at(value, 2));
             format!("(\n  {}\n)", items.join(" |\n  "))
         }
         Expr::Parallel(items) if !items.is_empty() => {
-            let parts: Vec<String> = items.iter().map(unparse_expr).collect();
+            let parts: Vec<String> = items.iter().map(|i| unparse_expr_at(i, 2)).collect();
             format!("(\n  {}\n)", parts.join(" |\n  "))
         }
         Expr::Record(_) | Expr::Map(_) => format!("(\n  {}\n)", unparse_expr(body)),
@@ -329,6 +341,15 @@ fn unparse_body(body: &Expr) -> String {
 // ── expressions ──────────────────────────────────────────────────────
 
 pub fn unparse_expr(e: &Expr) -> String {
+    unparse_expr_at(e, 0)
+}
+
+/// `unparse_expr` aware of its column position. Terms / parallels / blocks /
+/// lists / rules break across lines when the inline form would push past
+/// [`MAX_WIDTH`] at the given indent; other expressions stay inline (they have
+/// no natural break points). Children of a multi-line construct recurse at
+/// `indent + 2` so nested terms know how deep they are.
+pub fn unparse_expr_at(e: &Expr, indent: usize) -> String {
     match e {
         Expr::Unit => "()".into(),
         Expr::Bool(b) => b.to_string(),
@@ -342,12 +363,20 @@ pub fn unparse_expr(e: &Expr) -> String {
             args,
             ports,
             body,
-        } => unparse_term(control, args, ports, body),
+        } => unparse_term(control, args, ports, body, indent),
         Expr::Parallel(items) => {
-            let parts: Vec<String> = items.iter().map(unparse_expr).collect();
-            format!("({})", parts.join(" | "))
+            let parts: Vec<String> =
+                items.iter().map(|i| unparse_expr_at(i, indent + 2)).collect();
+            fmt_pipe_join(&parts, indent)
         }
-        Expr::KeyedEntry { key, value } => format!("{}: {}", unparse_key(key), unparse_expr(value)),
+        Expr::KeyedEntry { key, value } => {
+            // Block-indent: a multi-line value's nested items hang at the
+            // ENTRY's `indent + 2`, not at the value's start column — matching
+            // composite/process body style (one canonical indent across the
+            // language). The width budget is conservative (it ignores the
+            // `key: ` prefix), which makes us slightly eager to break — fine.
+            format!("{}: {}", unparse_key(key), unparse_expr_at(value, indent))
+        }
         Expr::Map(entries) => {
             let parts: Vec<String> = entries
                 .iter()
@@ -363,8 +392,9 @@ pub fn unparse_expr(e: &Expr) -> String {
             format!("{{{}}}", parts.join(", "))
         }
         Expr::List(items) => {
-            let parts: Vec<String> = items.iter().map(unparse_expr).collect();
-            format!("[{}]", parts.join(", "))
+            let parts: Vec<String> =
+                items.iter().map(|i| unparse_expr_at(i, indent + 2)).collect();
+            fmt_list_join(&parts, indent)
         }
         // The site `name` already carries its `?` prefix (e.g. `?f`).
         Expr::Site { name, sort } => match sort {
@@ -373,9 +403,7 @@ pub fn unparse_expr(e: &Expr) -> String {
         },
         Expr::Unbound => "!".into(),
         Expr::LinkVar(n) => format!("~{n}"),
-        Expr::Rule { redex, reactum } => {
-            format!("{} => {}", unparse_expr(redex), unparse_expr(reactum))
-        }
+        Expr::Rule { redex, reactum } => fmt_rule(redex, reactum, indent),
         Expr::Let { bindings, body } => {
             let bs: Vec<String> = bindings
                 .iter()
@@ -387,10 +415,10 @@ pub fn unparse_expr(e: &Expr) -> String {
             let mut items: Vec<String> = b
                 .bindings
                 .iter()
-                .map(|(n, e)| format!("{n} = {}", unparse_expr(e)))
+                .map(|(n, e)| format!("{n} = {}", unparse_expr_at(e, indent + 2)))
                 .collect();
-            items.push(unparse_expr(&b.value));
-            format!("({})", items.join(" | "))
+            items.push(unparse_expr_at(&b.value, indent + 2));
+            fmt_pipe_join(&items, indent)
         }
         Expr::If { cond, then_, else_ } => {
             let mut s = format!("if {} then {}", unparse_expr(cond), unparse_expr(then_));
@@ -463,10 +491,11 @@ fn unparse_term(
     args: &[TermArg],
     ports: &PortBindings,
     body: &Option<Box<Expr>>,
+    indent: usize,
 ) -> String {
     let mut s = control.to_string();
     if !args.is_empty() {
-        s.push_str(&format!("[{}]", unparse_term_args(args)));
+        s.push_str(&fmt_term_args_at(args, indent));
     }
     if !ports.inputs.is_empty() {
         let ps: Vec<String> = ports
@@ -485,34 +514,30 @@ fn unparse_term(
         s.push_str(&format!(" ->{{{}}}", ps.join(", ")));
     }
     if let Some(b) = body {
-        s.push_str(&format!(" {}", inline_body(b)));
+        s.push_str(&format!(" {}", fmt_body(b, indent)));
     }
     s
 }
 
-/// A term/reaction body rendered inline + parenthesized: `(a | b | c)`.
-fn inline_body(b: &Expr) -> String {
+/// A term/reaction body. Inline `(a | b | c)` when short; otherwise multi-line
+/// with **pipes at end of line**, matching composite/process bodies.
+fn fmt_body(b: &Expr, indent: usize) -> String {
     match b {
         Expr::Parallel(items) => {
-            format!(
-                "({})",
-                items
-                    .iter()
-                    .map(unparse_expr)
-                    .collect::<Vec<_>>()
-                    .join(" | ")
-            )
+            let parts: Vec<String> =
+                items.iter().map(|i| unparse_expr_at(i, indent + 2)).collect();
+            fmt_pipe_join(&parts, indent)
         }
         Expr::Block(bl) => {
             let mut items: Vec<String> = bl
                 .bindings
                 .iter()
-                .map(|(n, e)| format!("{n} = {}", unparse_expr(e)))
+                .map(|(n, e)| format!("{n} = {}", unparse_expr_at(e, indent + 2)))
                 .collect();
-            items.push(unparse_expr(&bl.value));
-            format!("({})", items.join(" | "))
+            items.push(unparse_expr_at(&bl.value, indent + 2));
+            fmt_pipe_join(&items, indent)
         }
-        other => format!("({})", unparse_expr(other)),
+        other => format!("({})", unparse_expr_at(other, indent + 2)),
     }
 }
 
@@ -524,6 +549,35 @@ fn unparse_term_args(args: &[TermArg]) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// Indent-aware term-args renderer: `[a, b, c]` inline when short, or one
+/// entry per line when the inline form (placed at column `indent`) overshoots
+/// [`MAX_WIDTH`]. Each entry recurses at `indent + 2` so a long sub-list (e.g.
+/// `rules: [r1, r2, …]`) can itself break.
+fn fmt_term_args_at(args: &[TermArg], indent: usize) -> String {
+    if args.is_empty() {
+        return String::new();
+    }
+    let inline = format!("[{}]", unparse_term_args(args));
+    if !inline.contains('\n') && inline.len() + indent <= MAX_WIDTH {
+        return inline;
+    }
+    let inner = indent_str(indent + 2);
+    let outer = indent_str(indent);
+    let parts: Vec<String> = args
+        .iter()
+        .map(|a| match a {
+            TermArg::Positional(e) => unparse_expr_at(e, indent + 2),
+            TermArg::Named { name, value } => {
+                // Block-indent: a multi-line value hangs at the arg's column
+                // (`indent + 2`), not at the value's text-start. Matches the
+                // KeyedEntry style above.
+                format!("{name}: {}", unparse_expr_at(value, indent + 2))
+            }
+        })
+        .collect();
+    format!("[\n{inner}{},\n{outer}]", parts.join(&format!(",\n{inner}")))
 }
 
 /// Unparse an expression in an argument position (method/term arg). The
@@ -725,4 +779,77 @@ fn is_ident(s: &str) -> bool {
     let mut chars = s.chars();
     matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+// ── width-aware formatting helpers ──────────────────────────────────
+//
+// The unparser tries inline forms first and switches to multi-line when the
+// inline form (placed at the current column `indent`) would exceed
+// [`MAX_WIDTH`]. Multi-line bodies use **pipes at end of line**, matching the
+// composite/process body style — one canonical layout across the language.
+
+/// Target source-line width. Lines past this break onto multiple lines.
+const MAX_WIDTH: usize = 100;
+
+fn indent_str(n: usize) -> String {
+    " ".repeat(n)
+}
+
+/// Render `items` joined by ` | ` inside `( … )`. Inline when short; multi-
+/// line with **pipes at end of line** when the inline form (placed at column
+/// `indent`) exceeds [`MAX_WIDTH`] or any item itself spans multiple lines.
+fn fmt_pipe_join(items: &[String], indent: usize) -> String {
+    if items.is_empty() {
+        return "()".into();
+    }
+    let inline = format!("({})", items.join(" | "));
+    let inline_ok =
+        !items.iter().any(|s| s.contains('\n')) && inline.len() + indent <= MAX_WIDTH;
+    if inline_ok {
+        return inline;
+    }
+    let inner = indent_str(indent + 2);
+    let outer = indent_str(indent);
+    format!(
+        "(\n{inner}{}\n{outer})",
+        items.join(&format!(" |\n{inner}"))
+    )
+}
+
+/// Render `items` joined by `, ` inside `[ … ]`. Inline when short; multi-line
+/// (one entry per line, trailing comma) when too long or any item is multi-
+/// line. Symmetric with [`fmt_pipe_join`] for parallel composition.
+fn fmt_list_join(items: &[String], indent: usize) -> String {
+    if items.is_empty() {
+        return "[]".into();
+    }
+    let inline = format!("[{}]", items.join(", "));
+    let inline_ok =
+        !items.iter().any(|s| s.contains('\n')) && inline.len() + indent <= MAX_WIDTH;
+    if inline_ok {
+        return inline;
+    }
+    let inner = indent_str(indent + 2);
+    let outer = indent_str(indent);
+    format!(
+        "[\n{inner}{},\n{outer}]",
+        items.join(&format!(",\n{inner}"))
+    )
+}
+
+/// Render `redex => reactum` inline, or break across lines (redex / `=>` /
+/// reactum each on its own line) when either side is multi-line or the inline
+/// form is too long. The `=>` keeps the same indent as the redex so the
+/// rewrite arrow reads vertically.
+fn fmt_rule(redex: &Expr, reactum: &Expr, indent: usize) -> String {
+    let r1 = unparse_expr_at(redex, indent);
+    let r2 = unparse_expr_at(reactum, indent);
+    let inline = format!("{r1} => {r2}");
+    let inline_ok =
+        !r1.contains('\n') && !r2.contains('\n') && inline.len() + indent <= MAX_WIDTH;
+    if inline_ok {
+        return inline;
+    }
+    let outer = indent_str(indent);
+    format!("{r1}\n{outer}=>\n{outer}{r2}")
 }

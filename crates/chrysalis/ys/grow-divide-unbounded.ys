@@ -6,26 +6,16 @@
 # population diverges. When a cell's mass crosses `threshold`, it divides:
 # it is replaced by two daughters, each carrying half its mass.
 #
-# This file shows TWO forms of the same phenomenon:
+# INTERNAL division — the runnable form: a `Divide` step *inside* each cell
+# reads the cell's own mass and writes daughters UP to the parent `cells`
+# map through the cell's bridge. Faithful port of upstream
+# process_bigraph/processes/growth_division.py.
 #
-#   1. INTERNAL division — the RUNNABLE form (below). Mirrored verbatim by
-#      the hand-built AST in crates/chrysalis/src/fixtures/grow_divide.rs
-#      and proven end-to-end in crates/chrysalis/tests/grow_divide.rs
-#      (one cell → daughters `0_0`, `0_1`). A `Divide` step *inside* each
-#      cell reads the cell's own mass and writes daughters UP to the parent
-#      `cells` map through the cell's bridge. This is the faithful port of
-#      upstream process_bigraph/processes/growth_division.py.
+# (The TIER-1 STRETCH — division as a first-class parent-installed *reaction*
+# that calls the cell's `.divide()` method — lives in grow-divide-glucose.ys
+# and is gated on `?c.divide()` support; see docs/chrysalis-design.md.)
 #
-#   2. HOMOICONIC division — the TIER-1 STRETCH (at the bottom). Division
-#      as a first-class, parent-installed *reaction* that calls the cell's
-#      own `.divide()` method. This is the actual research point of the
-#      benchmark (reactions AND methods as first-class values), but it needs
-#      `type_divide` plus a matchable read-only projection of the cell's
-#      mass at the parent surface — not yet runnable. See
-#      docs/chrysalis-design.md.
-#
-# Spec only — the parser is task #12. Units below are the *target* surface;
-# the runnable fixture erases them to plain Floats until units land.
+# Run: `chrysalis run grow-divide-unbounded.ys --time 50`
 
 
 # ── Dimensioned scalar types ────────────────────────────────────────
@@ -87,8 +77,8 @@ composite Environment[cells: Map[Cell]]
 )
 
 
-# `%` is the empty wire `[]`, which the (container-relative) engine resolves
-# to the process's own container — here, the `cells` map the cell lives in.
-# (`^` → `[".."]` would pop one level too high.)
-def env = Environment[cells: {'0': Cell[id: '0', mass: 1.2] ->{environment: %}}]
-env.run(50.0)
+# The entry: a trailing `Environment[...]` term is the bin's runnable form
+# (`chrysalis run … --time 50` invokes this). `%` is the empty wire `[]`, which
+# the (container-relative) engine resolves to the cell's own container — the
+# `cells` map. (`^` → `[".."]` would pop one level too high.)
+Environment[cells: {'0': Cell[id: '0', mass: 1.2] ->{environment: %}}]

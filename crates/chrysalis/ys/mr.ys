@@ -7,7 +7,9 @@ reaction MakeB (
 )
 
 reaction MakePhi (
-  (?f :: F | ?b :: B) where (?f.blueprint == ?b.blueprint) => (F[blueprint: ?f.blueprint] | Phi[blueprint: ?f.blueprint])
+  (?f :: F | ?b :: B) where (?f.blueprint == ?b.blueprint)
+  =>
+  (F[blueprint: ?f.blueprint] | Phi[blueprint: ?f.blueprint])
 )
 
 reaction MakeF (

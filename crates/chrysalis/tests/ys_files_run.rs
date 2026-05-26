@@ -11,21 +11,21 @@
 
 use std::process::Command;
 
-/// `(file, why)` — `.ys` that don't yet run via `chrysalis run`. Each is tracked
-/// for migration to the execution model (#24) / `%`=self / BRS (#16).
+/// `(file, why)` — `.ys` that don't yet run via `chrysalis run`. Each is
+/// tracked against an open task. As blockers land, files move off this list.
 const SKIP: &[(&str, &str)] = &[
     (
-        "grow-divide-unbounded.ys",
-        "legacy `env.run(t)` trailing form (#24: run isn't a method) — migrate to a \
-         composite entry + `--time`",
-    ),
-    (
         "grow-divide-glucose.ys",
-        "legacy `env.run(t)` (#24) + needs a real BRS/reaction (#16)",
+        "tier-1 stretch (#30): the reaction's `?c.divide()` reactum is a \
+         homoiconic method call on a sited cell — needs `?c :: Cell` + \
+         `divide()` as a first-class entity method. Runs once that lands.",
     ),
     (
         "mapk.ys",
-        "rot: unbound variable `phosphorylate` — needs the missing definition",
+        "the trailing `Mapk[...]` entry references `phosphorylate`/etc by name, \
+         but `reaction` defs aren't yet resolvable as values in the eval env \
+         (pre-req for #30: reactions are entities you can reference). The \
+         reactions themselves parse and pretty-print cleanly.",
     ),
 ];
 

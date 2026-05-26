@@ -5,6 +5,7 @@
 //! chrysalis run     <file.ys> [--time T]   parse → compile → run (workflow self-outputs)
 //! chrysalis bigraph <file.ys>              emit the process-bigraph document (JSON)
 //! chrysalis check   <file.ys>              parse + compile (contract/connection check), no run
+//! chrysalis format  <file.ys> [-w]         parse → unparse (canonical layout)
 //! ```
 //!
 //! std-only programs (importing `core`/`integrators`/`chem`/`io`) run in-process
@@ -28,6 +29,7 @@ fn main() {
         "run" => cmd_run(rest),
         "bigraph" => cmd_bigraph(rest),
         "check" => cmd_check(rest),
+        "format" => cmd_format(rest),
         "server" => cmd_server(rest),
         "repl" => chrysalis::repl::run().unwrap_or_else(|e| die("repl", e)),
         "compile" => {
@@ -49,11 +51,72 @@ fn usage() {
     eprintln!(
         "usage:\n  chrysalis run <file.ys> [--time T] [--<port> SOURCE ...] [--out FILE]\n  \
          chrysalis check <file.ys> [--time T]\n  \
+         chrysalis format <file.ys> [-w | --write]\n  \
          chrysalis bigraph <file.ys> | export <file.ys> <out.json> | import <doc.json>\n  \
          chrysalis server [--port P]\n  \
          chrysalis repl\n\
          \n  SOURCE: literal | file:PATH | - (stdin) | stream:… (reserved)"
     );
+}
+
+/// `chrysalis format <file.ys> [-w]` — canonicalize a `.ys` file's layout by
+/// running it through `parse → unparse`. Without `-w` writes to stdout (so
+/// `git diff <(chrysalis format f.ys) f.ys` previews the change); with `-w`
+/// or `--write` rewrites in place.
+///
+/// CAVEAT: comments (#-to-EOL) are not yet preserved through the round-trip —
+/// the lexer skips them, so the parser never sees them. `format` emits a
+/// stderr warning when the source has comments and refuses to write in-place
+/// without `--force`. Comment preservation lands with task #10.
+fn cmd_format(args: &[String]) {
+    let mut path: Option<String> = None;
+    let mut write = false;
+    let mut force = false;
+    for a in args {
+        match a.as_str() {
+            "-w" | "--write" => write = true,
+            "--force" => force = true,
+            "-h" | "--help" => {
+                eprintln!("usage: chrysalis format <file.ys> [-w | --write] [--force]");
+                std::process::exit(0);
+            }
+            p if !p.starts_with('-') => path = Some(p.to_string()),
+            other => die("format", format!("unknown flag `{other}`")),
+        }
+    }
+    let path = path.unwrap_or_else(|| {
+        eprintln!("usage: chrysalis format <file.ys> [-w | --write] [--force]");
+        std::process::exit(2);
+    });
+
+    let source =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| die(&format!("read {path}"), e));
+    let has_comments = source.lines().any(|l| l.trim_start().starts_with('#'));
+
+    let prog = chrysalis::parse::parse_program(&source)
+        .unwrap_or_else(|e| die(&format!("parse {path}"), e));
+    let formatted = chrysalis::unparse::unparse(&prog);
+
+    if has_comments {
+        eprintln!(
+            "chrysalis format: warning — `{path}` contains comments; format \
+             does not yet preserve them (task #10). Output will lose them."
+        );
+        if write && !force {
+            die(
+                "format",
+                "refusing to overwrite a commented file without --force",
+            );
+        }
+    }
+
+    if write {
+        std::fs::write(&path, &formatted)
+            .unwrap_or_else(|e| die(&format!("write {path}"), e));
+        eprintln!("formatted {path}");
+    } else {
+        print!("{formatted}");
+    }
 }
 
 /// `chrysalis server [--port P]` — serve the std [`Core`] over the rest-process

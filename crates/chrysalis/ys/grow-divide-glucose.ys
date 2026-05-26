@@ -100,8 +100,14 @@ composite Environment[
 )
 
 
-def env = Environment[
+# The entry — `chrysalis run grow-divide-glucose.ys --time 300` runs the
+# environment long enough to deplete the pool and reach the asymptote.
+# (Not yet running end-to-end: the `?c :: Cell ... ?c.divide()` reactum is
+# tier-1 stretch — homoiconic division as a parent-installed reaction calling
+# the cell's `.divide()` method. See docs/chrysalis-design.md. The Cell + Grow
+# pieces are runnable today via the internal-division form — see
+# grow-divide-unbounded.ys + cell.ys.)
+Environment[
   glucose: 1000.0,
   cells: {'0': Cell[id: '0', mass: 1.2]}
 ]
-env.run(300.0)   # long enough to deplete the pool and reach the asymptote
