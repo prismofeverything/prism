@@ -2,6 +2,7 @@
 //! std library (prism-std):
 //!
 //! ```text
+//! chrysalis new     <dir>                  scaffold a new project (project.ys + main.ys)
 //! chrysalis run     <file.ys> [--time T]   parse → compile → run (workflow self-outputs)
 //! chrysalis bigraph <file.ys>              emit the process-bigraph document (JSON)
 //! chrysalis check   <file.ys>              parse + compile (contract/connection check), no run
@@ -26,6 +27,7 @@ fn main() {
         std::process::exit(2);
     };
     match cmd.as_str() {
+        "new" => cmd_new(rest),
         "run" => cmd_run(rest),
         "bigraph" => cmd_bigraph(rest),
         "check" => cmd_check(rest),
@@ -49,7 +51,8 @@ fn main() {
 
 fn usage() {
     eprintln!(
-        "usage:\n  chrysalis run <file.ys> [--time T] [--<port> SOURCE ...] [--out FILE]\n  \
+        "usage:\n  chrysalis new <dir> [--force]\n  \
+         chrysalis run <file.ys> [--time T] [--<port> SOURCE ...] [--out FILE]\n  \
          chrysalis check <file.ys> [--time T]\n  \
          chrysalis format <file.ys> [-w | --write]\n  \
          chrysalis bigraph <file.ys> | export <file.ys> <out.json> | import <doc.json>\n  \
@@ -57,6 +60,137 @@ fn usage() {
          chrysalis repl\n\
          \n  SOURCE: literal | file:PATH | - (stdin) | stream:… (reserved)"
     );
+}
+
+/// `chrysalis new <dir> [--force]` — scaffold a new chrysalis project.
+///
+/// Creates `<dir>/project.ys` (a `package <name>` directive) and `<dir>/main.ys`
+/// (a minimal runnable composite). Flat layout — the convention is
+/// `ys_root = entry_file_dir`, so siblings of `main.ys` are auto-importable
+/// without any path config. Larger projects can move sources into `ys/` later.
+///
+/// The package name is derived from the directory's basename, normalized to a
+/// valid identifier (non-alphanumeric → `-`). `chrysalis new .` populates the
+/// current directory.
+///
+/// Refuses to overwrite an existing `project.ys` or `main.ys` without
+/// `--force`, so re-running on a populated dir doesn't blow away work.
+fn cmd_new(args: &[String]) {
+    let mut dir: Option<String> = None;
+    let mut force = false;
+    for a in args {
+        match a.as_str() {
+            "--force" => force = true,
+            "-h" | "--help" => {
+                eprintln!("usage: chrysalis new <dir> [--force]");
+                std::process::exit(0);
+            }
+            p if !p.starts_with('-') => dir = Some(p.to_string()),
+            other => die("new", format!("unknown flag `{other}`")),
+        }
+    }
+    let dir = dir.unwrap_or_else(|| {
+        eprintln!("usage: chrysalis new <dir> [--force]");
+        std::process::exit(2);
+    });
+
+    let dir_path = std::path::PathBuf::from(&dir);
+    std::fs::create_dir_all(&dir_path)
+        .unwrap_or_else(|e| die(&format!("create {dir}"), e));
+
+    // Derive the package name from the directory's basename; for `.` fall back
+    // to the current dir's name. Normalize non-identifier chars to `-`.
+    let basename = dir_path
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .and_then(|p| p.file_name().map(|s| s.to_string_lossy().into_owned()))
+        })
+        .unwrap_or_else(|| "untitled".into());
+    let package = sanitize_package_name(&basename);
+
+    let project_ys = dir_path.join("project.ys");
+    let main_ys = dir_path.join("main.ys");
+    if !force {
+        for p in [&project_ys, &main_ys] {
+            if p.exists() {
+                die(
+                    "new",
+                    format!("`{}` already exists (use --force to overwrite)", p.display()),
+                );
+            }
+        }
+    }
+
+    let project_contents = format!(
+        "# chrysalis project manifest — {package}.\n\
+         #\n\
+         # `chrysalis run <file.ys>` resolves imports relative to the entry file's\n\
+         # directory — sibling `.ys` files are auto-importable. Move sources into a\n\
+         # `ys/` subdir if the project grows.\n\
+         #\n\
+         # This project is STD-ONLY (runs in-process against the bundled std library).\n\
+         # To link a non-std native package (HiGHS solver, rapier2d physics, …),\n\
+         # uncomment the `package` directive below and ensure that crate's\n\
+         # `prelude::{{registry, methods, modules}}` is exported — `chrysalis run`\n\
+         # then generates + builds + caches a runner that links it. See\n\
+         # docs/chrysalis-design.md (the codegen path).\n\
+         #\n\
+         # package {package}\n"
+    );
+    let main_contents = "\
+# A minimal chrysalis program — a counter that ticks up by one each step.
+# Run:   chrysalis run main.ys --time 5
+
+process Tick ~{count :: Float} ->{count :: Float} (
+  {count: 1.0}
+)
+
+composite Main ->{count :: Float} (
+  count: 0.0 |
+  tick: Tick ~{count: count} ->{count: count}
+)
+";
+
+    std::fs::write(&project_ys, project_contents)
+        .unwrap_or_else(|e| die(&format!("write {}", project_ys.display()), e));
+    std::fs::write(&main_ys, main_contents)
+        .unwrap_or_else(|e| die(&format!("write {}", main_ys.display()), e));
+
+    eprintln!(
+        "created {dir}/\n  - project.ys   (package {package})\n  - main.ys\n\
+         \nnext:\n  cd {dir} && chrysalis run main.ys --time 5"
+    );
+}
+
+/// Normalize an arbitrary directory basename to a valid chrysalis package
+/// identifier. Lowercase ASCII alphanumerics + `-` survive; everything else
+/// (spaces, dots, `_` → `-`) maps to a single dash. Leading digits get an
+/// `_` prefix so the result is a valid identifier. Empty → `untitled`.
+fn sanitize_package_name(s: &str) -> String {
+    let mut out = String::new();
+    let mut prev_dash = true;
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+            prev_dash = false;
+        } else if !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    if out.is_empty() {
+        return "untitled".into();
+    }
+    if out.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        out.insert(0, '_');
+    }
+    out
 }
 
 /// `chrysalis format <file.ys> [-w]` — canonicalize a `.ys` file's layout by
