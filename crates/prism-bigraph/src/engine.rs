@@ -414,13 +414,10 @@ impl Engine {
         let mut topology = Topology::new();
         topology.state_schema = merged_schema.clone();
 
-        // Build the engine WITHOUT pre-instantiating processes here. A single
-        // discovery pass (`discover_all_processes` → `scan_for_processes`) finds
-        // every process — schema-`Link`-typed AND address-marked — so there is
-        // ONE discovery path, not a schema-walk here plus a state-scan there.
-        // This matches `Composite::from_config`, which already does
-        // `Engine::new(empty)` then `discover_all_processes()`. (`scan_for_processes`
-        // is a superset of the old `extract_processes`, which checked schema only.)
+        // One discovery path: `discover_all_processes` → `scan_for_processes`
+        // finds every process node (schema-`Link`-typed AND, for dynamic
+        // entities inside a `Map`, address-marked). Same path
+        // `Composite::from_config` uses.
         topology.initial_state = state;
         let mut engine = Engine::new(topology, HashMap::new());
         engine.set_core(core);
@@ -476,172 +473,11 @@ impl Engine {
             }
         }
 
-        // 4. Discover and instantiate new processes from the merged schema
-        {
-            let registry = Arc::clone(&self.core.processes);
-            let protocols = Arc::clone(&self.core.protocols);
-            let mut new_specs = IndexMap::new();
-            let mut new_instances = HashMap::new();
-
-            Self::extract_processes(
-                &self.schema,
-                &self.state,
-                &[],
-                &protocols,
-                &registry,
-                &mut new_specs,
-                &mut new_instances,
-            );
-
-            // Add only processes not already registered
-            for (name, spec) in new_specs {
-                if !self.nodes.contains_key(&name) {
-                    if let Some(node) = new_instances.remove(&name) {
-                        self.add_process(name, spec, node);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Recursively extract process specs from schema + state.
-    fn extract_processes(
-        schema: &Schema,
-        state: &Value,
-        path: &[Key],
-        protocols: &crate::protocol::ProtocolRegistry,
-        registry: &Arc<ProcessRegistry>,
-        specs: &mut IndexMap<String, ProcessSpec>,
-        instances: &mut HashMap<String, ProcessNode>,
-    ) {
-        match schema {
-            Schema::Link { .. }
-            | Schema::StepLink { .. }
-            | Schema::ProcessLink { .. }
-            | Schema::CompositeLink { .. } => {
-                let temporal = match schema {
-                    Schema::Link { temporal, .. } => *temporal,
-                    Schema::StepLink { .. } => Some(false),
-                    Schema::ProcessLink { .. } | Schema::CompositeLink { .. } => Some(true),
-                    _ => None,
-                };
-                // This node is a process/step — extract spec from state
-                let map = match state.as_map() {
-                    Some(m) => m,
-                    None => return,
-                };
-
-                // Parse the address through the protocol abstraction.
-                let address_val = match map.get("address") {
-                    Some(v) => v.clone(),
-                    None => return,
-                };
-                let parsed = match crate::protocol::ParsedAddress::parse(&address_val) {
-                    Ok(p) => p,
-                    Err(_) => return,
-                };
-                let class_name = match address_class(&parsed) {
-                    Some(n) if n != "RAMEmitter" => n,
-                    _ => return,
-                };
-
-                let config = map.get("config").cloned().unwrap_or(Value::None);
-
-                let node = match protocols.instantiate(&parsed, config.clone(), registry) {
-                    Ok(n) => n,
-                    Err(_) => return,
-                };
-
-                let inputs_val = map.get("inputs").cloned().unwrap_or(Value::None);
-                let outputs_val = map.get("outputs").cloned().unwrap_or(Value::None);
-
-                // Resolve wires: ".." navigates up from the process's own
-                // location; plain paths are absolute from root.
-                let inputs = resolve_wires_from_process(&inputs_val, path);
-                let outputs = resolve_wires_from_process(&outputs_val, path);
-
-                let interval = match (&node, temporal) {
-                    (ProcessNode::Process(p), _) => {
-                        let cfg_interval =
-                            map.get("interval").and_then(|v| v.as_f64()).or_else(|| {
-                                config
-                                    .as_map()
-                                    .and_then(|m| m.get("interval"))
-                                    .and_then(|v| v.as_f64())
-                            });
-                        Some(cfg_interval.unwrap_or_else(|| p.interval()))
-                    }
-                    (ProcessNode::Step(_), _) => None,
-                };
-
-                let name = path.join(".");
-                specs.insert(
-                    name.clone(),
-                    ProcessSpec {
-                        process_type: class_name,
-                        config,
-                        inputs,
-                        outputs,
-                        interval,
-                        priority: 0.0,
-                    },
-                );
-                instances.insert(name, node);
-            }
-            Schema::Tree { branches } => {
-                if let Some(map) = state.as_map() {
-                    for (key, child_schema) in branches {
-                        let mut child_path = path.to_vec();
-                        child_path.push(key.clone());
-                        let child_state = map.get(key).cloned().unwrap_or(Value::None);
-                        Self::extract_processes(
-                            child_schema,
-                            &child_state,
-                            &child_path,
-                            protocols,
-                            registry,
-                            specs,
-                            instances,
-                        );
-                    }
-                    // Schema-first discovery (#28): every process node is declared
-                    // as a Link in the schema (chrysalis emits Links; the engine
-                    // reconciles them from instances at `add_process`). So a state
-                    // key the schema didn't declare is NOT a process — the old
-                    // infer-and-address-scan fallback is retired. Fail loudly if a
-                    // producer left a process node (a map with `address`) undeclared.
-                    debug_assert!(
-                        !map.iter().any(|(key, child)| {
-                            !branches.contains_key(key)
-                                && !key.starts_with('_')
-                                && child.as_map().is_some_and(|m| m.contains_key("address"))
-                        }),
-                        "extract_processes: a state key carries an `address` but the \
-                         schema didn't declare it as a Link — its producer must \
-                         declare a Link (schema-first discovery; address scan \
-                         retired). See #28."
-                    );
-                }
-            }
-            Schema::Map { value } => {
-                if let Some(map) = state.as_map() {
-                    for (key, child_state) in map {
-                        let mut child_path = path.to_vec();
-                        child_path.push(key.clone());
-                        Self::extract_processes(
-                            value,
-                            child_state,
-                            &child_path,
-                            protocols,
-                            registry,
-                            specs,
-                            instances,
-                        );
-                    }
-                }
-            }
-            _ => {}
-        }
+        // 4. Discover and instantiate any new process nodes the merged schema
+        // (and state) introduced. The same single-pass discovery the engine uses
+        // at init — schema-`Link`-typed AND address-marked — so a merged Link
+        // node lands as a registered process and step network settles.
+        self.discover_all_processes();
     }
 
     /// Set the process registry for dynamic process discovery.
@@ -1527,12 +1363,6 @@ impl Engine {
         }
     }
 
-    /// Get the names of all nodes.
-    /// Public wrapper for discover_processes (used by Composite for initial scan).
-    pub fn discover_processes_pub(&mut self, changed_paths: &[Path]) {
-        self.discover_processes(changed_paths);
-    }
-
     /// Settle the step network at init / after discovery: repeatedly fire any
     /// ready (all inputs present) step that hasn't fired yet, until none remain.
     /// A *source* step (no inputs) is ready immediately; a consumer becomes
@@ -1558,22 +1388,13 @@ impl Engine {
         self.run_step_layers(steps);
     }
 
-    /// Scan the entire top-level state for process specs and instantiate them.
-    /// Used for initial discovery when building a Composite engine.
+    /// Scan the entire state for process specs and instantiate them, then
+    /// settle the step network. Used for initial discovery (building a
+    /// Composite engine) and any later "rediscover from root" caller — the
+    /// from-root case of [`Engine::discover_processes`], followed by a settle
+    /// so any newly-registered steps fire their cascade.
     pub fn discover_all_processes(&mut self) {
-        let registry = std::sync::Arc::clone(&self.core.processes);
-        let mut to_add = Vec::new();
-        if let Some(map) = self.state.as_map().cloned() {
-            self.scan_for_processes(&map, &[], &registry, &mut to_add);
-        }
-        for (name, spec, node) in to_add {
-            if !self.nodes.contains_key(&name) {
-                self.add_process(name, spec, node);
-            }
-        }
-        // Settle the step network now that new steps are registered: fire any
-        // whose inputs are present, cascading downstream — the same dataflow
-        // mechanism the run loop uses after each process tick.
+        self.discover_processes(&[Vec::new()]);
         self.settle_steps();
     }
 
