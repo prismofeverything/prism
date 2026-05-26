@@ -656,7 +656,13 @@ impl Schema {
                 elements.len() == items.len()
                     && elements.iter().zip(items.iter()).all(|(s, v)| s.check(v))
             }
-            (Self::Link { .. }, Value::Map(map)) => {
+            (
+                Self::Link { .. }
+                | Self::StepLink { .. }
+                | Self::ProcessLink { .. }
+                | Self::CompositeLink { .. },
+                Value::Map(map),
+            ) => {
                 // A realized link must have an "instance" key (after instantiation)
                 // An unrealized link has "address" + "inputs" + "outputs"
                 map.contains_key("instance") || map.contains_key("address")
@@ -812,7 +818,7 @@ impl Schema {
     /// face was silently mishandled). A node with no exported scalar face → empty
     /// → the value passes through unchanged (the old replace/share/last-wins
     /// behaviour for pure specs). Empty for non-node schemas.
-    pub(crate) fn node_data_branches(&self) -> IndexMap<Key, Schema> {
+    pub fn node_data_branches(&self) -> IndexMap<Key, Schema> {
         let outputs = match self {
             Schema::Link { outputs, .. }
             | Schema::ProcessLink { outputs, .. }
@@ -1009,23 +1015,22 @@ impl Schema {
                 }
             }
 
-            // A composite NODE carries a data face on itself (a cell's exported
-            // `mass` via `%.mass`). Apply STRUCTURALLY over that face (extensive
-            // `Delta` additive, etc.) so a bridged delta (`{mass:+Δ}`) composes;
-            // the spec (`address`/`config`/wiring) + non-face keys pass through.
-            Self::CompositeLink { .. } => Schema::Tree {
+            // Any Link-kind NODE (Link / StepLink / ProcessLink / CompositeLink):
+            // a node may carry a data face on itself (a cell's exported `mass` via
+            // `%.mass` — scalar output ports become node-local fields). Apply
+            // STRUCTURALLY over the data face (extensive `Delta` additive, etc.) so
+            // a bridged delta (`{mass:+Δ}`) composes; the spec (`address`/`config`/
+            // wiring) + non-face keys pass through (via `Any` on unbranched keys).
+            // For nodes WITHOUT a self-exported face, `node_data_branches` is empty
+            // → the Tree apply collapses to the same per-key Any merge that a pure
+            // spec value would receive (spec keys preserved, update overlays).
+            Self::Link { .. }
+            | Self::StepLink { .. }
+            | Self::ProcessLink { .. }
+            | Self::CompositeLink { .. } => Schema::Tree {
                 branches: self.node_data_branches(),
             }
             .apply_update(current, update),
-
-            // Pure process/step NODE specs (no self-exported data face) — replaced
-            // wholesale if updated. (Generalizing field-merge here is the uniform
-            // ideal, but it is NOT yet covered by the algebra laws — generators
-            // don't produce node sorts — and applying it unvalidated regressed
-            // growth_division. Re-generalize only once the laws cover nodes (#11).)
-            Self::Link { .. } | Self::StepLink { .. } | Self::ProcessLink { .. } => {
-                update.clone()
-            }
 
             // Bridge: wiring data, replaced wholesale on update.
             Self::Bridge { .. } => update.clone(),
@@ -1233,24 +1238,31 @@ impl Schema {
             }
             (Self::RecursiveTree { leaf }, _) => leaf.encode(value),
 
-            // Link: encode address, port schemas as strings, wiring
-            (Self::Link { inputs, outputs, .. }, Value::Map(map)) => {
-                let mut encoded = IndexMap::new();
-                if let Some(addr) = map.get("address") {
-                    encoded.insert(Key::from("address"), addr.clone());
-                }
-                let inputs_str = render_port_schema(inputs);
-                let outputs_str = render_port_schema(outputs);
-                encoded.insert(Key::from("_inputs"), Value::String(inputs_str));
-                encoded.insert(Key::from("_outputs"), Value::String(outputs_str));
-                if let Some(w) = map.get("inputs") {
-                    encoded.insert(Key::from("inputs"), w.clone());
-                }
-                if let Some(w) = map.get("outputs") {
-                    encoded.insert(Key::from("outputs"), w.clone());
-                }
-                if let Some(c) = map.get("config") {
-                    encoded.insert(Key::from("config"), c.clone());
+            // Link-kind: per-key encode over `node_data_branches` (the self-
+            // exported data face) with spec keys flowing through `Any` (pass-
+            // through). For `Schema::Link` we additionally inject `_inputs`/
+            // `_outputs` schema-string metadata — the upstream wire convention
+            // consumed by `Schema::infer` to recover port types from a
+            // schemaless value. `realize` strips them so the codec round-trip
+            // (`realize(encode(v)) ≡ v`) holds.
+            (
+                Self::Link { .. }
+                | Self::StepLink { .. }
+                | Self::ProcessLink { .. }
+                | Self::CompositeLink { .. },
+                Value::Map(map),
+            ) => {
+                let branches = self.node_data_branches();
+                let mut encoded: IndexMap<Key, Value> = map
+                    .iter()
+                    .map(|(k, v)| {
+                        let s = branches.get(k).unwrap_or(&Schema::Any);
+                        (k.clone(), s.encode(v))
+                    })
+                    .collect();
+                if let Self::Link { inputs, outputs, .. } = self {
+                    encoded.insert(Key::from("_inputs"), Value::String(render_port_schema(inputs)));
+                    encoded.insert(Key::from("_outputs"), Value::String(render_port_schema(outputs)));
                 }
                 Value::Map(encoded)
             }
@@ -1380,8 +1392,31 @@ impl Schema {
             }
             (Self::RecursiveTree { leaf }, _) => leaf.realize(encoded),
 
-            // Link: preserve as-is (engine handles instantiation)
-            (Self::Link { .. }, _) => encoded.clone(),
+            // Link-kind: per-key realize over `node_data_branches` (the self-
+            // exported data face) with spec keys flowing through `Any` (pass-
+            // through). The `_inputs`/`_outputs` schema-string metadata
+            // (injected by `encode` for upstream compat) is STRIPPED — it
+            // encodes schema, not value, and is recovered by `Schema::infer`
+            // from the encoded form directly. Dropping it here is what makes
+            // `realize(encode(v)) ≡ v` hold.
+            (
+                Self::Link { .. }
+                | Self::StepLink { .. }
+                | Self::ProcessLink { .. }
+                | Self::CompositeLink { .. },
+                Value::Map(map),
+            ) => {
+                let branches = self.node_data_branches();
+                Value::Map(
+                    map.iter()
+                        .filter(|(k, _)| !matches!(k.as_str(), "_inputs" | "_outputs"))
+                        .map(|(k, v)| {
+                            let s = branches.get(k).unwrap_or(&Schema::Any);
+                            (k.clone(), s.realize(v))
+                        })
+                        .collect(),
+                )
+            }
 
             // Any/fallback
             (Self::Any, _) => encoded.clone(),

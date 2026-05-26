@@ -471,15 +471,18 @@ pub fn divide_by_schema(
         }
         Schema::Tuple { elements } => divide_tuple(elements, state, ctx, registry, n),
 
-        // ── Composite NODE: split its exported data face (extensive `Delta`/
-        //    `Integer` split, intensive `Float` share) and SHARE the spec
+        // ── Any Link-kind NODE: split its self-exported data face (extensive
+        //    `Delta`/`Integer` split, intensive `Float` share) and SHARE the spec
         //    (`address`/`config`/wiring) so daughters re-realize fresh instances.
-        Schema::CompositeLink { .. } => {
+        //    Uniform across kinds — a node with no self-exported face has empty
+        //    `node_data_branches`, so `divide_named` walks only the spec keys and
+        //    shares each one (equivalent to the old `share` arm), while a self-
+        //    exporting node (e.g. a cell at `%.mass`) splits its face correctly.
+        Schema::Link { .. }
+        | Schema::ProcessLink { .. }
+        | Schema::StepLink { .. }
+        | Schema::CompositeLink { .. } => {
             divide_named(&schema.node_data_branches(), state, ctx, registry, n)
-        }
-        // ── Pure process/step NODE: share the spec; daughters re-realize. ──
-        Schema::Link { .. } | Schema::ProcessLink { .. } | Schema::StepLink { .. } => {
-            share(state, n)
         }
 
         // ── Rich type: dispatch through the registry ──

@@ -145,13 +145,22 @@ pub fn diff_with(
             }
         },
 
-        // Opaque / typed-node sorts: replace if changed.
-        Schema::Any
-        | Schema::Link { .. }
+        // Link-kind NODE: per-key diff over `node_data_branches` (additive
+        // deltas for the self-exported face) with spec keys flowing through
+        // `Any` — matching `apply`/`reconcile`/`divide`'s routing so the law
+        // `apply(a, diff(a,b)) ≡ b` holds for nodes that carry a data face.
+        Schema::Link { .. }
         | Schema::StepLink { .. }
         | Schema::ProcessLink { .. }
-        | Schema::CompositeLink { .. }
-        | Schema::Bridge { .. } => {
+        | Schema::CompositeLink { .. } => {
+            let branches = schema.node_data_branches();
+            diff_keyed(a, b, |k, av, bv| {
+                diff_with(registry, branches.get(k).unwrap_or(&Schema::Any), av, bv)
+            })
+        }
+
+        // Opaque sorts: replace if changed.
+        Schema::Any | Schema::Bridge { .. } => {
             if a == b { None } else { Some(b.clone()) }
         }
     }

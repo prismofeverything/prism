@@ -32,6 +32,15 @@ fn arb_schema() -> impl Strategy<Value = Schema> {
         Just(Schema::string()),
         Just(Schema::Delta { default: None }),
         Just(Schema::Enum { values: vec!["x".into(), "y".into()], default: None }),
+        // Link-kind nodes — the four bigraph sorts. Each carries a small
+        // scalar data face (additive `Delta`/`Integer`) so apply/reconcile/
+        // divide actually exercise `node_data_branches`. `inputs` are empty
+        // (no port-side state is materialised at the laws' level — ports are
+        // wires, not local fields).
+        Just(node_link_with_face()),
+        Just(node_step_link_with_face()),
+        Just(node_process_link_with_face()),
+        Just(node_composite_link_with_face()),
     ];
     leaf.prop_recursive(3, 24, 3, |inner| {
         prop_oneof![
@@ -44,6 +53,52 @@ fn arb_schema() -> impl Strategy<Value = Schema> {
             Just(Schema::Array { shape: vec![2, 2], element: Box::new(Schema::float()) }),
         ]
     })
+}
+
+/// Standard self-exported data face for the law generators: `mass: Delta`
+/// (extensive additive) + `count: Integer` (extensive additive). Both are in
+/// `node_data_branches`'s additive filter, so apply/reconcile/divide route
+/// them through the data-face path and the laws stay crisp.
+fn node_face() -> IndexMap<Key, Schema> {
+    let mut outputs = IndexMap::new();
+    outputs.insert(Key::from("mass"), Schema::Delta { default: None });
+    outputs.insert(Key::from("count"), Schema::integer());
+    outputs
+}
+
+fn node_link_with_face() -> Schema {
+    Schema::Link {
+        inputs: IndexMap::new(),
+        outputs: node_face(),
+        temporal: None,
+    }
+}
+
+fn node_step_link_with_face() -> Schema {
+    Schema::StepLink {
+        inputs: IndexMap::new(),
+        outputs: node_face(),
+        priority: 0.0,
+    }
+}
+
+fn node_process_link_with_face() -> Schema {
+    Schema::ProcessLink {
+        inputs: IndexMap::new(),
+        outputs: node_face(),
+        interval: 1.0,
+    }
+}
+
+fn node_composite_link_with_face() -> Schema {
+    Schema::CompositeLink {
+        inputs: IndexMap::new(),
+        outputs: node_face(),
+        interval: 1.0,
+        inner_schema: Box::new(Schema::Tree {
+            branches: IndexMap::from([(Key::from("mass"), Schema::Delta { default: None })]),
+        }),
+    }
 }
 
 /// A value conforming to `schema`.
@@ -88,6 +143,29 @@ fn arb_value(schema: &Schema) -> BoxedStrategy<Value> {
                 .collect();
             combine_fields(strategies)
                 .prop_map(|m| Value::List(m.into_values().collect()))
+                .boxed()
+        }
+        // Link-kind: a node value is `{address, …spec keys…, …self-exported face…}`.
+        // We emit the face fields (drawn from `node_data_branches`, additive) plus
+        // a fixed `address` so `check` passes (Link checks for `address` or
+        // `instance`). The address is HELD CONSTANT across a triple so the law
+        // generators don't race on the non-additive spec key when sequenced —
+        // a process spec is set once at instantiation; varying it across
+        // updates is unrealistic and would break per-key commutativity.
+        Schema::Link { .. }
+        | Schema::StepLink { .. }
+        | Schema::ProcessLink { .. }
+        | Schema::CompositeLink { .. } => {
+            let face_branches = schema.node_data_branches();
+            let strategies: Vec<(Key, BoxedStrategy<Value>)> = face_branches
+                .iter()
+                .map(|(k, s)| (k.clone(), arb_value(s)))
+                .collect();
+            combine_fields(strategies)
+                .prop_map(|mut m| {
+                    m.insert(Key::from("address"), Value::String("local:node".into()));
+                    Value::Map(m)
+                })
                 .boxed()
         }
         _ => Just(Value::None).boxed(),
@@ -138,6 +216,12 @@ fn identity_update(schema: &Schema, current: &Value) -> Value {
         Schema::Float { .. } | Schema::Delta { .. } => Value::float(0.0),
         Schema::Integer { .. } => Value::Int(0),
         Schema::Map { .. } | Schema::Tree { .. } | Schema::RecursiveTree { .. } => Value::map(),
+        // Link-kind nodes route apply through Tree + `node_data_branches`. An
+        // empty-map update touches no keys → current value is preserved.
+        Schema::Link { .. }
+        | Schema::StepLink { .. }
+        | Schema::ProcessLink { .. }
+        | Schema::CompositeLink { .. } => Value::map(),
         Schema::Array { shape, element } => zeros_array(shape, element),
         Schema::Tuple { elements } => {
             let cur = current.as_list().unwrap_or(&[]);
@@ -311,7 +395,37 @@ fn arb_additive() -> impl Strategy<Value = Schema> {
         Just(Schema::map(Schema::float())),
         Just(Schema::tree([("a", Schema::float()), ("b", Schema::integer())])),
         Just(Schema::Array { shape: vec![3], element: Box::new(Schema::float()) }),
+        // Link-kind nodes are additive on their `node_data_branches` data face
+        // (`Delta`/`Integer`). For reconcile coherence to hold we feed only
+        // face-shaped updates (no varying spec keys) — see `arb_face_update`.
+        Just(node_link_with_face()),
+        Just(node_step_link_with_face()),
+        Just(node_process_link_with_face()),
+        Just(node_composite_link_with_face()),
     ]
+}
+
+/// Updates suitable for the additive reconcile-coherence law.
+///
+/// For Link-kind schemas: a `Value::Map` of ONLY the additive face fields (no
+/// `address`/spec keys), because those non-additive keys would break per-key
+/// commutativity if they varied across updates. For all other schemas: defers
+/// to `arb_value`.
+fn arb_face_update(schema: &Schema) -> BoxedStrategy<Value> {
+    match schema {
+        Schema::Link { .. }
+        | Schema::StepLink { .. }
+        | Schema::ProcessLink { .. }
+        | Schema::CompositeLink { .. } => {
+            let face_branches = schema.node_data_branches();
+            let strategies: Vec<(Key, BoxedStrategy<Value>)> = face_branches
+                .iter()
+                .map(|(k, s)| (k.clone(), arb_value(s)))
+                .collect();
+            combine_fields(strategies).prop_map(Value::Map).boxed()
+        }
+        _ => arb_value(schema),
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -333,10 +447,15 @@ proptest! {
 
     // Law 2 — Reconcile coherence (commutative sorts).
     // `apply(s, v, reconcile(s, [u…])) ≡ foldl(apply, v, [u…])`.
+    //
+    // For Link-kind schemas the base value carries spec keys (`address`) plus
+    // the data face, but the *updates* must be face-only (`arb_face_update`)
+    // — varying a non-additive spec key across updates would break per-key
+    // commutativity (the law tests commutative composition of the face).
     #[test]
     fn law_reconcile_coherence((schema, value, updates) in arb_additive().prop_flat_map(|s| {
         let v = arb_value(&s);
-        let us = prop::collection::vec(arb_value(&s), 0..4);
+        let us = prop::collection::vec(arb_face_update(&s), 0..4);
         (Just(s), v, us)
     })) {
         let folded = updates.iter().fold(value.clone(), |acc, u| algebra::apply(&schema, &acc, u));
