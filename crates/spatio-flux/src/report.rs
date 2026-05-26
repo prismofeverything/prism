@@ -1185,13 +1185,16 @@ fn generate_plots(
             // Render
             if top_scalar_series.values().any(|s| !s.is_empty()) {
                 has_scalar = true;
-                let svg = prism_viz::render_timeseries_svg(
-                    name,
+                let chart = prism_viz::plot::time_series_chart(
                     times,
                     &top_scalar_series,
+                    name,
                     opts.force_log,
                 );
-                let _ = std::fs::write(output_dir.join(format!("{name}_timeseries.svg")), svg);
+                let _ = std::fs::write(
+                    output_dir.join(format!("{name}_timeseries.svg")),
+                    prism_viz::svg::to_svg(&chart),
+                );
             }
         }
     }
@@ -1230,9 +1233,12 @@ fn generate_plots(
 
             // Render scalar timeseries SVG
             if !scalar_series.is_empty() {
-                let svg =
-                    prism_viz::render_timeseries_svg(name, times, &scalar_series, opts.force_log);
-                let _ = std::fs::write(output_dir.join(format!("{name}_timeseries.svg")), svg);
+                let chart =
+                    prism_viz::plot::time_series_chart(times, &scalar_series, name, opts.force_log);
+                let _ = std::fs::write(
+                    output_dir.join(format!("{name}_timeseries.svg")),
+                    prism_viz::svg::to_svg(&chart),
+                );
             }
 
             // Render spatial probe timeseries (sample specific grid points over time)
@@ -1292,13 +1298,16 @@ fn generate_plots(
 
                 if !probe_series.is_empty() {
                     has_scalar = true;
-                    let svg = prism_viz::render_timeseries_svg(
-                        &format!("{name} (spatial probes)"),
+                    let chart = prism_viz::plot::time_series_chart(
                         times,
                         &probe_series,
+                        &format!("{name} (spatial probes)"),
                         false,
                     );
-                    let _ = std::fs::write(output_dir.join(format!("{name}_probes.svg")), svg);
+                    let _ = std::fs::write(
+                        output_dir.join(format!("{name}_probes.svg")),
+                        prism_viz::svg::to_svg(&chart),
+                    );
                 }
             }
 
@@ -1659,10 +1668,6 @@ const TAB20: [(u8, u8, u8); 20] = [
     (0x9e, 0xda, 0xe5),
 ];
 
-fn tab20_color(i: usize) -> plotters::style::RGBColor {
-    let (r, g, b) = TAB20[i % TAB20.len()];
-    plotters::style::RGBColor(r, g, b)
-}
 
 /// Render particle traces as compact SVG polylines.
 fn render_particle_traces(title: &str, _times: &[f64], states: &[Value]) -> String {

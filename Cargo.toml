@@ -36,7 +36,6 @@ indexmap = { version = "2", features = ["serde"] }
 ordered-float = { version = "4", features = ["serde"] }
 petgraph = "0.7"
 rand = "0.8"
-plotters = { version = "0.3", default-features = false, features = ["svg_backend", "line_series"] }
 highs = "2.0"
 highs-sys = "1.12"
 compact_str = { version = "0.9", features = ["serde"] }

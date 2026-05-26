@@ -13,7 +13,6 @@ prism-viz = { workspace = true }
 indexmap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-plotters = { workspace = true }
 
 [[bin]]
 name = "mapk"

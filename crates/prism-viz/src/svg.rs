@@ -1,16 +1,17 @@
-//! SVG as a **place-graph value** (#12).
+//! SVG as a **place-graph value** (#11).
 //!
 //! An SVG element is just a tree node — `{_type: "<tag>", <attr>: <value>…,
 //! children: [...]}` — the same tree-of-maps that *is* a bigraph. So a
 //! visualization is **data**: inspectable, composable, diff-able, serializable,
-//! and manipulable in `.ys`, not an opaque plotters/graphviz string. [`to_svg`]
-//! serializes the place-graph to SVG text; the constructors ([`el`], [`svg`],
-//! [`rect`], [`line`], [`text`], [`group`]) build it.
+//! and manipulable in `.ys`, not an opaque string. [`to_svg`] serializes the
+//! place-graph to SVG text; the constructors ([`el`], [`svg`], [`rect`],
+//! [`line`], [`text`], [`group`]) build it.
 //!
-//! The direction (incremental, see #12): every renderer produces one of these
-//! values, so `plot(schema, trace)` returns the viz AS a place-graph whose own
+//! Every plot-producing renderer in the workspace emits one of these values
+//! ([`crate::plot::plot`], [`crate::plot::time_series_chart`]), so the viz
 //! structure can be viewed / diffed / composed — "the structure of the viz is
-//! data." The plotters/graphviz string renderers migrate onto this.
+//! data." (The remaining string renderers are Graphviz DOT — a different
+//! pipeline that shells out to `dot`.)
 
 use prism_schema::Value;
 

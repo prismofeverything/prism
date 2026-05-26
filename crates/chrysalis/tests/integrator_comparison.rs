@@ -57,11 +57,12 @@ fn runs_and_compares_the_two_integrators() {
 #[test]
 fn produces_an_overlay_figure() {
     let (state, out) = run_workflow("figure");
-    let svg = state
-        .get_path(&["figure".into(), "svg".into()])
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
-        .unwrap_or_else(|| panic!("no figure.svg in final state: {state:?}"));
+    // Figures now carry a place-graph SVG value under `root` (the data shape
+    // every plot producer emits). Serialize via `to_svg` for the text check.
+    let root = state
+        .get_path(&["figure".into(), "root".into()])
+        .unwrap_or_else(|| panic!("no figure.root in final state: {state:?}"));
+    let svg = prism_viz::svg::to_svg(root);
     assert!(svg.starts_with("<svg"), "figure should be an SVG document");
     assert!(
         svg.contains("Rk4 vs ForwardEuler"),

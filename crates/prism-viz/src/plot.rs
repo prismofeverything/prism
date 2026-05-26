@@ -112,40 +112,148 @@ const PALETTE: [&str; 6] = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd
 fn line_chart(trace: &[Value], title: &str) -> Value {
     let series = transpose(trace);
     let n = trace.len();
+    let times: Vec<f64> = (0..n).map(|i| i as f64).collect();
+    time_series_chart(&times, &series, title, false)
+}
+
+/// A line chart with explicit time stamps + named scalar series, as an SVG
+/// place-graph value. Supports auto- and forced-log y-scale (used by the
+/// spatio-flux report) and field-name color hinting (glucose blue, biomass
+/// green, etc. — matching the spatio-flux palette). Public so callers that
+/// have pre-aggregated `(times, series)` data can plot directly without
+/// re-routing through a synthetic trace.
+pub fn time_series_chart(
+    times: &[f64],
+    series: &IndexMap<String, Vec<f64>>,
+    title: &str,
+    force_log: bool,
+) -> Value {
     let pw = W - ML - MR;
     let ph = H - MT - MB;
 
-    let (mut ymin, mut ymax) = (f64::MAX, f64::MIN);
-    for col in series.values() {
-        for &v in col {
-            ymin = ymin.min(v);
-            ymax = ymax.max(v);
-        }
-    }
-    if !ymin.is_finite() || !ymax.is_finite() {
-        (ymin, ymax) = (0.0, 1.0);
-    }
+    let t_min = times.first().copied().unwrap_or(0.0);
+    let t_max = times.last().copied().unwrap_or(1.0).max(t_min + 1e-9);
+
+    // Pick log y-axis when multi-scale (per-series maxima span ≥1000x median).
+    let mut series_maxes: Vec<f64> = series
+        .values()
+        .map(|s| s.iter().copied().fold(0.0_f64, f64::max))
+        .filter(|&m| m > 0.0)
+        .collect();
+    series_maxes.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let auto_log = series_maxes.len() >= 2 && {
+        let median = series_maxes[series_maxes.len() / 2];
+        *series_maxes.last().unwrap() / median > 1000.0
+    };
+    let use_log = force_log || auto_log;
+
+    let (raw_min, raw_max) = series.values().flat_map(|s| s.iter()).copied().fold(
+        (f64::MAX, f64::MIN),
+        |(lo, hi), v| (lo.min(v), hi.max(v)),
+    );
+    let pos_min = series
+        .values()
+        .flat_map(|s| s.iter())
+        .copied()
+        .filter(|v| *v > 0.0)
+        .fold(f64::MAX, f64::min);
+    let (ymin, ymax) = if !raw_min.is_finite() || !raw_max.is_finite() {
+        (0.0, 1.0)
+    } else if use_log {
+        let lo = if pos_min.is_finite() { pos_min.log10().floor() } else { 0.0 };
+        let hi = (raw_max.max(0.01) * 1.2).log10().ceil();
+        (lo, hi.max(lo + 1e-9))
+    } else {
+        (0.0, raw_max.max(0.01) * 1.15)
+    };
     let span = (ymax - ymin).abs().max(1e-9);
-    let xpx = |i: usize| ML + if n > 1 { i as f64 / (n - 1) as f64 } else { 0.0 } * pw;
-    let ypx = |v: f64| MT + (1.0 - (v - ymin) / span) * ph;
+    let ymap = |v: f64| {
+        if use_log {
+            if v > 0.0 { v.log10() } else { ymin }
+        } else {
+            v
+        }
+    };
+    let xpx = |t: f64| ML + (t - t_min) / (t_max - t_min) * pw;
+    let ypx = |v: f64| MT + (1.0 - (ymap(v) - ymin) / span) * ph;
+
+    let header = if use_log { format!("{title} (log scale)") } else { title.to_string() };
+    let y_axis_desc = if use_log { "log10(value)" } else { "value" };
 
     let mut kids = vec![
         rect(0.0, 0.0, W, H, "#ffffff"),
-        el("text", vec![("x", fl(W / 2.0)), ("y", fl(22.0)), ("text-anchor", st("middle")), ("font-family", st("sans-serif")), ("font-size", fl(14.0)), ("font-weight", st("600"))], vec![Value::from(title)]),
-        line(ML, MT, ML, MT + ph, "#333"),         // y axis
-        line(ML, MT + ph, ML + pw, MT + ph, "#333"), // x axis
-        axis_label(ML - 6.0, ypx(ymax), &fmt(ymax), "end"),
-        axis_label(ML - 6.0, ypx(ymin), &fmt(ymin), "end"),
+        el(
+            "text",
+            vec![
+                ("x", fl(W / 2.0)),
+                ("y", fl(22.0)),
+                ("text-anchor", st("middle")),
+                ("font-family", st("sans-serif")),
+                ("font-size", fl(14.0)),
+                ("font-weight", st("600")),
+            ],
+            vec![Value::from(header.as_str())],
+        ),
+        line(ML, MT, ML, MT + ph, "#333"),
+        line(ML, MT + ph, ML + pw, MT + ph, "#333"),
+        axis_label(ML - 6.0, ypx(raw_max.max(0.01)), &fmt(ymax), "end"),
+        axis_label(ML - 6.0, MT + ph, &fmt(ymin), "end"),
+        axis_label(ML + pw / 2.0, H - 8.0, "time", "middle"),
+        el(
+            "text",
+            vec![
+                ("x", fl(16.0)),
+                ("y", fl(MT + ph / 2.0)),
+                ("text-anchor", st("middle")),
+                ("font-family", st("sans-serif")),
+                ("font-size", fl(10.0)),
+                ("fill", st("#666")),
+                ("transform", st(&format!("rotate(-90 16 {})", MT + ph / 2.0))),
+            ],
+            vec![Value::from(y_axis_desc)],
+        ),
     ];
     for (i, (name, col)) in series.iter().enumerate() {
-        let color = PALETTE[i % PALETTE.len()];
-        let points: Vec<(f64, f64)> = col.iter().enumerate().map(|(j, &v)| (xpx(j), ypx(v))).collect();
+        let color = series_color(name, i);
+        let points: Vec<(f64, f64)> = times
+            .iter()
+            .zip(col.iter())
+            .map(|(&t, &v)| (xpx(t), ypx(v)))
+            .collect();
         kids.push(polyline(&points, color, 1.5));
-        // legend
         kids.push(rect(ML + pw + 12.0, MT + 6.0 + i as f64 * 18.0, 10.0, 10.0, color));
         kids.push(legend_text(ML + pw + 26.0, MT + 15.0 + i as f64 * 18.0, name));
     }
     svg(W, H, kids)
+}
+
+/// Field-name → color hint, matching the spatio-flux palette so reports stay
+/// visually consistent across the two plotting paths. `prefix` matching keeps
+/// it lenient (e.g. `"glucose (probe 0,0)"` still maps to glucose-blue).
+fn series_color(name: &str, idx: usize) -> &'static str {
+    if name.starts_with("glucose") {
+        "#1f77b4"
+    } else if name.starts_with("acetate") {
+        "#ff7f0e"
+    } else if name.starts_with("dissolved biomass") {
+        "#17becf"
+    } else if name.starts_with("biomass")
+        || name.starts_with("dfba_biomass")
+        || name.starts_with("ecoli core biomass")
+        || name.starts_with("ecoli_core")
+        || name.starts_with("monod_biomass")
+        || name.starts_with("mass")
+    {
+        "#2ca02c"
+    } else if name.starts_with("formate") {
+        "#9467bd"
+    } else if name.starts_with("ammonium") {
+        "#bcbd22"
+    } else if name.starts_with("kinetic_biomass") {
+        "#1b9e77"
+    } else {
+        PALETTE[idx % PALETTE.len()]
+    }
 }
 
 /// An **animated** heatmap of a field trace, as an SVG place-graph: one cell per

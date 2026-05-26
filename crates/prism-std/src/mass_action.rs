@@ -334,10 +334,14 @@ pub fn register_methods(reg: &mut MethodRegistry) {
         for (sp, col) in b {
             series.insert(format!("{sp} (b)"), ts_floats(col));
         }
-        let svg = prism_viz::render_timeseries_svg(title, &times, &series, false);
+        // `time_series_chart` returns a place-graph SVG VALUE (not a string).
+        // The Figure carries it under `root`, matching the plot-as-data shape
+        // every other Figure consumer uses (`Figure.svg(path)` serializes via
+        // `to_svg`).
+        let root = prism_viz::plot::time_series_chart(&times, &series, title, false);
         Ok(Value::tree([
             ("_type", Value::from("Figure")),
-            ("svg", Value::String(svg)),
+            ("root", root),
         ]))
     });
 
@@ -391,12 +395,13 @@ pub fn register_methods(reg: &mut MethodRegistry) {
 
     reg.register("Figure", "svg", |recv, args| {
         let path = arg_path(args, "svg")?;
-        // A Figure carries either a place-graph svg under `root` (serialize via
-        // `to_svg` — the plot-as-data path) or a legacy `svg` string (overlay).
-        let svg_text = match recv.get_field("root") {
-            Some(root) => prism_viz::svg::to_svg(root),
-            None => recv.get_field("svg").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        };
+        // A Figure carries its place-graph SVG under `root` — `to_svg` is the
+        // single serializer. (The legacy `svg: String` field is gone; every
+        // Figure producer now emits a place-graph value.)
+        let svg_text = recv
+            .get_field("root")
+            .map(prism_viz::svg::to_svg)
+            .unwrap_or_default();
         write_file(&format!("{path}.svg"), &svg_text, "svg")
     });
 }
@@ -544,12 +549,14 @@ mod tests {
         let a_mse = mse.get_field("A").and_then(|v| v.as_f64()).expect("A mse");
         assert!((a_mse - 0.005).abs() < 1e-9, "mse {a_mse}");
 
-        // overlay → a Figure VALUE carrying an SVG (no Foreign).
+        // overlay → a Figure VALUE carrying its SVG under `root` as a place-
+        // graph value (every Figure producer emits the same shape).
         let fig = reg
             .dispatch(&x, "overlay", std::slice::from_ref(&y))
             .expect("overlay");
         assert_eq!(fig.get_field("_type").and_then(|v| v.as_str()), Some("Figure"));
-        let svg = fig.get_field("svg").and_then(|v| v.as_str()).expect("svg");
-        assert!(svg.contains("<svg"), "overlay should be an SVG document");
+        let root = fig.get_field("root").expect("root");
+        let svg = prism_viz::svg::to_svg(root);
+        assert!(svg.starts_with("<svg"), "overlay should be an SVG document");
     }
 }

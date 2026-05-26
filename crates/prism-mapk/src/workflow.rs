@@ -29,7 +29,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use plotters::prelude::*;
 
 use prism_bigraph::factory::ProcessRegistry;
 use prism_bigraph::{
@@ -401,51 +400,18 @@ impl Step for WriteReportStep {
 // ─────────────────────────────────────────────────────────────────────
 
 fn plot_trajectories(snaps: &[Value], path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    let root = SVGBackend::new(path, (900, 500)).into_drawing_area();
-    root.fill(&WHITE)?;
-
-    let series: [(&str, RGBColor); 6] = [
-        ("cyto_erk", RGBColor(31, 119, 180)),
-        ("cyto_perk", RGBColor(255, 127, 14)),
-        ("nuc_erk", RGBColor(44, 160, 44)),
-        ("nuc_perk", RGBColor(214, 39, 40)),
-        ("er_erk", RGBColor(148, 103, 189)),
-        ("er_perk", RGBColor(140, 86, 75)),
-    ];
-
+    let keys = ["cyto_erk", "cyto_perk", "nuc_erk", "nuc_perk", "er_erk", "er_perk"];
     let t = |s: &Value| s.get_field("t").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let count = |s: &Value, k: &str| s.get_field(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
 
-    let t_min = snaps.first().map(t).unwrap_or(0.0);
-    let t_max = snaps.last().map(t).unwrap_or(1.0);
-    let max_y = snaps
-        .iter()
-        .flat_map(|s| series.iter().map(move |(k, _)| count(s, k)))
-        .fold(1.0_f64, f64::max);
-
-    let mut chart = ChartBuilder::on(&root)
-        .caption("MAPK populations over time", ("sans-serif", 24))
-        .margin(20)
-        .x_label_area_size(40)
-        .y_label_area_size(50)
-        .build_cartesian_2d(t_min..t_max, 0.0..(max_y + 0.5))?;
-    chart.configure_mesh().x_desc("time").y_desc("count").draw()?;
-
-    for (key, color) in series {
-        chart
-            .draw_series(LineSeries::new(
-                snaps.iter().map(|s| (t(s), count(s, key))),
-                color.stroke_width(2),
-            ))?
-            .label(key)
-            .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 18, y)], color.stroke_width(2)));
+    let times: Vec<f64> = snaps.iter().map(t).collect();
+    let mut series: IndexMap<String, Vec<f64>> = IndexMap::new();
+    for key in keys {
+        series.insert(key.to_string(), snaps.iter().map(|s| count(s, key)).collect());
     }
-    chart
-        .configure_series_labels()
-        .background_style(WHITE.mix(0.85))
-        .border_style(BLACK)
-        .draw()?;
-    root.present()?;
+    let chart =
+        prism_viz::plot::time_series_chart(&times, &series, "MAPK populations over time", false);
+    std::fs::write(path, prism_viz::svg::to_svg(&chart))?;
     Ok(())
 }
 

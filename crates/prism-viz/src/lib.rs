@@ -19,7 +19,6 @@ pub mod pattern;
 pub mod pattern_dot;
 pub mod plot;
 pub mod svg;
-pub mod timeseries;
 
 pub use dot::{
     render_dot, render_state_dot, render_state_dot_with_links, render_to_file,
@@ -30,6 +29,5 @@ pub use pattern::{
     linkvar_color, render_pattern_svg, render_rule_pair_svg, rule_color, RULE_COLORS,
 };
 pub use pattern_dot::{render_pattern_dot, render_rule_pair_dot};
-pub use plot::{characteristic, plot, View};
+pub use plot::{characteristic, plot, time_series_chart, View};
 pub use svg::{el, group, line, rect, svg, text, to_svg};
-pub use timeseries::render_timeseries_svg;

@@ -8,7 +8,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use plotters::prelude::*;
 use prism_bigraph::{BigraphicalReactiveSystem, BrsMode, Process, Update};
 use prism_mapk::{initial_mapk_state, mapk_rules};
 use prism_schema::reaction::{apply_fire, find_matches, fire_rule_at, ReactionRule};
@@ -564,68 +563,25 @@ fn plot_trajectories(
     snapshots: &[Snapshot],
     path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let root = SVGBackend::new(path, (900, 500)).into_drawing_area();
-    root.fill(&WHITE)?;
-
-    let t_min = snapshots.first().map(|s| s.t).unwrap_or(0.0);
-    let t_max = snapshots.last().map(|s| s.t).unwrap_or(1.0);
-    let max_y = snapshots
-        .iter()
-        .flat_map(|s| {
-            [
-                s.counts.cyto_erk,
-                s.counts.cyto_perk,
-                s.counts.nuc_erk,
-                s.counts.nuc_perk,
-                s.counts.er_erk,
-                s.counts.er_perk,
-            ]
-        })
-        .max()
-        .unwrap_or(1)
-        .max(1) as f64;
-
-    let mut chart = ChartBuilder::on(&root)
-        .caption("MAPK populations over time", ("sans-serif", 24))
-        .margin(20)
-        .x_label_area_size(40)
-        .y_label_area_size(50)
-        .build_cartesian_2d(t_min..t_max, 0.0..(max_y + 0.5))?;
-
-    chart
-        .configure_mesh()
-        .x_desc("time")
-        .y_desc("count")
-        .draw()?;
-
-    // Six series: (selector, label, color)
-    let series: Vec<(fn(&Counts) -> usize, &str, RGBColor)> = vec![
-        (|c| c.cyto_erk, "cyto ERK", RGBColor(0x1f, 0x77, 0xb4)),
-        (|c| c.cyto_perk, "cyto pERK", RGBColor(0xff, 0x7f, 0x0e)),
-        (|c| c.nuc_erk, "nuc ERK", RGBColor(0x2c, 0xa0, 0x2c)),
-        (|c| c.nuc_perk, "nuc pERK", RGBColor(0xd6, 0x27, 0x28)),
-        (|c| c.er_erk, "ER ERK", RGBColor(0x94, 0x67, 0xbd)),
-        (|c| c.er_perk, "ER pERK", RGBColor(0x8c, 0x56, 0x4b)),
+    let selectors: [(fn(&Counts) -> usize, &str); 6] = [
+        (|c| c.cyto_erk, "cyto ERK"),
+        (|c| c.cyto_perk, "cyto pERK"),
+        (|c| c.nuc_erk, "nuc ERK"),
+        (|c| c.nuc_perk, "nuc pERK"),
+        (|c| c.er_erk, "ER ERK"),
+        (|c| c.er_perk, "ER pERK"),
     ];
-
-    for (sel, label, color) in series {
-        let style = color.stroke_width(2);
-        chart
-            .draw_series(LineSeries::new(
-                snapshots.iter().map(|s| (s.t, sel(&s.counts) as f64)),
-                style,
-            ))?
-            .label(label)
-            .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], color.stroke_width(2)));
+    let times: Vec<f64> = snapshots.iter().map(|s| s.t).collect();
+    let mut series: indexmap::IndexMap<String, Vec<f64>> = indexmap::IndexMap::new();
+    for (sel, label) in selectors {
+        series.insert(
+            label.to_string(),
+            snapshots.iter().map(|s| sel(&s.counts) as f64).collect(),
+        );
     }
-
-    chart
-        .configure_series_labels()
-        .background_style(WHITE.mix(0.8))
-        .border_style(BLACK)
-        .draw()?;
-
-    root.present()?;
+    let chart =
+        prism_viz::plot::time_series_chart(&times, &series, "MAPK populations over time", false);
+    std::fs::write(path, prism_viz::svg::to_svg(&chart))?;
     Ok(())
 }
 

@@ -383,6 +383,7 @@ dependencies = [
  "prism-schema",
  "prism-std",
  "prism-trace",
+ "prism-viz",
  "rand 0.8.5",
  "rustyline",
  "serde",
@@ -1241,34 +1242,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "plotters"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5aeb6f403d7a4911efb1e33402027fc44f29b5bf6def3effcc22d7bb75f2b747"
-dependencies = [
- "num-traits",
- "plotters-backend",
- "plotters-svg",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "plotters-backend"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df42e13c12958a16b3f7f4386b9ab1f3e7933914ecea48da7139435263a4172a"
-
-[[package]]
-name = "plotters-svg"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51bae2ac328883f7acdfea3d66a7c35751187f870bc81f94563733a154d7a670"
-dependencies = [
- "plotters-backend",
-]
-
-[[package]]
 name = "potential_utf"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1338,7 +1311,6 @@ name = "prism-mapk"
 version = "0.1.0"
 dependencies = [
  "indexmap",
- "plotters",
  "prism-bigraph",
  "prism-schema",
  "prism-viz",
@@ -1385,7 +1357,6 @@ name = "prism-viz"
 version = "0.1.0"
 dependencies = [
  "indexmap",
- "plotters",
  "prism-bigraph",
  "prism-schema",
 ]
@@ -1774,7 +1745,6 @@ dependencies = [
  "highs-sys",
  "indexmap",
  "ordered-float",
- "plotters",
  "prism-bigraph",
  "prism-schema",
  "prism-std",
@@ -2081,16 +2051,6 @@ dependencies = [
  "hashbrown 0.15.5",
  "indexmap",
  "semver",
-]
-
-[[package]]
-name = "web-sys"
-version = "0.3.92"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84cde8507f4d7cfcb1185b8cb5890c494ffea65edbe1ba82cfd63661c805ed94"
-dependencies = [
- "js-sys",
- "wasm-bindgen",
 ]
 
 [[package]]
