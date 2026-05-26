@@ -1,0 +1,52 @@
+# Programs are data — two paths, one runtime.
+# ────────────────────────────────────────────
+#
+# `via_loaded` reads `homoiconic-demo-tick.ys` from disk via the `io::load`
+# native function and runs the resulting Document for 5 ticks. `via_manual`
+# constructs an EQUIVALENT Document VALUE by hand using only map literals —
+# the same `{}` syntax any chrysalis value uses — and runs it the same way.
+#
+# Both produce `count = 5.0`. The interpreter doesn't know (or care) which
+# path made the value.
+#
+# Lisp parallel:
+#   load          ~  read     (text  → data)
+#   { _type: … }  ~  cons/list (assemble data by hand)
+#   doc.run(t)    ~  eval     (interpret data as program)
+#
+# The `_source` field tells `Document.run` where to find the loaded
+# program's user-defined process factories (`Tick`) when re-compiling — same
+# bookkeeping `load()` itself writes. The hand-built path REUSES the
+# resolved path from `load()`'s output, so the demo works regardless of
+# where you run it from. Once AST-as-value lands (tier-2), the AST will
+# carry factories inline and `_source` becomes vestigial.
+#
+# Run: `chrysalis run homoiconic-demo.ys --time 0`
+# Expected: { "via_loaded": 5.0, "via_manual": 5.0, ... }
+
+from io import load
+
+# Load once: produces the canonical Document VALUE (a `Value::Map` with
+# `_type`, `schema`, `state`, `_source`). Everything below operates on it
+# as data — by reading its fields, building variants, running them.
+def loaded_doc = load('homoiconic-demo-tick.ys')
+
+composite HomoiconicDemo ~{} ->{
+  via_loaded :: Float,
+  via_manual :: Float,
+  source_path :: String
+} (
+  # Path 1: run the loaded Document — `Document.run(time)` is just a method.
+  via_loaded: loaded_doc.run(5.0).count |
+
+  # Path 2: assemble an EQUIVALENT Document with map literals, re-using
+  # load's resolved `_source` so re-compilation finds the right factories.
+  # Same shape, same `.run(time)` dispatcher, same answer.
+  via_manual: {
+    '_type': 'Document',
+    '_source': loaded_doc._source
+  }.run(5.0).count |
+
+  # Make the resolved path visible so a reader can see what `load()` did.
+  source_path: loaded_doc._source
+)

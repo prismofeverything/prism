@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use chrysalis::compile::compile_with_modules;
 use chrysalis::parse::parse_file;
-use chrysalis::prelude::{std_core, std_methods, std_modules, std_registry};
+use chrysalis::prelude::{std_core, std_methods, std_modules, std_modules_at, std_registry};
 use prism_bigraph::protocols::RestProcessServer;
 
 fn main() {
@@ -323,16 +323,22 @@ fn cmd_run(args: &[String]) {
     // A `.ys` under a non-std `project.ys` is run via the codegen path (generate
     // + build + cache a runner crate linking that package); otherwise run
     // in-process over the std packages. Both call the SAME `cli::run_command`.
-    if let Some(path) = args.iter().find(|a| !a.starts_with("--")) {
+    let entry_path = args.iter().find(|a| !a.starts_with("--")).cloned();
+    if let Some(path) = entry_path.as_deref() {
         if let Some(manifest) = chrysalis::codegen::find_manifest(path) {
             std::process::exit(chrysalis::codegen::run(&manifest, "run", args));
         }
     }
+    // `load(path)` resolves relative to the entry file's directory — so a
+    // `.ys` demo can reference siblings without absolute paths. Mirrors the
+    // `from … import` convention already in place for file modules.
+    let ys_root =
+        entry_path.and_then(|p| std::path::Path::new(&p).parent().map(|d| d.to_path_buf()));
     std::process::exit(chrysalis::cli::run_command(
         args,
         std_registry(),
         std_methods(),
-        std_modules(),
+        std_modules_at(ys_root),
     ));
 }
 

@@ -77,7 +77,10 @@ fn run_from_source(path: &str, time: f64) -> Result<Value, MethodError> {
     let src = std::fs::read_to_string(path).map_err(|e| mk_err(&format!("read {path}"), e.to_string()))?;
     let prog =
         crate::parse::parse_program(&src).map_err(|e| mk_err(&format!("parse {path}"), e.to_string()))?;
-    crate::runner::run(&prog, std_registry(), std_methods(), std_modules(), time)
+    // Use the source file's directory as ys_root so a nested `load('sibling.ys')`
+    // inside this program resolves relative to where it lives.
+    let ys_root = std::path::Path::new(path).parent().map(|p| p.to_path_buf());
+    crate::runner::run(&prog, std_registry(), std_methods(), std_modules_at(ys_root), time)
         .map_err(|e| mk_err(&format!("run {path}"), format!("{e:?}")))
 }
 
@@ -139,9 +142,21 @@ pub fn std_core() -> Core {
 }
 
 /// The std importable modules: `core` (RunProcess/Simulate), `integrators`
-/// (rk4/euler), `chem` (CRN), `io` (Path, `load`).
+/// (rk4/euler), `chem` (CRN), `io` (Path, `load`). Paths passed to `load`
+/// resolve against the **CWD** — see [`std_modules_at`] for the ys-root
+/// resolving variant the bin uses.
 pub fn std_modules() -> ModuleRegistry {
-    let load_fn: crate::compile::HostFn = Arc::new(|args| {
+    std_modules_at(None)
+}
+
+/// Std importable modules with `load(path)` resolving relative to `ys_root`
+/// (the entry `.ys` file's directory) when the supplied path is relative —
+/// the same convention `from … import` already uses for sibling files. With
+/// `ys_root = None`, behaves like [`std_modules`] (CWD-relative). The bin's
+/// `run` path and `Document.run`'s re-compile both call this with the right
+/// root, so a `.ys` author can write `load('sibling.ys')` and have it Just Work.
+pub fn std_modules_at(ys_root: Option<std::path::PathBuf>) -> ModuleRegistry {
+    let load_fn: crate::compile::HostFn = Arc::new(move |args| {
         let path = args.first().and_then(|v| v.as_str()).ok_or_else(|| {
             MethodError::BadArgs {
                 type_name: "io".into(),
@@ -149,7 +164,13 @@ pub fn std_modules() -> ModuleRegistry {
                 message: "expected a path string argument (load('file.ys'))".into(),
             }
         })?;
-        load_program_as_document(path)
+        // Relative path + a known ys_root → resolve relative to that root.
+        // Absolute paths and the no-root case pass through unchanged.
+        let resolved: std::path::PathBuf = match (ys_root.as_ref(), std::path::Path::new(path).is_absolute()) {
+            (Some(root), false) => root.join(path),
+            _ => std::path::PathBuf::from(path),
+        };
+        load_program_as_document(resolved.to_str().unwrap_or(path))
     });
     ModuleRegistry::new()
         .process("core", "RunProcess")

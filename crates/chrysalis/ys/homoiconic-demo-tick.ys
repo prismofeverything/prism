@@ -1,0 +1,12 @@
+# The simulation that homoiconic-demo.ys loads — a tiny counter.
+# A `Tick` process adds 1 to `count` each step; `Main` wires it up.
+# Standalone-runnable: `chrysalis run homoiconic-demo-tick.ys --time 5`.
+
+process Tick ~{count :: Float} ->{count :: Float} (
+  {count: 1.0}
+)
+
+composite Main ->{count :: Float} (
+  count: 0.0 |
+  tick: Tick ~{count: count} ->{count: count}
+)
