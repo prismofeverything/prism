@@ -68,13 +68,18 @@ process Tick ~{count :: Float} ->{count :: Float} (
         .expect("slots list");
     assert!(slots.iter().any(|v| v.as_str() == Some("process")));
 
-    // The `process` slot's summary carries the port names.
+    // The `process` slot's summary carries the port name → schema map.
     let proc_summary = map.get("process").expect("process summary");
     let inputs = proc_summary
         .get_field("inputs")
-        .and_then(|v| v.as_list())
-        .expect("process inputs");
-    assert!(inputs.iter().any(|v| v.as_str() == Some("count")));
+        .and_then(|v| v.as_map())
+        .expect("process inputs map");
+    assert!(inputs.contains_key("count"), "the `count` input is present");
+    assert_eq!(
+        inputs.get("count").and_then(|p| p.get_field("schema")).and_then(|v| v.as_str()),
+        Some("float"),
+        "the count port's schema serializes as a string"
+    );
 }
 
 #[test]
@@ -253,6 +258,42 @@ fn hand_built_value_becomes_a_real_expr() {
         }
         other => panic!("expected Record, got {other:?}"),
     }
+}
+
+#[test]
+fn entity_def_round_trips_through_value() {
+    // The entity-level round trip (#34 slice A): a parsed EntityDef
+    // serializes via `to_value`, deserializes via `from_value`, and
+    // re-serializes to the same Value shape. This is the substrate for
+    // hand-building whole composites/processes/steps as data.
+    let src = "\
+process Grow[rate :: Float = 0.6] ~{mass :: Float} ->{mass :: Float} (
+  {mass: (mass * rate)}
+)
+";
+    let prog = parse_program(src).expect("parse");
+    let grow = prog.entity_owned("Grow").expect("Grow");
+
+    let original = grow.to_value();
+    let restored =
+        EntityDef::from_value(&original).expect("EntityDef::from_value");
+    let restored_value = restored.to_value();
+
+    assert_eq!(
+        original, restored_value,
+        "EntityDef → Value → EntityDef → Value is identity; the slot's params,\n\
+         ports (with schema strings), and body all survive the round trip."
+    );
+
+    // Structural confirmation: the restored process has the same param +
+    // port names as the parsed one, and the body is the same Map literal.
+    let restored_process = restored.process.expect("process slot");
+    assert_eq!(restored_process.params.len(), 1);
+    assert_eq!(restored_process.params[0].name, "rate");
+    assert_eq!(restored_process.interface.inputs.len(), 1);
+    assert!(restored_process.interface.inputs.contains_key("mass"));
+    assert_eq!(restored_process.interface.outputs.len(), 1);
+    assert!(restored_process.interface.outputs.contains_key("mass"));
 }
 
 #[test]

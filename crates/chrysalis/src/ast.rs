@@ -887,21 +887,21 @@ impl EntityDef {
             slots.push(Value::String("process".into()));
             fields.insert(
                 Key::from("process"),
-                slot_with_body(&p.interface, &p.body),
+                slot_def_to_value(&p.params, &p.interface, &p.body),
             );
         }
         if let Some(s) = &self.step {
             slots.push(Value::String("step".into()));
             fields.insert(
                 Key::from("step"),
-                slot_with_body(&s.interface, &s.body),
+                slot_def_to_value(&s.params, &s.interface, &s.body),
             );
         }
         if let Some(c) = &self.composite {
             slots.push(Value::String("composite".into()));
             fields.insert(
                 Key::from("composite"),
-                slot_with_body(&c.interface, &c.body),
+                slot_def_to_value(&c.params, &c.interface, &c.body),
             );
         }
         if let Some(r) = &self.reaction {
@@ -997,6 +997,86 @@ fn slot_with_body(iface: &Interface, body: &Expr) -> prism_schema::Value {
         _ => IndexMap::new(),
     };
     m.insert(Key::from("body"), body.to_value());
+    Value::Map(m)
+}
+
+/// Full slot serialization (params + per-port full info + body). The
+/// **lossless** form — paired with [`slot_def_from_value`] to round-trip a
+/// `ProcessDef` / `StepDef` / `CompositeDef`'s contents.
+fn slot_def_to_value(params: &[Param], iface: &Interface, body: &Expr) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    let mut m: IndexMap<Key, Value> = IndexMap::new();
+    m.insert(
+        Key::from("params"),
+        Value::List(params.iter().map(param_to_value).collect()),
+    );
+    m.insert(Key::from("inputs"), ports_to_value(&iface.inputs));
+    m.insert(Key::from("outputs"), ports_to_value(&iface.outputs));
+    m.insert(Key::from("body"), body.to_value());
+    Value::Map(m)
+}
+
+fn param_to_value(p: &Param) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    let mut m: IndexMap<Key, Value> = IndexMap::new();
+    m.insert(Key::from("name"), Value::String(p.name.clone()));
+    m.insert(
+        Key::from("schema"),
+        Value::String(crate::unparse::unparse_schema(&p.schema)),
+    );
+    if let Some(d) = &p.default {
+        m.insert(Key::from("default"), d.to_value());
+    }
+    Value::Map(m)
+}
+
+fn ports_to_value(ports: &indexmap::IndexMap<Name, PortDecl>) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    let mut m: IndexMap<Key, Value> = IndexMap::new();
+    for (k, port) in ports {
+        m.insert(Key::from(k.as_str()), port_decl_to_value(port));
+    }
+    Value::Map(m)
+}
+
+fn port_decl_to_value(p: &PortDecl) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    let mut m: IndexMap<Key, Value> = IndexMap::new();
+    m.insert(
+        Key::from("schema"),
+        Value::String(crate::unparse::unparse_schema(&p.schema)),
+    );
+    if let Some(d) = &p.default {
+        m.insert(Key::from("default"), d.to_value());
+    }
+    if let Some(c) = &p.contract {
+        m.insert(Key::from("contract"), contract_ref_to_value(c));
+    }
+    if let Some(b) = &p.bridge {
+        m.insert(
+            Key::from("bridge"),
+            Value::List(b.iter().map(|s| Value::String(s.clone())).collect()),
+        );
+    }
+    Value::Map(m)
+}
+
+fn contract_ref_to_value(c: &ContractRef) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    let mut m: IndexMap<Key, Value> = IndexMap::new();
+    m.insert(Key::from("name"), Value::String(c.name.clone()));
+    if !c.pins.is_empty() {
+        let mut pins: IndexMap<Key, Value> = IndexMap::new();
+        for (k, v) in &c.pins {
+            pins.insert(Key::from(k.as_str()), Value::String(v.clone()));
+        }
+        m.insert(Key::from("pins"), Value::Map(pins));
+    }
     Value::Map(m)
 }
 
@@ -2217,4 +2297,185 @@ fn unaryop_from_tag(tag: &str) -> Result<UnaryOp, ExprFromValueError> {
         "Not" => UnaryOp::Not,
         other => return Err(err(&format!("unknown UnaryOp tag: {other:?}"))),
     })
+}
+
+// ── EntityDef ← Value: the lossless round-trip (#34 slice A) ──
+//
+// A hand-built `{_type: "EntityDef", name, process: {…}, …}` becomes a real
+// EntityDef. With this, a `.ys` caller can build a Cell composite from map
+// literals + map literals for its body + map literals for the inner Grow's
+// expression — and feed it to compile + run. The pre-req for "run the
+// streaming environment with a HAND-CONSTRUCTED Cell".
+
+impl EntityDef {
+    /// Materialize an `EntityDef` from its [`Self::to_value`] shape. Inverse
+    /// of `to_value` over the slots that have round-trippable serializations
+    /// today: `process`, `step`, `composite`. Other slots are recognized but
+    /// not yet round-trippable (`from_value` ignores them; full coverage
+    /// expands as needed).
+    pub fn from_value(v: &prism_schema::Value) -> Result<EntityDef, ExprFromValueError> {
+        let map = v
+            .as_map()
+            .ok_or_else(|| err("EntityDef must be a Map"))?;
+        let tag = map
+            .get("_type")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| err("EntityDef missing _type"))?;
+        if tag != "EntityDef" {
+            return Err(err(&format!(
+                "expected _type='EntityDef', got {tag:?}"
+            )));
+        }
+        let name = map
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| err("EntityDef.name missing"))?
+            .to_string();
+        let mut ent = EntityDef::new(name.clone());
+        if let Some(p) = map.get("process") {
+            let (params, interface, body) = slot_def_from_value(p)?;
+            ent.process = Some(ProcessDef {
+                name: name.clone(),
+                params,
+                interface,
+                body,
+            });
+        }
+        if let Some(s) = map.get("step") {
+            let (params, interface, body) = slot_def_from_value(s)?;
+            ent.step = Some(StepDef {
+                name: name.clone(),
+                params,
+                interface,
+                body,
+            });
+        }
+        if let Some(c) = map.get("composite") {
+            let (params, interface, body) = slot_def_from_value(c)?;
+            ent.composite = Some(CompositeDef {
+                name: name.clone(),
+                params,
+                using: Vec::new(),
+                interface,
+                body,
+            });
+        }
+        Ok(ent)
+    }
+}
+
+/// Parse a slot's full serialization (`params`, `inputs`, `outputs`, `body`)
+/// — the inverse of [`slot_def_to_value`].
+fn slot_def_from_value(
+    v: &prism_schema::Value,
+) -> Result<(Vec<Param>, Interface, Expr), ExprFromValueError> {
+    let m = v.as_map().ok_or_else(|| err("slot must be a Map"))?;
+    let params = m
+        .get("params")
+        .and_then(|v| v.as_list())
+        .map(|list| list.iter().map(param_from_value).collect::<Result<Vec<_>, _>>())
+        .unwrap_or_else(|| Ok(Vec::new()))?;
+    let inputs = m
+        .get("inputs")
+        .map(ports_from_value)
+        .unwrap_or_else(|| Ok(indexmap::IndexMap::new()))?;
+    let outputs = m
+        .get("outputs")
+        .map(ports_from_value)
+        .unwrap_or_else(|| Ok(indexmap::IndexMap::new()))?;
+    let body = m
+        .get("body")
+        .map(Expr::from_value)
+        .unwrap_or(Ok(Expr::Unit))?;
+    Ok((params, Interface { inputs, outputs }, body))
+}
+
+fn param_from_value(v: &prism_schema::Value) -> Result<Param, ExprFromValueError> {
+    let m = v.as_map().ok_or_else(|| err("Param must be a Map"))?;
+    let name = m
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| err("Param.name missing"))?
+        .to_string();
+    let schema_src = m
+        .get("schema")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| err("Param.schema must be a string"))?;
+    let schema = crate::parse::parse_schema_expr(schema_src)
+        .map_err(|e| err(&format!("Param.schema parse: {e}")))?;
+    let default = m
+        .get("default")
+        .map(Expr::from_value)
+        .transpose()?;
+    Ok(Param {
+        name,
+        schema,
+        default,
+    })
+}
+
+fn ports_from_value(
+    v: &prism_schema::Value,
+) -> Result<indexmap::IndexMap<Name, PortDecl>, ExprFromValueError> {
+    let m = v.as_map().ok_or_else(|| err("ports must be a Map"))?;
+    let mut out: indexmap::IndexMap<Name, PortDecl> = indexmap::IndexMap::new();
+    for (k, v) in m {
+        out.insert(k.to_string(), port_decl_from_value(v)?);
+    }
+    Ok(out)
+}
+
+fn port_decl_from_value(v: &prism_schema::Value) -> Result<PortDecl, ExprFromValueError> {
+    let m = v.as_map().ok_or_else(|| err("PortDecl must be a Map"))?;
+    let schema_src = m
+        .get("schema")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| err("PortDecl.schema must be a string"))?;
+    let schema = crate::parse::parse_schema_expr(schema_src)
+        .map_err(|e| err(&format!("PortDecl.schema parse: {e}")))?;
+    let default = m
+        .get("default")
+        .map(Expr::from_value)
+        .transpose()?;
+    let contract = m
+        .get("contract")
+        .map(contract_ref_from_value)
+        .transpose()?;
+    let bridge = m.get("bridge").map(|b| {
+        b.as_list()
+            .map(|l| {
+                l.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    });
+    Ok(PortDecl {
+        schema,
+        default,
+        contract,
+        bridge,
+    })
+}
+
+fn contract_ref_from_value(
+    v: &prism_schema::Value,
+) -> Result<ContractRef, ExprFromValueError> {
+    let m = v
+        .as_map()
+        .ok_or_else(|| err("ContractRef must be a Map"))?;
+    let name = m
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| err("ContractRef.name missing"))?
+        .to_string();
+    let mut pins: indexmap::IndexMap<Name, Name> = indexmap::IndexMap::new();
+    if let Some(pmap) = m.get("pins").and_then(|v| v.as_map()) {
+        for (k, v) in pmap {
+            if let Some(s) = v.as_str() {
+                pins.insert(k.to_string(), s.to_string());
+            }
+        }
+    }
+    Ok(ContractRef { name, pins })
 }

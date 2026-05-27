@@ -667,7 +667,7 @@ fn unparse_type_repr(s: &SchemaExpr) -> String {
     }
 }
 
-fn unparse_schema(s: &SchemaExpr) -> String {
+pub fn unparse_schema(s: &SchemaExpr) -> String {
     match s {
         SchemaExpr::Any => "any".into(),
         SchemaExpr::Bool => "bool".into(),
