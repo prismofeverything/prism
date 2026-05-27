@@ -44,12 +44,16 @@ fn register_document_methods(m: &mut MethodRegistry) {
                 method: "run".into(),
                 message: "expected a numeric `time` argument (Document.run(t))".into(),
             })?;
-        // If the Document remembers its source (from `load(path)`), re-compile
-        // it so user-defined process factories (`Tick`, `Cell`, …) are in the
-        // Core. Hand-constructed Documents (no `_source`) fall through to
-        // `std_core()` — works as long as they reference only std processes.
+        // If the Document remembers either its source (`load(path)` stashes
+        // `_source`) OR the original program value (`compile_value(prog)`
+        // stashes `_program`), re-compile so user-defined factories are in
+        // the Core. Hand-constructed Documents without either fall through
+        // to `std_core()` — works for std-only programs.
         if let Some(source_path) = recv.get_field("_source").and_then(|v| v.as_str()) {
             return run_from_source(source_path, time);
+        }
+        if let Some(program_value) = recv.get_field("_program") {
+            return run_from_program_value(program_value, time);
         }
         let doc = value_to_document(recv).ok_or_else(|| MethodError::BadArgs {
             type_name: "Document".into(),
@@ -62,6 +66,22 @@ fn register_document_methods(m: &mut MethodRegistry) {
             message: format!("run_document failed: {e}"),
         })
     });
+}
+
+/// Re-compile + run a hand-built Program value — used by `Document.run(time)`
+/// when the Document carries `_program` (from `compile_value(prog_value)`).
+/// Mirrors [`run_from_source`] but reads the program-shape directly from
+/// the Value rather than re-reading a source file.
+fn run_from_program_value(program_value: &Value, time: f64) -> Result<Value, MethodError> {
+    let mk_err = |context: &str, msg: String| MethodError::Failed {
+        type_name: "Document".into(),
+        method: "run".into(),
+        message: format!("{context}: {msg}"),
+    };
+    let prog = crate::ast::Program::from_value(program_value)
+        .map_err(|e| mk_err("Program from_value", e.to_string()))?;
+    crate::runner::run(&prog, std_registry(), std_methods(), std_modules(), time)
+        .map_err(|e| mk_err("run", format!("{e:?}")))
 }
 
 /// Re-compile + run the source at `path` — used by `Document.run(time)` when
@@ -184,6 +204,16 @@ pub fn std_modules_at(ys_root: Option<std::path::PathBuf>) -> ModuleRegistry {
         let env = args.get(1);
         eval_with(v, env)
     });
+    // `meta::compile_value(program_value)` — the in-memory sibling of
+    // `io::load(path)`. Produces a Document VALUE you can `.run(time)`.
+    let compile_value_fn: crate::compile::HostFn = Arc::new(|args| {
+        let v = args.first().ok_or_else(|| MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "compile_value".into(),
+            message: "expected one argument: a Program-shape Value".into(),
+        })?;
+        compile_value(v)
+    });
     ModuleRegistry::new()
         .process("core", "RunProcess")
         .process("core", "Simulate")
@@ -197,6 +227,7 @@ pub fn std_modules_at(ys_root: Option<std::path::PathBuf>) -> ModuleRegistry {
         .type_("io", "Path", "string")
         .function("io", "load", load_fn)
         .function("meta", "eval", eval_fn)
+        .function("meta", "compile_value", compile_value_fn)
 }
 
 /// Read + parse + compile a `.ys` file from disk and return it as a chrysalis
@@ -226,6 +257,39 @@ pub fn load(path: &str) -> Result<Value, MethodError> {
 /// callable from `.ys` itself via `from meta import eval`.
 pub fn eval(value: &Value) -> Result<Value, MethodError> {
     eval_with(value, None)
+}
+
+/// `compile_value(program_value)` — the in-memory sibling of `load(path)`.
+/// Takes a hand-built `Program`-shape Value (`{_type: 'Program', entities:
+/// [EntityDef…]}`), reifies it into a real `Program` via
+/// [`crate::ast::Program::from_value`], compiles against fresh std
+/// registries, and returns the resulting Document VALUE. Pairs with
+/// `Document.run(time)` — same dispatcher as `load(path).run(time)`.
+///
+/// This is the chrysalis `(eval (cons 'program ...))` at the program level —
+/// build a program from map literals, run it. The substrate for #34 (run
+/// the streaming env with a hand-constructed Cell).
+pub fn compile_value(program_value: &Value) -> Result<Value, MethodError> {
+    let mk_err = |context: &str, msg: String| MethodError::Failed {
+        type_name: "meta".into(),
+        method: "compile_value".into(),
+        message: format!("{context}: {msg}"),
+    };
+    let prog = crate::ast::Program::from_value(program_value)
+        .map_err(|e| mk_err("Program from_value", e.to_string()))?;
+    let result =
+        crate::compile::compile_with_modules(&prog, std_registry(), std_methods(), std_modules())
+            .map_err(|e| mk_err("compile", format!("{e:?}")))?;
+    let doc = crate::runner::document_of(&result);
+    let mut value = document_to_value(&doc);
+    // Stash `_program` so `Document.run(time)` can re-compile this exact
+    // program for its own Core (which knows the user-defined process /
+    // composite factories the hand-built entities define). Mirrors the
+    // `_source` field `load()` writes; same idea, in-memory variant.
+    if let Value::Map(m) = &mut value {
+        m.insert(Key::from("_program"), program_value.clone());
+    }
+    Ok(value)
 }
 
 /// `eval(value, env)` — the two-arg form with explicit bindings. `env` is

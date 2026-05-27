@@ -1,0 +1,90 @@
+# A program built from data, then run. (#34 slice C)
+# ────────────────────────────────────────────────────
+#
+# `from meta import compile_value` + map literals = a program assembled at
+# runtime, no parser involved. The result of `compile_value(prog_value)` is
+# a Document VALUE — the same shape `load(path)` returns — runnable via
+# `Document.run(time)`.
+#
+# This file constructs the equivalent of:
+#
+#     process Tick ~{count :: Float} ->{count :: Float} (
+#       {count: 1.0}
+#     )
+#     composite Main ->{count :: Float} (
+#       count: 0.0 |
+#       tick: Tick ~{count: count} ->{count: count}
+#     )
+#
+# …purely as map literals, then compiles and runs it. The hand-built result
+# matches what a parsed version would produce — proof that programs ARE
+# data, all the way down to the AST.
+#
+# Run: `chrysalis run hand-built-demo.ys --time 0`
+# Expected: `{"count": 5.0}` — 5 ticks of `count += 1`.
+
+from meta import compile_value
+
+# Building blocks: reusable AST fragments named via `def`.
+def float_lit  = { '_type': 'Float',    'value': 1.0 }
+def zero_lit   = { '_type': 'Float',    'value': 0.0 }
+def var_count  = { '_type': 'Var',      'name':  'count' }
+def float_port = { 'schema': 'float' }
+
+# The Tick body: `{count: 1.0}` — a Record literal.
+def tick_body = {
+  '_type':  'Record',
+  'fields': { 'count': float_lit }
+}
+
+# The Tick entity — a process with one input + one output port.
+def tick_entity = {
+  '_type': 'EntityDef',
+  'name':  'Tick',
+  'process': {
+    'params':  [],
+    'inputs':  { 'count': float_port },
+    'outputs': { 'count': float_port },
+    'body':    tick_body
+  }
+}
+
+# Main's body: `count: 0.0 | tick: Tick ~{count: count} ->{count: count}`.
+def main_body = {
+  '_type': 'Parallel',
+  'items': [
+    { '_type': 'KeyedEntry', 'key': 'count', 'value': zero_lit },
+    { '_type': 'KeyedEntry', 'key': 'tick',  'value': {
+      '_type':   'Term',
+      'control': 'Tick',
+      'args':    [],
+      'ports': {
+        'inputs':  { 'count': var_count },
+        'outputs': { 'count': var_count }
+      }
+    }}
+  ]
+}
+
+# The Main composite — no inputs, one output port.
+def main_entity = {
+  '_type': 'EntityDef',
+  'name':  'Main',
+  'composite': {
+    'params':  [],
+    'inputs':  {},
+    'outputs': { 'count': float_port },
+    'body':    main_body
+  }
+}
+
+# The whole program — two entities, hand-built.
+def my_program = {
+  '_type':    'Program',
+  'entities': [tick_entity, main_entity]
+}
+
+# Compile + run. No parser involvement; the program is pure data.
+composite HandBuiltDemo ~{} ->{ count :: Float } (
+  count: compile_value(my_program).run(5.0).count
+)

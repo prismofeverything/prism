@@ -2307,6 +2307,51 @@ fn unaryop_from_tag(tag: &str) -> Result<UnaryOp, ExprFromValueError> {
 // expression — and feed it to compile + run. The pre-req for "run the
 // streaming environment with a HAND-CONSTRUCTED Cell".
 
+impl Program {
+    /// Materialize a `Program` from its [`Self::to_value`] shape — the
+    /// inverse direction. Each entity in the value becomes the appropriate
+    /// `Def` variant (Process / Step / Composite / …) in the resulting
+    /// program. With this, a `.ys` caller can build a whole program from map
+    /// literals and feed it through compile + run (#34 slice B's substrate).
+    pub fn from_value(v: &prism_schema::Value) -> Result<Program, ExprFromValueError> {
+        let map = v
+            .as_map()
+            .ok_or_else(|| err("Program must be a Map"))?;
+        let tag = map
+            .get("_type")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| err("Program missing _type"))?;
+        if tag != "Program" {
+            return Err(err(&format!(
+                "expected _type='Program', got {tag:?}"
+            )));
+        }
+        let entities = map
+            .get("entities")
+            .and_then(|v| v.as_list())
+            .ok_or_else(|| err("Program.entities must be a List"))?;
+        let mut prog = Program::new();
+        for ev in entities {
+            let ent = EntityDef::from_value(ev)?;
+            // An entity contributes ONE Def per filled slot. Priority is
+            // arbitrary today (composite/process/step/reaction) since one
+            // entity-Value typically fills one slot; multi-slot entities
+            // contribute multiple defs in this order.
+            if let Some(p) = ent.process {
+                prog.push(Def::Process(p));
+            }
+            if let Some(s) = ent.step {
+                prog.push(Def::Step(s));
+            }
+            if let Some(c) = ent.composite {
+                prog.push(Def::Composite(c));
+            }
+            // Reaction / Function / etc. — add as needed.
+        }
+        Ok(prog)
+    }
+}
+
 impl EntityDef {
     /// Materialize an `EntityDef` from its [`Self::to_value`] shape. Inverse
     /// of `to_value` over the slots that have round-trippable serializations
