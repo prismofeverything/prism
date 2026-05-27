@@ -86,10 +86,88 @@
   - ✅ **Q2 — classical wire (LOCC)** (`crates/chrysalis/ys/quantum-locc.ys` + `tests/quantum_locc.rs`). Two composites — `Alice` (H + measure) and `Bob` (conditional prepare) — wired via a shared `classical_wire :: any` slot in the outer `LOCC` composite. Alice's measurement outcome ('b0' or 'b1') flows through the slot as a String; Bob reads the bit, fires `ConditionalPrepare` (an `if bit == 'b0' then |0⟩ else |1⟩` body), prepares matching basis state. After 3 ticks, Bob's qubit is classically-correlated to Alice's outcome (no entanglement). Demonstrates: LOCC as a chrysalis pattern — typed classical channel = primitive for distributed quantum protocols.  
   - ✅ **Q3 — `meta::tensor`** + demo + tests. The inverse of `divide`: takes two separable single-qubit/multi-qubit states (`{bitstring → amplitude}` maps) and combines them into one joint state by cross-product + amplitude multiplication. Registered as `from meta import tensor`. Demo `crates/chrysalis/ys/quantum-tensor.ys`; regression `tests/quantum_tensor.rs` covers two-`|+⟩` tensoring, separable-embedding `|+⟩⊗|0⟩`, norm preservation (Σ|amp|² multiplicative), and cross-product cardinality (m·n joint keys).  
   - ⏳ **Q4 — auto-merge on cross-composite gate.** When the source AST has `CNOT(alice.q0, bob.q0)`, the compiler inserts a `tensor(alice, bob)` first; the composites merge before the gate fires.  
-  - 🧩 **Q5 — auto-divide on factorizability.** Substrate complete: `meta::factorize(joint_state, split_k)` HostFn shipped (`from meta import factorize`) — rank-1 detection over the m×n amplitude matrix; returns `{separable: bool, a, b}`. Tests in `tests/quantum_factorize.rs` cover separable `|+⟩⊗|+⟩` factoring, Bell + GHZ entangled-state detection, exact round-tripping (`factorize ∘ tensor = id` on separable inputs), and 3-qubit splits at variable `k`. Demo `crates/chrysalis/ys/quantum-factorize.ys`. **REMAINING**: a process-body convention for *acting on* the result — call `factorize` after measurement and emit a `_divide` intent when separable, so the composite splits into independent sub-composites reflecting the post-measurement physics.  
-  - ⏳ **Q6 — quantum teleportation.** The canonical demo: pre-shared Bell pair + 2 classical bits + LOCC-style conditional Pauli corrections. Exercises Q1-Q5 together.
+  - 🧩 **Q5 — auto-divide on factorizability.** Substrate complete: `meta::factorize(joint_state, split_k)` HostFn shipped (`from meta import factorize`) — rank-1 detection over the m×n amplitude matrix; returns `{separable: bool, a, b}`. Tests in `tests/quantum_factorize.rs` cover separable `|+⟩⊗|+⟩` factoring, Bell + GHZ entangled-state detection, exact round-tripping (`factorize ∘ tensor = id` on separable inputs), and 3-qubit splits at variable `k`. Demo `crates/chrysalis/ys/quantum-factorize.ys`. **Runtime use**: `quantum-self-observe.ys` shows `FactorizeCheck` calling `factorize` from a process body — two side-by-side composites (Bell vs `|+⟩⊗|+⟩`) self-observe + report their separability ("the composite knows whether it's entangled"). **REMAINING**: a Divider-style step (analogous to `environment.ys`'s `Divider`) that converts the observation into a structural `_divide` intent, so a separable child composite splits into independent sub-composites reflecting the post-measurement physics.  
+  - ✅ **Q6 — quantum teleportation.** The canonical demo, shipped: `crates/chrysalis/ys/quantum-teleportation.ys` + regression `tests/quantum_teleportation.rs`. Five processes — `CnotA1A2`, `HadamardA1`, `MeasureA1A2`, `ExtractBobState`, `BobCorrect` — chain across six state slots. Initial state |ψ⟩=0.6|0⟩+0.8|1⟩ on Alice's qubit A1, pre-shared Bell pair on (A2, B). After 6 BSP ticks (process chain depth), Bob's qubit `bob_final` matches |ψ⟩ exactly within float tolerance — regardless of which measurement outcome occurred. The conditional Pauli correction `Z^a1 · X^a2` is a nested `if/then/else` over the 4 possible bit pairs ('m00'/'m01'/'m10'/'m11'). Only 2 classical bits cross from Alice; entanglement does the rest. No-cloning preserved (Alice's measurement destroys her copy). Exercises Q1-Q5 together — the canonical quantum protocol running end-to-end through the prism engine.
 
 A side-quest doc captured the broader landscape: `docs/exploring-the-computational-unknown.md` — survey of reflective towers, meta-circular interpreters, macros, Futamura projections, staging, algebraic effects, probabilistic / differentiable / reversible / quantum / unconventional computing, and the axes that compose into the space of methods.
+
+## ⏯️ NEXT-SESSION PROMPT (2026-05-27 — quantum bigraphs Q2/Q3/Q5/Q6; #36 nearly complete)
+
+> Workspace GREEN (582 workspace tests pass, 0 fail). This session pushed **#36
+> quantum bigraphs** from design + Q1 to a near-complete five-slice arc, with
+> only Q4 (compile-time auto-merge) remaining.
+>
+> **Q2 — LOCC (`crates/chrysalis/ys/quantum-locc.ys` + `tests/quantum_locc.rs`).**
+> Two composites — `Alice` (H + Measure) and `Bob` (ConditionalPrepare) — wired
+> via a shared `classical_wire :: any` slot. Only the bit ('b0'/'b1') crosses;
+> no amplitudes. `ConditionalPrepare` uses a nested `if bit == 'b0' then |0⟩
+> else |1⟩` body. After 3 ticks, Bob's qubit is classically-correlated to
+> Alice's outcome — the canonical LOCC primitive.
+>
+> **Q3 — `meta::tensor` (`crates/chrysalis/src/prelude.rs` + `quantum-tensor.ys`
+> + `tests/quantum_tensor.rs`).** The inverse of `divide` for quantum: cross-
+> product over bitstring keys, amplitude multiplication. Registered as `from
+> meta import tensor`. Four tests: |+⟩⊗|+⟩ → uniform 0.5, |+⟩⊗|0⟩ → separable
+> embedding, norm preservation (Σ|amp|² multiplicative), and m×n cross-product
+> cardinality.
+>
+> **Q5 substrate — `meta::factorize` (`prelude.rs` + `quantum-factorize.ys` +
+> `tests/quantum_factorize.rs`).** The dual of `tensor`. Builds the m×n joint-
+> amplitude matrix indexed by (left-bits, right-bits); rank-1 detection by
+> deriving a candidate factorization from any nonzero row and verifying every
+> other entry matches `a[i]·b[j]`. Returns `{separable: bool, a, b}`. Six
+> tests: separable factoring, Bell + GHZ correctly identified as non-separable,
+> exact `factorize ∘ tensor = id` round-trip, 3-qubit splits at variable `k`.
+>
+> **Q5 runtime use — `quantum-self-observe.ys`.** Shows `FactorizeCheck`
+> calling `factorize` from inside a process body. Two side-by-side composites
+> (Bell vs `|+⟩⊗|+⟩`) self-observe + report their separability — the
+> composite literally knows whether it's entangled.
+>
+> **Q6 — Quantum teleportation (`quantum-teleportation.ys` +
+> `tests/quantum_teleportation.rs`).** The canonical demo. Five processes
+> chained across six state slots: CnotA1A2 → HadamardA1 → MeasureA1A2 →
+> ExtractBobState → BobCorrect. Initial state |ψ⟩=0.6|0⟩+0.8|1⟩ on Alice's
+> A1, pre-shared Bell pair on (A2, B). After 6 BSP ticks (process chain
+> depth), Bob's `bob_final` reconstructs |ψ⟩ = (0.6, 0.8) EXACTLY within
+> float tolerance — regardless of which measurement outcome (m00/m01/m10/m11)
+> happened. The conditional Pauli correction `Z^a1 · X^a2` is a nested
+> `if/then/else` over the 4 outcomes. Only 2 classical bits cross from
+> Alice; entanglement does the rest. No-cloning preserved (Alice's
+> measurement destroys her copy).
+>
+> **Docs.** `docs/quantum-bigraphs.md` §IX slice statuses updated;
+> `docs/NEXT-SESSION.md` canonical-list entry for #36 reflects
+> Q1✅ Q2✅ Q3✅ Q4⏳ Q5🧩 Q6✅.
+>
+> **UNCOMMITTED at break**: `crates/chrysalis/ys/quantum-teleportation.ys`,
+> `crates/chrysalis/ys/quantum-self-observe.ys`,
+> `crates/chrysalis/tests/quantum_teleportation.rs`,
+> `docs/NEXT-SESSION.md` (this entry + #36 status update),
+> `docs/quantum-bigraphs.md` (Q5/Q6 status). Plus the usual spatio-flux/out/
+> regen drift from running the test suite. Suggested commit message:
+> *"teleport"* (matches the one-word convention of the recent quantum
+> commits: gates, qubits, measure, quantum engine, ...).
+>
+> **NEXT (open work, in suggested order):**
+> 1. **Q5 trigger half** — a Divider-style step (mirroring
+>    `environment.ys`'s `Divider`) that watches child composites'
+>    `observation.separable` flags and emits a structural `_divide` intent
+>    when a child reports separable. This closes the auto-divide loop: the
+>    composite's verdict becomes structural change.
+> 2. **Q4 — compile-time auto-merge on cross-composite gate.** When source
+>    AST has `CNOT(alice.q0, bob.q0)` (NB: this sibling-composite addressing
+>    syntax doesn't exist yet — `^.` is parent and `%.` is self; nothing
+>    crosses to a sibling), the compiler detects the cross-composite ref
+>    and inserts a `tensor(alice, bob)` first. Requires: (a) syntax design
+>    for `siblingname.slot`, (b) AST pass to detect cross-composite refs in
+>    process/term args, (c) automatic insertion of `tensor` + composite
+>    merge. Heaviest remaining piece of #36.
+> 3. **Other tracks ready to go**: #6 explicit bridge conduits, #9
+>    dt-refinement sweep (small warmup), #21 batched ray (the only piece
+>    keeping #21 from done), #25-29 distributed phases (the planet-scale
+>    arc), #15+#30 schema-as-state + entity registry (#30 slices 3-4
+>    remain — methods on sited cells + `control Foo` declarative form).
 
 ## ⏯️ NEXT-SESSION PROMPT (2026-05-25 — schema-first discovery + canonical-list audit)
 

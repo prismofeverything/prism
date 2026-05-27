@@ -1,0 +1,176 @@
+# Q6 of #36 — Quantum teleportation. The canonical demo. ⚡
+# ────────────────────────────────────────────────────────────────────
+#
+# Alice has an unknown quantum state |ψ⟩ = α|0⟩ + β|1⟩ on qubit A1.
+# Alice and Bob share a pre-existing Bell pair (qubits A2 + B): the
+# entangled state (|00⟩ + |11⟩)/√2 on (A2, B).
+#
+# The protocol — discovered by Bennett-Brassard-Crépeau-Jozsa-Peres-
+# Wootters (1993):
+#
+#   1. Alice applies CNOT(A1, A2): control=A1, target=A2.
+#   2. Alice applies Hadamard on A1.
+#   3. Alice MEASURES A1 and A2 → two classical bits (a1, a2).
+#   4. Alice sends the two bits to Bob through a CLASSICAL channel.
+#   5. Bob applies Z^a1 · X^a2 to his qubit B.
+#   6. Bob's qubit is now in state |ψ⟩ — Alice's original state has been
+#      teleported, even though no quantum info crossed the wire.
+#
+# Crucial: no information about α/β travels classically — yet Bob's
+# qubit reconstructs the exact state. The entanglement does the
+# heavy lifting. No-cloning is preserved: Alice's measurement
+# DESTROYS her copy of |ψ⟩.
+#
+# This .ys uses one composite holding the joint 3-qubit state (the
+# qubits remain entangled until measurement). The LOCC structure is
+# visible: only the `bits` slot carries info from Alice's measurement
+# to Bob's correction. The state map (8 amplitudes) lives in one
+# place because it must — entangled qubits cannot be distributed.
+#
+# Run: `chrysalis run quantum-teleportation.ys --time 4`
+# Expected: `bob_final` matches |ψ⟩ = (0.6 |0⟩ + 0.8 |1⟩) — within
+# measurement-collapse normalization (×2 for the 1/4 probability).
+
+from meta import sample
+
+# ── Step 1 — CNOT(A1, A2). Control=A1, target=A2. ─────────────────────
+# Flip A2 only when A1 = 1. In amplitude form:
+#   new[1, a2, b] = old[1, 1⊕a2, b]
+#   new[0, a2, b] = old[0, a2, b]
+process CnotA1A2 ~{state :: overwrite[any]} ->{state :: overwrite[any]}
+(
+  {state: {
+    amp_000: state.amp_000,
+    amp_001: state.amp_001,
+    amp_010: state.amp_010,
+    amp_011: state.amp_011,
+    amp_100: state.amp_110,
+    amp_101: state.amp_111,
+    amp_110: state.amp_100,
+    amp_111: state.amp_101
+  }}
+)
+
+# ── Step 2 — Hadamard on A1. ──────────────────────────────────────────
+#   new[0, a2, b] = (old[0, a2, b] + old[1, a2, b]) / √2
+#   new[1, a2, b] = (old[0, a2, b] − old[1, a2, b]) / √2
+process HadamardA1 ~{state :: overwrite[any]} ->{state :: overwrite[any]}
+(
+  {state: {
+    amp_000: ((state.amp_000 + state.amp_100) / 1.41421356),
+    amp_001: ((state.amp_001 + state.amp_101) / 1.41421356),
+    amp_010: ((state.amp_010 + state.amp_110) / 1.41421356),
+    amp_011: ((state.amp_011 + state.amp_111) / 1.41421356),
+    amp_100: ((state.amp_000 - state.amp_100) / 1.41421356),
+    amp_101: ((state.amp_001 - state.amp_101) / 1.41421356),
+    amp_110: ((state.amp_010 - state.amp_110) / 1.41421356),
+    amp_111: ((state.amp_011 - state.amp_111) / 1.41421356)
+  }}
+)
+
+# ── Step 3 — Alice measures A1 and A2. Born rule: each (a1, a2)
+# outcome has probability Σ_b |amp[a1, a2, b]|². ────────────────────
+# The sampled outcome is one of 'm00', 'm01', 'm10', 'm11' — Alice's
+# two classical bits, encoded as a single classical-typed string.
+process MeasureA1A2[seed :: Float = 42.0]
+  ~{state :: any}
+  ->{bits :: overwrite[any]}
+(
+  {bits: sample({
+    m00: ((state.amp_000 * state.amp_000) + (state.amp_001 * state.amp_001)),
+    m01: ((state.amp_010 * state.amp_010) + (state.amp_011 * state.amp_011)),
+    m10: ((state.amp_100 * state.amp_100) + (state.amp_101 * state.amp_101)),
+    m11: ((state.amp_110 * state.amp_110) + (state.amp_111 * state.amp_111))
+  }, seed)}
+)
+
+# ── Step 4 — Extract Bob's reduced state for the measured outcome. ───
+# After projecting on (a1, a2), Bob's qubit has amplitudes (amp_{a1,a2,0},
+# amp_{a1,a2,1}) — renormalized by √prob(a1, a2). Each Bell outcome has
+# probability 1/4, so we multiply by 2 (= 1/√(1/4)).
+#
+# The classical channel is `bits`: the only info Bob receives from
+# Alice's side. The state amplitudes are read locally from the joint
+# state (which still lives in this composite — quantum no-cloning means
+# we couldn't have copied it earlier anyway).
+process ExtractBobState
+  ~{state :: any, bits :: any}
+  ->{bob :: overwrite[any]}
+(
+  if bits == 'm00' then
+    {bob: {amp_0: (state.amp_000 * 2.0), amp_1: (state.amp_001 * 2.0)}}
+  else (if bits == 'm01' then
+    {bob: {amp_0: (state.amp_010 * 2.0), amp_1: (state.amp_011 * 2.0)}}
+  else (if bits == 'm10' then
+    {bob: {amp_0: (state.amp_100 * 2.0), amp_1: (state.amp_101 * 2.0)}}
+  else
+    {bob: {amp_0: (state.amp_110 * 2.0), amp_1: (state.amp_111 * 2.0)}}))
+)
+
+# ── Step 5 — Bob applies Z^a1 · X^a2 correction. ─────────────────────
+# X swaps amp_0 ↔ amp_1.  Z negates amp_1.
+#   'm00' (a1=0, a2=0): I       → (a0, a1)
+#   'm01' (a1=0, a2=1): X       → (a1, a0)
+#   'm10' (a1=1, a2=0): Z       → (a0, −a1)
+#   'm11' (a1=1, a2=1): ZX      → (a1, −a0)
+process BobCorrect
+  ~{bob :: any, bits :: any}
+  ->{final :: overwrite[any]}
+(
+  if bits == 'm00' then
+    {final: {amp_0: bob.amp_0,                 amp_1: bob.amp_1}}
+  else (if bits == 'm01' then
+    {final: {amp_0: bob.amp_1,                 amp_1: bob.amp_0}}
+  else (if bits == 'm10' then
+    {final: {amp_0: bob.amp_0,                 amp_1: (bob.amp_1 * -1.0)}}
+  else
+    {final: {amp_0: bob.amp_1,                 amp_1: (bob.amp_0 * -1.0)}}))
+)
+
+# ── The teleportation circuit ─────────────────────────────────────────
+# Initial 8-amplitude state: |ψ⟩_A1 ⊗ (|00⟩ + |11⟩)_A2,B / √2
+# where |ψ⟩ = 0.6 |0⟩ + 0.8 |1⟩ (a non-trivial unknown state).
+#
+# Amplitudes:
+#   |0⟩ ⊗ (|00⟩+|11⟩)/√2:  amp_000 = 0.6/√2 = 0.4243
+#                          amp_011 = 0.6/√2 = 0.4243
+#   |1⟩ ⊗ (|00⟩+|11⟩)/√2:  amp_100 = 0.8/√2 = 0.5657
+#                          amp_111 = 0.8/√2 = 0.5657
+#   (all other amps = 0)
+#
+# The wire chain:
+#   s0 ──CNOT(A1,A2)──▶ s1 ──H(A1)──▶ s2 ──Measure(A1,A2)──▶ bits
+#                                              s2 ─┐
+#                                                  └─▶ ExtractBob ──▶ bob_raw
+#                              bits ─▶ ExtractBob; bits ─▶ BobCorrect
+#                                              bob_raw ─▶ BobCorrect ──▶ bob_final
+composite Teleport[seed :: Float = 42.0] ~{} ->{
+  s0_initial    :: any,
+  s1_post_cnot  :: any,
+  s2_post_h     :: any,
+  bits          :: any,
+  bob_raw       :: any,
+  bob_final     :: any
+} (
+  s0_initial:   {
+    amp_000: 0.4242641,  amp_001: 0.0,        amp_010: 0.0,        amp_011: 0.4242641,
+    amp_100: 0.5656854,  amp_101: 0.0,        amp_110: 0.0,        amp_111: 0.5656854
+  } |
+  s1_post_cnot: {
+    amp_000: 0.0,  amp_001: 0.0,  amp_010: 0.0,  amp_011: 0.0,
+    amp_100: 0.0,  amp_101: 0.0,  amp_110: 0.0,  amp_111: 0.0
+  } |
+  s2_post_h: {
+    amp_000: 0.0,  amp_001: 0.0,  amp_010: 0.0,  amp_011: 0.0,
+    amp_100: 0.0,  amp_101: 0.0,  amp_110: 0.0,  amp_111: 0.0
+  } |
+  bits:         'unmeasured' |
+  bob_raw:      {amp_0: 0.0, amp_1: 0.0} |
+  bob_final:    {amp_0: 0.0, amp_1: 0.0} |
+
+  cn: CnotA1A2  ~{state: s0_initial}   ->{state: s1_post_cnot} |
+  h:  HadamardA1 ~{state: s1_post_cnot} ->{state: s2_post_h} |
+  m:  MeasureA1A2[seed: seed] ~{state: s2_post_h} ->{bits: bits} |
+  x:  ExtractBobState ~{state: s2_post_h, bits: bits} ->{bob: bob_raw} |
+  z:  BobCorrect ~{bob: bob_raw, bits: bits} ->{final: bob_final}
+)

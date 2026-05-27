@@ -1,0 +1,78 @@
+# Q5 trigger of #36 — self-observation: a composite checking its own
+# factorizability at runtime. The bridge between detection (Q5 substrate)
+# and structural division.
+# ────────────────────────────────────────────────────────────────────
+#
+# A two-qubit composite holds a JOINT amplitude map (4 keys, one per
+# computational-basis state). A `FactorizeCheck` process runs every
+# tick: reads the joint state, calls `meta::factorize(state, 1.0)`,
+# writes the result to an `observation` slot. The composite
+# EFFECTIVELY KNOWS whether its qubits are entangled.
+#
+# This is the substrate for auto-divide: once a composite knows it's
+# separable, a divider step in a parent composite can emit a `_divide`
+# intent (in the pattern of `environment.ys`'s `Divider`) to split it
+# into independent sub-composites. The structural change reflects the
+# physics: separable → divisible.
+#
+# State keys are bitstrings ('00', '01', '10', '11') — the form
+# `meta::factorize` and `meta::tensor` expect. (Quantum gate bodies use
+# the `amp_NN` identifier-style keys for field-access compatibility;
+# this demo doesn't need field access — it just passes the state map
+# through to factorize.)
+#
+# Two flavors here:
+#   1. `EntangledSystem` — starts in Bell state (|00⟩+|11⟩)/√2.
+#      Observation reports `separable: false`.
+#   2. `SeparableSystem` — starts in (|+⟩ ⊗ |+⟩). Observation reports
+#      `separable: true` and supplies the two factor states (each |+⟩).
+#
+# Run: `chrysalis run quantum-self-observe.ys --time 1`
+
+from meta import factorize
+
+# A process whose body calls a native function (`factorize`) on its
+# input slot and writes the result to its output slot. The function-as-
+# native-call pattern mirrors `meta::sample` in `quantum-engine-measure.ys`.
+process FactorizeCheck
+  ~{state :: any}
+  ->{observation :: overwrite[any]}
+(
+  {observation: factorize(state, 1.0)}
+)
+
+# Entangled — Bell state. The 2×2 matrix is rank 2 (anti-diagonal),
+# provably not separable. `observation.separable` will be `false`.
+composite EntangledSystem ~{} ->{
+  state       :: any,
+  observation :: overwrite[any]
+} (
+  state: {'00': 0.7071, '01': 0.0, '10': 0.0, '11': 0.7071} |
+  observation: {separable: false} |
+  check: FactorizeCheck ~{state: state} ->{observation: observation}
+)
+
+# Separable — |+⟩ ⊗ |+⟩. Rank-1 matrix; `observation.separable` will
+# be `true` and `observation.a`/`.b` recover the two |+⟩ factors.
+composite SeparableSystem ~{} ->{
+  state       :: any,
+  observation :: overwrite[any]
+} (
+  state: {'00': 0.5, '01': 0.5, '10': 0.5, '11': 0.5} |
+  observation: {separable: false} |
+  check: FactorizeCheck ~{state: state} ->{observation: observation}
+)
+
+# Both systems side-by-side. Each holds its own joint state; each runs
+# its own `FactorizeCheck`. The outer composite's outputs let you see
+# both observations in one run — the same FactorizeCheck process,
+# different verdicts (rank-1 separable vs rank-2 entangled).
+composite SelfObserveDemo ~{} ->{
+  entangled_state       :: overwrite[any],
+  entangled_observation :: overwrite[any],
+  separable_state       :: overwrite[any],
+  separable_observation :: overwrite[any]
+} (
+  entangled: EntangledSystem ~{} ->{state: entangled_state, observation: entangled_observation} |
+  separable: SeparableSystem ~{} ->{state: separable_state, observation: separable_observation}
+)

@@ -319,21 +319,41 @@ applies. **Demonstrates**: quantum coupling = automatic merge.
 After measurement, check if the composite's qubits factor. If yes,
 divide into sub-composites. **Demonstrates**: decomposition reflects
 physics.
-**Status**: substrate complete — `meta::factorize(joint_state, k)`
-shipped as a HostFn. Algorithm: form the m×n amplitude matrix
-indexed by (left-bits, right-bits); check rank 1 by deriving
-candidate factors from any nonzero row and verifying every other
-entry matches `a[i]·b[j]`. Returns `{separable: bool, a, b}`. Bell
-and GHZ states correctly detected as non-separable; `|+⟩⊗|+⟩` and
-`tensor(a,b)` round-trip back through `factorize`. Tests in
-`tests/quantum_factorize.rs`; demo `quantum-factorize.ys`. **Remaining**:
-auto-`_divide` trigger inside a composite process body (call
-`factorize` post-measurement and emit a `_divide` intent on success).
+**Status — substrate**: `meta::factorize(joint_state, k)` shipped as a
+HostFn. Algorithm: form the m×n amplitude matrix indexed by (left-bits,
+right-bits); check rank 1 by deriving candidate factors from any
+nonzero row and verifying every other entry matches `a[i]·b[j]`.
+Returns `{separable: bool, a, b}`. Bell and GHZ states correctly
+detected as non-separable; `|+⟩⊗|+⟩` and `tensor(a,b)` round-trip back
+through `factorize`. Tests in `tests/quantum_factorize.rs`; demo
+`quantum-factorize.ys`.
+**Status — runtime use**: `quantum-self-observe.ys` shows
+`FactorizeCheck` calling `factorize` from inside a process body —
+two side-by-side composites (Bell-state vs `|+⟩⊗|+⟩`) self-observe and
+report their separability. The composite *knows* whether it's
+entangled.
+**Remaining**: a Divider-style step (analogous to
+`environment.ys`'s `Divider`) that emits a `_divide` intent when a
+child composite reports separable. This converts the observation
+into structural change.
 
-### Slice Q6 — Quantum teleportation
+### Slice Q6 — Quantum teleportation ✅
 The canonical demo: Alice teleports a state to Bob using a
 pre-existing entangled pair + 2 classical bits. Exercises everything:
 LOCC, measurement-driven branches, classical-conditional gates.
+**Status**: shipped as `quantum-teleportation.ys` + regression
+`tests/quantum_teleportation.rs`. Five processes — `CnotA1A2`,
+`HadamardA1`, `MeasureA1A2`, `ExtractBobState`, `BobCorrect` — chain
+through six state slots. Initial state |ψ⟩=0.6|0⟩+0.8|1⟩ on A1,
+pre-shared Bell pair on (A2, B). After 6 BSP ticks (the process chain
+needs all five stages to propagate), Bob's qubit reconstructs |ψ⟩
+exactly within float tolerance, regardless of which `(a1, a2)`
+measurement outcome happened — the conditional Pauli correction
+(`Z^a1 · X^a2` as nested `if/then/else`) handles all four cases.
+Only 2 classical bits cross from Alice's side; the entanglement does
+the rest. No-cloning preserved (Alice's measurement destroys her
+copy). The canonical quantum protocol, end-to-end through the prism
+engine.
 
 By the end: chrysalis runs both classical biology (`hand-built-cell.ys`)
 AND quantum protocols (teleportation, GHZ, distributed multi-system
