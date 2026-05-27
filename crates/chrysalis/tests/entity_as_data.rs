@@ -256,6 +256,80 @@ fn hand_built_value_becomes_a_real_expr() {
 }
 
 #[test]
+fn eval_with_env_resolves_var_references() {
+    // The chrysalis `eval(expr, env)` — Lisp's `(eval form env)`. A hand-
+    // built expression with a `Var("x")` finds its value through the env
+    // bindings. This is the substrate for runtime-generated bodies that
+    // reference outer state.
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+
+    let var = |name: &str| -> Value {
+        let mut m: IndexMap<Key, Value> = IndexMap::new();
+        m.insert(Key::from("_type"), Value::String("Var".into()));
+        m.insert(Key::from("name"), Value::String(name.into()));
+        Value::Map(m)
+    };
+    let float_lit = |v: f64| -> Value {
+        let mut m: IndexMap<Key, Value> = IndexMap::new();
+        m.insert(Key::from("_type"), Value::String("Float".into()));
+        m.insert(Key::from("value"), Value::float(v));
+        Value::Map(m)
+    };
+    // expr: `x * 2.0`
+    let mut expr: IndexMap<Key, Value> = IndexMap::new();
+    expr.insert(Key::from("_type"), Value::String("BinOp".into()));
+    expr.insert(Key::from("op"), Value::String("Mul".into()));
+    expr.insert(Key::from("lhs"), var("x"));
+    expr.insert(Key::from("rhs"), float_lit(2.0));
+
+    // env: {x: 5.0}
+    let mut env_map: IndexMap<Key, Value> = IndexMap::new();
+    env_map.insert(Key::from("x"), Value::float(5.0));
+    let env = Value::Map(env_map);
+
+    let result = chrysalis::prelude::eval_with(&Value::Map(expr), Some(&env))
+        .expect("eval_with(env)");
+    assert_eq!(
+        result.as_f64(),
+        Some(10.0),
+        "eval(x * 2.0, {{x: 5.0}}) ≡ 10.0"
+    );
+}
+
+#[test]
+fn eval_interprets_a_hand_built_expression() {
+    // The chrysalis `(eval '(+ 2 3))` — a Lisp-flavored homoiconic move.
+    // Build a BinOp Value by hand (the to_value shape), pass it through
+    // `chrysalis::prelude::eval`, get the result. The interpreter sees no
+    // difference between this and a parsed `2.0 + 3.0`.
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+
+    let float_lit = |v: f64| -> Value {
+        let mut m: IndexMap<Key, Value> = IndexMap::new();
+        m.insert(Key::from("_type"), Value::String("Float".into()));
+        m.insert(Key::from("value"), Value::float(v));
+        Value::Map(m)
+    };
+    let mut binop: IndexMap<Key, Value> = IndexMap::new();
+    binop.insert(Key::from("_type"), Value::String("BinOp".into()));
+    binop.insert(Key::from("op"), Value::String("Add".into()));
+    binop.insert(Key::from("lhs"), float_lit(2.0));
+    binop.insert(Key::from("rhs"), float_lit(3.0));
+
+    let expr_value = Value::Map(binop);
+    let result = chrysalis::prelude::eval(&expr_value).expect("eval");
+    assert_eq!(
+        result.as_f64(),
+        Some(5.0),
+        "eval(2.0 + 3.0) ≡ 5.0 — the homoiconic identity at the EXPR level: a\n\
+         data form built from map literals interprets to the same value as the\n\
+         parsed source `2.0 + 3.0`."
+    );
+}
+
+#[test]
 fn build_an_entity_from_scratch_then_inspect() {
     // The user's mental model: "I could start with an empty Entity, then add
     // things to it until it was whatever ys program."

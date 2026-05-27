@@ -172,6 +172,18 @@ pub fn std_modules_at(ys_root: Option<std::path::PathBuf>) -> ModuleRegistry {
         };
         load_program_as_document(resolved.to_str().unwrap_or(path))
     });
+    // `meta::eval` — interpret an Expr-shape Value as a program (tier-2).
+    // One-arg form `eval(expr)` evaluates against an empty env; two-arg form
+    // `eval(expr, env)` resolves `Var` references against the bindings map.
+    let eval_fn: crate::compile::HostFn = Arc::new(|args| {
+        let v = args.first().ok_or_else(|| MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "eval".into(),
+            message: "expected at least one argument: an Expr-shape Value".into(),
+        })?;
+        let env = args.get(1);
+        eval_with(v, env)
+    });
     ModuleRegistry::new()
         .process("core", "RunProcess")
         .process("core", "Simulate")
@@ -184,6 +196,7 @@ pub fn std_modules_at(ys_root: Option<std::path::PathBuf>) -> ModuleRegistry {
         )
         .type_("io", "Path", "string")
         .function("io", "load", load_fn)
+        .function("meta", "eval", eval_fn)
 }
 
 /// Read + parse + compile a `.ys` file from disk and return it as a chrysalis
@@ -201,6 +214,60 @@ pub fn std_modules_at(ys_root: Option<std::path::PathBuf>) -> ModuleRegistry {
 /// dispatch. Pairs with the `Document.run(time)` method.
 pub fn load(path: &str) -> Result<Value, MethodError> {
     load_program_as_document(path)
+}
+
+/// Public form of the `meta::eval` native function — the tier-2 substrate:
+/// take an `Expr`-shape `Value` (built by hand via map literals, or via
+/// `Expr::to_value`), reify it into a real `Expr`, evaluate against an
+/// empty environment, return the result. The chrysalis `(eval '(+ 2 3))`.
+///
+/// The interpreter sees no difference between a parsed expression and a
+/// programmatically-built one — that's the homoiconic identity made
+/// callable from `.ys` itself via `from meta import eval`.
+pub fn eval(value: &Value) -> Result<Value, MethodError> {
+    eval_with(value, None)
+}
+
+/// `eval(value, env)` — the two-arg form with explicit bindings. `env` is
+/// a `Value::Map` of `name → value`; references in the expression resolve
+/// against it (so a hand-built `Var("x")` finds `env.x`). When `env` is
+/// `None`, behaves identically to [`eval`] (empty bindings).
+pub fn eval_with(value: &Value, env: Option<&Value>) -> Result<Value, MethodError> {
+    use std::sync::Arc;
+
+    use indexmap::IndexMap;
+    use prism_schema::MethodRegistry;
+
+    use crate::ast::{Expr, Program};
+    use crate::eval::Evaluator;
+
+    let expr =
+        Expr::from_value(value).map_err(|e| MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "eval".into(),
+            message: format!("expr from_value: {e}"),
+        })?;
+    let env_map: IndexMap<String, Value> = match env {
+        None | Some(Value::None) => IndexMap::new(),
+        Some(v) => v
+            .as_map()
+            .ok_or_else(|| MethodError::BadArgs {
+                type_name: "meta".into(),
+                method: "eval".into(),
+                message: "env must be a Map of {name: value, …}".into(),
+            })?
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect(),
+    };
+    let evaluator = Evaluator::new(Arc::new(Program::default()), Arc::new(MethodRegistry::new()));
+    evaluator
+        .eval_value(&expr, &env_map)
+        .map_err(|e| MethodError::Failed {
+            type_name: "meta".into(),
+            method: "eval".into(),
+            message: format!("eval: {e}"),
+        })
 }
 
 fn load_program_as_document(path: &str) -> Result<Value, MethodError> {

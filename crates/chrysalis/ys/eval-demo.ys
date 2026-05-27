@@ -1,0 +1,60 @@
+# `eval(ast)` — programs ARE data, runnable from inside .ys.
+# ────────────────────────────────────────────────────────────
+#
+# `from meta import eval` exposes the chrysalis `(eval '(+ 2 3))`. Pass any
+# Expr-shape Value (the same `{_type: …}` form `Expr::to_value` emits) and
+# get the interpreted result. The interpreter sees no difference between an
+# expression that came from `parse(source)` and one assembled with map
+# literals.
+#
+# This is the tier-2 substrate: process bodies (and other expressions) as
+# first-class runtime-built values. A program can construct an Expr from
+# parts, transform it, and run it — all in surface `.ys`. The Lisp parallel
+# is `cons` + `eval`: build the list (data), interpret the list (program).
+#
+# Lisp: `(eval (list '+ 2 3))`     → 5
+# .ys:   `eval({_type: 'BinOp', op: 'Add', lhs: …, rhs: …})`  → 5.0
+#
+# With env: `eval(expr, {x: 5.0})` resolves `Var('x')` to 5.0 in the
+# expression — the substrate for runtime-built expressions that reference
+# outer state (the path to hand-constructed process bodies).
+#
+# Run: `chrysalis run eval-demo.ys --time 0`
+# Expected: { add_result: 5, sub_result: 6, compound: 11, with_env: 10 }
+
+from meta import eval
+
+# Sub-expressions as named values — re-usable AST parts.
+def two   = { '_type': 'Float', 'value': 2.0 }
+def three = { '_type': 'Float', 'value': 3.0 }
+def four  = { '_type': 'Float', 'value': 4.0 }
+def ten   = { '_type': 'Float', 'value': 10.0 }
+
+# Assemble expressions from those parts.
+def plus  = { '_type': 'BinOp', 'op': 'Add', 'lhs': two,  'rhs': three }
+def minus = { '_type': 'BinOp', 'op': 'Sub', 'lhs': ten,  'rhs': four  }
+
+# A compound: `(2 + 3) + (10 - 4)` — built from the EXISTING sub-asts above.
+# The expression form composes like data because it IS data.
+def compound_ast = { '_type': 'BinOp', 'op': 'Add', 'lhs': plus, 'rhs': minus }
+
+# An expression that references a free variable: `x * 2.0`. With env
+# `{x: 5.0}` it evaluates to 10.0 — the same expression, different result
+# depending on the bindings, exactly like any function of its inputs.
+def doubled = {
+  '_type': 'BinOp', 'op': 'Mul',
+  'lhs': { '_type': 'Var', 'name': 'x' },
+  'rhs': { '_type': 'Float', 'value': 2.0 }
+}
+
+composite EvalDemo ~{} ->{
+  add_result :: Float,
+  sub_result :: Float,
+  compound :: Float,
+  with_env :: Float
+} (
+  add_result: eval(plus) |
+  sub_result: eval(minus) |
+  compound:   eval(compound_ast) |
+  with_env:   eval(doubled, {x: 5.0})
+)
