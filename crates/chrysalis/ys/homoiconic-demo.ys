@@ -27,14 +27,16 @@
 from io import load
 
 # Load once: produces the canonical Document VALUE (a `Value::Map` with
-# `_type`, `schema`, `state`, `_source`). Everything below operates on it
-# as data — by reading its fields, building variants, running them.
+# `_type`, `schema`, `state`, `_source`, `_entities`). Everything below
+# operates on it as data — by reading its fields, building variants,
+# running them, inspecting its entity registry.
 def loaded_doc = load('homoiconic-demo-tick.ys')
 
 composite HomoiconicDemo ~{} ->{
   via_loaded :: Float,
   via_manual :: Float,
-  source_path :: String
+  source_path :: String,
+  entities :: Any
 } (
   # Path 1: run the loaded Document — `Document.run(time)` is just a method.
   via_loaded: loaded_doc.run(5.0).count |
@@ -48,5 +50,10 @@ composite HomoiconicDemo ~{} ->{
   }.run(5.0).count |
 
   # Make the resolved path visible so a reader can see what `load()` did.
-  source_path: loaded_doc._source
+  source_path: loaded_doc._source |
+
+  # The program's ENTITY REGISTRY is also data — `load()` stashes it under
+  # `_entities` as a list of `{_type: 'EntityDef', name, slots, …}`. So a
+  # caller can walk the program's named contributions without re-parsing.
+  entities: loaded_doc._entities
 )

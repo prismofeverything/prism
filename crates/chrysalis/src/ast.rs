@@ -631,16 +631,70 @@ impl Program {
         self.defs.iter().find(|d| def_name(d) == name)
     }
 
+    /// Owned form of [`Self::entity`] — same shape, cloned. Useful when the
+    /// caller wants to mutate / transform / serialize the entity without
+    /// holding a borrow on the program (e.g. to expose programs as data).
+    pub fn entity_owned(&self, name: &str) -> Option<EntityDef> {
+        let mut found = false;
+        let mut ent = EntityDef::new(name);
+        for def in &self.defs {
+            if def_name(def) == name {
+                ent.absorb_def(def);
+                found = true;
+            }
+        }
+        found.then_some(ent)
+    }
+
+    /// The whole program as a chrysalis [`prism_schema::Value`] — the
+    /// homoiconic entity-registry view. Shape:
+    /// `{_type: "Program", entities: [EntityDef…]}`. The summary form for
+    /// each entity is [`EntityDef::to_value`]; body Exprs aren't recursed
+    /// here (deeper AST-as-value is the stretch slice of #32). Pairs with
+    /// `load(path)._entities` so loaded programs are inspectable from `.ys`.
+    pub fn to_value(&self) -> prism_schema::Value {
+        use indexmap::IndexMap;
+        use prism_schema::{Key, Value};
+        let mut fields: IndexMap<Key, Value> = IndexMap::new();
+        fields.insert(Key::from("_type"), Value::String("Program".into()));
+        fields.insert(
+            Key::from("entities"),
+            Value::List(self.owned_entities().iter().map(EntityDef::to_value).collect()),
+        );
+        Value::Map(fields)
+    }
+
+    /// All entities in the program, owned and ready to manipulate. Preserves
+    /// the FIRST-APPEARANCE order of each name in `defs` (so the result
+    /// reads top-down like the source). Different definers contributing to
+    /// the same name fold into one entity.
+    pub fn owned_entities(&self) -> Vec<EntityDef> {
+        let mut order: Vec<Name> = Vec::new();
+        let mut map: indexmap::IndexMap<Name, EntityDef> = indexmap::IndexMap::new();
+        for def in &self.defs {
+            // Import/Use don't contribute slots — skip name registration.
+            if matches!(def, Def::Import { .. } | Def::Use { .. }) {
+                continue;
+            }
+            let name = def_name(def).to_string();
+            if !map.contains_key(&name) {
+                order.push(name.clone());
+                map.insert(name.clone(), EntityDef::new(name.clone()));
+            }
+            map.get_mut(&name).unwrap().absorb_def(def);
+        }
+        order.into_iter().filter_map(|n| map.shift_remove(&n)).collect()
+    }
+
     /// One named entity, viewed as the union of every Def in this program that
     /// shares `name` — the homoiconic frame "a type is a control with extras":
     /// one identity carrying optional slots (`process` / `composite` /
     /// `reaction` / `type` / `function` / …) filled by whichever lowercase
     /// definers contributed them. `None` if no Def names `name`.
     ///
-    /// The view borrows — it doesn't restructure the AST, just indexes it. A
-    /// future slice can collapse `Def` into `EntityDef` and have this be the
-    /// owning struct; today it's a derived lookup. See `#30` in
-    /// `docs/NEXT-SESSION.md`.
+    /// The view borrows — it doesn't restructure the AST, just indexes it.
+    /// For an owned / serializable form, see [`Self::entity_owned`] /
+    /// [`Self::owned_entities`].
     pub fn entity(&self, name: &str) -> Option<EntityView<'_>> {
         // The view borrows the Program's own name (lifetime `'self`) so the
         // returned EntityView isn't tied to the caller-supplied `name`'s
@@ -697,6 +751,253 @@ pub struct EntityView<'a> {
     /// `def name [:: T] = expr` — a top-level binding. The pair is
     /// `(optional type ascription, value expression)`.
     pub binding: Option<(&'a Option<SchemaExpr>, &'a Expr)>,
+}
+
+/// The OWNED form of `EntityView` — the same shape, cloned. Lets callers
+/// build entities programmatically ("start with an empty entity, add slots
+/// until it's whatever program you want") and pass them around without
+/// borrowing a Program. Pairs with [`Program::entity_owned`] /
+/// [`Program::owned_entities`] for the read direction, and with hand-construction
+/// via [`EntityDef::new`] + slot-setters for the write direction.
+#[derive(Debug, Clone, Default)]
+pub struct EntityDef {
+    pub name: Name,
+    pub function: Option<FunctionDef>,
+    pub process: Option<ProcessDef>,
+    pub step: Option<StepDef>,
+    pub composite: Option<CompositeDef>,
+    pub reaction: Option<ReactionDef>,
+    pub pattern: Option<PatternDef>,
+    pub type_def: Option<TypeDef>,
+    pub contract: Option<ContractDef>,
+    pub protocol: Option<ProtocolDef>,
+    pub unit: Option<UnitDef>,
+    pub context: Option<ContextDef>,
+    pub binding: Option<(Option<SchemaExpr>, Expr)>,
+}
+
+impl EntityDef {
+    /// An empty entity — just a name, no slots filled. The user's mental
+    /// model "start with an empty Entity, then add things to it until it
+    /// was whatever ys program" is *literally* this struct plus the
+    /// `with_…` slot-setters below. The unified registry is the answer to
+    /// "where do I put the next piece?" — every contribution is one slot.
+    pub fn new(name: impl Into<Name>) -> Self {
+        Self {
+            name: name.into(),
+            ..Self::default()
+        }
+    }
+
+    /// Slot-builders — append-style, return `Self` so contributions chain.
+    pub fn with_function(mut self, def: FunctionDef) -> Self {
+        self.function = Some(def);
+        self
+    }
+    pub fn with_process(mut self, def: ProcessDef) -> Self {
+        self.process = Some(def);
+        self
+    }
+    pub fn with_step(mut self, def: StepDef) -> Self {
+        self.step = Some(def);
+        self
+    }
+    pub fn with_composite(mut self, def: CompositeDef) -> Self {
+        self.composite = Some(def);
+        self
+    }
+    pub fn with_reaction(mut self, def: ReactionDef) -> Self {
+        self.reaction = Some(def);
+        self
+    }
+    pub fn with_type(mut self, def: TypeDef) -> Self {
+        self.type_def = Some(def);
+        self
+    }
+    pub fn with_binding(mut self, schema: Option<SchemaExpr>, value: Expr) -> Self {
+        self.binding = Some((schema, value));
+        self
+    }
+
+    /// True if every slot is empty — a "name-only" placeholder (the bare
+    /// `control Foo` case from slice 4, when that lands).
+    pub fn is_empty(&self) -> bool {
+        self.function.is_none()
+            && self.process.is_none()
+            && self.step.is_none()
+            && self.composite.is_none()
+            && self.reaction.is_none()
+            && self.pattern.is_none()
+            && self.type_def.is_none()
+            && self.contract.is_none()
+            && self.protocol.is_none()
+            && self.unit.is_none()
+            && self.context.is_none()
+            && self.binding.is_none()
+    }
+
+    /// Absorb a Def into the appropriate slot — the owned counterpart of
+    /// [`EntityView::absorb`]. Later defs of the same kind overwrite.
+    pub fn absorb_def(&mut self, def: &Def) {
+        match def {
+            Def::Function(d) => self.function = Some(d.clone()),
+            Def::Process(d) => self.process = Some(d.clone()),
+            Def::Step(d) => self.step = Some(d.clone()),
+            Def::Composite(d) => self.composite = Some(d.clone()),
+            Def::Reaction(d) => self.reaction = Some(d.clone()),
+            Def::Pattern(d) => self.pattern = Some(d.clone()),
+            Def::Type(d) => self.type_def = Some(d.clone()),
+            Def::Contract(d) => self.contract = Some(d.clone()),
+            Def::Protocol(d) => self.protocol = Some(d.clone()),
+            Def::Unit(d) => self.unit = Some(d.clone()),
+            Def::Context(d) => self.context = Some(d.clone()),
+            Def::Binding { schema, value, .. } => {
+                self.binding = Some((schema.clone(), value.clone()));
+            }
+            Def::Import { .. } | Def::Use { .. } => {}
+        }
+    }
+
+    /// True if this entity has a value-form slot — matches
+    /// [`EntityView::has_value_form`].
+    pub fn has_value_form(&self) -> bool {
+        self.function.is_some()
+            || self.composite.is_some()
+            || self.process.is_some()
+            || self.step.is_some()
+            || self.reaction.is_some()
+            || self.protocol.is_some()
+    }
+
+    /// Render this entity as a chrysalis [`Value`] — the homoiconic
+    /// summary shape. The structure mirrors the `.ys` surface: name +
+    /// which slots are filled + each slot's key structural metadata
+    /// (ports, param names). Body Exprs aren't serialized in this slice
+    /// (deep AST-as-value is the stretch); names/ports/structure are
+    /// enough for "programs as data" inspection / programmatic construction
+    /// / round-trip identity at the entity-registry level.
+    pub fn to_value(&self) -> prism_schema::Value {
+        use indexmap::IndexMap;
+        use prism_schema::{Key, Value};
+        let mut fields: IndexMap<Key, Value> = IndexMap::new();
+        fields.insert(Key::from("_type"), Value::String("EntityDef".into()));
+        fields.insert(Key::from("name"), Value::String(self.name.clone()));
+        let mut slots: Vec<Value> = Vec::new();
+        if let Some(p) = &self.process {
+            slots.push(Value::String("process".into()));
+            fields.insert(
+                Key::from("process"),
+                slot_with_body(&p.interface, &p.body),
+            );
+        }
+        if let Some(s) = &self.step {
+            slots.push(Value::String("step".into()));
+            fields.insert(
+                Key::from("step"),
+                slot_with_body(&s.interface, &s.body),
+            );
+        }
+        if let Some(c) = &self.composite {
+            slots.push(Value::String("composite".into()));
+            fields.insert(
+                Key::from("composite"),
+                slot_with_body(&c.interface, &c.body),
+            );
+        }
+        if let Some(r) = &self.reaction {
+            slots.push(Value::String("reaction".into()));
+            let mut rmap: IndexMap<Key, Value> = IndexMap::new();
+            rmap.insert(
+                Key::from("params"),
+                Value::List(
+                    r.params
+                        .iter()
+                        .map(|p| Value::String(p.name.clone()))
+                        .collect(),
+                ),
+            );
+            rmap.insert(Key::from("redex"), r.redex.to_value());
+            rmap.insert(Key::from("reactum"), r.reactum.to_value());
+            fields.insert(Key::from("reaction"), Value::Map(rmap));
+        }
+        if let Some(f) = &self.function {
+            slots.push(Value::String("function".into()));
+            let mut fmap: IndexMap<Key, Value> = IndexMap::new();
+            fmap.insert(
+                Key::from("params"),
+                Value::List(
+                    f.params
+                        .iter()
+                        .map(|p| Value::String(p.name.clone()))
+                        .collect(),
+                ),
+            );
+            fmap.insert(Key::from("body"), f.body.to_value());
+            fields.insert(Key::from("function"), Value::Map(fmap));
+        }
+        if self.type_def.is_some() {
+            slots.push(Value::String("type".into()));
+        }
+        if self.contract.is_some() {
+            slots.push(Value::String("contract".into()));
+        }
+        if self.protocol.is_some() {
+            slots.push(Value::String("protocol".into()));
+        }
+        if self.unit.is_some() {
+            slots.push(Value::String("unit".into()));
+        }
+        if self.context.is_some() {
+            slots.push(Value::String("context".into()));
+        }
+        if self.binding.is_some() {
+            slots.push(Value::String("binding".into()));
+        }
+        fields.insert(Key::from("slots"), Value::List(slots));
+        Value::Map(fields)
+    }
+}
+
+/// Summarise an `Interface` (input/output port names) as a Value. Keeps the
+/// shape readable without recursing into port-schema details.
+fn interface_summary(iface: &Interface) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    let mut m: IndexMap<Key, Value> = IndexMap::new();
+    m.insert(
+        Key::from("inputs"),
+        Value::List(
+            iface
+                .inputs
+                .keys()
+                .map(|k| Value::String(k.clone()))
+                .collect(),
+        ),
+    );
+    m.insert(
+        Key::from("outputs"),
+        Value::List(
+            iface
+                .outputs
+                .keys()
+                .map(|k| Value::String(k.clone()))
+                .collect(),
+        ),
+    );
+    Value::Map(m)
+}
+
+/// Slot summary + body: interface ports plus the body Expr as data. The
+/// body is recursed via [`Expr::to_value`] so the whole AST is walkable.
+fn slot_with_body(iface: &Interface, body: &Expr) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    let mut m: IndexMap<Key, Value> = match interface_summary(iface) {
+        Value::Map(m) => m,
+        _ => IndexMap::new(),
+    };
+    m.insert(Key::from("body"), body.to_value());
+    Value::Map(m)
 }
 
 impl<'a> EntityView<'a> {
@@ -1225,4 +1526,695 @@ impl TermBuilder {
             body: self.body,
         }
     }
+}
+
+// =============================================================================
+// AST as data — Expr → Value serialization (#32 stretch)
+// =============================================================================
+//
+// Every `Expr` variant renders as `{_type: "<Variant>", …fields}` — a plain
+// tree-of-maps that any chrysalis caller can walk, transform, or build by
+// hand. Round-trips with [`Expr::from_value`] (subset; see #32). Body Exprs
+// inside `EntityDef::to_value`'s slot summaries are recursed via this same
+// serializer, so the whole AST is data, all the way down.
+
+impl Expr {
+    /// Serialize this expression as a chrysalis Value — the homoiconic AST
+    /// shape. Recursive; every sub-expression becomes another `{_type, …}`
+    /// map. Inverse: [`Expr::from_value`] (covers the build-up-a-program
+    /// subset; full coverage will land alongside compile-from-value).
+    pub fn to_value(&self) -> prism_schema::Value {
+        use indexmap::IndexMap;
+        use prism_schema::{Key, Value};
+        let tag = |variant: &str, fields: &[(&str, Value)]| -> Value {
+            let mut m: IndexMap<Key, Value> = IndexMap::new();
+            m.insert(Key::from("_type"), Value::String(variant.into()));
+            for (k, v) in fields {
+                m.insert(Key::from(*k), v.clone());
+            }
+            Value::Map(m)
+        };
+        let exprs = |es: &[Expr]| -> Value {
+            Value::List(es.iter().map(Expr::to_value).collect())
+        };
+        match self {
+            Expr::Unit => tag("Unit", &[]),
+            Expr::Bool(b) => tag("Bool", &[("value", Value::Bool(*b))]),
+            Expr::Int(n) => tag("Int", &[("value", Value::Int(*n))]),
+            Expr::Float(f) => tag("Float", &[("value", Value::float(*f))]),
+            Expr::Str(s) => tag("Str", &[("value", string_lit_to_value(s))]),
+            Expr::Var(n) => tag("Var", &[("name", Value::String(n.clone()))]),
+            Expr::Path(p) => tag("Path", &[("path", place_path_to_value(p))]),
+            Expr::Term { control, args, ports, body } => {
+                let mut fields: Vec<(&str, Value)> = vec![
+                    ("control", Value::String(control.clone())),
+                    ("args", Value::List(args.iter().map(term_arg_to_value).collect())),
+                    ("ports", port_bindings_to_value(ports)),
+                ];
+                if let Some(b) = body {
+                    fields.push(("body", b.to_value()));
+                }
+                tag("Term", &fields)
+            }
+            Expr::Parallel(items) => tag("Parallel", &[("items", exprs(items))]),
+            Expr::KeyedEntry { key, value } => tag(
+                "KeyedEntry",
+                &[("key", string_lit_to_value(key)), ("value", value.to_value())],
+            ),
+            Expr::Map(entries) => {
+                let list: Vec<Value> = entries
+                    .iter()
+                    .map(|(k, v)| {
+                        let mut m: IndexMap<Key, Value> = IndexMap::new();
+                        m.insert(Key::from("key"), string_lit_to_value(k));
+                        m.insert(Key::from("value"), v.to_value());
+                        Value::Map(m)
+                    })
+                    .collect();
+                tag("Map", &[("entries", Value::List(list))])
+            }
+            Expr::Record(fields) => {
+                let mut rec: IndexMap<Key, Value> = IndexMap::new();
+                for (k, v) in fields {
+                    rec.insert(Key::from(k.as_str()), v.to_value());
+                }
+                tag("Record", &[("fields", Value::Map(rec))])
+            }
+            Expr::List(items) => tag("List", &[("items", exprs(items))]),
+            Expr::Site { name, sort } => {
+                let mut fields: Vec<(&str, Value)> =
+                    vec![("name", Value::String(name.clone()))];
+                if let Some(s) = sort {
+                    fields.push(("sort", s.to_value()));
+                }
+                tag("Site", &fields)
+            }
+            Expr::Unbound => tag("Unbound", &[]),
+            Expr::LinkVar(n) => tag("LinkVar", &[("name", Value::String(n.clone()))]),
+            Expr::Rule { redex, reactum } => tag(
+                "Rule",
+                &[("redex", redex.to_value()), ("reactum", reactum.to_value())],
+            ),
+            Expr::Let { bindings, body } => tag(
+                "Let",
+                &[
+                    ("bindings", named_bindings_to_value(bindings)),
+                    ("body", body.to_value()),
+                ],
+            ),
+            Expr::Block(b) => tag(
+                "Block",
+                &[
+                    ("bindings", named_bindings_to_value(&b.bindings)),
+                    ("value", b.value.to_value()),
+                ],
+            ),
+            Expr::If { cond, then_, else_ } => {
+                let mut fields: Vec<(&str, Value)> = vec![
+                    ("cond", cond.to_value()),
+                    ("then", then_.to_value()),
+                ];
+                if let Some(e) = else_ {
+                    fields.push(("else", e.to_value()));
+                }
+                tag("If", &fields)
+            }
+            Expr::BinOp { op, lhs, rhs } => tag(
+                "BinOp",
+                &[
+                    ("op", Value::String(binop_tag(*op).into())),
+                    ("lhs", lhs.to_value()),
+                    ("rhs", rhs.to_value()),
+                ],
+            ),
+            Expr::UnaryOp { op, operand } => tag(
+                "UnaryOp",
+                &[
+                    ("op", Value::String(unaryop_tag(*op).into())),
+                    ("operand", operand.to_value()),
+                ],
+            ),
+            Expr::Method { receiver, method, args } => tag(
+                "Method",
+                &[
+                    ("receiver", receiver.to_value()),
+                    ("method", Value::String(method.clone())),
+                    ("args", exprs(args)),
+                ],
+            ),
+            Expr::Field { base, name } => tag(
+                "Field",
+                &[
+                    ("base", base.to_value()),
+                    ("name", Value::String(name.clone())),
+                ],
+            ),
+            Expr::Call { func, args } => tag(
+                "Call",
+                &[("func", func.to_value()), ("args", exprs(args))],
+            ),
+            Expr::Comprehension {
+                key_var,
+                var,
+                source,
+                filter,
+                body,
+                key,
+            } => {
+                let mut fields: Vec<(&str, Value)> = vec![
+                    ("var", Value::String(var.clone())),
+                    ("source", source.to_value()),
+                    ("body", body.to_value()),
+                ];
+                if let Some(k) = key_var {
+                    fields.push(("key_var", Value::String(k.clone())));
+                }
+                if let Some(f) = filter {
+                    fields.push(("filter", f.to_value()));
+                }
+                if let Some(k) = key {
+                    fields.push(("key", k.to_value()));
+                }
+                tag("Comprehension", &fields)
+            }
+            Expr::ReplaceWith { id, with } => tag(
+                "ReplaceWith",
+                &[("id", id.to_value()), ("with", with.to_value())],
+            ),
+            Expr::Where { inner, predicate } => tag(
+                "Where",
+                &[
+                    ("inner", inner.to_value()),
+                    ("predicate", predicate.to_value()),
+                ],
+            ),
+        }
+    }
+}
+
+fn place_path_to_value(p: &PlacePath) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    let mut m: IndexMap<Key, Value> = IndexMap::new();
+    m.insert(
+        Key::from("root"),
+        Value::String(
+            match &p.root {
+                PathRoot::Here => "Here".into(),
+                PathRoot::Parent => "Parent".into(),
+                PathRoot::Local(n) => format!("Local({n})"),
+            },
+        ),
+    );
+    m.insert(
+        Key::from("segments"),
+        Value::List(p.segments.iter().map(|s| Value::String(s.clone())).collect()),
+    );
+    Value::Map(m)
+}
+
+fn string_lit_to_value(s: &StringLit) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    if let Some(plain) = s.as_plain() {
+        return Value::String(plain);
+    }
+    // Template literal: emit segments as a list of {kind, …}.
+    let segs: Vec<Value> = s
+        .segments
+        .iter()
+        .map(|seg| {
+            let mut m: IndexMap<Key, Value> = IndexMap::new();
+            match seg {
+                StringSeg::Lit(s) => {
+                    m.insert(Key::from("kind"), Value::String("lit".into()));
+                    m.insert(Key::from("text"), Value::String(s.clone()));
+                }
+                StringSeg::Expr(e) => {
+                    m.insert(Key::from("kind"), Value::String("expr".into()));
+                    m.insert(Key::from("expr"), e.to_value());
+                }
+            }
+            Value::Map(m)
+        })
+        .collect();
+    let mut m: IndexMap<Key, Value> = IndexMap::new();
+    m.insert(Key::from("_type"), Value::String("Template".into()));
+    m.insert(Key::from("segments"), Value::List(segs));
+    Value::Map(m)
+}
+
+fn term_arg_to_value(a: &TermArg) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    let mut m: IndexMap<Key, Value> = IndexMap::new();
+    match a {
+        TermArg::Positional(e) => {
+            m.insert(Key::from("kind"), Value::String("positional".into()));
+            m.insert(Key::from("value"), e.to_value());
+        }
+        TermArg::Named { name, value } => {
+            m.insert(Key::from("kind"), Value::String("named".into()));
+            m.insert(Key::from("name"), Value::String(name.clone()));
+            m.insert(Key::from("value"), value.to_value());
+        }
+    }
+    Value::Map(m)
+}
+
+fn port_bindings_to_value(p: &PortBindings) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    let mut m: IndexMap<Key, Value> = IndexMap::new();
+    let mut bindings_for = |fields: &indexmap::IndexMap<Name, Expr>| -> Value {
+        let mut bm: IndexMap<Key, Value> = IndexMap::new();
+        for (k, v) in fields {
+            bm.insert(Key::from(k.as_str()), v.to_value());
+        }
+        Value::Map(bm)
+    };
+    m.insert(Key::from("inputs"), bindings_for(&p.inputs));
+    m.insert(Key::from("outputs"), bindings_for(&p.outputs));
+    Value::Map(m)
+}
+
+fn named_bindings_to_value(bs: &[(Name, Expr)]) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    let mut m: IndexMap<Key, Value> = IndexMap::new();
+    for (n, e) in bs {
+        m.insert(Key::from(n.as_str()), e.to_value());
+    }
+    Value::Map(m)
+}
+
+fn binop_tag(op: BinOp) -> &'static str {
+    match op {
+        BinOp::Add => "Add",
+        BinOp::Sub => "Sub",
+        BinOp::Mul => "Mul",
+        BinOp::Div => "Div",
+        BinOp::Eq => "Eq",
+        BinOp::Ne => "Ne",
+        BinOp::Lt => "Lt",
+        BinOp::Le => "Le",
+        BinOp::Gt => "Gt",
+        BinOp::Ge => "Ge",
+        BinOp::And => "And",
+        BinOp::Or => "Or",
+        BinOp::Concat => "Concat",
+        BinOp::In => "In",
+    }
+}
+
+fn unaryop_tag(op: UnaryOp) -> &'static str {
+    match op {
+        UnaryOp::Neg => "Neg",
+        UnaryOp::Not => "Not",
+    }
+}
+
+// ── Expr ← Value: the inverse direction (round-trip with `to_value`) ──
+//
+// Lets a chrysalis program receive an AST shape as data (`load(path)._entities`,
+// or a hand-constructed map literal) and feed it back into the runtime as a
+// real Expr — the tier-2 substrate: process bodies as first-class values you
+// can build at runtime, transform, and run. Coverage focuses on the common
+// body variants (literals / Var / Term / Map / Record / Parallel / BinOp /
+// Method / Call / etc.); rare/pattern-only variants return an explicit
+// "not-yet-supported" error so the gap is visible, not silent.
+
+/// Error from [`Expr::from_value`] — which variant or field failed to parse,
+/// and why.
+#[derive(Debug, Clone)]
+pub struct ExprFromValueError(pub String);
+
+impl std::fmt::Display for ExprFromValueError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Expr::from_value: {}", self.0)
+    }
+}
+
+impl std::error::Error for ExprFromValueError {}
+
+impl Expr {
+    /// Materialize an Expr from its `to_value` shape. Inverse of
+    /// [`Expr::to_value`] over the supported subset (common body variants);
+    /// rare variants return [`ExprFromValueError`]. The shape every variant
+    /// expects is `{_type: "<Variant>", …fields}`.
+    pub fn from_value(v: &prism_schema::Value) -> Result<Expr, ExprFromValueError> {
+        let map = v.as_map().ok_or_else(|| err("expected a Map"))?;
+        let tag = map
+            .get("_type")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| err("missing `_type`"))?;
+        match tag {
+            "Unit" => Ok(Expr::Unit),
+            "Bool" => {
+                let b = field_of(map, "value")
+                    .and_then(|v| v.as_bool())
+                    .ok_or_else(|| err("Bool.value must be a Bool"))?;
+                Ok(Expr::Bool(b))
+            }
+            "Int" => {
+                let n = field_of(map, "value")
+                    .and_then(|v| v.as_i64())
+                    .ok_or_else(|| err("Int.value must be an Int"))?;
+                Ok(Expr::Int(n))
+            }
+            "Float" => {
+                let f = field_of(map, "value")
+                    .and_then(|v| v.as_f64())
+                    .ok_or_else(|| err("Float.value must be a Float"))?;
+                Ok(Expr::Float(f))
+            }
+            "Str" => {
+                let s = field_of(map, "value").ok_or_else(|| err("Str.value missing"))?;
+                Ok(Expr::Str(string_lit_from_value(s)?))
+            }
+            "Var" => {
+                let name = field_str(map, "name")?;
+                Ok(Expr::Var(name))
+            }
+            "Path" => {
+                let p = field_of(map, "path").ok_or_else(|| err("Path.path missing"))?;
+                Ok(Expr::Path(place_path_from_value(p)?))
+            }
+            "Term" => {
+                let control = field_str(map, "control")?;
+                let args = field_of(map, "args")
+                    .and_then(|v| v.as_list())
+                    .ok_or_else(|| err("Term.args must be a List"))?
+                    .iter()
+                    .map(term_arg_from_value)
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ports = field_of(map, "ports")
+                    .map(port_bindings_from_value)
+                    .unwrap_or_else(|| Ok(PortBindings::default()))?;
+                let body = field_of(map, "body")
+                    .map(|b| Expr::from_value(b).map(Box::new))
+                    .transpose()?;
+                Ok(Expr::Term { control, args, ports, body })
+            }
+            "Parallel" => Ok(Expr::Parallel(exprs_from_value_field(map, "items")?)),
+            "List" => Ok(Expr::List(exprs_from_value_field(map, "items")?)),
+            "KeyedEntry" => {
+                let key = string_lit_from_value(
+                    field_of(map, "key").ok_or_else(|| err("KeyedEntry.key missing"))?,
+                )?;
+                let value = Expr::from_value(
+                    field_of(map, "value").ok_or_else(|| err("KeyedEntry.value missing"))?,
+                )?;
+                Ok(Expr::KeyedEntry { key, value: Box::new(value) })
+            }
+            "Map" => {
+                let entries = field_of(map, "entries")
+                    .and_then(|v| v.as_list())
+                    .ok_or_else(|| err("Map.entries must be a List"))?;
+                let mut out: Vec<(StringLit, Expr)> = Vec::with_capacity(entries.len());
+                for e in entries {
+                    let m = e.as_map().ok_or_else(|| err("Map entry must be a Map"))?;
+                    let k = string_lit_from_value(
+                        m.get("key").ok_or_else(|| err("Map entry.key missing"))?,
+                    )?;
+                    let v = Expr::from_value(
+                        m.get("value").ok_or_else(|| err("Map entry.value missing"))?,
+                    )?;
+                    out.push((k, v));
+                }
+                Ok(Expr::Map(out))
+            }
+            "Record" => {
+                let fields = field_of(map, "fields")
+                    .and_then(|v| v.as_map())
+                    .ok_or_else(|| err("Record.fields must be a Map"))?;
+                let mut out: indexmap::IndexMap<Name, Expr> = indexmap::IndexMap::new();
+                for (k, v) in fields {
+                    out.insert(k.to_string(), Expr::from_value(v)?);
+                }
+                Ok(Expr::Record(out))
+            }
+            "Block" => {
+                let bindings = field_of(map, "bindings")
+                    .map(named_bindings_from_value)
+                    .unwrap_or_else(|| Ok(Vec::new()))?;
+                let value = Expr::from_value(
+                    field_of(map, "value").ok_or_else(|| err("Block.value missing"))?,
+                )?;
+                Ok(Expr::Block(Block::from_parts(bindings, value)))
+            }
+            "Let" => {
+                let bindings = field_of(map, "bindings")
+                    .map(named_bindings_from_value)
+                    .unwrap_or_else(|| Ok(Vec::new()))?;
+                let body = Expr::from_value(
+                    field_of(map, "body").ok_or_else(|| err("Let.body missing"))?,
+                )?;
+                Ok(Expr::Let { bindings, body: Box::new(body) })
+            }
+            "If" => {
+                let cond = Expr::from_value(
+                    field_of(map, "cond").ok_or_else(|| err("If.cond missing"))?,
+                )?;
+                let then_ = Expr::from_value(
+                    field_of(map, "then").ok_or_else(|| err("If.then missing"))?,
+                )?;
+                let else_ = field_of(map, "else")
+                    .map(|e| Expr::from_value(e).map(Box::new))
+                    .transpose()?;
+                Ok(Expr::If {
+                    cond: Box::new(cond),
+                    then_: Box::new(then_),
+                    else_,
+                })
+            }
+            "BinOp" => {
+                let op = binop_from_tag(&field_str(map, "op")?)?;
+                let lhs = Expr::from_value(
+                    field_of(map, "lhs").ok_or_else(|| err("BinOp.lhs missing"))?,
+                )?;
+                let rhs = Expr::from_value(
+                    field_of(map, "rhs").ok_or_else(|| err("BinOp.rhs missing"))?,
+                )?;
+                Ok(Expr::BinOp {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                })
+            }
+            "UnaryOp" => {
+                let op = unaryop_from_tag(&field_str(map, "op")?)?;
+                let operand = Expr::from_value(
+                    field_of(map, "operand").ok_or_else(|| err("UnaryOp.operand missing"))?,
+                )?;
+                Ok(Expr::UnaryOp { op, operand: Box::new(operand) })
+            }
+            "Method" => {
+                let receiver = Expr::from_value(
+                    field_of(map, "receiver").ok_or_else(|| err("Method.receiver missing"))?,
+                )?;
+                let method = field_str(map, "method")?;
+                let args = exprs_from_value_field(map, "args")?;
+                Ok(Expr::Method {
+                    receiver: Box::new(receiver),
+                    method,
+                    args,
+                })
+            }
+            "Field" => {
+                let base = Expr::from_value(
+                    field_of(map, "base").ok_or_else(|| err("Field.base missing"))?,
+                )?;
+                let name = field_str(map, "name")?;
+                Ok(Expr::Field { base: Box::new(base), name })
+            }
+            "Call" => {
+                let func = Expr::from_value(
+                    field_of(map, "func").ok_or_else(|| err("Call.func missing"))?,
+                )?;
+                let args = exprs_from_value_field(map, "args")?;
+                Ok(Expr::Call { func: Box::new(func), args })
+            }
+            "Unbound" => Ok(Expr::Unbound),
+            "LinkVar" => Ok(Expr::LinkVar(field_str(map, "name")?)),
+            // Pattern-only / rare variants — left for a follow-up slice so the
+            // gap is visible rather than silently mis-handled.
+            other => Err(err(&format!(
+                "variant `{other}` not yet supported via Expr::from_value"
+            ))),
+        }
+    }
+}
+
+fn err(msg: &str) -> ExprFromValueError {
+    ExprFromValueError(msg.to_string())
+}
+
+fn field_of<'a>(
+    map: &'a indexmap::IndexMap<prism_schema::Key, prism_schema::Value>,
+    key: &str,
+) -> Option<&'a prism_schema::Value> {
+    map.get(key)
+}
+
+fn field_str(
+    map: &indexmap::IndexMap<prism_schema::Key, prism_schema::Value>,
+    key: &str,
+) -> Result<String, ExprFromValueError> {
+    map.get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| err(&format!("missing string field `{key}`")))
+}
+
+fn exprs_from_value_field(
+    map: &indexmap::IndexMap<prism_schema::Key, prism_schema::Value>,
+    key: &str,
+) -> Result<Vec<Expr>, ExprFromValueError> {
+    let list = map
+        .get(key)
+        .and_then(|v| v.as_list())
+        .ok_or_else(|| err(&format!("field `{key}` must be a List")))?;
+    list.iter().map(Expr::from_value).collect()
+}
+
+fn string_lit_from_value(v: &prism_schema::Value) -> Result<StringLit, ExprFromValueError> {
+    // A plain string is the shorthand `to_value` form for non-template literals.
+    if let Some(s) = v.as_str() {
+        return Ok(StringLit::plain(s));
+    }
+    // Template: `{_type: "Template", segments: [{kind: lit|expr, …}]}`.
+    let map = v
+        .as_map()
+        .ok_or_else(|| err("StringLit must be a string or template Map"))?;
+    let segs = map
+        .get("segments")
+        .and_then(|v| v.as_list())
+        .ok_or_else(|| err("Template.segments must be a List"))?;
+    let mut out: Vec<StringSeg> = Vec::with_capacity(segs.len());
+    for seg in segs {
+        let m = seg.as_map().ok_or_else(|| err("template segment must be a Map"))?;
+        match m.get("kind").and_then(|v| v.as_str()) {
+            Some("lit") => {
+                let text = m
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| err("lit segment.text missing"))?;
+                out.push(StringSeg::Lit(text.to_string()));
+            }
+            Some("expr") => {
+                let e = m
+                    .get("expr")
+                    .ok_or_else(|| err("expr segment.expr missing"))?;
+                out.push(StringSeg::Expr(Expr::from_value(e)?));
+            }
+            other => return Err(err(&format!("unknown segment kind: {other:?}"))),
+        }
+    }
+    Ok(StringLit::template(out))
+}
+
+fn place_path_from_value(v: &prism_schema::Value) -> Result<PlacePath, ExprFromValueError> {
+    let m = v.as_map().ok_or_else(|| err("PlacePath must be a Map"))?;
+    let root_str = m
+        .get("root")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| err("PlacePath.root missing"))?;
+    let root = match root_str {
+        "Here" => PathRoot::Here,
+        "Parent" => PathRoot::Parent,
+        s if s.starts_with("Local(") && s.ends_with(')') => {
+            PathRoot::Local(s[6..s.len() - 1].to_string())
+        }
+        other => return Err(err(&format!("unknown PathRoot tag: {other:?}"))),
+    };
+    let segments = m
+        .get("segments")
+        .and_then(|v| v.as_list())
+        .ok_or_else(|| err("PlacePath.segments must be a List"))?
+        .iter()
+        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+        .collect();
+    Ok(PlacePath { root, segments })
+}
+
+fn term_arg_from_value(v: &prism_schema::Value) -> Result<TermArg, ExprFromValueError> {
+    let m = v.as_map().ok_or_else(|| err("TermArg must be a Map"))?;
+    let kind = m
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| err("TermArg.kind missing"))?;
+    let value = Expr::from_value(
+        m.get("value").ok_or_else(|| err("TermArg.value missing"))?,
+    )?;
+    match kind {
+        "positional" => Ok(TermArg::Positional(value)),
+        "named" => {
+            let name = m
+                .get("name")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .ok_or_else(|| err("named TermArg.name missing"))?;
+            Ok(TermArg::Named { name, value })
+        }
+        other => Err(err(&format!("unknown TermArg kind: {other:?}"))),
+    }
+}
+
+fn port_bindings_from_value(
+    v: &prism_schema::Value,
+) -> Result<PortBindings, ExprFromValueError> {
+    let m = v.as_map().ok_or_else(|| err("PortBindings must be a Map"))?;
+    let parse = |key: &str| -> Result<indexmap::IndexMap<Name, Expr>, ExprFromValueError> {
+        let mut out: indexmap::IndexMap<Name, Expr> = indexmap::IndexMap::new();
+        if let Some(bindings) = m.get(key).and_then(|v| v.as_map()) {
+            for (k, v) in bindings {
+                out.insert(k.to_string(), Expr::from_value(v)?);
+            }
+        }
+        Ok(out)
+    };
+    Ok(PortBindings {
+        inputs: parse("inputs")?,
+        outputs: parse("outputs")?,
+    })
+}
+
+fn named_bindings_from_value(
+    v: &prism_schema::Value,
+) -> Result<Vec<(Name, Expr)>, ExprFromValueError> {
+    let m = v.as_map().ok_or_else(|| err("bindings must be a Map"))?;
+    let mut out: Vec<(Name, Expr)> = Vec::with_capacity(m.len());
+    for (k, v) in m {
+        out.push((k.to_string(), Expr::from_value(v)?));
+    }
+    Ok(out)
+}
+
+fn binop_from_tag(tag: &str) -> Result<BinOp, ExprFromValueError> {
+    Ok(match tag {
+        "Add" => BinOp::Add,
+        "Sub" => BinOp::Sub,
+        "Mul" => BinOp::Mul,
+        "Div" => BinOp::Div,
+        "Eq" => BinOp::Eq,
+        "Ne" => BinOp::Ne,
+        "Lt" => BinOp::Lt,
+        "Le" => BinOp::Le,
+        "Gt" => BinOp::Gt,
+        "Ge" => BinOp::Ge,
+        "And" => BinOp::And,
+        "Or" => BinOp::Or,
+        "Concat" => BinOp::Concat,
+        "In" => BinOp::In,
+        other => return Err(err(&format!("unknown BinOp tag: {other:?}"))),
+    })
+}
+
+fn unaryop_from_tag(tag: &str) -> Result<UnaryOp, ExprFromValueError> {
+    Ok(match tag {
+        "Neg" => UnaryOp::Neg,
+        "Not" => UnaryOp::Not,
+        other => return Err(err(&format!("unknown UnaryOp tag: {other:?}"))),
+    })
 }

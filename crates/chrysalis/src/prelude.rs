@@ -217,12 +217,16 @@ fn load_program_as_document(path: &str) -> Result<Value, MethodError> {
         .map_err(|e| mk_err(&format!("compile {path}"), format!("{e:?}")))?;
     let doc = crate::runner::document_of(&result);
     let mut value = document_to_value(&doc);
-    // Remember the source path so `Document.run(time)` can re-compile the
-    // program for its own Core (which knows the user-defined `process`/
-    // `composite` factories the Document references). Without this stash, the
-    // .run path would see "unregistered process(es)" for anything beyond std.
+    // Stash:
+    //  - `_source` so `Document.run(time)` can re-compile for the program's
+    //    own Core (it knows the user-defined process/composite factories).
+    //  - `_entities` so a `.ys` caller can inspect the program's entity
+    //    registry from inside the surface language (`loaded._entities.…`).
+    //    The homoiconic principle: the *list of named things* is itself
+    //    data, walkable like any other Map/List.
     if let Value::Map(m) = &mut value {
         m.insert(Key::from("_source"), Value::String(path.into()));
+        m.insert(Key::from("_entities"), prog.to_value().get_field("entities").cloned().unwrap_or(Value::None));
     }
     Ok(value)
 }
