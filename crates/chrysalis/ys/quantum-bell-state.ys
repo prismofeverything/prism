@@ -1,0 +1,85 @@
+# Quantum Bell state through effect handlers — entanglement, in surface .ys.
+# ──────────────────────────────────────────────────────────────────────────
+#
+# Builds the entangled Bell state (|00⟩ + |11⟩)/√2 from |00⟩ by applying
+# Hadamard on q0 then CNOT(0,1), each as a Call dispatched through a
+# handler. The state-representation is a Map keyed by the 4 computational-
+# basis bitstrings with real amplitudes (sufficient since H + CNOT preserve
+# real amplitudes from |00⟩).
+#
+# The full quantum mechanics — including the entanglement structure — runs
+# at the eval-time layer using the homoiconic substrate. No engine
+# refactoring required for this slice.
+#
+# The Bell state is famously NON-FACTORIZABLE: you cannot write
+# `bell = (a|0⟩ + b|1⟩) ⊗ (c|0⟩ + d|1⟩)` for any (a,b,c,d). The
+# correlations between the two qubits are real physical entanglement.
+#
+# Run: `chrysalis run quantum-bell-state.ys --time 0`
+# Expected (ε ≈ 1e-4):
+#   bell_state: { 'b00': 0.7071, 'b01': 0.0, 'b10': 0.0, 'b11': 0.7071 }
+#   prob_same:  1.0   (measure-same-basis correlation)
+
+from meta import handle
+from ast  import var, call, float, add, sub, div, field, record
+
+# Initial state |00⟩ — amp 1.0 at 'b00', 0 elsewhere.
+def init_00 = record({
+  'b00': float(1.0),
+  'b01': float(0.0),
+  'b10': float(0.0),
+  'b11': float(0.0)
+})
+
+# Build the expression: `cnot_01(hadamard_q0(init_00))`. TWO calls, two
+# different gates from the same handler bundle.
+def bell_expr = call(var('cnot_01'),
+  [call(var('hadamard_q0'), [init_00])]
+)
+
+# Hadamard on q0:
+#   H ⊗ I  applied to (a|00⟩ + b|01⟩ + c|10⟩ + d|11⟩):
+#     ((a+c)|00⟩ + (b+d)|01⟩ + (a-c)|10⟩ + (b-d)|11⟩) / √2
+def hadamard_q0 = {
+  'params': ['s'],
+  'body': record({
+    'b00': div(add(field(var('s'), 'b00'), field(var('s'), 'b10')), float(1.41421356)),
+    'b01': div(add(field(var('s'), 'b01'), field(var('s'), 'b11')), float(1.41421356)),
+    'b10': div(sub(field(var('s'), 'b00'), field(var('s'), 'b10')), float(1.41421356)),
+    'b11': div(sub(field(var('s'), 'b01'), field(var('s'), 'b11')), float(1.41421356))
+  })
+}
+
+# CNOT with control=q0, target=q1:
+#   If q0=0: leave q1 alone.
+#   If q0=1: flip q1.
+#   So: |00⟩→|00⟩, |01⟩→|01⟩, |10⟩→|11⟩, |11⟩→|10⟩.
+def cnot_01 = {
+  'params': ['s'],
+  'body': record({
+    'b00': field(var('s'), 'b00'),
+    'b01': field(var('s'), 'b01'),
+    'b10': field(var('s'), 'b11'),
+    'b11': field(var('s'), 'b10')
+  })
+}
+
+# Evaluate the expression under the quantum handler bundle.
+def bell_state = handle(bell_expr, {
+  'hadamard_q0': hadamard_q0,
+  'cnot_01':     cnot_01
+})
+
+# Correlation: probability of measuring q0 and q1 in the same basis state
+# (both 0 or both 1) — for a Bell state this is 1.0 (perfect correlation,
+# entanglement). For an UNentangled uniform-random state it would be 0.5.
+composite QuantumBell ~{} ->{
+  bell_state :: Any,
+  prob_same  :: Float
+} (
+  bell_state: bell_state |
+  prob_same: (
+    (bell_state.b00 * bell_state.b00) +
+    (bell_state.b11 * bell_state.b11)
+  )
+)
