@@ -66,6 +66,117 @@ fn same_expr_different_handlers_different_results() {
 }
 
 #[test]
+fn handlers_scope_through_nested_expressions() {
+    // The handler intercepts EVERY call to `choose` no matter how deep in
+    // the expression tree. Test: `add(choose(2.0, 3.0), 10.0)` — the choose
+    // is one level down inside an add; the handler still catches it.
+    let two = map("Float", &[("value", Value::float(2.0))]);
+    let three = map("Float", &[("value", Value::float(3.0))]);
+    let ten = map("Float", &[("value", Value::float(10.0))]);
+    let choose_call = map(
+        "Call",
+        &[
+            ("func", map("Var", &[("name", Value::String("choose".into()))])),
+            ("args", Value::List(vec![two, three])),
+        ],
+    );
+    // The outer expression: `choose(2.0, 3.0) + 10.0` as a BinOp tree.
+    let outer = map(
+        "BinOp",
+        &[
+            ("op", Value::String("Add".into())),
+            ("lhs", choose_call),
+            ("rhs", ten),
+        ],
+    );
+
+    let pick_second = raw_map(&[
+        ("params", Value::List(vec![Value::String("a".into()), Value::String("b".into())])),
+        ("body", map("Var", &[("name", Value::String("b".into()))])),
+    ]);
+    let handlers = raw_map(&[("choose", pick_second)]);
+
+    let result = chrysalis::prelude::handle(&outer, &handlers).expect("eval");
+    assert_eq!(
+        result.as_f64(),
+        Some(13.0),
+        "the handler intercepts the inner `choose(2,3)` → 3; then 3 + 10 = 13. The\n\
+         outer BinOp doesn't need to know that `choose` is handled — handlers\n\
+         scope through the whole expression tree."
+    );
+}
+
+#[test]
+fn multiple_handlers_in_one_bundle() {
+    // The handler bundle is itself a Value::Map keyed by operation name. A
+    // single bundle can intercept multiple effects in one expression.
+    // Test: `combine(choose(1.0, 2.0), pick(3.0, 4.0))` with both `choose`
+    // and `pick` handled, plus `combine` mapped to multiplication.
+    let one = map("Float", &[("value", Value::float(1.0))]);
+    let two = map("Float", &[("value", Value::float(2.0))]);
+    let three = map("Float", &[("value", Value::float(3.0))]);
+    let four = map("Float", &[("value", Value::float(4.0))]);
+    let choose_call = map(
+        "Call",
+        &[
+            ("func", map("Var", &[("name", Value::String("choose".into()))])),
+            ("args", Value::List(vec![one, two])),
+        ],
+    );
+    let pick_call = map(
+        "Call",
+        &[
+            ("func", map("Var", &[("name", Value::String("pick".into()))])),
+            ("args", Value::List(vec![three, four])),
+        ],
+    );
+    let combine_call = map(
+        "Call",
+        &[
+            ("func", map("Var", &[("name", Value::String("combine".into()))])),
+            ("args", Value::List(vec![choose_call, pick_call])),
+        ],
+    );
+
+    let first_arg = raw_map(&[
+        ("params", Value::List(vec![Value::String("a".into()), Value::String("b".into())])),
+        ("body", map("Var", &[("name", Value::String("a".into()))])),
+    ]);
+    let second_arg = raw_map(&[
+        ("params", Value::List(vec![Value::String("a".into()), Value::String("b".into())])),
+        ("body", map("Var", &[("name", Value::String("b".into()))])),
+    ]);
+    let multiply = raw_map(&[
+        ("params", Value::List(vec![Value::String("x".into()), Value::String("y".into())])),
+        (
+            "body",
+            map(
+                "BinOp",
+                &[
+                    ("op", Value::String("Mul".into())),
+                    ("lhs", map("Var", &[("name", Value::String("x".into()))])),
+                    ("rhs", map("Var", &[("name", Value::String("y".into()))])),
+                ],
+            ),
+        ),
+    ]);
+    let handlers = raw_map(&[
+        ("choose", first_arg),
+        ("pick", second_arg),
+        ("combine", multiply),
+    ]);
+
+    // choose(1,2) → 1, pick(3,4) → 4, combine(1, 4) → 1 * 4 = 4.
+    let result = chrysalis::prelude::handle(&combine_call, &handlers).expect("eval");
+    assert_eq!(
+        result.as_f64(),
+        Some(4.0),
+        "three effects handled at once: choose→first, pick→second,\n\
+         combine→multiply; the result composes naturally."
+    );
+}
+
+#[test]
 fn handler_body_can_compute() {
     // `choose(a, b)` under a handler that adds them: returns a + b.
     let two = map("Float", &[("value", Value::float(2.0))]);

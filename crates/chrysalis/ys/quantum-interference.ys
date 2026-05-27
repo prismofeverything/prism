@@ -1,0 +1,72 @@
+# Quantum interference via effect handlers — one operation, two semantics.
+# ────────────────────────────────────────────────────────────────────────
+#
+# Build the SAME expression `flip(flip(initial_state))` as data. Run it
+# through TWO handler bundles:
+#
+#   - Quantum handler: `flip` is the Hadamard gate. Amplitudes can cancel
+#     by interference; H applied twice returns to |0⟩.
+#   - Classical handler: `flip` is uniform randomization. No interference;
+#     two flips stays uniform.
+#
+# Same expression, two semantics, qualitatively different results.
+# This is the "compose 1 effect + 2 handlers = 2 paradigms" demonstration
+# that opens the door to the full quantum-bigraphs goal (#35 §XI). All
+# done at the eval-time layer without engine changes.
+#
+# Run: `chrysalis run quantum-interference.ys --time 0`
+# Expected (numerical, ε ≈ 1e-4):
+#   { quantum: { amp_0: 1.0, amp_1: 0.0 },  ← back to |0⟩ by H·H = I
+#     classical: { amp_0: 0.5, amp_1: 0.5 } ← still uniform
+#   }
+
+from meta import handle
+from ast  import var, call, float, add, sub, div, field, record
+
+# The initial single-qubit state |0⟩ as an Expr-value: {amp_0: 1.0, amp_1: 0.0}.
+def initial_state = record({
+  'amp_0': float(1.0),
+  'amp_1': float(0.0)
+})
+
+# The expression: `flip(flip(initial_state))` — TWO calls to `flip`.
+def two_flips = call(var('flip'), [call(var('flip'), [initial_state])])
+
+# Quantum handler — the Hadamard gate. New state from amplitudes (a, b):
+#   amp_0' = (a + b) / √2
+#   amp_1' = (a - b) / √2
+# √2 ≈ 1.41421356
+def quantum_flip = {
+  'params': ['s'],
+  'body': record({
+    'amp_0': div(add(field(var('s'), 'amp_0'), field(var('s'), 'amp_1')),
+                 float(1.41421356)),
+    'amp_1': div(sub(field(var('s'), 'amp_0'), field(var('s'), 'amp_1')),
+                 float(1.41421356))
+  })
+}
+
+# Classical handler — uniform randomization. Always returns {0.5, 0.5}.
+# (Approximation: a true classical handler would sample one outcome; this
+# returns the marginal distribution, the closest thing without an RNG seed
+# in the eval-time layer.)
+def classical_flip = {
+  'params': ['s'],
+  'body': record({
+    'amp_0': float(0.5),
+    'amp_1': float(0.5)
+  })
+}
+
+# Two evaluations of the SAME `two_flips` expression. The handler bundle
+# decides the semantics; the expression doesn't change.
+def quantum_result   = handle(two_flips, { 'flip': quantum_flip })
+def classical_result = handle(two_flips, { 'flip': classical_flip })
+
+composite QuantumInterference ~{} ->{
+  quantum   :: Any,
+  classical :: Any
+} (
+  quantum:   quantum_result   |
+  classical: classical_result
+)

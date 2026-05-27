@@ -1,0 +1,39 @@
+# Algebraic effects, slice 1: `handle(expr, handlers)` in surface `.ys`.
+# ─────────────────────────────────────────────────────────────────────
+#
+# Build the SAME expression — `choose(2.0, 3.0)` — and evaluate it under
+# THREE different handler bundles. The handler decides what `choose` means.
+#
+# Lisp parallel: `(eval-with-handlers form '((choose . pick-first)))` vs
+# `(eval-with-handlers form '((choose . pick-second)))`. The form is data;
+# the handler is data; the runtime interprets one through the other.
+#
+# Run: `chrysalis run effects-handle-demo.ys --time 0`
+# Expected: `{"first": 2.0, "second": 3.0, "sum": 5.0}`
+#
+# See `docs/effects-and-handlers.md` for the full design (and the path to
+# quantum bigraphs as an effect-handler composition).
+
+from meta import handle
+from ast  import float, var, add, call
+
+# The expression: a Call to `choose` with two literal Float args. Built
+# from data; no parser sees `choose` as anything special.
+def the_expr = call(var('choose'), [float(2.0), float(3.0)])
+
+# Three handlers for `choose`. Each is a `{params, body}` record; the
+# body is an Expr-shape Value evaluated with the call's args bound to
+# the handler's param names.
+def pick_first  = { 'params': ['a', 'b'], 'body': var('a') }
+def pick_second = { 'params': ['a', 'b'], 'body': var('b') }
+def add_them    = { 'params': ['a', 'b'], 'body': add(var('a'), var('b')) }
+
+composite EffectsHandleDemo ~{} ->{
+  first  :: Float,
+  second :: Float,
+  sum    :: Float
+} (
+  first:  handle(the_expr, { 'choose': pick_first })  |
+  second: handle(the_expr, { 'choose': pick_second }) |
+  sum:    handle(the_expr, { 'choose': add_them })
+)
