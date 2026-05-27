@@ -1,0 +1,156 @@
+# The hand-built Cell — #34's north star.
+# ────────────────────────────────────────
+#
+# Builds the Cell composite — Grow + Divide + the wiring — entirely from
+# map literals (via the meta-`ast` builders). No parser is involved for the
+# simulation logic. Then `compile_value(prog).run(time)` interprets it.
+#
+# Equivalent to the `cell.ys` + `grow.ys` + `divide.ys` triple in the
+# `.ys`-surface form, minus the units (which need additional registry
+# wiring — straightforward extension).
+#
+# Run: `chrysalis run hand-built-cell.ys --time 5`
+# Expected: the cell grows, glucose depletes, mass + glucose + acetate
+# stays conserved.
+
+from meta import compile_value
+from ast import
+  float, bool, var, record, parallel, keyed,
+  term_with_args, named_arg, ports,
+  float_port, bool_port, port_with_default,
+  add, sub, mul, gt, neg, if_,
+  block, mk_param_default,
+  mk_process, mk_composite, program
+
+# ── Grow process — mass-balanced metabolism. ─────────────────────────
+#
+# Body:
+#   raw    = k * glucose * mass * interval
+#   capped = if raw > glucose then glucose else raw
+#   u      = if capped > 0.0 then capped else 0.0
+#   {mass: u * yield, glucose: -u, acetate: u * (1 - yield)}
+
+def grow_body = block(
+  {
+    'raw':    mul(mul(mul(var('k'), var('glucose')), var('mass')), var('interval')),
+    'capped': if_(gt(var('raw'), var('glucose')), var('glucose'), var('raw')),
+    'u':      if_(gt(var('capped'), float(0.0)), var('capped'), float(0.0))
+  },
+  record({
+    'mass':    mul(var('u'), var('yield')),
+    'glucose': neg(var('u')),
+    'acetate': mul(var('u'), sub(float(1.0), var('yield')))
+  })
+)
+
+def grow = mk_process(
+  'Grow',
+  [
+    mk_param_default('k',     'float', float(0.35)),
+    mk_param_default('yield', 'float', float(0.6))
+  ],
+  {
+    'mass':     float_port,
+    'glucose':  float_port,
+    'interval': port_with_default('float', float(1.0))
+  },
+  {
+    'mass':    float_port,
+    'glucose': float_port,
+    'acetate': float_port
+  },
+  grow_body
+)
+
+# ── Divide step — proposes the divide flag on the cell's own face. ───
+#
+# Body: `{divide: if mass > threshold then true else false}`
+
+def divide_body = record({
+  'divide': if_(gt(var('mass'), var('threshold')), bool(true), bool(false))
+})
+
+def divide_proc = mk_process(
+  'Divide',
+  [ mk_param_default('threshold', 'float', float(2.0)) ],
+  { 'mass': float_port },
+  { 'divide': bool_port },
+  divide_body
+)
+
+# ── Cell composite — wires Grow and Divide together. ─────────────────
+#
+# Body: state slots (mass, glucose, acetate, divide) + two process
+# instantiations that read/write them through port wires.
+
+def grow_term = term_with_args(
+  'Grow',
+  [
+    named_arg('k',     var('k')),
+    named_arg('yield', var('yield'))
+  ],
+  ports(
+    { 'mass': var('mass'),    'glucose': var('glucose') },
+    { 'mass': var('mass'),    'glucose': var('glucose'), 'acetate': var('acetate') }
+  )
+)
+
+def divide_term = term_with_args(
+  'Divide',
+  [ named_arg('threshold', var('threshold')) ],
+  ports(
+    { 'mass': var('mass') },
+    { 'divide': var('divide') }
+  )
+)
+
+def cell_body = parallel([
+  keyed('mass',    var('mass0')),
+  keyed('glucose', var('glucose0')),
+  keyed('acetate', float(0.0)),
+  keyed('divide',  bool(false)),
+  keyed('grow',    grow_term),
+  keyed('propose', divide_term)
+])
+
+def cell = mk_composite(
+  'Cell',
+  [
+    mk_param_default('k',         'float', float(0.35)),
+    mk_param_default('yield',     'float', float(0.6)),
+    mk_param_default('threshold', 'float', float(2.0)),
+    mk_param_default('mass0',     'float', float(1.0)),
+    mk_param_default('glucose0',  'float', float(10.0))
+  ],
+  {},
+  {
+    'mass':    float_port,
+    'glucose': float_port,
+    'acetate': float_port,
+    'divide':  bool_port
+  },
+  cell_body
+)
+
+# ── The whole program: three entities, no parser involvement. ────────
+def cell_program = program([grow, divide_proc, cell])
+
+# Run the hand-built program for 5 ticks; capture the final state.
+def cell_result = compile_value(cell_program).run(5.0)
+
+# The host composite surfaces the simulation's outputs + a mass-conservation
+# check. Mass conservation: glucose-yielded biomass + leftover glucose +
+# excreted acetate sums to the initial total `mass0 + glucose0 = 1 + 10 = 11`.
+composite HandBuiltCell ~{} ->{
+  mass    :: Float,
+  glucose :: Float,
+  acetate :: Float,
+  divide  :: Bool,
+  total   :: Float
+} (
+  mass:    cell_result.mass |
+  glucose: cell_result.glucose |
+  acetate: cell_result.acetate |
+  divide:  cell_result.divide |
+  total:   (cell_result.mass + cell_result.glucose + cell_result.acetate)
+)

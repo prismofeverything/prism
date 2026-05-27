@@ -1,0 +1,52 @@
+# Hand-built program with AST-builder helpers — the EDSL form.
+# ────────────────────────────────────────────────────────────
+#
+# Same program as `hand-built-demo.ys`, but using the `meta.ast` helpers
+# (`def add(a, b) = …`, `def var(n) = …`, etc.) instead of raw map literals.
+# Reads like an embedded language for building programs from data.
+#
+# Run: `chrysalis run hand-built-with-helpers.ys --time 0`
+# Expected: `{"count": 5.0}`
+
+from meta import compile_value
+from ast import
+  float, var, record, parallel, keyed,
+  term, ports, float_port,
+  mk_process, mk_composite, program
+
+# The Tick body: `{count: 1.0}` — a record with one numeric field.
+def tick_body = record({ 'count': float(1.0) })
+
+# The Tick entity — one input + one output port, both `float`.
+def tick = mk_process(
+  'Tick',
+  [],
+  { 'count': float_port },
+  { 'count': float_port },
+  tick_body
+)
+
+# Main's body: `count: 0.0 | tick: Tick ~{count: count} ->{count: count}`.
+def main_entity_body = parallel([
+  keyed('count', float(0.0)),
+  keyed('tick',  term('Tick', ports(
+    { 'count': var('count') },
+    { 'count': var('count') }
+  )))
+])
+
+# The Main composite — no inputs, one output port `count`.
+def main_entity = mk_composite(
+  'Main',
+  [],
+  {},
+  { 'count': float_port },
+  main_entity_body
+)
+
+# Assemble the whole program. Read top-to-bottom like English.
+def my_program = program([tick, main_entity])
+
+composite HandBuiltWithHelpers ~{} ->{ count :: Float } (
+  count: compile_value(my_program).run(5.0).count
+)

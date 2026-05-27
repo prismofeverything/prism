@@ -1,0 +1,148 @@
+# AST-builder helpers — programs as data, ergonomically.
+# ────────────────────────────────────────────────────────
+#
+# A `.ys` library of `def` functions that wrap the raw `{_type: …}` map
+# literals in named constructors. With these, a hand-built program reads
+# like an EDSL rather than a wall of nested maps:
+#
+#     # Without the helpers:
+#     { _type: 'BinOp', op: 'Mul', lhs: {_type: 'Var', name: 'mass'},
+#                                   rhs: {_type: 'Float', value: 0.6} }
+#
+#     # With the helpers:
+#     mul(var('mass'), float(0.6))
+#
+# Import: `from meta.ast import float, var, add, mul, record, …`. Composes
+# with `from meta import compile_value` — assemble a program with these
+# constructors, then `compile_value(prog).run(time)`. See hand-built-demo.ys.
+
+# ── Literals ──
+def float(v) = { '_type': 'Float',   'value': v }
+def int(n)   = { '_type': 'Int',     'value': n }
+def bool(b)  = { '_type': 'Bool',    'value': b }
+def str(s)   = { '_type': 'Str',     'value': s }
+# NB: `unit` is a keyword (the `unit name : [dim] = …` declarator),
+# `unbound` is too. Body Exprs rarely need them anyway — omitted here.
+
+# ── References ──
+def var(n)     = { '_type': 'Var',     'name':  n }
+def link(n)    = { '_type': 'LinkVar', 'name':  n }
+
+# ── Arithmetic (BinOp) ──
+def add(a, b)  = { '_type': 'BinOp', 'op': 'Add',    'lhs': a, 'rhs': b }
+def sub(a, b)  = { '_type': 'BinOp', 'op': 'Sub',    'lhs': a, 'rhs': b }
+def mul(a, b)  = { '_type': 'BinOp', 'op': 'Mul',    'lhs': a, 'rhs': b }
+def div(a, b)  = { '_type': 'BinOp', 'op': 'Div',    'lhs': a, 'rhs': b }
+
+# ── Comparison (BinOp) ──
+def eq(a, b)   = { '_type': 'BinOp', 'op': 'Eq',     'lhs': a, 'rhs': b }
+def ne(a, b)   = { '_type': 'BinOp', 'op': 'Ne',     'lhs': a, 'rhs': b }
+def lt(a, b)   = { '_type': 'BinOp', 'op': 'Lt',     'lhs': a, 'rhs': b }
+def le(a, b)   = { '_type': 'BinOp', 'op': 'Le',     'lhs': a, 'rhs': b }
+def gt(a, b)   = { '_type': 'BinOp', 'op': 'Gt',     'lhs': a, 'rhs': b }
+def ge(a, b)   = { '_type': 'BinOp', 'op': 'Ge',     'lhs': a, 'rhs': b }
+
+# ── Logic (BinOp / UnaryOp) ──
+def and_(a, b) = { '_type': 'BinOp', 'op': 'And',    'lhs': a, 'rhs': b }
+def or_(a, b)  = { '_type': 'BinOp', 'op': 'Or',     'lhs': a, 'rhs': b }
+def not_(x)    = { '_type': 'UnaryOp', 'op': 'Not',  'operand': x }
+def neg(x)     = { '_type': 'UnaryOp', 'op': 'Neg',  'operand': x }
+
+# ── Control ──
+def if_(c, t, e) = { '_type': 'If', 'cond': c, 'then': t, 'else': e }
+
+# A `(b1 | b2 | … | value)` block — sequential bindings followed by the value
+# expression. The bindings are a Map of `name → expr`; eval threads them
+# through left-to-right so later bindings can reference earlier ones.
+def block(bindings, value) = {
+  '_type':    'Block',
+  'bindings': bindings,
+  'value':    value
+}
+
+# ── Containers ──
+def record(fields) = { '_type': 'Record',  'fields': fields }
+def parallel(items) = { '_type': 'Parallel', 'items': items }
+def list_(items) = { '_type': 'List',     'items': items }
+def keyed(k, v) = { '_type': 'KeyedEntry', 'key': k, 'value': v }
+
+# ── Term construction (process/composite instantiation) ──
+def term(control, ports) = {
+  '_type':   'Term',
+  'control': control,
+  'args':    [],
+  'ports':   ports
+}
+def term_with_args(control, args, ports) = {
+  '_type':   'Term',
+  'control': control,
+  'args':    args,
+  'ports':   ports
+}
+def named_arg(name, value) = {
+  'kind':  'named',
+  'name':  name,
+  'value': value
+}
+def ports(inputs, outputs) = { 'inputs': inputs, 'outputs': outputs }
+
+# ── Method dispatch / field access ──
+def method(receiver, name, args) = {
+  '_type':    'Method',
+  'receiver': receiver,
+  'method':   name,
+  'args':     args
+}
+def field(base, name) = { '_type': 'Field', 'base': base, 'name': name }
+def call(func, args) = { '_type': 'Call', 'func': func, 'args': args }
+
+# ── Port declarations ──
+def port(schema) = { 'schema': schema }
+def port_with_default(schema, default) = { 'schema': schema, 'default': default }
+def float_port = { 'schema': 'float' }
+def int_port = { 'schema': 'int' }
+def bool_port = { 'schema': 'bool' }
+def any_port = { 'schema': 'any' }
+
+# ── Definer params (`Name[name :: Schema = default?]`) ──
+def mk_param(name, schema) = { 'name': name, 'schema': schema }
+def mk_param_default(name, schema, default) = {
+  'name':    name,
+  'schema':  schema,
+  'default': default
+}
+
+# ── Entity constructors ──
+def mk_process(name, params, inputs, outputs, body) = {
+  '_type': 'EntityDef',
+  'name':  name,
+  'process': {
+    'params':  params,
+    'inputs':  inputs,
+    'outputs': outputs,
+    'body':    body
+  }
+}
+def mk_step(name, params, inputs, outputs, body) = {
+  '_type': 'EntityDef',
+  'name':  name,
+  'step': {
+    'params':  params,
+    'inputs':  inputs,
+    'outputs': outputs,
+    'body':    body
+  }
+}
+def mk_composite(name, params, inputs, outputs, body) = {
+  '_type': 'EntityDef',
+  'name':  name,
+  'composite': {
+    'params':  params,
+    'inputs':  inputs,
+    'outputs': outputs,
+    'body':    body
+  }
+}
+
+# ── Program ──
+def program(entities) = { '_type': 'Program', 'entities': entities }
