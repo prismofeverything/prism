@@ -285,33 +285,50 @@ Each of these is incremental. None require a runtime rewrite.
 After the engine-level quantum demos (today): build toward this
 architecture in small steps.
 
-### Slice Q1 — Independent quantum subprocesses (separable only).
+### Slice Q1 — Independent quantum subprocesses (separable only). ✅
 A `qubit.ys` (or `qubit-register.ys`) composite holding a small
 register. Each is a stream subprocess. Multiple instances coexist
 holding SEPARATE quantum systems. Show that two independent Bell
 states can run in two stream cells simultaneously, deterministically.
 **Demonstrates**: separable quantum systems CAN be distributed.
+**Status**: shipped as `quantum-two-bells.ys` — two Bell pairs
+side-by-side, no link between them, each measures independently.
 
 ### Slice Q2 — Classical wire (LOCC).
 A classical bridge between two qubit composites carrying measurement
 outcomes. One composite measures, sends a bit; the other applies a
 conditional gate. **Demonstrates**: LOCC as a chrysalis pattern.
 
-### Slice Q3 — Tensor / merge operation.
+### Slice Q3 — Tensor / merge operation. ✅
 The `meta::tensor` HostFn (or method on `QuantumComposite`): take two
 composites with compatible quantum schemas, produce one merged
 composite with their tensor-product state. **Demonstrates**: the
 inverse of `divide` for quantum.
+**Status**: shipped as the `meta::tensor` HostFn (cross-product over
+bitstring keys, amplitude multiplication). Regression tests in
+`tests/quantum_tensor.rs` cover separable-embedding, norm
+preservation, and cross-product cardinality. Demo:
+`quantum-tensor.ys`.
 
 ### Slice Q4 — Auto-merge on cross-composite gate.
 When the source AST has `CNOT(alice.q0, bob.q0)`, the compiler
 inserts a `tensor(alice, bob)` first. The composites merge; CNOT
 applies. **Demonstrates**: quantum coupling = automatic merge.
 
-### Slice Q5 — Auto-divide on factorizability.
+### Slice Q5 — Auto-divide on factorizability. 🧩
 After measurement, check if the composite's qubits factor. If yes,
 divide into sub-composites. **Demonstrates**: decomposition reflects
 physics.
+**Status**: substrate complete — `meta::factorize(joint_state, k)`
+shipped as a HostFn. Algorithm: form the m×n amplitude matrix
+indexed by (left-bits, right-bits); check rank 1 by deriving
+candidate factors from any nonzero row and verifying every other
+entry matches `a[i]·b[j]`. Returns `{separable: bool, a, b}`. Bell
+and GHZ states correctly detected as non-separable; `|+⟩⊗|+⟩` and
+`tensor(a,b)` round-trip back through `factorize`. Tests in
+`tests/quantum_factorize.rs`; demo `quantum-factorize.ys`. **Remaining**:
+auto-`_divide` trigger inside a composite process body (call
+`factorize` post-measurement and emit a `_divide` intent on success).
 
 ### Slice Q6 — Quantum teleportation
 The canonical demo: Alice teleports a state to Bob using a

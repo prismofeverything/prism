@@ -247,6 +247,38 @@ pub fn std_modules_at(ys_root: Option<std::path::PathBuf>) -> ModuleRegistry {
         })?;
         sample(dist, seed)
     });
+    // `meta::tensor(state_a, state_b)` — the inverse of `divide`. Combines
+    // two separable quantum-state maps into one joint-state map (the tensor
+    // product). See docs/quantum-bigraphs.md §III/VII.
+    let tensor_fn: crate::compile::HostFn = Arc::new(|args| {
+        let a = args.first().ok_or_else(|| MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "tensor".into(),
+            message: "expected tensor(state_a, state_b)".into(),
+        })?;
+        let b = args.get(1).ok_or_else(|| MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "tensor".into(),
+            message: "expected tensor(state_a, state_b)".into(),
+        })?;
+        tensor(a, b)
+    });
+    // `meta::factorize(joint, split_k)` — the inverse of `tensor`. Detects
+    // whether a joint-state Map can be split at bit `k` into two separable
+    // sub-states. Returns `{separable: bool, a: {...}, b: {...}}`.
+    let factorize_fn: crate::compile::HostFn = Arc::new(|args| {
+        let joint = args.first().ok_or_else(|| MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "factorize".into(),
+            message: "expected factorize(joint_state, split_k)".into(),
+        })?;
+        let split = args.get(1).ok_or_else(|| MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "factorize".into(),
+            message: "expected factorize(joint_state, split_k)".into(),
+        })?;
+        factorize(joint, split)
+    });
     ModuleRegistry::new()
         .process("core", "RunProcess")
         .process("core", "Simulate")
@@ -263,6 +295,8 @@ pub fn std_modules_at(ys_root: Option<std::path::PathBuf>) -> ModuleRegistry {
         .function("meta", "compile_value", compile_value_fn)
         .function("meta", "handle", handle_fn)
         .function("meta", "sample", sample_fn)
+        .function("meta", "tensor", tensor_fn)
+        .function("meta", "factorize", factorize_fn)
 }
 
 /// Read + parse + compile a `.ys` file from disk and return it as a chrysalis
@@ -292,6 +326,208 @@ pub fn load(path: &str) -> Result<Value, MethodError> {
 /// callable from `.ys` itself via `from meta import eval`.
 pub fn eval(value: &Value) -> Result<Value, MethodError> {
     eval_with(value, None)
+}
+
+/// `tensor(state_a, state_b) → joint_state` — the **reverse of divide**.
+/// Combines two SEPARABLE quantum-state maps into one joint-state map by
+/// the tensor product: every (key_a, key_b) pair gets joint amplitude
+/// `amp_a(key_a) * amp_b(key_b)`, keyed by `<key_a><key_b>` (string
+/// concatenation; works cleanly when both states use bitstring keys).
+///
+/// Quantum semantics: two separable systems combine into one. The result
+/// is FACTORIZABLE — equivalent to keeping them apart, just bundled. To
+/// create real entanglement, apply a coupling gate AFTER tensoring.
+///
+/// Bigraph semantics: this is the inverse of `divide`. Two independent
+/// composites' states tensor into one joint composite's state. See
+/// `docs/quantum-bigraphs.md` §III + §VII.
+pub fn tensor(a: &Value, b: &Value) -> Result<Value, MethodError> {
+    use indexmap::IndexMap;
+    use prism_schema::Key;
+    let map_a = a.as_map().ok_or_else(|| MethodError::BadArgs {
+        type_name: "meta".into(),
+        method: "tensor".into(),
+        message: "first argument must be a Map of {bitstring: amplitude}".into(),
+    })?;
+    let map_b = b.as_map().ok_or_else(|| MethodError::BadArgs {
+        type_name: "meta".into(),
+        method: "tensor".into(),
+        message: "second argument must be a Map of {bitstring: amplitude}".into(),
+    })?;
+    let mut joint: IndexMap<Key, Value> = IndexMap::new();
+    for (ka, va) in map_a {
+        let amp_a = va.as_f64().unwrap_or(0.0);
+        for (kb, vb) in map_b {
+            let amp_b = vb.as_f64().unwrap_or(0.0);
+            let combined_key = format!("{}{}", ka.as_str(), kb.as_str());
+            joint.insert(Key::from(combined_key.as_str()), Value::float(amp_a * amp_b));
+        }
+    }
+    Ok(Value::Map(joint))
+}
+
+/// `factorize(joint_state, split_k) → {separable: bool, a, b}` — the inverse of
+/// `tensor`. Takes a joint-state Map (bitstrings of uniform length → amplitude)
+/// and a split index `k`; tries to find two states `a` (over the first `k`
+/// bits) and `b` (over the remaining bits) such that `joint = tensor(a, b)`.
+///
+/// Algorithm: the joint amplitudes form an m×n matrix indexed by (left_bits,
+/// right_bits). If the joint is separable, this matrix has rank 1 — there's
+/// a row vector `a` and column vector `b` with `joint[i,j] = a[i] * b[j]`.
+/// We pick any row with nonzero magnitude as the seed, derive a candidate
+/// `(a, b)`, then verify every other entry matches `a[i] * b[j]`.
+///
+/// Returns `{separable: true, a: {...}, b: {...}}` if factorizable;
+/// `{separable: false, a: {}, b: {}}` otherwise. This is the substrate for
+/// Q5 of #36 — composites can call this after a measurement to check whether
+/// their qubits factor, and then `divide` into independent sub-composites
+/// when they do. See `docs/quantum-bigraphs.md` §V/VII.
+pub fn factorize(joint: &Value, split: &Value) -> Result<Value, MethodError> {
+    use indexmap::IndexMap;
+    use prism_schema::Key;
+    let map = joint.as_map().ok_or_else(|| MethodError::BadArgs {
+        type_name: "meta".into(),
+        method: "factorize".into(),
+        message: "first argument must be a Map of {bitstring: amplitude}".into(),
+    })?;
+    let k = split
+        .as_i64()
+        .or_else(|| split.as_f64().map(|f| f as i64))
+        .ok_or_else(|| MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "factorize".into(),
+            message: "split index must be numeric".into(),
+        })?;
+    if k <= 0 {
+        return Err(MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "factorize".into(),
+            message: "split index must be >= 1".into(),
+        });
+    }
+    let k = k as usize;
+    if map.is_empty() {
+        return Ok(separable_result(false, IndexMap::new(), IndexMap::new()));
+    }
+
+    // Verify every key is a bitstring of length > k.
+    let total_len = map.keys().next().unwrap().as_str().len();
+    if k >= total_len {
+        return Err(MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "factorize".into(),
+            message: format!(
+                "split index {k} must be less than bitstring length {total_len}"
+            ),
+        });
+    }
+    for key in map.keys() {
+        if key.as_str().len() != total_len {
+            return Err(MethodError::BadArgs {
+                type_name: "meta".into(),
+                method: "factorize".into(),
+                message: "all keys must have the same length".into(),
+            });
+        }
+    }
+
+    // Build the joint matrix: (left_bits, right_bits) → amplitude. Implicit
+    // zero for missing entries.
+    let mut left_keys: Vec<String> = Vec::new();
+    let mut right_keys: Vec<String> = Vec::new();
+    let mut matrix: IndexMap<(String, String), f64> = IndexMap::new();
+    for (key, val) in map {
+        let s = key.as_str();
+        let l = s[..k].to_string();
+        let r = s[k..].to_string();
+        if !left_keys.contains(&l) {
+            left_keys.push(l.clone());
+        }
+        if !right_keys.contains(&r) {
+            right_keys.push(r.clone());
+        }
+        let amp = val.as_f64().unwrap_or(0.0);
+        matrix.insert((l, r), amp);
+    }
+
+    // Find a seed row: any left_key whose row has nonzero norm.
+    let row_norm = |li: &str| -> f64 {
+        right_keys
+            .iter()
+            .map(|rj| matrix.get(&(li.to_string(), rj.clone())).copied().unwrap_or(0.0).powi(2))
+            .sum::<f64>()
+            .sqrt()
+    };
+    let seed_row = match left_keys.iter().find(|li| row_norm(li) > 1e-12) {
+        Some(li) => li.clone(),
+        None => return Ok(separable_result(false, IndexMap::new(), IndexMap::new())),
+    };
+    let a_seed = row_norm(&seed_row);
+
+    // Candidate factors: a[i] = sqrt(Σ_j |M[i,j]|²); b[j] = M[seed, j] / a[seed].
+    let mut a_map: IndexMap<Key, Value> = IndexMap::new();
+    for li in &left_keys {
+        a_map.insert(Key::from(li.as_str()), Value::float(row_norm(li)));
+    }
+    let mut b_map: IndexMap<Key, Value> = IndexMap::new();
+    for rj in &right_keys {
+        let v = matrix.get(&(seed_row.clone(), rj.clone())).copied().unwrap_or(0.0) / a_seed;
+        b_map.insert(Key::from(rj.as_str()), Value::float(v));
+    }
+
+    // Verification: for every (i, j), check M[i,j] ≈ a[i] * b[j] (with the row
+    // sign — `row_norm` is always nonneg, so any negative `b[j]` from the seed
+    // row gets propagated). For each non-seed row, also check that all
+    // entries share a consistent sign relative to the seed row.
+    const TOL: f64 = 1e-6;
+    for li in &left_keys {
+        let a_i = a_map.get(&Key::from(li.as_str())).and_then(|v| v.as_f64()).unwrap_or(0.0);
+        if a_i < 1e-12 {
+            continue;
+        }
+        // Determine the sign multiplier from the first nonzero column.
+        let mut sign: Option<f64> = None;
+        for rj in &right_keys {
+            let m_ij = matrix.get(&(li.clone(), rj.clone())).copied().unwrap_or(0.0);
+            let b_j = b_map.get(&Key::from(rj.as_str())).and_then(|v| v.as_f64()).unwrap_or(0.0);
+            if b_j.abs() < 1e-12 {
+                if m_ij.abs() > TOL {
+                    return Ok(separable_result(false, IndexMap::new(), IndexMap::new()));
+                }
+                continue;
+            }
+            let s_ij = m_ij / (a_i * b_j);
+            if sign.is_none() {
+                sign = Some(s_ij);
+            } else if (sign.unwrap() - s_ij).abs() > TOL {
+                return Ok(separable_result(false, IndexMap::new(), IndexMap::new()));
+            }
+        }
+        // Apply the sign to a[i].
+        if let Some(s) = sign {
+            if s.abs() < 1e-12 {
+                continue;
+            }
+            let signed = a_i * s.signum();
+            a_map.insert(Key::from(li.as_str()), Value::float(signed));
+        }
+    }
+
+    Ok(separable_result(true, a_map, b_map))
+}
+
+fn separable_result(
+    separable: bool,
+    a: indexmap::IndexMap<prism_schema::Key, Value>,
+    b: indexmap::IndexMap<prism_schema::Key, Value>,
+) -> Value {
+    use indexmap::IndexMap;
+    use prism_schema::Key;
+    let mut result: IndexMap<Key, Value> = IndexMap::new();
+    result.insert(Key::from("separable"), Value::Bool(separable));
+    result.insert(Key::from("a"), Value::Map(a));
+    result.insert(Key::from("b"), Value::Map(b));
+    Value::Map(result)
 }
 
 /// `sample(distribution, seed) → outcome` — quantum measurement primitive.

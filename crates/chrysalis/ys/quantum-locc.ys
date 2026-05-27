@@ -1,0 +1,98 @@
+# Q2 of #36 — Classical wire (LOCC: Local Ops + Classical Communication).
+# ──────────────────────────────────────────────────────────────────────
+#
+# Two SEPARATE composites — Alice and Bob — coordinate via a classical
+# channel only. No quantum link between them. Alice prepares |+⟩, measures,
+# sends the resulting bit over the wire. Bob receives the bit and applies
+# a conditional gate (here: prepares his qubit to MATCH Alice's outcome).
+#
+# After the protocol, Alice and Bob's qubits are CLASSICALLY CORRELATED
+# (both end up in |0⟩ or both in |1⟩, with 50/50 probability) — but NOT
+# entangled. A local measurement on either qubit tells you everything;
+# there's no Bell-inequality violation.
+#
+# This is the LOCC primitive: anything that can be done with shared
+# randomness + local quantum ops can be encoded this way. Teleportation
+# (Q6) layers a pre-shared Bell pair on top of LOCC to transmit ACTUAL
+# quantum state — but the classical-wire scaffolding is exactly this.
+#
+# `docs/quantum-bigraphs.md` §V/VI: classical wires are typed `any`/
+# `String` (NOT amplitude maps) and cross composite boundaries freely.
+# Quantum links (entanglement) are different — they cannot cross.
+#
+# Run: `chrysalis run quantum-locc.ys --time 3`
+# Expected: `classical_wire` is 'b0' or 'b1' (random per seed). Bob's
+# `bob_state` matches: |0⟩ if bit='b0', |1⟩ if bit='b1'.
+
+from meta import sample
+
+# ── Single-qubit gates ────────────────────────────────────────────────
+
+# Hadamard on one qubit: |0⟩ → (|0⟩+|1⟩)/√2.
+process Hadamard ~{state :: overwrite[any]} ->{state :: overwrite[any]}
+(
+  {state: {
+    amp_0: ((state.amp_0 + state.amp_1) / 1.41421356),
+    amp_1: ((state.amp_0 - state.amp_1) / 1.41421356)
+  }}
+)
+
+# Measurement: Born rule → classical bit ('b0' or 'b1').
+process MeasureBit[seed :: Float = 42.0]
+  ~{state :: any}
+  ->{bit :: overwrite[any]}
+(
+  {bit: sample({
+    b0: (state.amp_0 * state.amp_0),
+    b1: (state.amp_1 * state.amp_1)
+  }, seed)}
+)
+
+# Conditional state-prep: read a classical bit, prepare matching basis state.
+# The body is a chrysalis `if/then/else` — exactly the kind of classical-
+# control flow LOCC requires.
+process ConditionalPrepare
+  ~{bit :: any}
+  ->{state :: overwrite[any]}
+(
+  if bit == 'b0' then
+    {state: {amp_0: 1.0, amp_1: 0.0}}
+  else
+    {state: {amp_0: 0.0, amp_1: 1.0}}
+)
+
+# ── Alice's lab — runs entirely on her side ──────────────────────────
+# Prepare |0⟩ → Hadamard → |+⟩ → measure → classical bit 'b0'/'b1'.
+composite Alice[seed :: Float = 42.0] ~{} ->{
+  state :: any @ s_after_h,
+  bit   :: any @ measured
+} (
+  s_init:    {amp_0: 1.0, amp_1: 0.0} |
+  s_after_h: {amp_0: 0.0, amp_1: 0.0} |
+  measured:  'unmeasured' |
+  h: Hadamard ~{state: s_init} ->{state: s_after_h} |
+  m: MeasureBit[seed: seed] ~{state: s_after_h} ->{bit: measured}
+)
+
+# ── Bob's lab — runs on the OTHER side of the wire ───────────────────
+# Reads the incoming classical bit, conditionally prepares his qubit.
+# No quantum input — only the classical channel.
+composite Bob ~{bit :: any} ->{
+  state :: any @ bob_state
+} (
+  bob_state: {amp_0: 0.0, amp_1: 0.0} |
+  prep: ConditionalPrepare ~{bit: bit} ->{state: bob_state}
+)
+
+# ── The LOCC protocol — Alice + Bob + the wire that connects them ────
+# `classical_wire` is a String slot: it carries only the measurement
+# outcome, never amplitudes. That's what makes this LOCC, not quantum
+# entanglement. Same place-graph, different link type.
+composite LOCC[seed :: Float = 42.0] ~{} ->{
+  alice_state    :: overwrite[any],
+  classical_wire :: overwrite[any],
+  bob_state      :: overwrite[any]
+} (
+  alice: Alice[seed: seed] ~{} ->{state: alice_state, bit: classical_wire} |
+  bob:   Bob ~{bit: classical_wire} ->{state: bob_state}
+)

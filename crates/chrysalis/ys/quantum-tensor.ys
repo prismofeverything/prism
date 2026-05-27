@@ -1,0 +1,52 @@
+# Q3 of #36 — `tensor`: the inverse of `divide`, applied to quantum.
+# ────────────────────────────────────────────────────────────────────
+#
+# Two SEPARABLE single-qubit states combine into one 2-qubit joint
+# state via `meta::tensor`. The result is still separable — equivalent
+# to keeping the qubits apart. To create real entanglement, apply a
+# coupling gate (CNOT) AFTER tensoring.
+#
+# `docs/quantum-bigraphs.md` §III: tensor is the structural-composition
+# inverse of `divide`. Two composites with independent quantum states
+# can merge into one composite holding the joint state. Whether
+# entanglement appears depends on what gates fire after.
+#
+# This demo:
+#   1. Two single-qubit |0⟩ states.
+#   2. Each one Hadamard'd → two |+⟩ states (separable; no
+#      entanglement yet).
+#   3. Tensor → joint 2-qubit state {00: 0.5, 01: 0.5, 10: 0.5, 11: 0.5}.
+#   4. CNOT applied → joint state {00: 0.5, 01: 0.5, 11: 0.5, 10: 0.5}
+#      = (|00⟩ + |01⟩ + |11⟩ + |10⟩) / 2 — still separable! It's
+#      equivalent to |+⟩|+⟩.
+#   5. For entanglement, the FIRST Hadamard + CNOT order matters:
+#      H on |0⟩ + CNOT(|+⟩|0⟩) → Bell state. We show that path too.
+#
+# Run: `chrysalis run quantum-tensor.ys --time 0`
+
+from meta import tensor
+
+# ── Two separable single-qubit states. Keys are bitstrings: '0', '1'.
+
+def plus_state  = { '0': 0.7071, '1': 0.7071 }   # |+⟩ = (|0⟩ + |1⟩)/√2
+def zero_state  = { '0': 1.0,    '1': 0.0 }       # |0⟩
+
+# ── Tensor product: combine two separable systems into one joint state.
+
+def two_plus    = tensor(plus_state, plus_state)
+# Result: { '00': 0.5, '01': 0.5, '10': 0.5, '11': 0.5 } — separable
+
+def plus_zero   = tensor(plus_state, zero_state)
+# Result: { '00': 0.707, '01': 0, '10': 0.707, '11': 0 } — also separable
+
+# ── Inspection / output.
+
+composite TensorDemo ~{} ->{
+  plus_state    :: any,
+  two_plus      :: any,
+  plus_zero     :: any
+} (
+  plus_state: plus_state |
+  two_plus:   two_plus |
+  plus_zero:  plus_zero
+)
