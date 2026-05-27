@@ -231,6 +231,22 @@ pub fn std_modules_at(ys_root: Option<std::path::PathBuf>) -> ModuleRegistry {
         })?;
         handle(expr, handlers)
     });
+    // `meta::sample(distribution, seed)` — quantum measurement primitive.
+    // Samples one outcome from a probability-weighted map. Deterministic
+    // given the seed.
+    let sample_fn: crate::compile::HostFn = Arc::new(|args| {
+        let dist = args.first().ok_or_else(|| MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "sample".into(),
+            message: "expected sample(distribution, seed)".into(),
+        })?;
+        let seed = args.get(1).ok_or_else(|| MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "sample".into(),
+            message: "expected sample(distribution, seed)".into(),
+        })?;
+        sample(dist, seed)
+    });
     ModuleRegistry::new()
         .process("core", "RunProcess")
         .process("core", "Simulate")
@@ -246,6 +262,7 @@ pub fn std_modules_at(ys_root: Option<std::path::PathBuf>) -> ModuleRegistry {
         .function("meta", "eval", eval_fn)
         .function("meta", "compile_value", compile_value_fn)
         .function("meta", "handle", handle_fn)
+        .function("meta", "sample", sample_fn)
 }
 
 /// Read + parse + compile a `.ys` file from disk and return it as a chrysalis
@@ -275,6 +292,60 @@ pub fn load(path: &str) -> Result<Value, MethodError> {
 /// callable from `.ys` itself via `from meta import eval`.
 pub fn eval(value: &Value) -> Result<Value, MethodError> {
     eval_with(value, None)
+}
+
+/// `sample(distribution, seed) → outcome` — quantum measurement primitive.
+/// `distribution` is a `Value::Map` of `outcome_key → probability_weight`;
+/// weights are normalized internally. `seed` is an integer (any sign).
+/// Returns the sampled key as a `Value::String`. Deterministic given the
+/// seed — the same (distribution, seed) always returns the same outcome.
+///
+/// Used for quantum measurement in the eval-time effects layer: build a
+/// quantum state via handlers, compute the Born probabilities (|amp|² per
+/// basis state), and `sample(probs, seed)` collapses to an observed
+/// outcome. Pre-quantum-handler-bundle work; `slice 9` will fold this
+/// into a `measure` handler with proper state-collapse semantics.
+pub fn sample(distribution: &Value, seed: &Value) -> Result<Value, MethodError> {
+    use rand::{Rng, SeedableRng, rngs::StdRng};
+
+    let mk_err = |context: &str, msg: String| MethodError::Failed {
+        type_name: "meta".into(),
+        method: "sample".into(),
+        message: format!("{context}: {msg}"),
+    };
+    let map = distribution.as_map().ok_or_else(|| MethodError::BadArgs {
+        type_name: "meta".into(),
+        method: "sample".into(),
+        message: "expected a Map of {outcome_key: probability_weight, …}".into(),
+    })?;
+    let seed_int = seed.as_i64().or_else(|| seed.as_f64().map(|f| f as i64)).ok_or_else(|| {
+        MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "sample".into(),
+            message: "seed must be numeric".into(),
+        }
+    })?;
+    if map.is_empty() {
+        return Err(mk_err("normalize", "distribution is empty".into()));
+    }
+    let weights: Vec<(String, f64)> = map
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.as_f64().unwrap_or(0.0)))
+        .collect();
+    let total: f64 = weights.iter().map(|(_, w)| w).sum();
+    if total <= 0.0 {
+        return Err(mk_err("normalize", "weights sum to <= 0".into()));
+    }
+    let mut rng = StdRng::seed_from_u64(seed_int as u64);
+    let mut u = rng.r#gen::<f64>() * total;
+    for (k, w) in &weights {
+        u -= w;
+        if u <= 0.0 {
+            return Ok(Value::String(k.clone()));
+        }
+    }
+    // Fallback (shouldn't reach due to floating-point summation).
+    Ok(Value::String(weights.last().unwrap().0.clone()))
 }
 
 /// `handle(expr_value, handlers_value)` — evaluate `expr` with `Call(name, args)`

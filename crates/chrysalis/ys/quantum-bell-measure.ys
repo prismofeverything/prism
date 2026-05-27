@@ -1,0 +1,81 @@
+# Quantum Bell-state measurement — observed outcomes from real entanglement.
+# ──────────────────────────────────────────────────────────────────────────
+#
+# Builds the Bell state `(|00⟩ + |11⟩)/√2` (as in quantum-bell-state.ys),
+# converts amplitudes to Born probabilities `|amp|²`, then SAMPLES four
+# times with deterministic seeds. Every outcome is either `b00` or `b11`
+# — never `b01` or `b10`. The two qubits are perfectly correlated: if you
+# measure 0 on q0 you measure 0 on q1; if 1 then 1.
+#
+# This is REAL ENTANGLEMENT, observed: the joint distribution can't be
+# factored as `(p0|0⟩ + p1|1⟩) ⊗ (q0|0⟩ + q1|1⟩)`. The chrysalis
+# substrate runs the whole experiment: state-prep through effect handlers,
+# probabilities via the algebra, measurement via `meta::sample`.
+#
+# Run: `chrysalis run quantum-bell-measure.ys --time 0`
+# Expected (deterministic given seeds): four outcomes, all `b00` or `b11`,
+# roughly 50/50 across many seeds, NEVER `b01` or `b10`.
+
+from meta import handle, sample
+from ast  import var, call, float, add, sub, div, field, record
+
+# ── Build the Bell state (same as quantum-bell-state.ys). ───────────
+
+def init_00 = record({
+  'b00': float(1.0), 'b01': float(0.0),
+  'b10': float(0.0), 'b11': float(0.0)
+})
+
+def bell_expr = call(var('cnot_01'), [call(var('hadamard_q0'), [init_00])])
+
+def hadamard_q0 = {
+  'params': ['s'],
+  'body': record({
+    'b00': div(add(field(var('s'), 'b00'), field(var('s'), 'b10')), float(1.41421356)),
+    'b01': div(add(field(var('s'), 'b01'), field(var('s'), 'b11')), float(1.41421356)),
+    'b10': div(sub(field(var('s'), 'b00'), field(var('s'), 'b10')), float(1.41421356)),
+    'b11': div(sub(field(var('s'), 'b01'), field(var('s'), 'b11')), float(1.41421356))
+  })
+}
+
+def cnot_01 = {
+  'params': ['s'],
+  'body': record({
+    'b00': field(var('s'), 'b00'),
+    'b01': field(var('s'), 'b01'),
+    'b10': field(var('s'), 'b11'),
+    'b11': field(var('s'), 'b10')
+  })
+}
+
+def bell_state = handle(bell_expr, { 'hadamard_q0': hadamard_q0, 'cnot_01': cnot_01 })
+
+# ── Born probabilities: |amplitude|² per basis state. ───────────────
+
+def born_probs = {
+  'b00': (bell_state.b00 * bell_state.b00),
+  'b01': (bell_state.b01 * bell_state.b01),
+  'b10': (bell_state.b10 * bell_state.b10),
+  'b11': (bell_state.b11 * bell_state.b11)
+}
+
+# ── Four measurements with different seeds. ─────────────────────────
+# Each `sample(probs, seed)` collapses to one observed basis state.
+# For the Bell state, every outcome is `b00` or `b11` (perfect
+# correlation) — never `b01` or `b10`.
+
+composite QuantumBellMeasure ~{} ->{
+  bell_state  :: Any,
+  born_probs  :: Any,
+  obs_seed_1  :: String,
+  obs_seed_2  :: String,
+  obs_seed_42 :: String,
+  obs_seed_99 :: String
+} (
+  bell_state:   bell_state |
+  born_probs:   born_probs |
+  obs_seed_1:   sample(born_probs, 1)  |
+  obs_seed_2:   sample(born_probs, 2)  |
+  obs_seed_42:  sample(born_probs, 42) |
+  obs_seed_99:  sample(born_probs, 99)
+)
