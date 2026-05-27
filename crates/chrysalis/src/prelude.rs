@@ -214,6 +214,23 @@ pub fn std_modules_at(ys_root: Option<std::path::PathBuf>) -> ModuleRegistry {
         })?;
         compile_value(v)
     });
+    // `meta::handle(expr, handlers)` — algebraic effects via the homoiconic
+    // substrate. Handlers map operation names to `{params, body}` records;
+    // Calls to those names dispatch through the handler bodies. The first
+    // slice of #35 — eval-time effects only.
+    let handle_fn: crate::compile::HostFn = Arc::new(|args| {
+        let expr = args.first().ok_or_else(|| MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "handle".into(),
+            message: "expected two arguments: handle(expr, handlers)".into(),
+        })?;
+        let handlers = args.get(1).ok_or_else(|| MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "handle".into(),
+            message: "expected two arguments: handle(expr, handlers)".into(),
+        })?;
+        handle(expr, handlers)
+    });
     ModuleRegistry::new()
         .process("core", "RunProcess")
         .process("core", "Simulate")
@@ -228,6 +245,7 @@ pub fn std_modules_at(ys_root: Option<std::path::PathBuf>) -> ModuleRegistry {
         .function("io", "load", load_fn)
         .function("meta", "eval", eval_fn)
         .function("meta", "compile_value", compile_value_fn)
+        .function("meta", "handle", handle_fn)
 }
 
 /// Read + parse + compile a `.ys` file from disk and return it as a chrysalis
@@ -257,6 +275,88 @@ pub fn load(path: &str) -> Result<Value, MethodError> {
 /// callable from `.ys` itself via `from meta import eval`.
 pub fn eval(value: &Value) -> Result<Value, MethodError> {
     eval_with(value, None)
+}
+
+/// `handle(expr_value, handlers_value)` — evaluate `expr` with `Call(name, args)`
+/// dispatched through user-provided handlers when `name` is one of the keys
+/// in `handlers`. Handlers are `{params: ['p1', …], body: <expr>}` values;
+/// they materialize as synthetic `Def::Function`s scoped to this `handle`
+/// call, so the existing call-resolution path picks them up.
+///
+/// The first slice of #35 (algebraic effects via the homoiconic substrate):
+/// same expression evaluates differently under different handler bundles.
+/// Eval-time effects only — runtime-effects (apply/dispatch interception
+/// at the engine layer) need a deeper engine pass (later slice).
+pub fn handle(expr_value: &Value, handlers_value: &Value) -> Result<Value, MethodError> {
+    use std::sync::Arc;
+
+    use indexmap::IndexMap;
+    use prism_schema::MethodRegistry;
+
+    use crate::ast::{Def, Expr, FunctionDef, Name, Param, Program, SchemaExpr};
+    use crate::eval::Evaluator;
+
+    let mk_err = |context: &str, msg: String| MethodError::Failed {
+        type_name: "meta".into(),
+        method: "handle".into(),
+        message: format!("{context}: {msg}"),
+    };
+
+    let expr = Expr::from_value(expr_value)
+        .map_err(|e| mk_err("expr from_value", e.to_string()))?;
+
+    let handlers_map = handlers_value.as_map().ok_or_else(|| MethodError::BadArgs {
+        type_name: "meta".into(),
+        method: "handle".into(),
+        message: "handlers must be a Map of {name: {params: [...], body: <expr>}}".into(),
+    })?;
+
+    // Each handler entry → a synthetic Def::Function. Body comes from the
+    // handler's `body` field via `Expr::from_value`; params from the handler's
+    // `params` list. The function's name is the map key.
+    let mut prog = Program::new();
+    for (name, handler_value) in handlers_map {
+        let h = handler_value.as_map().ok_or_else(|| MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "handle".into(),
+            message: format!("handler `{name}` must be a Map with `params` and `body` keys"),
+        })?;
+        let param_names: Vec<String> = h
+            .get("params")
+            .and_then(|v| v.as_list())
+            .map(|l| {
+                l.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let body_value = h.get("body").ok_or_else(|| MethodError::BadArgs {
+            type_name: "meta".into(),
+            method: "handle".into(),
+            message: format!("handler `{name}` missing `body`"),
+        })?;
+        let body = Expr::from_value(body_value)
+            .map_err(|e| mk_err(&format!("handler `{name}` body from_value"), e.to_string()))?;
+        let params: Vec<Param> = param_names
+            .into_iter()
+            .map(|n| Param {
+                name: n,
+                schema: SchemaExpr::Any,
+                default: None,
+            })
+            .collect();
+        prog.push(Def::Function(FunctionDef {
+            name: Name::from(name.as_str()),
+            params,
+            body,
+        }));
+    }
+
+    let evaluator = Evaluator::new(Arc::new(prog), Arc::new(MethodRegistry::new()));
+    let env: IndexMap<String, Value> = IndexMap::new();
+    evaluator
+        .eval_value(&expr, &env)
+        .map_err(|e| mk_err("eval", e.to_string()))
 }
 
 /// `compile_value(program_value)` — the in-memory sibling of `load(path)`.

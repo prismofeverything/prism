@@ -340,7 +340,11 @@ inhabits:
   group has inverses; chemical-reaction-network microscopic reversibility
   baked into the algebra.
 - **Quantum-bigraph** — categorical (dagger compact) bigraphs whose state
-  is a superposition; measurement is a place-graph operation.
+  is a superposition; measurement is a place-graph operation. **Designed
+  in concert with the algebraic-effects work** — see
+  `docs/effects-and-handlers.md` §XI. The result: quantum is "the same
+  composite + a different handler bundle." Bell-state correlations come
+  out of the shared-link structure already in the bigraph.
 - **Distributed reflection** — a remote bigraph node's contents are
   reachable as data via the same `_entities` field `load()` uses. Pair
   with #25 (ray protocol) for cross-machine introspection.
