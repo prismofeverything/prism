@@ -1,0 +1,77 @@
+# Quantum bigraph through the prism engine — with MEASUREMENT.
+# ─────────────────────────────────────────────────────────────
+#
+# Extends `quantum-engine.ys` with a `Measure` process that collapses
+# the final state to an observed basis outcome. Three gates fire across
+# three BSP ticks; the fourth slot (`observed`) carries the measurement
+# result.
+#
+# This is a COMPLETE quantum experiment, running entirely through the
+# prism engine: state prep, gate application, AND measurement. Every
+# step is a `process` definer; every wire is a place-graph edge; the
+# engine schedules and applies.
+#
+# Run: `chrysalis run quantum-engine-measure.ys --time 3`
+# Expected after 3 ticks (deterministic given the seed):
+#   s_after_cnot: { amp_00: 0.707, amp_01: 0, amp_10: 0, amp_11: 0.707 }
+#   observed:     "b11"      ← measured outcome (or "b00", never b01/b10)
+
+from meta import sample
+
+def zero_state = { amp_00: 0.0, amp_01: 0.0, amp_10: 0.0, amp_11: 0.0 }
+def init_00    = { amp_00: 1.0, amp_01: 0.0, amp_10: 0.0, amp_11: 0.0 }
+
+# Hadamard on q0 (same as quantum-engine.ys).
+process Hadamard ~{state :: overwrite[any]} ->{state :: overwrite[any]}
+(
+  {state: {
+    amp_00: ((state.amp_00 + state.amp_10) / 1.41421356),
+    amp_01: ((state.amp_01 + state.amp_11) / 1.41421356),
+    amp_10: ((state.amp_00 - state.amp_10) / 1.41421356),
+    amp_11: ((state.amp_01 - state.amp_11) / 1.41421356)
+  }}
+)
+
+# CNOT with q0=control, q1=target.
+process CNOT ~{state :: overwrite[any]} ->{state :: overwrite[any]}
+(
+  {state: {
+    amp_00: state.amp_00,
+    amp_01: state.amp_01,
+    amp_10: state.amp_11,
+    amp_11: state.amp_10
+  }}
+)
+
+# Measure: compute Born probabilities, sample one outcome.
+# Uses `meta::sample(distribution, seed)` — works inside process bodies
+# the same as anywhere (native imports thread through eval).
+process Measure[seed :: Float = 42.0]
+  ~{state :: any}
+  ->{outcome :: overwrite[any]}
+(
+  {outcome: sample({
+    b00: (state.amp_00 * state.amp_00),
+    b01: (state.amp_01 * state.amp_01),
+    b10: (state.amp_10 * state.amp_10),
+    b11: (state.amp_11 * state.amp_11)
+  }, seed)}
+)
+
+# The Bell + measure circuit as a composite. Four state slots; each
+# tick propagates one stage. After 3 BSP ticks the full chain has
+# fired: s_init → s_after_h → s_after_cnot → observed.
+composite BellMeasure ~{} ->{
+  s_init        :: any,
+  s_after_h     :: any,
+  s_after_cnot  :: any,
+  observed      :: any
+} (
+  s_init:        init_00 |
+  s_after_h:     zero_state |
+  s_after_cnot:  zero_state |
+  observed:      'unmeasured' |
+  h:  Hadamard ~{state: s_init}       ->{state: s_after_h} |
+  cn: CNOT     ~{state: s_after_h}    ->{state: s_after_cnot} |
+  m:  Measure[seed: 42.0] ~{state: s_after_cnot} ->{outcome: observed}
+)

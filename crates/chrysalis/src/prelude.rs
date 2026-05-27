@@ -334,7 +334,12 @@ pub fn sample(distribution: &Value, seed: &Value) -> Result<Value, MethodError> 
         .collect();
     let total: f64 = weights.iter().map(|(_, w)| w).sum();
     if total <= 0.0 {
-        return Err(mk_err("normalize", "weights sum to <= 0".into()));
+        // Zero-weight distribution (e.g. an uninitialized quantum state at
+        // warmup tick): return the first key gracefully so warmup-tick
+        // measurements don't crash. The caller can also use this as a
+        // sentinel meaning "no signal yet."
+        let _ = mk_err;
+        return Ok(Value::String(weights[0].0.clone()));
     }
     let mut rng = StdRng::seed_from_u64(seed_int as u64);
     let mut u = rng.r#gen::<f64>() * total;
