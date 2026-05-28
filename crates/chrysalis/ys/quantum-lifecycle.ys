@@ -1,0 +1,68 @@
+# Q4-spirit demo of #36 — quantum entanglement LIFECYCLE through the
+# place graph. The structural reflection of "one program vs many".
+# ────────────────────────────────────────────────────────────────────
+#
+# Three phases, visible at three different `--time` snapshots:
+#
+#       initial             →   split                →   merged
+#   ──────────────────────────────────────────────────────────────
+#   { ab: <|++⟩> }    →    { a: <|+⟩>,         →   { ab2: <|++⟩> }
+#                            b: <|+⟩> }
+#
+#   --time 0          →    --time 1             →   --time 2+
+#
+# Mechanism: ONE `Lifecycle` process handles both phases sequentially
+# — at each tick it inspects `systems` and emits the appropriate
+# structural intent:
+#
+#   • If `ab` is present:  SPLIT  →  `_remove: [ab]` + `_add: {a, b}`
+#   • Else if `a, b`:      MERGE  →  `_remove: [a, b]` + `_add: {ab2}`
+#   • Else:                no-op  (final state reached)
+#
+# Using one process (instead of two parallel `step`s) makes the BSP
+# ordering DETERMINISTIC — the process body picks one action per tick
+# based on the current state, with no concurrent writer racing it.
+
+from meta import factorize, tensor
+
+# ── Lifecycle: sequential split-then-merge picker. ─────────────────
+# `_remove` + `_add` are the structural primitives the reconciler
+# enacts atomically. The place graph mutates as the data evolves —
+# the bigraph IS the lifecycle.
+process Lifecycle ~{systems :: map[any]} ->{systems :: map[any]}
+(
+  if 'ab' in systems then
+    {systems: {
+      _remove: ['ab'],
+      _add: {
+        a: {state: factorize(systems.ab.state, 1.0).a},
+        b: {state: factorize(systems.ab.state, 1.0).b}
+      }
+    }}
+  else
+    if 'a' in systems then
+      if 'b' in systems then
+        {systems: {
+          _remove: ['a', 'b'],
+          _add: {
+            ab2: {state: tensor(systems.a.state, systems.b.state)}
+          }
+        }}
+      else
+        {systems: {}}
+    else
+      {systems: {}}
+)
+
+# Initial state in `ab`: |+⟩ ⊗ |+⟩ as a 4-amplitude joint state. The
+# Lifecycle process runs every tick — first it splits, then it merges,
+# then it's stable. The bitstring keys are the form `meta::factorize`
+# and `meta::tensor` expect.
+composite Lab ~{} ->{
+  systems :: map[any]
+} (
+  systems: {
+    ab: {state: {'00': 0.5, '01': 0.5, '10': 0.5, '11': 0.5}}
+  } |
+  cycle: Lifecycle ~{systems: systems} ->{systems: systems}
+)

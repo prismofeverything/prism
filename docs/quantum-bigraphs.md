@@ -337,6 +337,39 @@ entangled.
 child composite reports separable. This converts the observation
 into structural change.
 
+### Slice Q4/Q5 — Structural lifecycle ✅ (data-map flavor)
+The user's vision realized: a single demo where the place-graph
+mutates as a function of factorizability. The Lab composite holds
+`systems :: map[any]`; a single `Lifecycle` process picks the
+appropriate structural intent each tick:
+
+- If `ab` (a joint system) is present → SPLIT: `_remove: [ab]` +
+  `_add: {a, b}` with the factor states from `meta::factorize`.
+- Else if `a` and `b` (separable systems) both exist → MERGE:
+  `_remove: [a, b]` + `_add: {ab2}` with the `meta::tensor`
+  product state.
+- Else → no-op (settled).
+
+Visible at three `--time` snapshots: `--time 0` shows the initial
+joint system, `--time 1` shows the split state, `--time 2+` shows
+the merged state. Three distinct phases in the place graph,
+deterministically. Demo: `crates/chrysalis/ys/quantum-lifecycle.ys`;
+regression: `tests/quantum_lifecycle.rs` (4 tests).
+
+**Caveats / remaining work toward full Q4**:
+- Each system is a raw data map, not a sub-composite — the lifecycle
+  is structural but each entry doesn't run its own internal processes.
+  Streaming variant (`map[StreamingQuantumSystem]`) is the next step
+  and surfaces an open question: how does `_add` instantiate sub-
+  composites from override-map values?
+- Two parallel `step`s (Splitter + Merger) race in the BSP cycle and
+  produce non-deterministic results; collapsing into one `process`
+  with sequential `if/else` fixes this. The Splitter/Merger race is
+  the kind of issue that motivates explicit ordering primitives.
+- True compile-time Q4 (detect `CNOT(alice.q0, bob.q0)` in source and
+  inject `tensor`) is still future work — it requires sibling-composite
+  addressing syntax that doesn't exist yet.
+
 ### Slice Q6 — Quantum teleportation ✅
 The canonical demo: Alice teleports a state to Bob using a
 pre-existing entangled pair + 2 classical bits. Exercises everything:

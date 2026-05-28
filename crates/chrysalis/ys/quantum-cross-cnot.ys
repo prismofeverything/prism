@@ -1,0 +1,78 @@
+# Q4 first failing probe — cross-composite reaction.
+# ────────────────────────────────────────────────────────────────────
+#
+# The simplest expression of the Q4 problem: two sibling sub-composites
+# `alice` and `bob`, each holding a single-qubit `QuantumSystem`. We
+# WANT to express a reaction that entangles them — CNOT on qubits
+# living in different composites. The full vision: reactor detects the
+# cross-composite redex, emits a merge intent (see
+# `docs/merge-protocol.md`), the merge fuses alice+bob into one
+# composite holding their tensor-product state, and the reaction's
+# reactum applies a CNOT inside the merged composite.
+#
+# THIS FILE IS WHAT DOESN'T WORK YET. It runs (doesn't error), but
+# the output shows the three concrete blockers documented in
+# `docs/merge-protocol.md` "First-probe findings":
+#
+#   1. Composite-output leak. `alice` / `bob`'s emitted state is
+#      nested several levels deep (`alice.state.state...`) and
+#      includes schema descriptors (`_type: "Any"`). Bridge tap is
+#      not projecting to the slot value only.
+#   2. `any`-typed slot accumulation. The internal `Hold` process
+#      tries to "just re-emit state each tick" to make the bridge
+#      pick it up, but with `overwrite[any]` semantics the value
+#      ends up being SUMMED per tick (4× initial at --time 2).
+#   3. No sibling-addressing syntax. A reaction expressed at the Lab
+#      level can't refer to `alice.state` and `bob.state` directly —
+#      `^.foo` is parent, `%.foo` is self, no `<sibling>.foo`.
+#
+# Until 1 and 2 are fixed, the matcher can't see what's there
+# cleanly. Once they are, the reaction definer (slice 4 in
+# `docs/merge-protocol.md`) becomes implementable.
+#
+# Run: `chrysalis run quantum-cross-cnot.ys --time 1`
+# Inspect the output to see the leak + accumulation pattern.
+
+# ── Minimal `QuantumSystem` composite — holds a state on its bridge.
+# `state0` is a PARAM (initial value at instantiation); the internal
+# `Hold` process re-writes state every tick so the bridge tap captures
+# it. (BLOCKER 2: under `any` typing the re-emit accumulates instead
+# of overwriting.)
+process Hold ~{state :: any} ->{state :: overwrite[any]}
+(
+  {state: state}
+)
+
+composite QuantumSystem[state0 :: any = {'0': 1.0, '1': 0.0}]
+  ~{state :: any @ state = state0}
+  ->{state :: any @ state}
+(
+  state: state0 |
+  hold:  Hold ~{state: state} ->{state: state}
+)
+
+# ── Two sibling QuantumSystems in a typed map. Following the
+# `environment.ys` pattern: `map[QuantumSystem]` triggers per-entry
+# composite instantiation; each entry has its own bridge.
+# (BLOCKER 1: the resulting `systems` output is deeply nested with
+# schema descriptors, not a clean `{alice: {state: ...}, bob: {state: ...}}`.)
+composite Lab ~{} ->{
+  systems :: map[QuantumSystem] @ systems
+} (
+  systems: {
+    alice: QuantumSystem[state0: {'0': 0.7071, '1': 0.7071}]
+      ~{state: %.state} ->{state: %.state},
+    bob: QuantumSystem[state0: {'0': 1.0, '1': 0.0}]
+      ~{state: %.state} ->{state: %.state}
+  }
+)
+
+# ── The reaction we WANT to express (commented out — not parseable
+# today; BLOCKER 3 is the sibling-addressing syntax).
+#
+# reaction Entangle =
+#   alice ~{state: a} | bob ~{state: b}
+#   ->
+#   merged ~{state: cnot(tensor(a, b))}
+#
+# brs: BRS[reactions: [Entangle]] ~{state: systems} ->{state: systems}

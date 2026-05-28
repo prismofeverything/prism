@@ -85,7 +85,7 @@
   - ✅ **Q1 — independent quantum subprocesses** (`crates/chrysalis/ys/quantum-two-bells.ys`). Two `BellPair` composites side-by-side, no link between them, each measures with its own seed. The bigraph place graph is two disjoint sub-bigraphs. Demonstrates: separable quantum systems CAN be distributed.  
   - ✅ **Q2 — classical wire (LOCC)** (`crates/chrysalis/ys/quantum-locc.ys` + `tests/quantum_locc.rs`). Two composites — `Alice` (H + measure) and `Bob` (conditional prepare) — wired via a shared `classical_wire :: any` slot in the outer `LOCC` composite. Alice's measurement outcome ('b0' or 'b1') flows through the slot as a String; Bob reads the bit, fires `ConditionalPrepare` (an `if bit == 'b0' then |0⟩ else |1⟩` body), prepares matching basis state. After 3 ticks, Bob's qubit is classically-correlated to Alice's outcome (no entanglement). Demonstrates: LOCC as a chrysalis pattern — typed classical channel = primitive for distributed quantum protocols.  
   - ✅ **Q3 — `meta::tensor`** + demo + tests. The inverse of `divide`: takes two separable single-qubit/multi-qubit states (`{bitstring → amplitude}` maps) and combines them into one joint state by cross-product + amplitude multiplication. Registered as `from meta import tensor`. Demo `crates/chrysalis/ys/quantum-tensor.ys`; regression `tests/quantum_tensor.rs` covers two-`|+⟩` tensoring, separable-embedding `|+⟩⊗|0⟩`, norm preservation (Σ|amp|² multiplicative), and cross-product cardinality (m·n joint keys).  
-  - ⏳ **Q4 — auto-merge on cross-composite gate.** When the source AST has `CNOT(alice.q0, bob.q0)`, the compiler inserts a `tensor(alice, bob)` first; the composites merge before the gate fires.  
+  - 🧩 **Q4 — auto-merge on cross-composite gate.** Compile-time form remains future work. **Runtime structural-lifecycle form** shipped as `crates/chrysalis/ys/quantum-lifecycle.ys` + `tests/quantum_lifecycle.rs`: user's "starts entangled → splits → joins back" as a single `.ys` file with one `Lifecycle` process that picks the structural intent (`_remove`+`_add`) each tick based on factorizability. Three deterministic phases at three `--time` snapshots: 0 → `{ab}` (joint), 1 → `{a, b}` (split), 2+ → `{ab2}` (merged). Discovered: parallel `step`s on the same slot RACE in BSP (non-deterministic); collapsing into one `process` with sequential `if/else` fixes it. **Design captured**: `docs/merge-protocol.md` lays out the principle (composites stay sealed, merge moves state across the bridge, reactions are bigraphs that can be transmitted) and the 6 slices (`tensor_by_schema` → `_add` w/ composites → local merge primitive → reaction-send over bridge → cross-composite reactor → distributed merge). **Probe**: `crates/chrysalis/ys/quantum-cross-cnot.ys` is the failing-test entry point — surfaced 3 concrete blockers: (a) composite-output leak (bridge tap exposes schema/spec tree, not just slot value); (b) `Schema::Any` + `overwrite` doesn't replace (Hold process accumulates instead of replacing); (c) no sibling-addressing syntax (`alice.state` from Lab level). Fix these 3 (engine work) and the reactor work outlined in merge-protocol.md becomes implementable. **REMAINING**: 3 engine fixes + 6 design slices from merge-protocol.md. (Streaming variant + distributed merge are slice 6.)  
   - 🧩 **Q5 — auto-divide on factorizability.** Substrate complete: `meta::factorize(joint_state, split_k)` HostFn shipped (`from meta import factorize`) — rank-1 detection over the m×n amplitude matrix; returns `{separable: bool, a, b}`. Tests in `tests/quantum_factorize.rs` cover separable `|+⟩⊗|+⟩` factoring, Bell + GHZ entangled-state detection, exact round-tripping (`factorize ∘ tensor = id` on separable inputs), and 3-qubit splits at variable `k`. Demo `crates/chrysalis/ys/quantum-factorize.ys`. **Runtime use**: `quantum-self-observe.ys` shows `FactorizeCheck` calling `factorize` from a process body — two side-by-side composites (Bell vs `|+⟩⊗|+⟩`) self-observe + report their separability ("the composite knows whether it's entangled"). **REMAINING**: a Divider-style step (analogous to `environment.ys`'s `Divider`) that converts the observation into a structural `_divide` intent, so a separable child composite splits into independent sub-composites reflecting the post-measurement physics.  
   - ✅ **Q6 — quantum teleportation.** The canonical demo, shipped: `crates/chrysalis/ys/quantum-teleportation.ys` + regression `tests/quantum_teleportation.rs`. Five processes — `CnotA1A2`, `HadamardA1`, `MeasureA1A2`, `ExtractBobState`, `BobCorrect` — chain across six state slots. Initial state |ψ⟩=0.6|0⟩+0.8|1⟩ on Alice's qubit A1, pre-shared Bell pair on (A2, B). After 6 BSP ticks (process chain depth), Bob's qubit `bob_final` matches |ψ⟩ exactly within float tolerance — regardless of which measurement outcome occurred. The conditional Pauli correction `Z^a1 · X^a2` is a nested `if/then/else` over the 4 possible bit pairs ('m00'/'m01'/'m10'/'m11'). Only 2 classical bits cross from Alice; entanglement does the rest. No-cloning preserved (Alice's measurement destroys her copy). Exercises Q1-Q5 together — the canonical quantum protocol running end-to-end through the prism engine.
 
@@ -136,37 +136,95 @@ A side-quest doc captured the broader landscape: `docs/exploring-the-computation
 > Alice; entanglement does the rest. No-cloning preserved (Alice's
 > measurement destroys her copy).
 >
+> **Q4-spirit — Structural LIFECYCLE (`quantum-lifecycle.ys` +
+> `tests/quantum_lifecycle.rs`).** The user's "starts entangled → splits
+> → joins back" vision as a single `.ys` file. A Lab composite holds
+> `systems :: map[any]`; one `Lifecycle` process picks the structural
+> intent each tick based on factorizability: `_remove: [ab]` +
+> `_add: {a, b}` (split via `meta::factorize`), then `_remove: [a, b]`
+> + `_add: {ab2}` (merge via `meta::tensor`). Three deterministic phases
+> visible at `--time` snapshots: 0 → joint `ab`, 1 → split `a`+`b`,
+> 2+ → merged `ab2`. **Discovered along the way**: two parallel `step`s
+> on the same slot RACE in the BSP cycle and give non-deterministic
+> results; collapsing into one `process` with sequential `if/else` is the
+> fix. This race is the kind of issue that motivates explicit ordering
+> primitives for future work. Lifecycle uses raw data maps for each
+> system (not real sub-composites or stream children); the streaming
+> variant (`map[StreamingQuantumSystem]`) surfaces the open question of
+> how `_add` instantiates sub-composites from override maps — saved for
+> Q4 follow-on.
+>
 > **Docs.** `docs/quantum-bigraphs.md` §IX slice statuses updated;
 > `docs/NEXT-SESSION.md` canonical-list entry for #36 reflects
 > Q1✅ Q2✅ Q3✅ Q4⏳ Q5🧩 Q6✅.
 >
+> **Q4 deep-dive (design + probe).** Captured the principle, the merge
+> protocol, and the first-probe findings in `docs/merge-protocol.md`.
+> Wrote `crates/chrysalis/ys/quantum-cross-cnot.ys` as the failing-test
+> entry point — two sibling `QuantumSystem` composites in a
+> `map[QuantumSystem]` slot, with the reaction definer commented out.
+> Three concrete blockers surfaced before the reactor work can even
+> start:
+>
+>   1. **Composite-output leak**: the `systems` output is deeply nested
+>      (`alice.state.state.…`) and includes `_type: "Any"` schema
+>      descriptors. Bridge tap is not projecting to slot value only.
+>      The "_process leak" pattern from `project_composite_execution_gap`
+>      surfacing for `any`-typed slots. Fix: trace bridge-snapshot
+>      logic in `engine.rs`.
+>   2. **`any` + `overwrite` doesn't replace**: a trivial Hold process
+>      (`{state: state}` with `overwrite[any]`) produces `{0: 2.8284}`
+>      at `--time 2` — the value is being SUMMED per tick, not
+>      overwritten. `overwrite` modifier not being honored for
+>      `Schema::Any`. Fix: audit `apply_with_schema(Any, …)` in
+>      `apply.rs` / `reconcile.rs`.
+>   3. **No sibling-addressing syntax** (`alice.state` from Lab
+>      level). `%.foo` (self) and `^.foo` (parent) exist; no sibling
+>      form. Small parser slice.
+>
+> See `docs/merge-protocol.md` for the full design, the 6 slices, and
+> the protocol-level vision (composites stay sealed; merge moves state
+> across the bridge; reactions are bigraphs that can be transmitted
+> across the bridge — all distribution-transparent).
+>
 > **UNCOMMITTED at break**: `crates/chrysalis/ys/quantum-teleportation.ys`,
 > `crates/chrysalis/ys/quantum-self-observe.ys`,
+> `crates/chrysalis/ys/quantum-lifecycle.ys`,
+> `crates/chrysalis/ys/quantum-cross-cnot.ys`,
 > `crates/chrysalis/tests/quantum_teleportation.rs`,
+> `crates/chrysalis/tests/quantum_lifecycle.rs`,
+> `docs/merge-protocol.md` (NEW),
 > `docs/NEXT-SESSION.md` (this entry + #36 status update),
-> `docs/quantum-bigraphs.md` (Q5/Q6 status). Plus the usual spatio-flux/out/
-> regen drift from running the test suite. Suggested commit message:
-> *"teleport"* (matches the one-word convention of the recent quantum
-> commits: gates, qubits, measure, quantum engine, ...).
+> `docs/quantum-bigraphs.md` (Q4-spirit + Q5/Q6 status). Plus the usual
+> spatio-flux/out/ regen drift from running the test suite. Suggested
+> commit messages: *"teleport"* / *"lifecycle"* / *"merge protocol"*
+> (matches the one-word convention of recent quantum commits).
 >
 > **NEXT (open work, in suggested order):**
-> 1. **Q5 trigger half** — a Divider-style step (mirroring
+> 1. **Q4 blocker fixes (engine work)**: in priority order,
+>    (a) bridge-output projection (composite outputs should be just the
+>    slot value, not the schema/spec tree); (b) `Schema::Any` + `overwrite`
+>    semantics (overwrite must replace regardless of inner schema kind);
+>    (c) sibling-addressing parser slice. Each is small + concrete; together
+>    they unblock the cross-composite reactor work outlined in
+>    `docs/merge-protocol.md`.
+> 2. **`tensor_by_schema`** — the schema-driven dual of
+>    `divide_by_schema` (slice 1 of merge-protocol.md). Schema-algebra
+>    work; mirrors divide.
+> 3. **Reaction-send over the bridge** — extend the stream protocol's
+>    command vocabulary to carry "fire this reaction at this position"
+>    in addition to state deltas. Enables transparently-distributed
+>    reactions (slice 4 of merge-protocol.md).
+> 4. **Q5 trigger half** — a Divider-style step (mirroring
 >    `environment.ys`'s `Divider`) that watches child composites'
 >    `observation.separable` flags and emits a structural `_divide` intent
->    when a child reports separable. This closes the auto-divide loop: the
+>    when a child reports separable. Closes the auto-divide loop: the
 >    composite's verdict becomes structural change.
-> 2. **Q4 — compile-time auto-merge on cross-composite gate.** When source
->    AST has `CNOT(alice.q0, bob.q0)` (NB: this sibling-composite addressing
->    syntax doesn't exist yet — `^.` is parent and `%.` is self; nothing
->    crosses to a sibling), the compiler detects the cross-composite ref
->    and inserts a `tensor(alice, bob)` first. Requires: (a) syntax design
->    for `siblingname.slot`, (b) AST pass to detect cross-composite refs in
->    process/term args, (c) automatic insertion of `tensor` + composite
->    merge. Heaviest remaining piece of #36.
-> 3. **Other tracks ready to go**: #6 explicit bridge conduits, #9
->    dt-refinement sweep (small warmup), #21 batched ray (the only piece
->    keeping #21 from done), #25-29 distributed phases (the planet-scale
->    arc), #15+#30 schema-as-state + entity registry (#30 slices 3-4
+> 5. **Other tracks ready to go**: #6 explicit bridge conduits (related
+>    to Q4 blocker 1), #9 dt-refinement sweep (small warmup), #21 batched
+>    ray (the only piece keeping #21 from done), #25-29 distributed
+>    phases (the planet-scale arc — Q4's merge protocol IS phase 1 in
+>    spirit), #15+#30 schema-as-state + entity registry (#30 slices 3-4
 >    remain — methods on sited cells + `control Foo` declarative form).
 
 ## ⏯️ NEXT-SESSION PROMPT (2026-05-25 — schema-first discovery + canonical-list audit)
