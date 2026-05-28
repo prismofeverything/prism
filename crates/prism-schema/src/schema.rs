@@ -874,8 +874,8 @@ impl Schema {
                 update.clone()
             }
 
-            // Tree: recursive merge with per-branch schemas.
-            // Handles both Map and Struct current values.
+            // Tree: recursive merge with per-branch schemas. Handles both Map
+            // and Struct current values.
             Self::Tree { branches } => {
                 match (current, update) {
                     // Struct current + Map update (common: process delta applied to compiled state)
@@ -892,41 +892,20 @@ impl Schema {
                         }
                         Value::Struct { layout: layout.clone(), values: new_values }
                     }
-                    // Map current + Map update (original path)
-                    (Value::Map(cur), Value::Map(upd)) => {
-                        let mut result = cur.clone();
-                        apply_add_remove(&mut result, upd);
-                        for (k, v) in upd {
-                            if k == "_add" || k == "_remove" { continue; }
-                            let schema = branches.get(k).unwrap_or(&Schema::Any);
-                            // post-`_add` base (see Map arm): a re-added key composes
-                            // with a concurrent update instead of reverting.
-                            let existing = result.get(k).cloned().unwrap_or(Value::None);
-                            result.insert(k.clone(), schema.apply_update(&existing, v));
-                        }
-                        Value::Map(result)
-                    }
+                    // Map current + Map update — unified through `apply_map_with`.
+                    (Value::Map(cur), Value::Map(upd)) => Value::Map(apply_map_with(
+                        cur,
+                        upd,
+                        |k| branches.get(k).unwrap_or(&Schema::Any),
+                    )),
                     _ => update.clone(),
                 }
             }
 
-            // Map: recursive merge with _add/_remove support
+            // Map: every entry uses `val_schema`; unified through `apply_map_with`.
             Self::Map { value: val_schema } => {
                 if let (Value::Map(cur), Value::Map(upd)) = (current, update) {
-                    let mut result = cur.clone();
-                    apply_add_remove(&mut result, upd);
-                    for (k, v) in upd {
-                        if k == "_add" || k == "_remove" {
-                            continue;
-                        }
-                        // Base on `result` (post `_add`/`_remove`), not `cur`: a
-                        // key that was just re-added (`_add`) must compose with a
-                        // concurrent same-key update, not be reverted to the old
-                        // value.
-                        let existing = result.get(k).cloned().unwrap_or(Value::None);
-                        result.insert(k.clone(), val_schema.apply_update(&existing, v));
-                    }
-                    Value::Map(result)
+                    Value::Map(apply_map_with(cur, upd, |_| val_schema))
                 } else {
                     update.clone()
                 }
@@ -1081,19 +1060,10 @@ impl Schema {
                         let delta = update.as_f64().unwrap_or(0.0);
                         Value::float(base + delta)
                     }
-                    // Both maps → recursive merge with _add/_remove
+                    // Both maps → recursive merge with _add/_remove, every key
+                    // through `Any` (unified via `apply_map_with`).
                     (Value::Map(cur), Value::Map(upd)) => {
-                        let mut result = cur.clone();
-                        apply_add_remove(&mut result, upd);
-                        for (k, v) in upd {
-                            if k == "_add" || k == "_remove" {
-                                continue;
-                            }
-                            // post-`_add` base (see Map arm).
-                            let existing = result.get(k).cloned().unwrap_or(Value::None);
-                            result.insert(k.clone(), Schema::Any.apply_update(&existing, v));
-                        }
-                        Value::Map(result)
+                        Value::Map(apply_map_with(cur, upd, |_| &Schema::Any))
                     }
                     // Struct current + Map update → update fields in place
                     (Value::Struct { layout, values }, Value::Map(upd)) => {
@@ -1398,7 +1368,12 @@ impl Schema {
             // (injected by `encode` for upstream compat) is STRIPPED — it
             // encodes schema, not value, and is recovered by `Schema::infer`
             // from the encoded form directly. Dropping it here is what makes
-            // `realize(encode(v)) ≡ v` hold.
+            // `realize(encode(v)) ≡ v` hold (law 8). Spec promotion (raw
+            // state → runnable composite spec) is the SENDER's responsibility
+            // — process bodies emit Term expressions for `_add` of composite
+            // entries; the receiver realizes the already-formed spec via
+            // passthrough. See docs/merge-protocol.md and the
+            // `quantum-lifecycle.ys` Lifecycle process.
             (
                 Self::Link { .. }
                 | Self::StepLink { .. }
@@ -1673,8 +1648,57 @@ fn merge_replace(base: &Value, over: &Value) -> Value {
 /// **Module-private to the algebra**: only `apply` calls this; consumers go
 /// through `algebra::apply` (so inline `_add`/`_remove` munging can't reappear
 /// at a call site — the closure invariant).
+/// The single map-merge primitive: `_remove`, then `_add` (realized through
+/// the per-key element schema), then per-key apply. Unifies the four arms
+/// that used to do the same dance (Tree / Map / RecursiveTree / Any) — they
+/// differ only in how each key's element schema is resolved, which the
+/// `schema_for` closure abstracts.
+///
+/// `_add` values are passed through `element_schema.realize(v)` so a
+/// serialized value lands as the right typed shape — most importantly, for
+/// a `Map[T]` whose `T` is a Link/CompositeLink, a fresh entry's encoded
+/// form is materialized into a runnable spec (see `Schema::realize` for
+/// the Link arms). This is what makes `_add` over the bridge work end-to-
+/// end for sub-composites: the sender ships a serialized value, the
+/// receiver's apply realizes it.
+pub(crate) fn apply_map_with<'a>(
+    current_map: &crate::value::StateMap,
+    update_map: &crate::value::StateMap,
+    schema_for: impl Fn(&Key) -> &'a Schema,
+) -> crate::value::StateMap {
+    let mut result = current_map.clone();
+    // _remove first so a re-added same-key isn't immediately wiped.
+    if let Some(Value::List(keys)) = update_map.get("_remove") {
+        for key in keys {
+            if let Some(k) = key.as_str() {
+                result.swap_remove(k);
+            }
+        }
+    }
+    // _add: realize each new entry through its element schema.
+    if let Some(Value::Map(adds)) = update_map.get("_add") {
+        for (k, v) in adds {
+            let s = schema_for(k);
+            result.insert(k.clone(), s.realize(v));
+        }
+    }
+    // Regular keys: apply update through the per-key schema, basing on the
+    // POST-`_add`/`_remove` result so a re-added key composes with a
+    // concurrent update instead of reverting.
+    for (k, v) in update_map {
+        if k == "_add" || k == "_remove" {
+            continue;
+        }
+        let s = schema_for(k);
+        let existing = result.get(k).cloned().unwrap_or(Value::None);
+        result.insert(k.clone(), s.apply_update(&existing, v));
+    }
+    result
+}
+
+/// Backward-compat wrapper kept for callers that don't yet thread a schema
+/// (the `realize`-naive merge). Equivalent to `apply_map_with(_, _, |_| &Schema::Any)`.
 pub(crate) fn apply_add_remove(result: &mut crate::value::StateMap, update: &crate::value::StateMap) {
-    // _remove: delete listed keys
     if let Some(Value::List(keys)) = update.get("_remove") {
         for key in keys {
             if let Some(k) = key.as_str() {
@@ -1682,8 +1706,6 @@ pub(crate) fn apply_add_remove(result: &mut crate::value::StateMap, update: &cra
             }
         }
     }
-
-    // _add: insert new entries (absolute values, not deltas)
     if let Some(Value::Map(adds)) = update.get("_add") {
         for (k, v) in adds {
             result.insert(k.clone(), v.clone());

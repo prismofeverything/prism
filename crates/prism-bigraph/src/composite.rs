@@ -28,7 +28,7 @@ use std::sync::Mutex;
 
 use indexmap::IndexMap;
 
-use prism_schema::{Key, Path, Value};
+use prism_schema::{Key, Path, Schema, Value, algebra};
 
 use crate::engine::Engine;
 use crate::ports::PortSchema;
@@ -200,10 +200,37 @@ impl Process for Composite {
     fn update(&self, state: &Value, interval: f64) -> Update {
         let mut engine = self.inner.lock().unwrap();
 
-        // 1. Bridge inputs: write external values into internal state
+        // 1. Bridge inputs: APPLY external updates via the port's schema —
+        //    the symmetric counterpart to the bridge-out tap below. A bridge
+        //    input is an UPDATE (whatever `apply` accepts at the port's type)
+        //    not a snapshot to set. Today's input ports are snapshot-flavoured
+        //    (the parent ships its current value each tick), so we wrap the
+        //    port schema in `Overwrite[T]` here — `apply(Overwrite, _, v)`
+        //    returns `v` verbatim, equivalent to the historical `set_path`.
+        //    Custom-apply port types (e.g. a `Bigraph` port whose `apply`
+        //    fires a reaction inside) become possible without changing this
+        //    code: declare the port as `:: Bigraph` and the registry's apply
+        //    intercepts. See docs/merge-protocol.md "Bridges are SYMMETRIC
+        //    update channels."
+        let registry = engine.core().types.clone();
         for (port, internal_path) in &self.input_bridge.mappings {
             if let Some(val) = state.get_field(port.as_str()) {
-                engine.state_mut().set_path(internal_path, val.clone());
+                let port_schema = self
+                    .input_schemas
+                    .get(port)
+                    .cloned()
+                    .unwrap_or(Schema::Any);
+                let current = engine
+                    .state()
+                    .get_path(internal_path)
+                    .cloned()
+                    .unwrap_or(Value::None);
+                let wrapped = Schema::Overwrite {
+                    inner: Box::new(port_schema),
+                };
+                let applied =
+                    algebra::apply_with(Some(registry.as_ref()), &wrapped, &current, val);
+                engine.state_mut().set_path(internal_path, applied);
             }
         }
 

@@ -288,6 +288,52 @@ but small (parser slice; tracked as task #40).
 Lessons (saved as memories): `feedback_no_grep_filter`,
 `feedback_read_dont_guess`, `feedback_real_types_not_any`.
 
+### Landed (2026-05-28)
+
+Three slices in: the foundational symmetric-apply at the input bridge
+(#41), the snapshot-publish convention (#37 — `Publish` process in
+`QuantumSystem`), and the lifecycle's promotion to real
+`map[QuantumSystem]` sub-composites (#38).
+
+Symmetric apply: `composite.rs` input bridge routes through
+`algebra::apply_with(Overwrite[port_schema], current, val)`. Today's
+"set" behavior preserved (Overwrite wraps everything → replace).
+Future custom-apply port types (e.g. a Bigraph schema) can bypass the
+wrap once added.
+
+Unified merge: `apply_map_with(cur, upd, schema_for)` collapses the
+four arms (Tree / Map / Any) that used to duplicate the `_remove` +
+`_add` + per-key apply dance. `_add` values are realized through the
+per-key element schema — the schema algebra's `realize` is now the
+deserialization step every map-`_add` flows through.
+
+Snapshot publish: the `Publish` process inside `QuantumSystem`
+re-emits state every tick with `overwrite[map[float]]` semantics, so
+the bridge taps it and the parent's slot tracks the inner state.
+
+Composite `_add` over the bridge: a process body's `_add` value is a
+**Term expression** (`QuantumSystem[state0: …] ~{…} ->{…}`) — the
+sender constructs a fully-formed spec; the receiver's realize passes
+through (`_type: composite` is the spec sentinel). This keeps the
+round-trip law `r(s(v)) ≡ v` intact for arbitrary values, with the
+spec form as the natural fixed-point of `r ∘ s`.
+
+### Algebra question — idempotence at the fixed point
+
+Open question for the schema algebra: should there be a law for
+`r ∘ s ∘ r ∘ s ≡ r ∘ s` (encode/realize converge to a canonical form)?
+Today's law 8 is the stricter `r ∘ s ≡ id` (round-trip). The
+idempotence-at-fixed-point variant would accommodate types whose
+"canonical form" is multi-step normalization — e.g. a composite whose
+serialized state can be either raw inner-state OR a runnable spec,
+both valid, with the spec as the fixed-point.
+
+Not needed for the current implementation (we keep `r ∘ s ≡ id`
+strict and require the sender to ship the canonical form). But the
+idempotence variant is worth considering if we ever want
+serialize/realize to NORMALIZE (e.g. always emit the spec) for types
+where the canonical form is unambiguous.
+
 ### What the engine reading confirmed
 
 After the grep-trap was identified, reading `composite.rs:200-274`,

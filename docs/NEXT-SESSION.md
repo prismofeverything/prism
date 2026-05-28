@@ -85,11 +85,112 @@
   - ✅ **Q1 — independent quantum subprocesses** (`crates/chrysalis/ys/quantum-two-bells.ys`). Two `BellPair` composites side-by-side, no link between them, each measures with its own seed. The bigraph place graph is two disjoint sub-bigraphs. Demonstrates: separable quantum systems CAN be distributed.  
   - ✅ **Q2 — classical wire (LOCC)** (`crates/chrysalis/ys/quantum-locc.ys` + `tests/quantum_locc.rs`). Two composites — `Alice` (H + measure) and `Bob` (conditional prepare) — wired via a shared `classical_wire :: any` slot in the outer `LOCC` composite. Alice's measurement outcome ('b0' or 'b1') flows through the slot as a String; Bob reads the bit, fires `ConditionalPrepare` (an `if bit == 'b0' then |0⟩ else |1⟩` body), prepares matching basis state. After 3 ticks, Bob's qubit is classically-correlated to Alice's outcome (no entanglement). Demonstrates: LOCC as a chrysalis pattern — typed classical channel = primitive for distributed quantum protocols.  
   - ✅ **Q3 — `meta::tensor`** + demo + tests. The inverse of `divide`: takes two separable single-qubit/multi-qubit states (`{bitstring → amplitude}` maps) and combines them into one joint state by cross-product + amplitude multiplication. Registered as `from meta import tensor`. Demo `crates/chrysalis/ys/quantum-tensor.ys`; regression `tests/quantum_tensor.rs` covers two-`|+⟩` tensoring, separable-embedding `|+⟩⊗|0⟩`, norm preservation (Σ|amp|² multiplicative), and cross-product cardinality (m·n joint keys).  
-  - 🧩 **Q4 — auto-merge on cross-composite gate.** Compile-time form remains future work. **Runtime structural-lifecycle form** shipped as `crates/chrysalis/ys/quantum-lifecycle.ys` + `tests/quantum_lifecycle.rs`: user's "starts entangled → splits → joins back" as a single `.ys` file with one `Lifecycle` process that picks the structural intent (`_remove`+`_add`) each tick based on factorizability. Three deterministic phases at three `--time` snapshots: 0 → `{ab}` (joint), 1 → `{a, b}` (split), 2+ → `{ab2}` (merged). Discovered: parallel `step`s on the same slot RACE in BSP (non-deterministic); collapsing into one `process` with sequential `if/else` fixes it. **Design captured**: `docs/merge-protocol.md` lays out the principle (composites stay sealed, merge moves state across the bridge, reactions are bigraphs that can be transmitted) and the 6 slices (`tensor_by_schema` → `_add` w/ composites → local merge primitive → reaction-send over bridge → cross-composite reactor → distributed merge). **Probe**: `crates/chrysalis/ys/quantum-cross-cnot.ys` is the failing-test entry point — surfaced 3 concrete blockers: (a) composite-output leak (bridge tap exposes schema/spec tree, not just slot value); (b) `Schema::Any` + `overwrite` doesn't replace (Hold process accumulates instead of replacing); (c) no sibling-addressing syntax (`alice.state` from Lab level). Fix these 3 (engine work) and the reactor work outlined in merge-protocol.md becomes implementable. **REMAINING**: 3 engine fixes + 6 design slices from merge-protocol.md. (Streaming variant + distributed merge are slice 6.)  
+  - 🧩 **Q4 — auto-merge on cross-composite gate.** Compile-time form remains future work; **runtime structural-lifecycle form is done**. `crates/chrysalis/ys/quantum-lifecycle.ys` + `tests/quantum_lifecycle.rs`: user's "starts entangled → splits → joins back" as a single `.ys` file using REAL `map[QuantumSystem]` sub-composites. One `Lifecycle` process picks the structural intent (`_remove`+`_add`) each tick based on factorizability; `_add` values are Term expressions (`QuantumSystem[state0: …] ~{…} ->{…}`) so the senders ship fully-formed composite specs — receiver's realize passes through (`_type: composite` is the spec sentinel). Three deterministic phases at three `--time` snapshots: 0 → `{ab}` (joint), 1 → `{a, b}` (split), 2+ → `{ab2}` (merged). **Foundations landed (2026-05-28)**: (a) `composite.rs` input bridge now routes through `algebra::apply_with(Overwrite[port_schema], …)` — set/apply symmetric; (b) `QuantumSystem` carries a `Publish ~{state} ->{state :: overwrite[map[float]]}` so the bridge taps + forwards each tick; (c) `apply_map_with(cur, upd, schema_for)` unified the four duplicated `_remove`/`_add`/per-key-apply arms (Tree / Map / Any), and `_add` values are realized through the per-key element schema. **Design**: `docs/merge-protocol.md` — composites stay sealed, merge moves state across the bridge, reactions are bigraphs that can be transmitted as updates. **PROVENANCE NOTE**: the "3 blockers" recorded in the 2026-05-27 entry (composite output leak, `Schema::Any` + `overwrite`, sibling addressing) were almost entirely a *debugging trap* — `grep -v "^   "` was eating indented JSON, making nested maps look empty. Only the 3rd (sibling-addressing in REACTION REDEX SYNTAX) is real; tracked as #40. **REMAINING**: `tensor_by_schema` (#39), `Bigraph` port type for reaction-as-update (#42), cross-composite reactor (#43), sibling-addressing parser slice (#40); streaming-/distributed-variant rides on the slices above.  
   - 🧩 **Q5 — auto-divide on factorizability.** Substrate complete: `meta::factorize(joint_state, split_k)` HostFn shipped (`from meta import factorize`) — rank-1 detection over the m×n amplitude matrix; returns `{separable: bool, a, b}`. Tests in `tests/quantum_factorize.rs` cover separable `|+⟩⊗|+⟩` factoring, Bell + GHZ entangled-state detection, exact round-tripping (`factorize ∘ tensor = id` on separable inputs), and 3-qubit splits at variable `k`. Demo `crates/chrysalis/ys/quantum-factorize.ys`. **Runtime use**: `quantum-self-observe.ys` shows `FactorizeCheck` calling `factorize` from a process body — two side-by-side composites (Bell vs `|+⟩⊗|+⟩`) self-observe + report their separability ("the composite knows whether it's entangled"). **REMAINING**: a Divider-style step (analogous to `environment.ys`'s `Divider`) that converts the observation into a structural `_divide` intent, so a separable child composite splits into independent sub-composites reflecting the post-measurement physics.  
   - ✅ **Q6 — quantum teleportation.** The canonical demo, shipped: `crates/chrysalis/ys/quantum-teleportation.ys` + regression `tests/quantum_teleportation.rs`. Five processes — `CnotA1A2`, `HadamardA1`, `MeasureA1A2`, `ExtractBobState`, `BobCorrect` — chain across six state slots. Initial state |ψ⟩=0.6|0⟩+0.8|1⟩ on Alice's qubit A1, pre-shared Bell pair on (A2, B). After 6 BSP ticks (process chain depth), Bob's qubit `bob_final` matches |ψ⟩ exactly within float tolerance — regardless of which measurement outcome occurred. The conditional Pauli correction `Z^a1 · X^a2` is a nested `if/then/else` over the 4 possible bit pairs ('m00'/'m01'/'m10'/'m11'). Only 2 classical bits cross from Alice; entanglement does the rest. No-cloning preserved (Alice's measurement destroys her copy). Exercises Q1-Q5 together — the canonical quantum protocol running end-to-end through the prism engine.
 
 A side-quest doc captured the broader landscape: `docs/exploring-the-computational-unknown.md` — survey of reflective towers, meta-circular interpreters, macros, Futamura projections, staging, algebraic effects, probabilistic / differentiable / reversible / quantum / unconventional computing, and the axes that compose into the space of methods.
+
+## ⏯️ NEXT-SESSION PROMPT (2026-05-28 — symmetric bridge apply + lifecycle on real composites + schema-algebra unification)
+
+> Workspace GREEN (586 workspace tests pass, 0 fail). This session
+> turned the "merge protocol" design from `docs/merge-protocol.md`
+> into running code — three slices landed plus a schema-algebra
+> cleanup.
+>
+> **#41 — Symmetric apply at composite input bridge.**
+> `crates/prism-bigraph/src/composite.rs:200-244` input bridge now
+> routes through `algebra::apply_with(Overwrite[port_schema],
+> current, val)` instead of `set_path(val)`. Today's "set" behavior
+> preserved by the `Overwrite` wrap (apply with `Overwrite` returns
+> the update verbatim); the apply path is now in place for future
+> custom-apply port types — e.g. a `Bigraph`-typed port whose apply
+> fires a reaction inside (#42).
+>
+> **#37 — `Publish` process in `QuantumSystem`.** New
+> `crates/chrysalis/ys/quantum-system.ys`: a `QuantumSystem`
+> composite with a small internal `Publish ~{state} ->{state ::
+> overwrite[map[float]]}` process re-emits state every tick. The
+> bridge taps this and forwards to the parent's slot — the
+> "snapshot-publish on bridge" pattern from `docs/merge-protocol.md`.
+>
+> **#38 — `quantum-lifecycle.ys` promoted to real
+> `map[QuantumSystem]`.** Initial `ab` AND `_add` entries
+> (`a`/`b`/`ab2`) are now full `QuantumSystem` composites with their
+> own Publish + bridge — the lifecycle's `_add` emits Term expressions
+> (`QuantumSystem[state0: …] ~{state: %.state} ->{state: %.state}`)
+> so the receiver gets a fully-formed spec. Each composite RUNS its
+> own internal Publish; the bridge surfaces state at
+> `systems.<id>.state` for the Lifecycle process to read. The
+> 4 regression tests in `tests/quantum_lifecycle.rs` still pass
+> against the deeper substrate.
+>
+> **Schema-algebra unification.** `apply_map_with(cur, upd,
+> schema_for)` in `crates/prism-schema/src/schema.rs` collapses the
+> four duplicated `_remove`/`_add`/per-key-apply arms (Tree's Map
+> case, Map, Any's Map case — RecursiveTree left alone since its
+> per-key apply branches on value shape). `_add` values are now
+> passed through `element_schema.realize(v)` — the algebra's
+> `realize` is now the deserialization step every map-`_add` flows
+> through. For `map[Composite]`, the sender ships a Term-form spec;
+> realize passes through (`_type: composite` sentinel).
+>
+> **Design captured in `docs/merge-protocol.md`**: bridges are
+> symmetric update channels. Both directions carry updates
+> (whatever `apply` accepts at the port's declared type) along
+> schema-typed wires. The audit table at the top of the doc shows
+> the blast radius for the input-bridge change is small —
+> `cell.ys` `mass`/`glucose` and `mapk.ys` `cell` would benefit
+> from explicit `overwrite[T]` annotations, but today's behavior
+> is preserved by default (the `Overwrite` wrap at the bridge).
+>
+> **Provenance — debugging trap retired.** The "3 blockers" from
+> the 2026-05-27 entry were almost entirely a `grep -v "^   "`
+> filter eating indented JSON; nested maps in composite outputs
+> were always present, just invisible to my filter. Lessons saved
+> as `feedback_no_grep_filter`, `feedback_read_dont_guess`,
+> `feedback_real_types_not_any`. Only blocker (3) — sibling
+> addressing in REACTION REDEX SYNTAX — is real; tracked as #40.
+>
+> **UNCOMMITTED at break**:
+> `crates/prism-bigraph/src/composite.rs` (input bridge → apply),
+> `crates/prism-schema/src/schema.rs` (`apply_map_with` helper +
+> arm unification),
+> `crates/chrysalis/ys/quantum-system.ys` (NEW — `QuantumSystem`
+> with `Publish`),
+> `crates/chrysalis/ys/quantum-lifecycle.ys` (Term-form `_add`),
+> `docs/merge-protocol.md` (foundation + audit + slices),
+> `docs/NEXT-SESSION.md` (this entry + #36 status update).
+> Plus the usual spatio-flux/out/ regen drift. Suggested commit
+> messages: *"symmetric apply"* / *"publish"* / *"realize add"*.
+>
+> **NEXT (open work, in suggested order):**
+> 1. **#39 `tensor_by_schema`** — schema-driven dual of
+>    `divide_by_schema`. For each kind: how do two same-typed values
+>    unify? `Float` shares/sums, `Delta` concats logs, `map[T]`
+>    union-recurse, `map[float]` (quantum) cross-product + multiply.
+>    Pure schema-algebra work; mirrors divide. Gives `meta::tensor`
+>    a typed home.
+> 2. **#42 `Bigraph` port type** — schema kind whose `apply`
+>    interprets the update as a reaction-fire. Together with #41's
+>    symmetric apply, this unlocks reaction-as-update over the bridge
+>    (the cross-composite reactor pattern in #43).
+> 3. **#43 cross-composite reactor** — orchestrator that walks
+>    reactions, identifies cross-composite redexes, emits the merge
+>    update + the reaction update. Depends on #39, #42, #40.
+> 4. **#40 sibling-addressing in reaction syntax** — small parser
+>    slice; lets a redex express `alice~{state: a} | bob~{state: b}`.
+> 5. **Algebra-laws follow-up (PLAN)**: the algebra could grow an
+>    *idempotence-at-fixed-point* law (`r ∘ s ∘ r ∘ s ≡ r ∘ s`) so
+>    types whose canonical form is multi-step normalization (e.g.
+>    realize wrapping raw state → spec for CompositeLink) can be
+>    expressed cleanly. Today we keep the stricter `r ∘ s ≡ id` law
+>    and put the canonicalization on the sender (Term expressions in
+>    process bodies). Revisit when adding the `Bigraph` type or when
+>    we want realize to auto-promote.
+> 6. **Other tracks ready to go**: #6 explicit bridge conduits, #9
+>    dt-refinement sweep, #21 batched ray, #25-29 distributed phases,
+>    #15+#30 schema-as-state + entity registry (slices 3-4 remain).
 
 ## ⏯️ NEXT-SESSION PROMPT (2026-05-27 — quantum bigraphs Q2/Q3/Q5/Q6; #36 nearly complete)
 

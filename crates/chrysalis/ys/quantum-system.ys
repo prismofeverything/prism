@@ -1,0 +1,33 @@
+# `QuantumSystem` — a sub-composite holding a single quantum-state map
+# on its bridge. Designed for use as a typed `map[QuantumSystem]` entry
+# (per quantum-lifecycle.ys and quantum-cross-cnot.ys).
+#
+# Key piece: the internal `Publish` process re-emits `state` every tick
+# so the bridge tap carries the snapshot up to the parent. Without it
+# the bridge would only emit deltas of inner state changes; an initial
+# state would never become visible to a parent step. (See
+# `docs/merge-protocol.md` for the "snapshot-publish on bridge" pattern
+# — symmetric apply at the input bridge + a publish process at the
+# output is what lets a parent observe a sub-composite's current
+# state through the bridge without piercing the composite boundary.)
+#
+# State shape: `map[float]` keyed by bitstring (`'0'`, `'1'` for a
+# single qubit; `'00'/'01'/'10'/'11'` for a 2-qubit joint state).
+# Size is implicit in the keyset — the lifecycle (split/merge)
+# mutates it freely as factorize/tensor change the structure.
+
+# Republish state each tick as an `overwrite[map[float]]` update so the
+# bridge carries the current snapshot. The Overwrite wrap forces a
+# replace (not additive merge) at the inner slot.
+process Publish ~{state :: map[float]} ->{state :: overwrite[map[float]]}
+(
+  {state: state}
+)
+
+composite QuantumSystem[state0 :: map[float] = {'0': 1.0, '1': 0.0}]
+  ~{state :: map[float] @ state = state0}
+  ->{state :: map[float] @ state}
+(
+  state: state0 |
+  publish: Publish ~{state: state} ->{state: state}
+)
