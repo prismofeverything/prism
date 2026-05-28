@@ -182,6 +182,92 @@ doc, surfacing concretely. Fix order is probably 1 → 2 → 3:
 Once (1) is clean, the cross-cnot probe will at least produce
 inspectable state to write reaction predicates over.
 
+### Update — read the engine, found the design (and a debugging trap)
+
+User pushed back ("why are you not looking for what you need to
+know"). Read `composite.rs:200-274` (bridge `update` cycle),
+`engine.rs:854-980` (`apply_reconciled` + `apply_projections` with
+the `bridge_out_paths` accumulation), and `schema.rs:821-839`
+(`node_data_branches`) + `schema.rs:1076-1110` (`Schema::Any` apply).
+
+**False alarm on most of the blockers** — they were a **debugging
+trap, not engine bugs**. The `grep -v "^   "` filter I was using
+to strip compiler warnings *also matched indented JSON lines*, so
+multi-line nested map outputs got their interior stripped, leaving
+just `"c": {` and `}` on consecutive lines and making it look like
+`"c": {}`. Removing the filter (or restructuring the grep) revealed
+that nested maps in composite outputs ARE present and correct.
+
+**What's actually true:**
+
+1. **Bridges emit DELTAS, not snapshots.** `composite.rs:240-273`
+   captures `bridge_out_deltas` each tick and forwards as the
+   composite's update. Initial inner state is NOT a delta — it's
+   invisible to the parent until a process modifies it. A sub-
+   composite needs at least one process emitting a non-zero output
+   for anything to flow through its bridge port. `is_zero_delta`
+   (`composite.rs:288-298`) filters silent updates.
+
+2. **`Schema::Any` apply IS additive for floats.** `schema.rs:1076-1083`:
+   `Self::Any` with two numerics returns `base + delta`. So my
+   earlier `state :: any` did accumulate — that's correct
+   behavior for an untyped slot. **Use real types** (`Float`,
+   `map[float]`, `overwrite[T]`) for explicit apply semantics. User's
+   correction was exactly right.
+
+3. **Sibling propagation works.** A trivial test (two sibling
+   `Inner ~{count :: Float}` composites with a `Tick` process
+   emitting `{count: 0.5}`) correctly propagates each one's
+   per-tick delta to the parent's sibling slots (`alice_count`,
+   `bob_count`). The parent sees the *accumulated delta*, not the
+   inner absolute value — that's the env→glucose pattern.
+
+4. **The empty `cells: {}` in env.ys's output is honest.** Cells
+   write `mass: %.mass` (own node) — that does land in
+   `env.cells.c0.mass` and is readable by the Divider's
+   `cell.divide` comprehension. The CLI's serializer reads it just
+   fine; my `grep` was hiding it.
+
+### Implications for the merge protocol
+
+The protocol is now clear:
+
+- **To merge `alice` and `bob`, the orchestrator needs their
+  CURRENT INNER STATE.** Bridges give deltas; for absolute state
+  it needs one of:
+  (a) a snapshot-publish process inside each sub-composite that
+  re-emits the full state as an `overwrite` delta each tick (or on
+  request), or
+  (b) the parent maintaining a ledger (initial + accumulated
+  deltas).
+- **Option (a) is cleanest and bridge-respectful**. Each
+  `QuantumSystem` adds a small `Publish ~{state} ->{state :: overwrite}`
+  process. The Merger step reads `cells.alice.state` and
+  `cells.bob.state`, calls `tensor`, emits `_remove + _add`.
+- **`tensor_by_schema`** is the inner mechanism: typed dual of
+  `divide_by_schema`. Quantum's `meta::tensor` is one instance.
+
+### Next concrete slice
+
+None of this requires engine modification — it's all chrysalis +
+schema-algebra work:
+
+1. **Add `Publish` process** to `QuantumSystem` so its `state`
+   slot is propagated each tick (bridge-respectful snapshot).
+2. **Re-promote `quantum-lifecycle.ys`**: replace the raw data
+   maps with real `map[QuantumSystem]` sub-composites; the
+   Lifecycle process reads `cells.<id>.state` (via the bridge)
+   and emits the same `_remove + _add` structural intents.
+3. **`tensor_by_schema`** as a schema-algebra operation — extends
+   the closed algebra; gives `meta::tensor` a typed home.
+4. **Sibling-addressing in reaction redex** — parser slice so
+   `alice~{state: a} | bob~{state: b}` can express the cross-
+   composite pattern.
+
+The end state — quantum-lifecycle demo running with REAL
+`QuantumSystem` sub-composites that could in principle be
+streamed across machines — is the slice that unlocks Q4 proper.
+
 ## Quantum as the test case
 
 Quantum is the cleanest first test because the merge operation is
