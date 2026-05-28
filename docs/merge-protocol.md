@@ -4,286 +4,305 @@ The dual of `divide`. The structural primitive #36 (quantum bigraphs)
 needs for entanglement, that #15/#30 needs for schema-as-state, and that
 the distributed slices (#25-#29) need for "two subdomains decided to fuse."
 
-## Principle
+## The foundation: bridges are SYMMETRIC update channels
 
-The composite boundary is *non-negotiable* — for distribution reasons,
-the outer engine never touches a sub-composite's internals. All I/O goes
-through the bridge. A composite may be local; it may be a stream child
-holding state on another machine; the OUTSIDE shouldn't care. (Memory:
-`feedback_composite_boundary`.)
+**The principle**: a composite's bridge is symmetric. Both directions —
+input and output — carry **updates** (whatever the schema's `apply`
+accepts) along **schema-typed wires**. Not states. Not deltas
+specifically (delta is a degenerate update). Just updates.
 
-So `merge` must be implementable using ONLY bridge I/O:
+An update at a port is whatever `apply(T, current, update) → new_current`
+accepts at that port's declared schema `T`. For `Float`, it's a numeric
+delta (additive). For `overwrite[T]`, it's a replacement. For a `Map`
+or `Tree`, it's a partial map with optional `_add` / `_remove`
+sentinels. For a `Custom` type with a registered `apply` method,
+it's whatever that method's signature says — including a **Bigraph**
+type whose `apply` is a reaction (redex/reactum) being fired against
+the receiver's internal state.
 
-1. **Drain.** Each source composite already exposes its state on the
-   bridge (the schema's `@`-bound output ports). One tick of normal
-   I/O is sufficient — the bridge tap already gives the outer engine a
-   snapshot of each source's external face.
-2. **Unify.** A merge function combines the snapshots — for quantum,
-   `meta::tensor`; for the general case, a schema-driven combine that
-   sums extensive quantities, takes union of structure, reconciles
-   delta logs, etc. (The dual operations of `divide_by_schema` —
-   `tensor_by_schema` is the planned name.)
-3. **Allocate.** A `_add` intent on the parent's `systems` map (or
-   wherever the composites lived) installs the new merged composite,
-   typed by the map's element type. If the type is `stream<T, path: …>`,
-   a new stream child spawns automatically (same mechanism as a
-   divider's daughters today).
-4. **Tear down.** A `_remove` intent on the same map drops the source
-   composites; for stream children this terminates the child processes
-   cleanly.
+**Projection always carries schema.** When a wire projects an update
+from one slot to another, the source's port schema travels with the
+update; the receiver applies via that schema. This is the same rule
+already used for output-port schema promotion (engine.rs:856-870 —
+"the writer's port schema per slot so the promote-to-additive
+survives"); we just need it on the input side too.
 
-`_remove` + `_add` in one reconciled batch IS the merge — the lifecycle
-demo (`quantum-lifecycle.ys`) proves the pattern for raw data maps.
-The remaining work makes it work for real (and streaming) composites.
+### The single rule (input ≡ output)
 
-## Reactions are bigraphs that cross bridges
+```
+update at port :: T  ──[apply with schema T]──>  internal state
+internal state  ──[diff/emit with schema T]──>  update at port :: T
+```
 
-A second insight that simplifies cross-composite reactions: reactions
-themselves are first-class bigraph-shaped values (a redex bigraph + a
-reactum bigraph + matcher metadata). They can be SENT over a bridge,
-into a sub-composite, just like state.
+Today's bridge is asymmetric: inputs `set` (replace internal state with
+the parent's value), outputs forward deltas/updates intact. The
+`set` is just a degenerate apply (it's `apply` with implicit
+`overwrite[T]`). Making it explicit + extending to other schemas
+unlocks the rest.
 
-So a "cross-composite reaction" doesn't have to pierce composite
-boundaries during matching. It can compose as:
+### What it unlocks
+
+Once bridges accept arbitrary updates at typed ports, several
+capabilities become natural:
+
+1. **Send a reaction across a bridge.** An input port typed
+   `redex :: Bigraph` (or whatever the surface name is) accepts a
+   reaction value (a `{redex, reactum}` pair) as an update. The
+   composite's `apply` for that type finds matches in its internal
+   state and fires the reactum. No need for the OUTSIDE matcher to
+   pierce the composite boundary — the reaction crosses as a typed
+   value, the composite applies it inside.
+
+2. **Send a merge command across a bridge.** A composite typed
+   `tensor_with :: T` accepts another T-instance as an update; its
+   `apply` for the union schema produces the merged internal state
+   (via `tensor_by_schema`). The outer orchestrator sends two updates —
+   one to alice saying "tensor with bob's state", one to the parent
+   map saying `_remove: [bob]` — and the merge is done.
+
+3. **Distribution-transparent.** The update + its schema travel as a
+   Value. They serialize/deserialize the same whether the receiving
+   composite is local or remote. The same protocol works over an
+   Arrow pipe (stream:), over HTTP (rest:), over Ray (ray:). No
+   special distributed code paths.
+
+4. **One mechanism, many uses.** The same input bridge that carries
+   "here's the new glucose level" can carry "here's a reaction to fire"
+   can carry "merge with this state." The schema at the port tells the
+   composite how to apply.
+
+### Today's asymmetry — what to change
+
+`composite.rs:200-274` `update()`:
+- **Input** (line 204-208): `engine.state_mut().set_path(internal_path, val.clone())` — SETS the value. Should: call `apply_with_schema(port_schema, current, update)` so additive types accumulate, `_add`/`_remove` work, custom apply (Bigraph) fires.
+- **Output** (line 240-273): already correct — taps `bridge_out_deltas` accumulated from inner writes, forwards intact.
+
+Once the input side uses `apply`, both directions are update channels
+running through the schema algebra.
+
+### Implications for current tests / `.ys` (the audit)
+
+The asymmetric `set` is functionally equivalent to `apply` with an
+`Overwrite[T]` schema. So existing input ports that today rely on
+"set each tick" continue to work if their schema is treated as
+implicit-overwrite. The migration path:
+
+- **Default: explicit `overwrite[T]`** at input ports where the
+  current behavior is "parent owns this, cell observes." Annotate
+  it. No behavioral change.
+- **Annotate `Float` / `Delta`** at input ports where additive
+  semantics SHOULD apply (e.g. cumulative deposits from the parent).
+- **Add `Bigraph` / custom-apply types** to introduce reaction-over-
+  bridge.
+
+No `.ys` test should break if (a) input ports are reviewed for their
+intended apply semantics and (b) the default for un-annotated inputs
+stays `overwrite[T]` (the today's-behavior compatibility floor).
+
+### Audit — which `.ys` files actually need attention
+
+Surveyed every `composite` in the repo. The blast radius is small —
+most composites use **params** (set at instantiation, set once) not
+**inputs** (re-fed each tick via the bridge). Only the latter
+interact with the input-bridge apply semantics.
+
+| File / Composite | Inputs (`~{…}`) | Needs annotation? |
+|---|---|---|
+| `cell.ys` `Cell` | `mass :: Mass @ mass = mass0, glucose :: Float @ glucose = 0.0` | **YES.** `mass`'s `Mass` schema is `Delta` (extensive, additive). Today's "set" hides this; symmetric apply would add the parent's value as a delta each tick → exponential explosion. Annotate as `mass :: overwrite[Mass] @ mass = mass0` (and `glucose :: overwrite[Float]`). Behavioral equivalence preserved. |
+| `environment.ys` `Environment` | none (params only) | No. |
+| `mapk.ys` `Mapk` | `cell : map[any]` | Re-type as `cell :: overwrite[map[any]]` (parent passes the whole cell shape each tick). |
+| `nuclear-shuttle.ys` `Cytoplasm` / `Nucleus` / `Cell` | none (params only) | No. |
+| `grow-divide-unbounded.ys` `Cell` / `Environment` | none (params only) | No. |
+| `grow-divide-glucose.ys` | params only | No. |
+| `gillespie.ys` `Gillespie` | none (params only) | No. |
+| `integrator-comparison.ys` | params only | No. |
+| `bump.ys` `Leaf` | none (`v` is a param) | No. |
+| `homoiconic-demo.ys` + variants | none / no input bridges | No. |
+| `quantum-*.ys` (all quantum demos) | none (params + output-only) | No. |
+| `hand-built-*.ys` | none | No. |
+| `report-section.ys`, `eval-demo.ys`, `effects-handle-demo.ys` | none | No. |
+| `quantum-cross-cnot.ys` (probe) | `state :: map[float] @ state = state0` | **YES.** Same pattern as cell.ys mass — annotate `overwrite[map[float]]`. |
+
+**Two files need annotation**: `cell.ys` (the canonical Cell — mass +
+glucose) and `mapk.ys` (the `cell` input). Plus the cross-cnot probe
+we're actively working on. Everything else is unaffected because the
+prevailing pattern is `composite Foo[params] ~{} ->{outputs}` —
+params set at instantiation, no per-tick input bridge.
+
+No FUNDAMENTAL problems. The migration is a two-line annotation pair
+in `cell.ys` plus a one-line annotation in `mapk.ys`. Existing
+mass-conservation / division / glucose-pool tests preserve their
+semantics exactly under explicit `overwrite[T]`.
+
+### Implications for streaming composites
+
+The stream protocol today carries: input snapshots (set-style)
+parent→child, output delta-frames child→parent. Under symmetric
+updates, the protocol becomes UNIFORM: both directions carry
+updates + their port schema. The stream serializer doesn't care
+which direction — it's just `Update + Schema` Values.
+
+This actually SIMPLIFIES `crates/prism-bigraph/src/protocols/stream.rs`
++ the Arrow codec — fewer special cases. The codec already
+serializes any Value; adding the port schema as part of the message
+is a small extension.
+
+For distribution (`rest:`, `ray:`), same simplification. The merge
+protocol then works distributed-transparently — send an "I'm
+tensoring you with bob's state" update to a remote alice, alice
+applies it inside its own engine, emits the post-tensor state as
+an output update; orchestrator sees the result.
+
+### Implications for the merge aspirations
+
+The merge protocol falls out:
+
+1. **Each composite declares an input port** for the merge update —
+   e.g. `merge_with :: Composite` whose `apply` schema is
+   `tensor_by_schema` for that composite's state type.
+2. **The orchestrator sends two updates per merge**:
+   (a) to alice: `merge_with: bob.snapshot` — alice's internal
+   `apply` produces the tensored state;
+   (b) to the parent's `systems` map: `{_remove: [bob], _add: ...}`
+   if the structure changes (or just keep alice as the survivor).
+3. **Both updates pass through the same bridge mechanism.** No
+   special "merge protocol" wire — it's just typed updates.
+
+Reactions, merges, divides, deposits — all the same shape. That's
+the point.
+
+## Reactions are bigraphs (the second principle)
+
+Reactions are first-class bigraph-shaped values — a redex bigraph + a
+reactum bigraph + matcher metadata. Combined with symmetric-update
+bridges, this means a reaction can CROSS A BRIDGE as a typed update.
+The receiving composite's schema for that input port (e.g. `:: Bigraph`)
+has an `apply` that interprets the update as "fire this reaction
+against my internal state."
+
+So a cross-composite reaction doesn't pierce composite boundaries
+during matching. It composes as:
 
 ```
 1. Outer reactor identifies: this redex spans composites A and B.
-2. Outer reactor emits a merge intent for A and B (the protocol above).
-3. Engine processes the merge — A and B become one composite C.
-4. The reaction's redex now lives entirely inside C; the reaction is
-   sent (across the bridge) into C and applied there.
-5. The result is the reactum's effect on the merged state.
+2. Outer reactor emits a MERGE update to one composite (A receives
+   "tensor with B's snapshot" via its merge_with input).
+3. Engine processes the merge — A's internal state now contains B's.
+4. Outer reactor sends the REACTION update to A's redex input.
+5. A's apply for `:: Bigraph` fires the reactum inside.
 ```
 
-Step 4 — sending a reaction across a bridge — already has all the
-infrastructure: reactions ARE values, Documents and reactions can be
-serialized (`EntityDef::to_value`), the stream protocol already moves
-arbitrary Values. We just need to extend the bridge to carry "fire this
-reaction" as one of the command-types it accepts (alongside state
-deltas and time advances).
-
-This is what makes it *transparently distributed*: the merge moves
-state across the network if A and B are on different machines; the
-reaction-send moves the rule across the network. The matcher and
-reactor never need to know they're crossing nodes.
+Reactions, merges, divides, deposits — all are typed updates over
+symmetric bridges. Distribution-transparent: the same protocol runs
+when A is local OR a stream child OR a remote node.
 
 ## What's already there
 
-Today's prism has:
+Today's prism has the pieces; what's missing is the symmetric apply
+on input + a few schema-algebra operations.
 
-| Piece | Location |
-|---|---|
-| Reactions as first-class bigraphs | `prism_schema::reaction` (Pattern, ReactionRule, find_matches, fire_rule_at) |
-| BRS / Gillespie / deterministic firing | `prism_bigraph::BigraphicalReactiveSystem` |
-| Schema-driven divide (the dual we're inverting) | `prism_schema::divide_by_schema` |
-| `_add` / `_remove` reconciler primitives | `prism_schema::reconcile` |
-| Stream child lifecycle (auto-spawn on add) | `prism_bigraph::engine` via `StreamingCell` pattern in `environment.ys` |
-| Bridge state I/O | composite ports + `Composite::from_config` |
-| Composite-as-value serialization | `chrysalis::ast::EntityDef::to_value` + `compile_value` (#32) |
+| Piece | Location | Status |
+|---|---|---|
+| Reactions as first-class bigraphs | `prism_schema::reaction` (Pattern, ReactionRule, find_matches, fire_rule_at) | ✅ |
+| BRS / Gillespie / deterministic firing | `prism_bigraph::BigraphicalReactiveSystem` | ✅ |
+| Schema-driven divide (the dual we're inverting) | `prism_schema::divide_by_schema` | ✅ |
+| `_add` / `_remove` reconciler primitives | `prism_schema::reconcile` | ✅ |
+| Stream child lifecycle (auto-spawn on add) | `prism_bigraph::engine` + `StreamingCell` pattern | ✅ |
+| Bridge OUTPUT — update via tap + forward | `composite.rs:240-273` (`bridge_out_deltas`) | ✅ already update-based |
+| Bridge INPUT — currently SET (overwrite-implicit) | `composite.rs:204-208` | ⚠ needs symmetric apply |
+| `tensor_by_schema` (dual of `divide_by_schema`) | — | ⏳ |
+| Reaction-as-update schema (`:: Bigraph` apply) | — | ⏳ |
 
-What's NOT there yet:
+## Slices (in dependency order, refreshed under the symmetric-bridge
+principle)
 
-| Gap | Implication |
-|---|---|
-| `tensor_by_schema` (the dual of `divide_by_schema`) | No generic "given two same-typed values, unify them" operation |
-| `_add` with sub-composite values (not just data) | Today `_add: {a: <data>}` adds a leaf; `_add: {a: T[…]}` doesn't instantiate T |
-| Reaction-send command on the bridge protocol | No way today to ship a rule into a sub-composite |
-| Cross-composite reactor: detect-spans + auto-merge + react | The orchestrator that ties it all together |
+1. **Symmetric input apply** (foundational). Change `composite.rs`
+   input bridge from `set_path(val)` to `apply_with_schema(port_schema,
+   current, val)`. Default port semantics: if no annotation, treat as
+   `overwrite[T]` (today's behavior). Annotate `cell.ys` and `mapk.ys`
+   inputs as `overwrite[T]` per the audit table. Verify mass /
+   division / glucose tests pass. *Engine + 2 `.ys` annotations.*
 
-## Slices
-
-Roughly in dependency order:
-
-1. **`tensor_by_schema`** — the schema-driven dual of `divide_by_schema`.
+2. **`tensor_by_schema`** — schema-driven dual of `divide_by_schema`.
    For each kind: how do you unify two instances? `Float` sums (or
-   averages, with extensivity), `Delta` concats logs, `Map` merges via
-   reconcile, `Link/Composite` requires schema reconciliation.
-   *Schema-algebra work, mirrors divide.*
+   averages, with extensivity), `Delta` concats logs, `Map[T]` merges
+   per-key recursively, `map[float]` (quantum) cross-products +
+   multiplies. *Schema-algebra work; mirrors divide.* (Task #39.)
 
-2. **`_add` with composite values** — `_add: {key: T[args]}` instantiates
-   T with the given args, including for `map[T]` slots whose T is a
-   composite or `stream<…>`. Today's `_add` adds raw values; this slice
-   makes it spawn real composites. *Engine work.*
+3. **Snapshot-publish in `QuantumSystem`** — small `Publish` process
+   so the sub-composite's `state` propagates each tick (or on
+   request). Then the orchestrator can read `cells.alice.state`. With
+   symmetric apply, this becomes trivial: the publish is an
+   `overwrite[map[float]]` update each tick. (Task #37.)
 
-3. **The local merge protocol** — a step or process pattern that takes
-   two slot keys on a `map[T]` and emits `{_remove: [a, b], _add: {ab: T[merged_state]}}`.
-   For quantum: merged_state = tensor; for general: `tensor_by_schema`.
-   This is `quantum-lifecycle.ys`'s `Lifecycle` process, refactored
-   into a reusable primitive. *Chrysalis-level.*
+4. **Promote `quantum-lifecycle.ys` to real `map[QuantumSystem]`** —
+   replace raw data maps with typed sub-composites. Splitter/Merger
+   read state via bridge (slice 3), call `tensor_by_schema` (slice 2),
+   emit `_remove` + `_add`. (Task #38.)
 
-4. **Reaction-send over the bridge** — extend the stream protocol's
-   command vocabulary: today it carries state deltas; tomorrow it can
-   carry "fire this reaction at this position." The bridge stays opaque
-   (the receiving composite decides whether the reaction matches); the
-   sender doesn't need to know the inner schema. *Protocol-runtime work.*
+5. **`Bigraph` input port type + apply** — schema kind that accepts a
+   `{redex, reactum}` value as an update; its `apply` finds matches
+   internally and fires the reactum. *Schema-algebra extension.*
+   Together with symmetric apply, this is reaction-send-across-bridge.
 
-5. **Cross-composite reactor** — the orchestrator. Walks reactions
-   each tick; for each, finds matches that span sibling composites;
-   emits the merge intent; sends the reaction into the merged composite
-   on the next tick. *Reactor extension.*
+6. **Cross-composite reactor** — orchestrator that walks reactions,
+   identifies cross-composite redexes, emits the merge update to one
+   composite + the reaction update to its `Bigraph` input. *Reactor
+   extension.*
 
-6. **Distributed merge** — slices 1-5 working when the source
-   composites are stream children on remote machines (or other backend
-   protocols). Tests that "merge produces identical result whether A
-   and B are local or remote." Pairs with #25-#29. *Distributed test.*
+7. **Sibling-addressing in reaction syntax** — small parser slice so
+   `alice~{state: a} | bob~{state: b}` can express the cross-composite
+   pattern in source. (Task #40.)
 
-## First-probe findings (2026-05-27)
+8. **Distributed merge** — slices 1-7 working when source composites
+   are stream children on remote machines. Test that "merge produces
+   identical result whether A and B are local or remote." Pairs with
+   #25-#29. *Distributed test.*
 
-Wrote `crates/chrysalis/ys/quantum-cross-cnot.ys` as the simplest
-failing test for cross-composite reactions: two sibling
-`QuantumSystem` composites in a `systems :: map[QuantumSystem]` slot.
-Before the reactor work can even start, three lower-level blockers
-surfaced:
+## Provenance — first-probe and the debugging trap (2026-05-27)
 
-1. **Composite output leaks internals.** With two `QuantumSystem`
-   instances in a map, the parent's `systems` output contains nested
-   `state.state.…` plus schema descriptors (`_type: "Any"`) plus the
-   instances' inputs/outputs port specs. The bridge tap is exposing
-   the entire schema tree, not just the slot value. Until the output
-   is just the slot value, the matcher / merger can't easily reason
-   about what's there.
-   *This is the "_process leak" pattern observed in
-   `project_composite_execution_gap`, surfacing for `any`-typed
-   composite slots.*
+The first cross-cnot probe (`crates/chrysalis/ys/quantum-cross-cnot.ys`)
+surfaced what LOOKED like three engine blockers: composite outputs
+leaking schema descriptors; `any`-typed slots accumulating despite
+`overwrite[any]`; no sibling-addressing syntax. After actually
+reading the engine (`composite.rs:200-274`, `engine.rs:854-980`,
+`schema.rs:1076-1110`), the first two turned out to be **a debugging
+trap, not an engine bug**: the `grep -v "^   "` filter I was using
+to strip compiler warnings *also matched indented JSON lines*,
+making multi-line nested map outputs look like empty `{}`. Removing
+the filter (or restructuring the grep) revealed the bridge propagates
+correctly.
 
-2. **`any`-typed slots accumulate (don't overwrite).** A trivial
-   `Hold ~{state :: any} ->{state :: overwrite[any]}` process that
-   re-emits `{state: state}` each tick produces `{0: 2.8284, 1: 2.8284}`
-   at `--time 2` (4× the initial `0.7071` — the value is being SUMMED
-   per tick, not overwritten). `overwrite[any]` should be the override
-   sentinel, but `any`'s default semantics under `apply` are clearly
-   not "replace" — looks like it's falling through to the additive
-   default. Need to audit how `Schema::Any` interacts with `overwrite`
-   in the algebra (specifically `apply.rs` / `reconcile.rs`).
+What's actually true was already in the codebase:
+- Bridges emit DELTAS, not snapshots (`composite.rs:240-273`,
+  `is_zero_delta` at 288-298).
+- `Schema::Any` apply IS additive for floats (`schema.rs:1076-1083`)
+  — use real types (`Float`, `map[float]`, `overwrite[T]`) for
+  explicit semantics. (Memory `feedback_real_types_not_any`.)
+- Sibling propagation works (verified with a trivial Float-typed
+  test).
 
-3. **No sibling-addressing syntax.** Today `~{state: %.state}` (self) and
-   `~{state: ^.state}` (parent) work. There's no `siblings.alice.state`
-   or `^.alice.state` to reach across into a sibling. A reaction that
-   wants to bind `alice` and `bob` together needs SOME way to refer to
-   them — either explicit sibling paths in the redex, or a
-   pattern-matcher convention ("redex matches a `systems` map; binding
-   names become the matched siblings' keys").
+The third — sibling-addressing in REACTION REDEX SYNTAX — is real
+but small (parser slice; tracked as task #40).
 
-These three are all "obstacle 1" from the table at the top of this
-doc, surfacing concretely. Fix order is probably 1 → 2 → 3:
+Lessons (saved as memories): `feedback_no_grep_filter`,
+`feedback_read_dont_guess`, `feedback_real_types_not_any`.
 
-- **(1) Composite output leak.** Trace where in `engine.rs` the
-  bridge tap snapshots the inner state, see why the schema/port-spec
-  is included in the output Value. Probably wants a "project to slot
-  value only" pass on bridge output.
-- **(2) `Any` + `overwrite`.** Audit `apply_with_schema(Schema::Any,
-  base, overwrite-update)`. The `overwrite` modifier should force
-  *replace* regardless of inner schema. May need to short-circuit
-  before dispatching by schema kind.
-- **(3) Sibling addressing.** Probably a tiny parser slice — allow
-  `<ident>.<path>` in port wiring contexts where `<ident>` resolves
-  against the enclosing composite's child entries.
+### What the engine reading confirmed
 
-Once (1) is clean, the cross-cnot probe will at least produce
-inspectable state to write reaction predicates over.
+After the grep-trap was identified, reading `composite.rs:200-274`,
+`engine.rs:854-980`, and `schema.rs:1076-1110` confirmed:
 
-### Update — read the engine, found the design (and a debugging trap)
-
-User pushed back ("why are you not looking for what you need to
-know"). Read `composite.rs:200-274` (bridge `update` cycle),
-`engine.rs:854-980` (`apply_reconciled` + `apply_projections` with
-the `bridge_out_paths` accumulation), and `schema.rs:821-839`
-(`node_data_branches`) + `schema.rs:1076-1110` (`Schema::Any` apply).
-
-**False alarm on most of the blockers** — they were a **debugging
-trap, not engine bugs**. The `grep -v "^   "` filter I was using
-to strip compiler warnings *also matched indented JSON lines*, so
-multi-line nested map outputs got their interior stripped, leaving
-just `"c": {` and `}` on consecutive lines and making it look like
-`"c": {}`. Removing the filter (or restructuring the grep) revealed
-that nested maps in composite outputs ARE present and correct.
-
-**What's actually true:**
-
-1. **Bridges emit DELTAS, not snapshots.** `composite.rs:240-273`
-   captures `bridge_out_deltas` each tick and forwards as the
-   composite's update. Initial inner state is NOT a delta — it's
-   invisible to the parent until a process modifies it. A sub-
-   composite needs at least one process emitting a non-zero output
-   for anything to flow through its bridge port. `is_zero_delta`
-   (`composite.rs:288-298`) filters silent updates.
-
-2. **`Schema::Any` apply IS additive for floats.** `schema.rs:1076-1083`:
-   `Self::Any` with two numerics returns `base + delta`. So my
-   earlier `state :: any` did accumulate — that's correct
-   behavior for an untyped slot. **Use real types** (`Float`,
-   `map[float]`, `overwrite[T]`) for explicit apply semantics. User's
-   correction was exactly right.
-
-3. **Sibling propagation works.** A trivial test (two sibling
-   `Inner ~{count :: Float}` composites with a `Tick` process
-   emitting `{count: 0.5}`) correctly propagates each one's
-   per-tick delta to the parent's sibling slots (`alice_count`,
-   `bob_count`). The parent sees the *accumulated delta*, not the
-   inner absolute value — that's the env→glucose pattern.
-
-4. **The empty `cells: {}` in env.ys's output is honest.** Cells
-   write `mass: %.mass` (own node) — that does land in
-   `env.cells.c0.mass` and is readable by the Divider's
-   `cell.divide` comprehension. The CLI's serializer reads it just
-   fine; my `grep` was hiding it.
-
-### Implications for the merge protocol
-
-The protocol is now clear:
-
-- **To merge `alice` and `bob`, the orchestrator needs their
-  CURRENT INNER STATE.** Bridges give deltas; for absolute state
-  it needs one of:
-  (a) a snapshot-publish process inside each sub-composite that
-  re-emits the full state as an `overwrite` delta each tick (or on
-  request), or
-  (b) the parent maintaining a ledger (initial + accumulated
-  deltas).
-- **Option (a) is cleanest and bridge-respectful**. Each
-  `QuantumSystem` adds a small `Publish ~{state} ->{state :: overwrite}`
-  process. The Merger step reads `cells.alice.state` and
-  `cells.bob.state`, calls `tensor`, emits `_remove + _add`.
-- **`tensor_by_schema`** is the inner mechanism: typed dual of
-  `divide_by_schema`. Quantum's `meta::tensor` is one instance.
-
-### Next concrete slice
-
-None of this requires engine modification — it's all chrysalis +
-schema-algebra work:
-
-1. **Add `Publish` process** to `QuantumSystem` so its `state`
-   slot is propagated each tick (bridge-respectful snapshot).
-2. **Re-promote `quantum-lifecycle.ys`**: replace the raw data
-   maps with real `map[QuantumSystem]` sub-composites; the
-   Lifecycle process reads `cells.<id>.state` (via the bridge)
-   and emits the same `_remove + _add` structural intents.
-3. **`tensor_by_schema`** as a schema-algebra operation — extends
-   the closed algebra; gives `meta::tensor` a typed home.
-4. **Sibling-addressing in reaction redex** — parser slice so
-   `alice~{state: a} | bob~{state: b}` can express the cross-
-   composite pattern.
-
-The end state — quantum-lifecycle demo running with REAL
-`QuantumSystem` sub-composites that could in principle be
-streamed across machines — is the slice that unlocks Q4 proper.
-
-## Quantum as the test case
-
-Quantum is the cleanest first test because the merge operation is
-crystal-clear (tensor product). For #36's Q4 to be done:
-
-- Slice 1 (`tensor_by_schema`): for `state :: any`-typed slots, the
-  unify operation calls `meta::tensor` on the amplitude maps. (Special-
-  case for now; the general case is the closed schema algebra.)
-- Slice 2 (`_add` with composites): an `_add: {ab: QuantumSystem[state: tensor(a,b)]}`
-  spawns a new QuantumSystem with the right initial state.
-- Slice 3 (merge primitive): a generic `Merge` step the user
-  parameterizes over (which slot, which merger function).
-- Slice 4-6: stream variants.
-
-Quantum-lifecycle.ys today is a working slice-3 prototype for raw
-data maps. Promoting it to real composites is the slice-1-2 work.
+- **Bridge OUTPUT is already update-based.** `bridge_out_deltas`
+  accumulates inner writes as the composite's update each tick.
+  `is_zero_delta` (`composite.rs:288`) filters silent updates.
+- **Bridge INPUT is SET, not apply.** `composite.rs:204-208`:
+  `engine.state_mut().set_path(internal_path, val.clone())`. This is
+  the asymmetry to fix (slice 1 above).
+- **`Schema::Any` apply is additive for floats** (`schema.rs:1076-1083`).
+  That's why `state :: any` accumulated. Real types fix it.
+- **Sibling propagation works.** A trivial Float-typed test confirms
+  it. The user's mental model was correct all along.
 
 ## Provenance / inspiration
 
