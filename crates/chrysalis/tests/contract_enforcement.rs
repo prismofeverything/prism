@@ -225,3 +225,69 @@ fn runprocess_with_wrong_target_inner_is_rejected() {
          DeterministicMassAction demand; got {errs:?}"
     );
 }
+
+// ── Ordered `claims` axis: the substitutability chain through the .ys path ──
+// `claims` is the one ORDERED axis: a stronger agreement claim refines a weaker
+// one. Two contracts differing ONLY in `claims` (same target/advance) check the
+// direction. Before the claims-aware lowering, `claims` was nominal — so the
+// stronger-fills-weaker case wrongly FAILED; this pins the chain end to end.
+
+/// `step Compare ~{a: TimeSeries :: <demanded>} ->{mse: Float}`.
+fn compare_demanding(demanded: &str) -> Def {
+    Def::Step(StepDef {
+        name: "Compare".into(),
+        params: vec![],
+        interface: Interface::new()
+            .with_input(
+                "a",
+                PortDecl::required(SchemaExpr::custom("TimeSeries"))
+                    .with_contract(ContractRef::new(demanded)),
+            )
+            .with_output("mse", PortDecl::required(SchemaExpr::Float)),
+        body: Expr::Record(IndexMap::new()),
+    })
+}
+
+/// Two contracts identical but for `claims` — `StrongAgree` (Pathwise) and
+/// `WeakAgree` (Distributional, weaker) — a `Src` producer fulfilling
+/// `producer_contract`, and a `Compare` demanding `compare_demands`.
+fn claim_chain_program(producer_contract: &str, compare_demands: &str) -> Program {
+    let mut p = Program::new();
+    p.push(contract(
+        "StrongAgree",
+        &[("target", "ToyTarget"), ("claims", "Pathwise"), ("advance", "Continuous")],
+    ));
+    p.push(contract(
+        "WeakAgree",
+        &[("target", "ToyTarget"), ("claims", "Distributional"), ("advance", "Continuous")],
+    ));
+    p.push(producer("Src", "trajectory", "TimeSeries", producer_contract));
+    p.push(compare_demanding(compare_demands));
+    p.push(workflow("W", "s", "Src", "trajectory"));
+    p
+}
+
+#[test]
+fn stronger_claim_fills_weaker_demand() {
+    // Src fulfills StrongAgree (claims Pathwise); Compare demands WeakAgree
+    // (claims Distributional). Pathwise ⊒ Distributional → clean. This is the
+    // case that REQUIRES the ordered (Enum-downset) lowering of `claims`.
+    let p = claim_chain_program("StrongAgree", "WeakAgree");
+    let errs = validate_connections(&p);
+    assert!(
+        errs.is_empty(),
+        "a stronger (Pathwise) claim must satisfy a weaker (Distributional) demand; got {errs:?}"
+    );
+}
+
+#[test]
+fn weaker_claim_cannot_fill_stronger_demand() {
+    // Reverse: Src fulfills WeakAgree (Distributional); Compare demands
+    // StrongAgree (Pathwise). Distributional ⋡ Pathwise → rejected.
+    let p = claim_chain_program("WeakAgree", "StrongAgree");
+    let errs = validate_connections(&p);
+    assert!(
+        errs.iter().any(|e| e.message.contains("contract mismatch")),
+        "a weaker (Distributional) claim must NOT satisfy a stronger (Pathwise) demand; got {errs:?}"
+    );
+}

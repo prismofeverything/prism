@@ -194,8 +194,41 @@ fn nominal_axis(name: &str) -> Schema {
     }
 }
 
-/// Lower a [`ContractRef`] to its schema — a `Tree` of nominal axes (the
-/// named contract's base axes, with the ref's pins layered on). Process-
+/// The equivalence-claim lattice, as downsets: each claim maps to itself plus
+/// every weaker claim it implies (listed self-first). A stronger claim's
+/// downset ⊇ a weaker one's, so `resolve`'s Enum-union makes a superset resolve
+/// to itself — giving the directional refinement chain: a stronger-claim
+/// producer fills a weaker-claim demand, not the reverse. `Pathwise ⊐
+/// Distributional ⊐ WeakOrder` is the stochastic chain; `Deterministic` is its
+/// own point (deterministic-limit agreement is incomparable to the stochastic
+/// chain). Mirrors the construction proven in prism-schema's
+/// `contract_substitutability` test — now wired through the `.ys` path.
+const CLAIM_DOWNSETS: &[(&str, &[&str])] = &[
+    ("Pathwise", &["Pathwise", "Distributional", "WeakOrder"]),
+    ("Distributional", &["Distributional", "WeakOrder"]),
+    ("WeakOrder", &["WeakOrder"]),
+    ("Deterministic", &["Deterministic"]),
+];
+
+/// Lower one contract-axis value to a schema. The `claims` axis is ORDERED: a
+/// known claim becomes a `Schema::Enum` carrying its downset, so `refines`
+/// (= the Enum-unioning join) ranks claims. Every other axis — target / method
+/// / advance — and any unknown claim is a nominal `Custom` (plain equality).
+fn axis_schema(axis: &str, value: &str) -> Schema {
+    if axis == "claims" {
+        if let Some((_, downset)) = CLAIM_DOWNSETS.iter().find(|(c, _)| *c == value) {
+            return Schema::Enum {
+                values: downset.iter().map(|s| s.to_string()).collect(),
+                default: None,
+            };
+        }
+    }
+    nominal_axis(value)
+}
+
+/// Lower a [`ContractRef`] to its schema — a `Tree` of axes (nominal `Custom`s
+/// for target/method/advance; an ordered `Enum`-downset for `claims`), built
+/// from the named contract's base axes with the ref's pins layered on. Process-
 /// contract substitutability is `prism_schema::algebra::refines` over these
 /// trees: a fulfiller's contract must refine the demanded one. No new algebra
 /// op — see docs/process-contracts.md. `program` supplies the named contract's
@@ -204,11 +237,11 @@ pub fn contract_ref_schema(r: &ContractRef, program: &Program) -> Schema {
     let mut branches: IndexMap<Key, Schema> = IndexMap::new();
     if let Some(Def::Contract(base)) = program.lookup(&r.name) {
         for (axis, value) in &base.axes {
-            branches.insert(Key::from(axis.as_str()), nominal_axis(value));
+            branches.insert(Key::from(axis.as_str()), axis_schema(axis, value));
         }
     }
     for (axis, value) in &r.pins {
-        branches.insert(Key::from(axis.as_str()), nominal_axis(value));
+        branches.insert(Key::from(axis.as_str()), axis_schema(axis, value));
     }
     Schema::Tree { branches }
 }
