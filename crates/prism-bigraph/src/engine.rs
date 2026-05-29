@@ -1260,8 +1260,14 @@ impl Engine {
         {
             let registry = &self.core.processes;
             match &mut node {
-                ProcessNode::Process(p) => p.set_registry(Arc::clone(registry)),
-                ProcessNode::Step(s) => s.set_registry(Arc::clone(registry)),
+                ProcessNode::Process(p) => {
+                    p.set_registry(Arc::clone(registry));
+                    p.set_core(self.core.clone());
+                }
+                ProcessNode::Step(s) => {
+                    s.set_registry(Arc::clone(registry));
+                    s.set_core(self.core.clone());
+                }
             }
         }
         // Thread the instance's real Link into the state schema: at a process

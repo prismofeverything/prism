@@ -9,23 +9,28 @@
 //! plain ys Value (`{_type:"TimeSeries", times, columns}`), no Foreign.
 
 use std::any::Any;
-use std::sync::Arc;
 
 use indexmap::IndexMap;
-use prism_bigraph::{ProcessNode, ProcessRegistry, Schema, Step, Update, Value};
+use prism_bigraph::{Core, ProcessNode, Schema, Step, Update, Value};
 
 #[derive(Debug)]
 pub struct RunProcess {
-    /// Registered type name of the wrapped process (e.g. "Rk4"), `local:` stripped.
-    address: String,
-    /// Config for the wrapped process (e.g. `{network: …}`).
+    /// FULL address of the wrapped process — `"local:Rk4"` or the typed
+    /// `{_type:"rest", process, host, port}` — so any protocol survives to
+    /// `Core::instantiate` (not pre-trimmed to a local class name).
+    address: Value,
+    /// Display name of the wrapped process ("Rk4", "CopasiCvode") — the
+    /// TimeSeries label / output filename.
+    name: String,
+    /// Config for the wrapped process (e.g. `{network: …}` or `{sbml: …}`).
     process_config: Value,
     /// Total time to run the wrapped process.
     runtime: f64,
     /// Step size per `update`.
     timestep: f64,
-    /// The engine's registry, injected at instantiation via `set_registry`.
-    registry: Option<Arc<ProcessRegistry>>,
+    /// The engine's unified Core, injected via `set_core`; the wrapped proc is
+    /// instantiated through `Core::instantiate` (protocol-aware).
+    core: Option<Core>,
 }
 
 impl RunProcess {
@@ -35,20 +40,30 @@ impl RunProcess {
         let spec = config.get_field("proc");
         let address = spec
             .and_then(|s| s.get_field("address"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim_start_matches("local:")
-            .to_string();
+            .cloned()
+            .unwrap_or(Value::None);
+        // Display name: the local class, or a remote address's `process` field.
+        let name = match &address {
+            Value::String(s) => s.trim_start_matches("local:").to_string(),
+            Value::Map(m) => m
+                .get("process")
+                .or_else(|| m.get("data"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .unwrap_or_default(),
+            _ => String::new(),
+        };
         let process_config = spec
             .and_then(|s| s.get_field("config"))
             .cloned()
             .unwrap_or_else(Value::map);
         RunProcess {
             address,
+            name,
             process_config,
             runtime: config.get_field("runtime").and_then(|v| v.as_f64()).unwrap_or(1.0),
             timestep: config.get_field("timestep").and_then(|v| v.as_f64()).unwrap_or(0.1),
-            registry: None,
+            core: None,
         }
     }
 }
@@ -84,17 +99,19 @@ impl Step for RunProcess {
         ])
     }
 
-    fn set_registry(&mut self, registry: Arc<ProcessRegistry>) {
-        self.registry = Some(registry);
+    fn set_core(&mut self, core: Core) {
+        self.core = Some(core);
     }
 
     fn update(&self, state: &Value) -> Update {
-        let registry = match &self.registry {
-            Some(r) => r,
+        let core = match &self.core {
+            Some(c) => c,
             None => return Update::Noop,
         };
-        let inner = match registry.create(&self.address, self.process_config.clone()) {
-            Some(ProcessNode::Process(p)) => p,
+        // Instantiate the wrapped proc through the protocol-aware entry point, so
+        // `proc` may be local OR rest/parallel/stream-addressed (e.g. CopasiCvode).
+        let inner = match core.instantiate(&self.address, self.process_config.clone()) {
+            Ok(ProcessNode::Process(p)) => p,
             _ => return Update::Noop, // RunProcess wraps a Process
         };
 
@@ -125,7 +142,7 @@ impl Step for RunProcess {
         // schema. (`times`/`history` are reused for the `timeseries` below.)
         let element = inner.outputs().get("state").cloned().unwrap_or(Schema::Any);
         let trace = prism_trace::trace_of(
-            &self.address,
+            &self.name,
             &element,
             times.iter().filter_map(|t| t.as_f64()).zip(history.iter().cloned()),
         );
@@ -149,7 +166,7 @@ impl Step for RunProcess {
             ("_type", Value::from("TimeSeries")),
             // The wrapped process's name (e.g. "Rk4"), so the Output step can
             // write `a.csv(path / a.name)` to a meaningful filename.
-            ("name", Value::from(self.address.as_str())),
+            ("name", Value::from(self.name.as_str())),
             ("times", Value::List(times)),
             ("columns", columns),
         ]);

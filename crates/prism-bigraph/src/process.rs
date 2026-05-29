@@ -80,6 +80,13 @@ pub trait Process: Send + Sync + Debug {
     /// does by hand, and the seed of a future unified `Core`.
     fn set_registry(&mut self, _registry: Arc<crate::factory::ProcessRegistry>) {}
 
+    /// Receive the engine's unified [`Core`](crate::Core), once, at
+    /// instantiation. Default: ignore. A process that instantiates OTHER
+    /// processes from a spec (e.g. `RunProcess`) overrides this and goes through
+    /// [`Core::instantiate`] — so the wrapped proc may use any protocol
+    /// (`local`/`rest`/`parallel`/`stream`), not just `local`.
+    fn set_core(&mut self, _core: crate::Core) {}
+
     /// Downcast support for trait objects.
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -122,6 +129,12 @@ pub trait Step: Send + Sync + Debug {
     /// A step that instantiates other processes (e.g. `RunProcess`) overrides
     /// this to capture it. See [`Process::set_registry`].
     fn set_registry(&mut self, _registry: Arc<crate::factory::ProcessRegistry>) {}
+
+    /// Receive the engine's unified [`Core`](crate::Core) at instantiation
+    /// (default: ignore). A step that instantiates other processes (e.g.
+    /// `RunProcess`) overrides this and instantiates via [`Core::instantiate`],
+    /// so the wrapped proc may use any protocol. See [`Process::set_core`].
+    fn set_core(&mut self, _core: crate::Core) {}
 
     /// Downcast support.
     fn as_any(&self) -> &dyn Any;

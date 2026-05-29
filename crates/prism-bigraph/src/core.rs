@@ -16,7 +16,8 @@ use prism_schema::registry::TypeRegistry;
 use prism_schema::{MethodRegistry, Value};
 
 use crate::factory::ProcessRegistry;
-use crate::protocol::{ParsedAddress, ProtocolRegistry};
+use crate::process::ProcessNode;
+use crate::protocol::{ParsedAddress, ProtocolError, ProtocolRegistry};
 
 /// All runtime registries, carried together. Cheap to clone — each field is an
 /// `Arc`, so a clone shares the same registries (exactly what lets a subengine
@@ -101,6 +102,22 @@ impl Core {
     /// it with this list rather than running a partial graph.
     pub fn missing_process_refs(&self, state: &Value) -> Vec<String> {
         missing_process_refs(state, &self.processes)
+    }
+
+    /// Instantiate a live process from an `address` value — the SINGLE entry
+    /// point for "address → process". Parses the address (a `"local:Class"`
+    /// string, the legacy `{protocol, data}` map, or the typed `{_type, …}`
+    /// form) and dispatches through the protocol registry, so
+    /// `local`/`rest`/`parallel`/`stream` all behave identically. Every site
+    /// that builds a process from a spec routes HERE; none special-cases `local`
+    /// (the instantiation half of core unification).
+    pub fn instantiate(
+        &self,
+        address: &Value,
+        config: Value,
+    ) -> Result<ProcessNode, ProtocolError> {
+        let parsed = ParsedAddress::parse(address)?;
+        self.protocols.instantiate(&parsed, config, &self.processes)
     }
 }
 
