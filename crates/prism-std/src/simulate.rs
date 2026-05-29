@@ -17,21 +17,25 @@ use std::any::Any;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use prism_bigraph::{ProcessNode, ProcessRegistry, Schema, Step, Update, Value};
+use prism_bigraph::{Core, ProcessNode, ProcessRegistry, Schema, Step, Update, Value};
 use prism_schema::algebra;
 
 #[derive(Debug)]
 pub struct Simulate {
-    /// Registered type name of the wrapped process, `local:` stripped.
-    address: String,
+    /// FULL address of the wrapped process (`"local:Kinetics"` or a typed
+    /// `{_type:"rest", …}`) — so any protocol survives to `Core::instantiate`.
+    address: Value,
+    /// Display name of the wrapped process (the Trace label).
+    name: String,
     /// Config for the wrapped process.
     process_config: Value,
     /// Total time to run.
     runtime: f64,
     /// Step size per `update`.
     timestep: f64,
-    /// The engine's registry, injected via `set_registry`.
-    registry: Option<Arc<ProcessRegistry>>,
+    /// The engine's unified Core, injected via `set_core`; the inner proc is
+    /// instantiated through `Core::instantiate` (protocol-aware).
+    core: Option<Core>,
 }
 
 impl Simulate {
@@ -40,20 +44,28 @@ impl Simulate {
     /// is a term value `{address, config}` (e.g. `Kinetics[network: …]`).
     pub fn from_config(config: &Value) -> Self {
         let spec = config.get_field("proc");
-        let address = spec
-            .and_then(|s| s.get_field("address"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim_start_matches("local:")
-            .to_string();
+        // process spec → top-level address/config; composite spec → under `_process`.
+        let inner = spec.and_then(|s| s.get_field("_process")).or(spec);
+        let address = inner.and_then(|s| s.get_field("address")).cloned().unwrap_or(Value::None);
+        let name = match &address {
+            Value::String(s) => s.trim_start_matches("local:").to_string(),
+            Value::Map(m) => m
+                .get("process")
+                .or_else(|| m.get("data"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .unwrap_or_default(),
+            _ => String::new(),
+        };
         let process_config =
-            spec.and_then(|s| s.get_field("config")).cloned().unwrap_or_else(Value::map);
+            inner.and_then(|s| s.get_field("config")).cloned().unwrap_or_else(Value::map);
         Simulate {
             address,
+            name,
             process_config,
             runtime: config.get_field("runtime").and_then(|v| v.as_f64()).unwrap_or(1.0),
             timestep: config.get_field("timestep").and_then(|v| v.as_f64()).unwrap_or(0.1),
-            registry: None,
+            core: None,
         }
     }
 }
@@ -74,17 +86,18 @@ impl Step for Simulate {
         )])
     }
 
-    fn set_registry(&mut self, registry: Arc<ProcessRegistry>) {
-        self.registry = Some(registry);
+    fn set_core(&mut self, core: Core) {
+        self.core = Some(core);
     }
 
     fn update(&self, state: &Value) -> Update {
-        let registry = match &self.registry {
-            Some(r) => r,
+        let core = match &self.core {
+            Some(c) => c,
             None => return Update::Noop,
         };
-        let inner = match registry.create(&self.address, self.process_config.clone()) {
-            Some(ProcessNode::Process(p)) => p,
+        // Instantiate the wrapped proc protocol-aware — local OR rest/parallel/stream.
+        let inner = match core.instantiate(&self.address, self.process_config.clone()) {
+            Ok(ProcessNode::Process(p)) => p,
             _ => return Update::Noop, // Simulate wraps a Process
         };
 
@@ -118,7 +131,7 @@ impl Step for Simulate {
             samples.push(((step + 1) as f64 * self.timestep, cur.clone()));
         }
 
-        Update::value(Value::tree([("trace", prism_trace::trace_of(&self.address, &element, samples))]))
+        Update::value(Value::tree([("trace", prism_trace::trace_of(&self.name, &element, samples))]))
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -184,7 +197,7 @@ mod tests {
         let mut reg = ProcessRegistry::new();
         reg.register("Increment", |_cfg| ProcessNode::Process(Box::new(Increment)));
         let mut sim = Simulate::from_config(&cfg("Increment", 3.0, 1.0));
-        sim.set_registry(Arc::new(reg));
+        sim.set_core(Core::new().with_processes(Arc::new(reg)));
 
         let out = sim.update(&Value::tree([("state", mf(&[("n", 0.0)]))]));
         let trace = out.into_value().and_then(|v| v.get_field("trace").cloned()).expect("trace");
@@ -202,7 +215,7 @@ mod tests {
         let mut reg = ProcessRegistry::new();
         reg.register("Increment", |_cfg| ProcessNode::Process(Box::new(Increment)));
         let mut sim = Simulate::from_config(&cfg("Increment", 0.0, 1.0));
-        sim.set_registry(Arc::new(reg));
+        sim.set_core(Core::new().with_processes(Arc::new(reg)));
         let out = sim.update(&Value::tree([("state", mf(&[("n", 5.0)]))]));
         let trace = out.into_value().and_then(|v| v.get_field("trace").cloned()).unwrap();
         assert_eq!(prism_trace::len(&trace), 1);
@@ -210,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn no_registry_is_noop() {
+    fn no_core_is_noop() {
         let sim = Simulate::from_config(&cfg("Increment", 3.0, 1.0));
         assert!(sim.update(&Value::tree([("state", mf(&[("n", 0.0)]))])).is_noop());
     }
@@ -224,7 +237,7 @@ mod tests {
         let mut reg = ProcessRegistry::new();
         reg.register("Increment", |_cfg| ProcessNode::Process(Box::new(Increment)));
         let mut sim = Simulate::from_config(&cfg("Increment", 3.0, 1.0));
-        sim.set_registry(Arc::new(reg));
+        sim.set_core(Core::new().with_processes(Arc::new(reg)));
         let trace = sim
             .update(&Value::tree([("state", mf(&[("n", 0.0)]))]))
             .into_value()
