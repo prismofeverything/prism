@@ -291,3 +291,69 @@ fn weaker_claim_cannot_fill_stronger_demand() {
         "a weaker (Distributional) claim must NOT satisfy a stronger (Pathwise) demand; got {errs:?}"
     );
 }
+
+// ── The refused comparison: the two lanes are not substitutable ──────────
+// The agreement demo's teeth. DeterministicMassAction (the ODE lane, compared by
+// trajectory MSE) and ExactCME (the stochastic lane, compared distributionally)
+// are DIFFERENT targets with DIFFERENT claims — so feeding one lane's output to
+// the other's comparison is a category error, and the contract makes it a
+// COMPILE error. (The positive control shows it is cross-lane semantics, not a
+// blanket rejection.)
+
+/// The two demo contracts, a `Src` producer fulfilling `source_contract`, and a
+/// `Compare` demanding `demanded` — wired `Compare ~{a: s.trajectory}`.
+fn cross_lane_program(source_contract: &str, demanded: &str) -> Program {
+    let mut p = Program::new();
+    p.push(contract(
+        "DeterministicMassAction",
+        &[("target", "MassActionODE"), ("claims", "Deterministic"), ("advance", "Continuous")],
+    ));
+    p.push(contract(
+        "ExactCME",
+        &[
+            ("target", "ChemicalMasterEquation"),
+            ("claims", "Distributional"),
+            ("advance", "DiscreteEvent"),
+        ],
+    ));
+    p.push(producer("Src", "trajectory", "TimeSeries", source_contract));
+    p.push(compare_demanding(demanded));
+    p.push(workflow("CrossLane", "s", "Src", "trajectory"));
+    p
+}
+
+#[test]
+fn cme_source_is_refused_at_a_deterministic_comparison() {
+    // An ExactCME (stochastic, distributional) trajectory cannot be wired into
+    // the deterministic trajectory-MSE Compare — different target AND claim.
+    let p = cross_lane_program("ExactCME", "DeterministicMassAction");
+    let errs = validate_connections(&p);
+    assert!(
+        errs.iter().any(|e| e.message.contains("contract mismatch")),
+        "an ExactCME source must be refused at a DeterministicMassAction comparison; got {errs:?}"
+    );
+}
+
+#[test]
+fn deterministic_source_is_refused_at_a_distributional_comparison() {
+    // The reverse: a deterministic trajectory cannot feed the distributional
+    // comparison that demands ExactCME.
+    let p = cross_lane_program("DeterministicMassAction", "ExactCME");
+    let errs = validate_connections(&p);
+    assert!(
+        errs.iter().any(|e| e.message.contains("contract mismatch")),
+        "a DeterministicMassAction source must be refused at an ExactCME comparison; got {errs:?}"
+    );
+}
+
+#[test]
+fn within_a_lane_the_comparison_is_accepted() {
+    // The positive control: a source DOES satisfy a comparison demanding its OWN
+    // contract — so the refusals above are about cross-lane semantics, not a
+    // blanket rejection of everything.
+    for c in ["DeterministicMassAction", "ExactCME"] {
+        let p = cross_lane_program(c, c);
+        let errs = validate_connections(&p);
+        assert!(errs.is_empty(), "a {c} source must satisfy a {c} comparison; got {errs:?}");
+    }
+}
