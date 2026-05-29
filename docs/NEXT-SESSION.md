@@ -23,7 +23,7 @@
 - ⏳ #9 dt-refinement convergence sweep
 - 🧩 #10 comment-preserving parse/unparse + retire extern — extern FULLY RETIRED (no `Tok::Extern`/`Def::Extern`); REMAINING: retain comments through `parse → unparse` (the lexer skips `#`-to-EOL; roundtrip tests verify AST, not comments)
 - 🧩 #11 prism-svg: SVG as place-graph values — typed SVG nodes DONE (`crates/prism-viz/src/svg.rs`: `el`/`svg`/`rect`/`line`/`text`/`group`/`polyline`/`animate`); `prism_viz::plot` emits typed SVG. REMAINING: retire `render_timeseries_svg`'s plotters-string path
-- ⏳ #12 real contract enforcement through RunProcess
+- ✅ #12 real contract enforcement through RunProcess (DONE 2026-05-28 — `RunProcess` forwards its inner `proc`'s output contract via a declarative `CONTRACT_FORWARDS` rule in `chrysalis/src/check.rs`; the flagship `Compare` now DEMANDS `:: DeterministicMassAction`. *A contract survives a generic wrapper.* Part of the #44 agreement-demo arc.)
 - 🧩 #13 spatio-flux as a `.ys` project (codegen slices 3-4) — codegen MVP DONE; `culture.ys`/`dish.ys` migrated to imports; 6 `*-section.ys` files cover one representative per family + `report.ys` composes them. REMAINING: 12/18 of `CANONICAL_ORDER` not yet ported (the rest of the dFBA family, comets variants, spatioflux_reference_demo)
 - ⏳ #14 chrysalis diagnostics: comprehensible `.ys` errors
 - ⏳ #15 schema-as-state: meta-schema, reconcile state to match — paired with #30 (the unified entity registry that this operates on)
@@ -89,7 +89,47 @@
   - 🧩 **Q5 — auto-divide on factorizability.** Substrate complete: `meta::factorize(joint_state, split_k)` HostFn shipped (`from meta import factorize`) — rank-1 detection over the m×n amplitude matrix; returns `{separable: bool, a, b}`. Tests in `tests/quantum_factorize.rs` cover separable `|+⟩⊗|+⟩` factoring, Bell + GHZ entangled-state detection, exact round-tripping (`factorize ∘ tensor = id` on separable inputs), and 3-qubit splits at variable `k`. Demo `crates/chrysalis/ys/quantum-factorize.ys`. **Runtime use**: `quantum-self-observe.ys` shows `FactorizeCheck` calling `factorize` from a process body — two side-by-side composites (Bell vs `|+⟩⊗|+⟩`) self-observe + report their separability ("the composite knows whether it's entangled"). **REMAINING**: a Divider-style step (analogous to `environment.ys`'s `Divider`) that converts the observation into a structural `_divide` intent, so a separable child composite splits into independent sub-composites reflecting the post-measurement physics.  
   - ✅ **Q6 — quantum teleportation.** The canonical demo, shipped: `crates/chrysalis/ys/quantum-teleportation.ys` + regression `tests/quantum_teleportation.rs`. Five processes — `CnotA1A2`, `HadamardA1`, `MeasureA1A2`, `ExtractBobState`, `BobCorrect` — chain across six state slots. Initial state |ψ⟩=0.6|0⟩+0.8|1⟩ on Alice's qubit A1, pre-shared Bell pair on (A2, B). After 6 BSP ticks (process chain depth), Bob's qubit `bob_final` matches |ψ⟩ exactly within float tolerance — regardless of which measurement outcome occurred. The conditional Pauli correction `Z^a1 · X^a2` is a nested `if/then/else` over the 4 possible bit pairs ('m00'/'m01'/'m10'/'m11'). Only 2 classical bits cross from Alice; entanglement does the rest. No-cloning preserved (Alice's measurement destroys her copy). Exercises Q1-Q5 together — the canonical quantum protocol running end-to-end through the prism engine.
 
+- 🧩 #44 process contracts — the **"three notions of agreement"** demo (`docs/agreement-demo.md`, `ys/agreement.ys`). The contract layer (target/method/claims/advance; substitutability = `refines` = the schema join) made visible: ONE `A→B` model, TWO targets, the CLAIM selects the comparison metric, cross-lane comparison is a compile error. Built + green 2026-05-28. Slices:
+  - ✅ **Contracts survive a generic wrapper** (= #12): `RunProcess` forwards its inner `proc`'s output contract (declarative `CONTRACT_FORWARDS` in `chrysalis/src/check.rs`); the flagship `Compare` now DEMANDS its contract. Native processes have no chrysalis interface (a bare name set), which is *why* the contract was otherwise lost. Tests: `contract_enforcement.rs`.
+  - ✅ **`fulfillers(C)` — the contract-indexed library query** (`chrysalis/src/contract.rs`): every definer whose contract `refines` C, via the existing algebra (no clone). The multi-axis substitutability query. Tests: `contract_query.rs`.
+  - ✅ **Ordered `claims` axis through the `.ys` path**: `contract_ref_schema` lowers `claims` to its `Enum`-downset (`chrysalis/src/schema.rs`), so the refinement chain (`Pathwise ⊐ Distributional ⊐ WeakOrder`; `Deterministic` its own point) is live in chrysalis, not just the prism-schema unit test.
+  - ✅ **The CME lane**: Gillespie SSA + `ensemble` + `distributional_distance` over the shared `MassActionNetwork` (`prism-std/src/mass_action.rs`, same propensities as the ODE), exposed as `stochastic("ssa")` and wired as `ExactCME` `.ys` steps (`ys/cme-gillespie.ys`). SSA core validated (reproducible, conserves, ensemble mean tracks the ODE).
+  - ✅ **Claim-driven comparison**: trajectory MSE (demands `Deterministic`) vs distributional distance (demands `ExactCME`) — same data, opposite verdicts, quantified in `mass_action.rs::distributional_metric_agrees_where_pathwise_does_not`.
+  - ✅ **The teeth**: cross-lane wiring is a COMPILE error (`contract_enforcement.rs::cme_source_is_refused_at_a_deterministic_comparison` + reverse + within-lane positive control).
+  - ✅ **The unified `ys/agreement.ys`**: both lanes, both comparisons, two contrast figures; runs and writes its own evidence (deterministic-mse 3.59, distributional-distance 1.63, two overlay SVGs).
+  - ⏳ **REMAINING**: auto-fan-out — a comprehension over `fulfillers(C)` that GENERATES the `RunProcess` children ("run every fulfiller of C", the original combinatorial idea) + the dt-refinement sweep (= #9, shows the deterministic MSE → 0). Then #33 KISAO/SED-ML/OMEX export (the deliberate, deferred standards-interop layer).
+
 A side-quest doc captured the broader landscape: `docs/exploring-the-computational-unknown.md` — survey of reflective towers, meta-circular interpreters, macros, Futamura projections, staging, algebraic effects, probabilistic / differentiable / reversible / quantum / unconventional computing, and the axes that compose into the space of methods.
+
+## ⏯️ NEXT-SESSION PROMPT (2026-05-28 — process-contract "three notions of agreement" demo)
+
+> Workspace GREEN. A detour from the quantum/merge arc: built the process-contract
+> demo (#44) end to end — see `docs/agreement-demo.md` and `ys/agreement.ys`.
+>
+> **What landed (all tested):** (1) contracts survive `RunProcess` — a forwarding
+> rule in `check.rs`; the flagship `Compare` now demands its contract (**#12 DONE**).
+> (2) `fulfillers(C)` library query (`chrysalis/src/contract.rs`). (3) ordered
+> `claims` axis through the `.ys` path (`schema.rs` `Enum`-downset). (4) the CME
+> lane — Gillespie SSA + `ensemble` + `distributional_distance` in
+> `prism-std/src/mass_action.rs`, wired as `ExactCME` steps. (5) claim-driven
+> comparison (trajectory MSE vs distributional, each gated by its contract).
+> (6) the teeth — cross-lane comparison is a compile error. (7) the unified
+> `agreement.ys` runs + writes figures (det MSE 3.59, dist distance 1.63).
+>
+> **NEXT:** (a) **auto-fan-out** — a comprehension over `fulfillers(C)` that
+> GENERATES the `RunProcess` children ("run every fulfiller of C" — the original
+> combinatorial idea) + the dt-sweep (#9); (b) then either resume the quantum/merge
+> arc (#39 `tensor_by_schema` → #42 → #43 → #40, below) or do **#33** KISAO/SED-ML/
+> OMEX export (the deferred standards-interop layer — informed by, not constraining,
+> the core).
+>
+> **Test status:** `cargo test -p chrysalis -p prism-std` green; downstream
+> (spatio-flux, prism-mapk) green. New: `contract_query.rs` (3),
+> `contract_enforcement.rs` (+5 — forwarding, claim-chain, refused cross-lane),
+> `mass_action.rs` (+3 — SSA reproducible/conserves, ensemble-tracks-ODE,
+> distributional-vs-pathwise). New `.ys`: `agreement.ys`, `cme-gillespie.ys`.
+
+---
 
 ## ⏯️ NEXT-SESSION PROMPT (2026-05-28 — symmetric bridge apply + lifecycle on real composites + schema-algebra unification)
 

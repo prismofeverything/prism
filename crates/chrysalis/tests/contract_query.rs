@@ -87,6 +87,34 @@ fn fulfillers_of_a_different_target_are_disjoint() {
     );
 }
 
+// ── T4 (quick proof): the fan-out is driven by the library query ─────────
+// The surface "run every fulfiller of C" is compile-time codegen (deferred to
+// the packages work). But the DRIVER — `fulfillers(C)` over the real workflow's
+// library — yields exactly the set the demo runs and compares. The fan-out is
+// "replace the hand-wired control list with this query"; the demo already
+// runs+compares that set (ys_files_run), so only the auto-wiring is outstanding.
+#[test]
+fn fulfillers_query_drives_the_agreement_demos_comparison_set() {
+    let src = include_str!("../ys/agreement.ys");
+    let program = chrysalis::parse::parse_program(src).expect("parse agreement.ys");
+
+    let mut deterministic = fulfillers(&program, &ContractRef::new("DeterministicMassAction"));
+    deterministic.sort();
+    assert_eq!(
+        deterministic,
+        vec!["ForwardEuler", "Rk4"],
+        "the deterministic lane's fulfillers, DERIVED from the contract (not hand-listed)"
+    );
+
+    let mut cme = fulfillers(&program, &ContractRef::new("ExactCME"));
+    cme.sort();
+    assert_eq!(
+        cme,
+        vec!["Ssa", "SsaEnsemble"],
+        "the CME lane's fulfillers, derived from the ExactCME contract"
+    );
+}
+
 #[test]
 fn pinning_a_method_narrows_the_result() {
     // A demand that ALSO pins `method: Rk4` selects exactly that method —

@@ -201,7 +201,8 @@ realizations" contribution back to the standard.
    ys-native (their bodies call the registered methods `a.species_mse(b)` /
    `a.overlay(b, …)`); `Output` writes the artifacts itself. Contracts flow
    through wirings to demanding slots (`check::collect_slot_contracts`). Steps
-   1–4 complete; only rung 3 remains.
+   1–4 complete — and have since grown into the unified **agreement demo**
+   (see *Beyond rung 1* below + `docs/agreement-demo.md`).
 
    **Running it.** The workflow is self-outputting — its `Output` step writes the
    files, so there is no Rust harness:
@@ -219,4 +220,33 @@ realizations" contribution back to the standard.
    `e^{-kt}` while forward Euler lags — MSE ≈ 3.6e-4 per species: "same target,
    different method, warranted comparison, method-induced divergence."
 5. **Rung 3**: contract → KISAO export; OMEX/SED-ML round-trip.
+
+## Beyond rung 1 — the agreement demo (2026-05-28)
+
+Rung 1's integrator comparison grew into the full **"three notions of
+agreement"** demo — see [`agreement-demo.md`](agreement-demo.md) and
+`ys/agreement.ys`. New, built + green:
+
+- **Contracts survive a generic wrapper** — `RunProcess` forwards its inner
+  `proc`'s output contract (a declarative `CONTRACT_FORWARDS` rule in
+  `chrysalis/src/check.rs`); the flagship `Compare` now DEMANDS its contract, so
+  the enforcement that lived "only in tests" is live in the file. [NEXT-SESSION #12]
+- **`fulfillers(C)`** — the contract-indexed library query
+  (`chrysalis/src/contract.rs`): every definer whose contract `refines` C, via
+  the existing `refines` (this is the `admits`-style capability, realized as a
+  query rather than a new op).
+- **Ordered `claims` through the `.ys` path** — `contract_ref_schema` lowers
+  `claims` to its `Enum`-downset (`chrysalis/src/schema.rs`), so the refinement
+  chain is exercised end to end, not just in the prism-schema unit test.
+- **The CME lane** (rung 1's stochastic sibling) — Gillespie SSA + `ensemble` +
+  `distributional_distance` over the SAME `MassActionNetwork`
+  (`prism-std/src/mass_action.rs`); `ExactCME` `.ys` steps in
+  `ys/cme-gillespie.ys`.
+- **Claim-driven comparison** — the `claims` axis selects the metric: trajectory
+  MSE for `Deterministic`, distributional distance for `ExactCME`. Each
+  comparison step demands its contract, so applying the WRONG metric is a compile
+  error (the refused-comparison teeth, proven in `contract_enforcement.rs`).
+
+Rung 2 (real COPASI/Tellurium) and rung 3 (KISAO/SED-ML/OMEX, #33) remain the
+deliberate export/interop layers.
 

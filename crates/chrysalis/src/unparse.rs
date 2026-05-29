@@ -66,12 +66,10 @@ fn unparse_def(def: &Def) -> String {
                 .iter()
                 .map(|u| format!(" using {}({})", u.name, unparse_term_args(&u.args)))
                 .collect();
+            let prefix = format!("composite {}{}{using}", c.name, unparse_bracket_params(&c.params));
             format!(
-                "composite {}{}{}{} {}",
-                c.name,
-                unparse_bracket_params(&c.params),
-                using,
-                unparse_interface(&c.interface),
+                "{prefix}{} {}",
+                unparse_interface(&c.interface, prefix.len()),
                 unparse_body(&c.body)
             )
         }
@@ -201,15 +199,17 @@ fn unparse_definer(
             "{kw} {name}{}\n  fulfills {}\n  {}\n  {}",
             unparse_bracket_params(params),
             unparse_contract_ref(&c),
-            unparse_interface_inner(interface, Some(&c)).trim_start(),
+            unparse_interface_inner(interface, Some(&c), 2, 2).trim_start(),
             unparse_body(body)
         ),
-        None => format!(
-            "{kw} {name}{}{} {}",
-            unparse_bracket_params(params),
-            unparse_interface_inner(interface, None),
-            unparse_body(body)
-        ),
+        None => {
+            let prefix = format!("{kw} {name}{}", unparse_bracket_params(params));
+            format!(
+                "{prefix}{} {}",
+                unparse_interface_inner(interface, None, prefix.len(), 0),
+                unparse_body(body)
+            )
+        }
     }
 }
 
@@ -275,14 +275,19 @@ fn unparse_fn_params(params: &[crate::ast::Param]) -> String {
         .join(", ")
 }
 
-fn unparse_interface(iface: &Interface) -> String {
-    unparse_interface_inner(iface, None)
+fn unparse_interface(iface: &Interface, start_col: usize) -> String {
+    unparse_interface_inner(iface, None, start_col, 0)
 }
 
 /// Render `~{…} ->{…}`. Port types use `::` (`name :: Schema`); a port's contract
 /// is emitted as `fulfills C` unless it equals `hoisted` (already raised to a
 /// `fulfills C` clause on the header by the caller).
-fn unparse_interface_inner(iface: &Interface, hoisted: Option<&ContractRef>) -> String {
+fn unparse_interface_inner(
+    iface: &Interface,
+    hoisted: Option<&ContractRef>,
+    start_col: usize,
+    base_indent: usize,
+) -> String {
     // Emit in the order the parser reads: schema, `@ bridge`, `fulfills C`,
     // `= default`. (Contract before default matters — `fulfills` is not a valid
     // expr continuation, so `= d fulfills C` would not re-parse.)
@@ -301,16 +306,9 @@ fn unparse_interface_inner(iface: &Interface, hoisted: Option<&ContractRef>) -> 
         }
         s
     };
-    let mut s = String::new();
-    if !iface.inputs.is_empty() {
-        let ports: Vec<_> = iface.inputs.iter().map(port).collect();
-        s.push_str(&format!(" ~{{{}}}", ports.join(", ")));
-    }
-    if !iface.outputs.is_empty() {
-        let ports: Vec<_> = iface.outputs.iter().map(port).collect();
-        s.push_str(&format!(" ->{{{}}}", ports.join(", ")));
-    }
-    s
+    let input_parts: Vec<String> = iface.inputs.iter().map(port).collect();
+    let output_parts: Vec<String> = iface.outputs.iter().map(port).collect();
+    fmt_ports(&input_parts, &output_parts, start_col, base_indent)
 }
 
 // ── bodies ───────────────────────────────────────────────────────────
@@ -327,11 +325,11 @@ fn unparse_body(body: &Expr) -> String {
                 .map(|(n, e)| format!("{n} = {}", unparse_expr_at(e, 2)))
                 .collect();
             items.push(unparse_expr_at(value, 2));
-            format!("(\n  {}\n)", items.join(" |\n  "))
+            pipe_join_multiline(&items, 0)
         }
         Expr::Parallel(items) if !items.is_empty() => {
             let parts: Vec<String> = items.iter().map(|i| unparse_expr_at(i, 2)).collect();
-            format!("(\n  {}\n)", parts.join(" |\n  "))
+            pipe_join_multiline(&parts, 0)
         }
         Expr::Record(_) | Expr::Map(_) => format!("(\n  {}\n)", unparse_expr(body)),
         other => format!("( {} )", unparse_expr(other)),
@@ -380,16 +378,16 @@ pub fn unparse_expr_at(e: &Expr, indent: usize) -> String {
         Expr::Map(entries) => {
             let parts: Vec<String> = entries
                 .iter()
-                .map(|(k, v)| format!("{}: {}", unparse_string(k), unparse_expr(v)))
+                .map(|(k, v)| format!("{}: {}", unparse_string(k), unparse_expr_at(v, indent + 2)))
                 .collect();
-            format!("{{{}}}", parts.join(", "))
+            fmt_braced("{", "}", &parts, indent, indent)
         }
         Expr::Record(fields) => {
             let parts: Vec<String> = fields
                 .iter()
-                .map(|(k, v)| format!("{k}: {}", unparse_expr(v)))
+                .map(|(k, v)| format!("{k}: {}", unparse_expr_at(v, indent + 2)))
                 .collect();
-            format!("{{{}}}", parts.join(", "))
+            fmt_braced("{", "}", &parts, indent, indent)
         }
         Expr::List(items) => {
             let parts: Vec<String> =
@@ -493,25 +491,39 @@ fn unparse_term(
     body: &Option<Box<Expr>>,
     indent: usize,
 ) -> String {
+    // Port entries + their inline width up front: a term that overshoots breaks
+    // its ARGS (the bracketed config), keeping short ports on the closing `]`
+    // line — so `fmt_term_args_at` needs to know how much trails the args.
+    let input_parts: Vec<String> = ports
+        .inputs
+        .iter()
+        .map(|(p, t)| format!("{p}: {}", unparse_expr(t)))
+        .collect();
+    let output_parts: Vec<String> = ports
+        .outputs
+        .iter()
+        .map(|(p, t)| format!("{p}: {}", unparse_expr(t)))
+        .collect();
+    let mut ports_inline = String::new();
+    if !input_parts.is_empty() {
+        ports_inline.push_str(&format!(" ~{{{}}}", input_parts.join(", ")));
+    }
+    if !output_parts.is_empty() {
+        ports_inline.push_str(&format!(" ->{{{}}}", output_parts.join(", ")));
+    }
+    let body_inline_len = body.as_ref().map(|b| unparse_expr(b).len() + 3).unwrap_or(0);
+
     let mut s = control.to_string();
     if !args.is_empty() {
-        s.push_str(&fmt_term_args_at(args, indent));
+        let trailing = ports_inline.len() + body_inline_len;
+        s.push_str(&fmt_term_args_at(args, indent, control.len() + trailing, ports_inline.len()));
     }
-    if !ports.inputs.is_empty() {
-        let ps: Vec<String> = ports
-            .inputs
-            .iter()
-            .map(|(p, t)| format!("{p}: {}", unparse_expr(t)))
-            .collect();
-        s.push_str(&format!(" ~{{{}}}", ps.join(", ")));
-    }
-    if !ports.outputs.is_empty() {
-        let ps: Vec<String> = ports
-            .outputs
-            .iter()
-            .map(|(p, t)| format!("{p}: {}", unparse_expr(t)))
-            .collect();
-        s.push_str(&format!(" ->{{{}}}", ps.join(", ")));
+    if !input_parts.is_empty() || !output_parts.is_empty() {
+        // Column where ` ~{` begins: the end of `control` + args (which may
+        // itself be multi-line — then the ports sit on the closing `]` line).
+        let last_line = s.rsplit('\n').next().unwrap_or("");
+        let port_start_col = if s.contains('\n') { last_line.len() } else { indent + s.len() };
+        s.push_str(&fmt_ports(&input_parts, &output_parts, port_start_col, indent));
     }
     if let Some(b) = body {
         s.push_str(&format!(" {}", fmt_body(b, indent)));
@@ -555,13 +567,19 @@ fn unparse_term_args(args: &[TermArg]) -> String {
 /// entry per line when the inline form (placed at column `indent`) overshoots
 /// [`MAX_WIDTH`]. Each entry recurses at `indent + 2` so a long sub-list (e.g.
 /// `rules: [r1, r2, …]`) can itself break.
-fn fmt_term_args_at(args: &[TermArg], indent: usize) -> String {
+fn fmt_term_args_at(args: &[TermArg], indent: usize, context_width: usize, peer_width: usize) -> String {
     if args.is_empty() {
         return String::new();
     }
     let inline = format!("[{}]", unparse_term_args(args));
-    if !inline.contains('\n') && inline.len() + indent <= MAX_WIDTH {
-        return inline;
+    if !inline.contains('\n') {
+        // Keep inline if the whole term line (control + these args + the trailing
+        // ports/body = `context_width`) fits, OR if the trailing ports are the
+        // BIGGER group — then they break and these (shorter) args stay inline.
+        let fits = indent + context_width + inline.len() + KEYED_SLOT_MARGIN <= MAX_WIDTH;
+        if fits || inline.len() < peer_width {
+            return inline;
+        }
     }
     let inner = indent_str(indent + 2);
     let outer = indent_str(indent);
@@ -577,7 +595,7 @@ fn fmt_term_args_at(args: &[TermArg], indent: usize) -> String {
             }
         })
         .collect();
-    format!("[\n{inner}{},\n{outer}]", parts.join(&format!(",\n{inner}")))
+    format!("[\n{inner}{}\n{outer}]", parts.join(&format!(",\n{inner}")))
 }
 
 /// Unparse an expression in an argument position (method/term arg). The
@@ -791,6 +809,11 @@ fn is_ident(s: &str) -> bool {
 /// Target source-line width. Lines past this break onto multiple lines.
 const MAX_WIDTH: usize = 100;
 
+/// A composite body's children are keyed (`slot: Term …`); the term renderer
+/// can't see that `slot: ` prefix, so it under-counts its column by a few chars.
+/// This margin keeps a borderline line from staying inline then overflowing.
+const KEYED_SLOT_MARGIN: usize = 4;
+
 fn indent_str(n: usize) -> String {
     " ".repeat(n)
 }
@@ -798,6 +821,65 @@ fn indent_str(n: usize) -> String {
 /// Render `items` joined by ` | ` inside `( … )`. Inline when short; multi-
 /// line with **pipes at end of line** when the inline form (placed at column
 /// `indent`) exceeds [`MAX_WIDTH`] or any item itself spans multiple lines.
+/// Render a braced group (`{…}` record/map, `[…]` args) at column `start_col`:
+/// inline `{open}a, b{close}` when it fits, else one entry per line at
+/// `base_indent + 2` with the close at `base_indent` and **no trailing comma**
+/// (the hand-written house style). `parts` are the already-rendered entries
+/// (rendered at `base_indent + 2` so a long entry breaks the group too).
+fn fmt_braced(open: &str, close: &str, parts: &[String], base_indent: usize, start_col: usize) -> String {
+    let inline = format!("{open}{}{close}", parts.join(", "));
+    if !parts.iter().any(|p| p.contains('\n')) && start_col + inline.len() <= MAX_WIDTH {
+        return inline;
+    }
+    let inner = indent_str(base_indent + 2);
+    let outer = indent_str(base_indent);
+    format!("{open}\n{inner}{}\n{outer}{close}", parts.join(&format!(",\n{inner}")))
+}
+
+/// Render an interface `~{inputs} ->{outputs}` whose `~` begins at column
+/// `start_col`. Inline when the whole thing fits at [`MAX_WIDTH`]; otherwise the
+/// input group breaks one-entry-per-line (at `base_indent + 2`), and the output
+/// group stays inline on the closing `}` line unless it too overshoots. No
+/// trailing comma. `*_parts` are the already-rendered `name :: …` / `port: …`
+/// entries.
+fn fmt_ports(input_parts: &[String], output_parts: &[String], start_col: usize, base_indent: usize) -> String {
+    let group = |arrow: &str, parts: &[String]| {
+        if parts.is_empty() { String::new() } else { format!(" {arrow}{{{}}}", parts.join(", ")) }
+    };
+    let input_inline = group("~", input_parts);
+    let output_inline = group("->", output_parts);
+    let any_multi = input_parts.iter().chain(output_parts).any(|p| p.contains('\n'));
+    if !any_multi && start_col + input_inline.len() + output_inline.len() + 2 <= MAX_WIDTH {
+        return format!("{input_inline}{output_inline}");
+    }
+    let inner = indent_str(base_indent + 2);
+    let outer = indent_str(base_indent);
+    let broken = |arrow: &str, parts: &[String]| {
+        format!(" {arrow}{{\n{inner}{}\n{outer}}}", parts.join(&format!(",\n{inner}")))
+    };
+    let mut s = String::new();
+    if !input_parts.is_empty() {
+        s.push_str(&broken("~", input_parts));
+    }
+    if !output_parts.is_empty() {
+        // After a broken input the output sits on the `}` line (≈ `base_indent`);
+        // with no input it sits at `start_col`.
+        let out_col = if input_parts.is_empty() { start_col } else { base_indent + 1 };
+        if !output_parts.iter().any(|p| p.contains('\n'))
+            && out_col + output_inline.len() <= MAX_WIDTH
+        {
+            s.push_str(&output_inline);
+        } else {
+            s.push_str(&broken("->", output_parts));
+        }
+    }
+    s
+}
+
+/// Pipe-join body items. Inline `(a | b)` when short; otherwise multi-line with
+/// **pipes at end of line**, and a **blank line setting off a multi-line child**
+/// from its neighbours (consecutive single-line children stay adjacent) — the
+/// hand-written house style.
 fn fmt_pipe_join(items: &[String], indent: usize) -> String {
     if items.is_empty() {
         return "()".into();
@@ -808,12 +890,27 @@ fn fmt_pipe_join(items: &[String], indent: usize) -> String {
     if inline_ok {
         return inline;
     }
+    pipe_join_multiline(items, indent)
+}
+
+/// The multi-line body form `(\n  a |\n  b\n)`: **pipes at end of line**, with a
+/// blank line setting off any multi-line child from its neighbours (consecutive
+/// single-line children stay adjacent) — the hand-written house style.
+fn pipe_join_multiline(items: &[String], indent: usize) -> String {
     let inner = indent_str(indent + 2);
     let outer = indent_str(indent);
-    format!(
-        "(\n{inner}{}\n{outer})",
-        items.join(&format!(" |\n{inner}"))
-    )
+    let mut joined = String::new();
+    for (i, item) in items.iter().enumerate() {
+        if i > 0 {
+            joined.push_str(" |\n");
+            if item.contains('\n') || items[i - 1].contains('\n') {
+                joined.push('\n');
+            }
+            joined.push_str(&inner);
+        }
+        joined.push_str(item);
+    }
+    format!("(\n{inner}{joined}\n{outer})")
 }
 
 /// Render `items` joined by `, ` inside `[ … ]`. Inline when short; multi-line

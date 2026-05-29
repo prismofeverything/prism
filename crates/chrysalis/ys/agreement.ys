@@ -28,9 +28,18 @@
 # (cme_source_is_refused_at_a_deterministic_comparison, and its reverse). The
 # comparison metric physically cannot be applied to the wrong target.
 
-type TimeSeries = { times: list[float], columns: map[list[float]] }
-type Ensemble   = { times: list[float], mean: map[list[float]], std: map[list[float]] }
-type Figure     = { svg: string }
+type TimeSeries = {
+  times: list[float],
+  columns: map[list[float]]
+}
+
+type Ensemble = {
+  times: list[float],
+  mean: map[list[float]],
+  std: map[list[float]]
+}
+
+type Figure = { svg: string }
 
 # ── The two points in contract-space ────────────────────────────────────
 contract DeterministicMassAction (
@@ -76,11 +85,17 @@ step SsaEnsemble[network: CRN, runtime: float, timestep: float, base_seed: float
 # ── Claim-driven comparisons — each DEMANDS its contract ─────────────────
 # Trajectory MSE is meaningful only at a Deterministic claim; the distributional
 # distance only at a Distributional one. The `:: C` demands are the teeth.
-step Compare ~{a: TimeSeries :: DeterministicMassAction, b: TimeSeries :: DeterministicMassAction} ->{mse: map[float]} (
+step Compare ~{
+  a: TimeSeries :: DeterministicMassAction,
+  b: TimeSeries :: DeterministicMassAction
+} ->{mse: map[float]} (
   {mse: a.species_mse(b)}
 )
 
-step DistCompare ~{a: Ensemble :: ExactCME, b: Ensemble :: ExactCME} ->{distance: map[float]} (
+step DistCompare ~{
+  a: Ensemble :: ExactCME,
+  b: Ensemble :: ExactCME
+} ->{distance: map[float]} (
   {distance: a.distributional_distance(b)}
 )
 
@@ -101,28 +116,84 @@ step Output[path: Path] ~{det: Figure, stoch: Figure, det_mse: map[float], dist:
 )
 
 # ── The shared model ─────────────────────────────────────────────────────
-def network :: CRN = {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}
+def network :: CRN = {
+  species: ['A', 'B'],
+  reactions: [{
+      reactants: {A: 1.0},
+      products: {B: 1.0}, k: 0.7
+    }
+  ]
+}
 
 # ── The workflow: one model → two lanes → two claim-appropriate comparisons ─
-composite Agreement[out: Path = 'outputs/agreement'] ->{deterministic_mse: map[float], distributional_distance: map[float]} (
+composite Agreement[out: Path = 'outputs/agreement'] ->{
+  deterministic_mse: map[float],
+  distributional_distance: map[float]
+} (
   init: {A: 100.0, B: 0.0} |
 
   # Deterministic lane: two integrators, compared by trajectory MSE.
-  rk4:    RunProcess[proc: Rk4[network: network],          runtime: 5.0, timestep: 0.2] ~{state: init} ->{timeseries: rk4_traj} |
-  euler:  RunProcess[proc: ForwardEuler[network: network], runtime: 5.0, timestep: 0.2] ~{state: init} ->{timeseries: euler_traj} |
-  detcmp: Compare         ~{a: rk4_traj, b: euler_traj}   ->{mse: deterministic_mse} |
-  detfig: PlotDeterministic ~{a: rk4_traj, b: euler_traj} ->{figure: det_fig} |
+  rk4:    RunProcess[
+    proc: Rk4[network: network],
+    runtime: 5.0,
+    timestep: 0.2
+  ] ~{state: init} ->{timeseries: rk4_traj} |
+
+  euler:  RunProcess[
+    proc: ForwardEuler[network: network],
+    runtime: 5.0,
+    timestep: 0.2
+  ] ~{state: init} ->{timeseries: euler_traj} |
+
+  detcmp: Compare ~{
+    a: rk4_traj,
+    b: euler_traj
+  } ->{mse: deterministic_mse} |
+
+  detfig: PlotDeterministic
+  ~{a: rk4_traj, b: euler_traj} ->{figure: det_fig} |
 
   # Stochastic lane: single paths (for the figure) + ensembles (for the metric).
-  s1:      Ssa[network: network, runtime: 5.0, timestep: 0.2, seed: 1.0] ~{state: init} ->{timeseries: ssa1} |
-  s2:      Ssa[network: network, runtime: 5.0, timestep: 0.2, seed: 2.0] ~{state: init} ->{timeseries: ssa2} |
-  ea:      SsaEnsemble[network: network, runtime: 5.0, timestep: 0.2, base_seed: 1.0,    n_runs: 64.0] ~{state: init} ->{ensemble: ens_a} |
-  eb:      SsaEnsemble[network: network, runtime: 5.0, timestep: 0.2, base_seed: 1000.0, n_runs: 64.0] ~{state: init} ->{ensemble: ens_b} |
-  distcmp: DistCompare      ~{a: ens_a, b: ens_b} ->{distance: distributional_distance} |
-  stochfig: PlotStochastic  ~{a: ssa1, b: ssa2}   ->{figure: stoch_fig} |
+  s1: Ssa[
+    network: network,
+    runtime: 5.0,
+    timestep: 0.2,
+    seed: 1.0
+  ] ~{state: init} ->{timeseries: ssa1} |
+
+  s2: Ssa[
+    network: network,
+    runtime: 5.0,
+    timestep: 0.2,
+    seed: 2.0
+  ] ~{state: init} ->{timeseries: ssa2} |
+
+  ea: SsaEnsemble[
+    network: network,
+    runtime: 5.0,
+    timestep: 0.2,
+    base_seed: 1.0,
+    n_runs: 64.0
+  ] ~{state: init} ->{ensemble: ens_a} |
+
+  eb: SsaEnsemble[
+    network: network,
+    runtime: 5.0,
+    timestep: 0.2,
+    base_seed: 1000.0,
+    n_runs: 64.0
+  ] ~{state: init} ->{ensemble: ens_b} |
+
+  distcmp: DistCompare ~{a: ens_a, b: ens_b} ->{distance: distributional_distance} |
+  stochfig: PlotStochastic ~{a: ssa1, b: ssa2} ->{figure: stoch_fig} |
 
   # Write the artifacts (the workflow outputs its own evidence).
-  output: Output[path: out] ~{det: det_fig, stoch: stoch_fig, det_mse: deterministic_mse, dist: distributional_distance}
+  output: Output[path: out] ~{
+    det: det_fig,
+    stoch: stoch_fig,
+    det_mse: deterministic_mse,
+    dist: distributional_distance
+  }
 )
 
 Agreement[]

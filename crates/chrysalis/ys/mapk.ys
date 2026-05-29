@@ -116,6 +116,7 @@ reaction translocate_perk_out (
 
 composite Mapk[cell: map[any]] ->{cell :: map[any]} (
   cell: cell |
+
   brs: BRS[
     rules: [
       phosphorylate,
@@ -128,7 +129,7 @@ composite Mapk[cell: map[any]] ->{cell :: map[any]} (
     ],
     mode: 'gillespie',
     seed: 7,
-    max_per_tick: 10000,
+    max_per_tick: 10000
   ] ~{state: cell} ->{state: cell}
 )
 
@@ -143,5 +144,5 @@ Mapk[
       nucleus: Compartment (kind: Nucleus) |
       er_lumen: Compartment (kind: ERLumen | erk3: ERK[name: 'erk3'])
     )
-  ),
+  )
 ]
