@@ -1,0 +1,43 @@
+# ═════════════════════════════════════════════════════════════════════════
+# Agreement across ENGINES — native vs COPASI vs Tellurium, one model
+# ═════════════════════════════════════════════════════════════════════════
+#
+# The same A → B (k=0.7) mass-action model, integrated three ways:
+#   • Rk4            — native (prism-std), runs locally
+#   • CopasiCvode    — COPASI (basico), runs in a process-server over rest
+#   • RoadRunnerCvode— Tellurium (libroadrunner), runs in the same server
+#
+# The surface is IDENTICAL for all three — `RunProcess[proc: X[network], …]` —
+# because process instantiation is unified through the protocol-aware Core
+# (#15): local and rest-addressed procs drive the same way. The engines agree
+# because they all realize the contract DeterministicMassAction on one CRN.
+#
+# Run against a service: `process-server/serve.sh 8765 &`, then run the demo.
+
+import External from 'lib/external.ys'
+from core import RunProcess
+
+# The shared model (the canonical CRN; the python wrappers generate SBML from it).
+def network :: CRN = {
+  species: ['A', 'B'],
+  reactions: [{ reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7 }]
+}
+
+composite EngineAgreement ->{
+  rk4:       TimeSeries,
+  copasi:    TimeSeries,
+  tellurium: TimeSeries
+} (
+  init: {A: 100.0, B: 0.0} |
+
+  r: RunProcess[proc: Rk4[network: network], runtime: 5.0, timestep: 0.2]
+    ~{state: init} ->{timeseries: rk4} |
+
+  c: RunProcess[proc: CopasiCvode[network: network], runtime: 5.0, timestep: 0.2]
+    ~{state: init} ->{timeseries: copasi} |
+
+  t: RunProcess[proc: RoadRunnerCvode[network: network], runtime: 5.0, timestep: 0.2]
+    ~{state: init} ->{timeseries: tellurium}
+)
+
+EngineAgreement[]

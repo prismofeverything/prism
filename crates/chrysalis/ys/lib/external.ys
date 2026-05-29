@@ -7,26 +7,27 @@
 # native integrators in simulators.ys — the whole point of the contract index:
 # the fan-out runs native + COPASI + Tellurium uniformly and compares them.
 #
-# Each engine is a remote COMPOSITE (a composite may be remote — encapsulation):
-# its local shape carries the mass-action interface + contract, and a `rest<>`
-# alias overrides its address to a running process-server (process-server/
-# serve.sh). prism connects by URL; it never spawns the python (memory:
-# project_sidecar_service_model). The `process` field selects the python class;
-# daughters inherit the address on division.
+# Each engine is a remote LEAF process (one simulator, not a sub-bigraph): its
+# local shape carries the mass-action interface + contract + a `network` param,
+# and a `rest<>` alias overrides its address to a running process-server
+# (process-server/serve.sh). prism connects by URL; it never spawns the python
+# (memory: project_sidecar_service_model). The `process` field selects the python
+# class; daughters inherit the address on division.
 
 import Sim from 'simulators.ys'
 
-# Local shape — body is a passthrough placeholder; the `rest<>` alias below makes
-# it run in COPASI/Tellurium, not here.
-composite CopasiModel
+# A contracted leaf process. Its config is the `network` param (the python
+# wrapper turns the CRN into SBML); the body is an unused local placeholder (the
+# `rest<>` alias makes it run in COPASI/Tellurium, not here).
+process CopasiModel[network: CRN]
   fulfills DeterministicMassAction[method: Copasi]
   ~{state: map[float]} ->{state: map[float]}
-  ( state: state )
+  ( state )
 
-composite RoadRunnerModel
+process RoadRunnerModel[network: CRN]
   fulfills DeterministicMassAction[method: RoadRunner]
   ~{state: map[float]} ->{state: map[float]}
-  ( state: state )
+  ( state )
 
 protocol CopasiCvode = rest<CopasiModel, process: 'CopasiCvode', host: '127.0.0.1', port: '8765'>
 protocol RoadRunnerCvode = rest<RoadRunnerModel, process: 'RoadRunnerCvode', host: '127.0.0.1', port: '8765'>

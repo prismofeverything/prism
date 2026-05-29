@@ -683,19 +683,31 @@ impl Evaluator {
         ports: &PortBindings,
         env: &IndexMap<Name, Value>,
     ) -> Result<Value, EvalError> {
-        let wrapped = match self.program.lookup(&pd.wrapped) {
-            Some(Def::Composite(c)) => c.clone(),
+        // The wrapped control may be a COMPOSITE (a sub-bigraph) or a leaf
+        // PROCESS/STEP — rest-addressing is UNIFORM across kinds. Build its
+        // normal node, then override the `address` with the protocol's typed
+        // one, so a remote leaf simulator (e.g. CopasiCvode) is a rest-addressed
+        // PROCESS carrying its own params as config — drop-in to RunProcess.
+        let mut node = match self.program.lookup(&pd.wrapped) {
+            Some(Def::Composite(c)) => self.build_composite_outer(&c.clone(), args, ports, env)?,
+            Some(Def::Process(p)) => {
+                let p = p.clone();
+                self.build_pure_spec(&pd.wrapped, "process", args, ports, &p.params, &p.interface, env)?
+            }
+            Some(Def::Step(s)) => {
+                let s = s.clone();
+                self.build_pure_spec(&pd.wrapped, "step", args, ports, &s.params, &s.interface, env)?
+            }
             _ => {
                 return Err(EvalError::InvalidForm {
                     context: "protocol".into(),
                     message: format!(
-                        "`protocol {} = {}<{}, …>`: `{}` must be a composite in scope",
+                        "`protocol {} = {}<{}, …>`: `{}` must be a composite, process, or step in scope",
                         pd.name, pd.protocol, pd.wrapped, pd.wrapped
                     ),
                 });
             }
         };
-        let mut node = self.build_composite_outer(&wrapped, args, ports, env)?;
         let address = self.build_protocol_address(pd, env)?;
         if let Value::Map(m) = &mut node {
             m.insert(Key::from("address"), address);

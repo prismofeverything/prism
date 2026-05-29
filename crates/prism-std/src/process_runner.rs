@@ -38,7 +38,10 @@ impl RunProcess {
     /// process term value `{address, config, …}` (e.g. `Rk4[network: …]`).
     pub fn from_config(config: &Value) -> Self {
         let spec = config.get_field("proc");
-        let address = spec
+        // A process spec carries `address`/`config` at the top level; a COMPOSITE
+        // spec (e.g. a rest-addressed CopasiCvode) carries them under `_process`.
+        let inner = spec.and_then(|s| s.get_field("_process")).or(spec);
+        let address = inner
             .and_then(|s| s.get_field("address"))
             .cloned()
             .unwrap_or(Value::None);
@@ -53,7 +56,7 @@ impl RunProcess {
                 .unwrap_or_default(),
             _ => String::new(),
         };
-        let process_config = spec
+        let process_config = inner
             .and_then(|s| s.get_field("config"))
             .cloned()
             .unwrap_or_else(Value::map);

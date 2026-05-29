@@ -36,6 +36,64 @@ def derivatives(network: Dict[str, Any], x: Dict[str, float]) -> Dict[str, float
     return dx
 
 
+def crn_to_sbml(network):
+    """Generate SBML (L3v2) from our canonical CRN. We GENERATE it; the engines
+    PARSE it — so the agreement demo feeds every engine the SAME model in ONE
+    config form (`network`), and COPASI/Tellurium stay the SBML parsers."""
+    species = network.get("species", [])
+    reactions = network.get("reactions", [])
+
+    def refs(stoich):
+        return "".join(
+            f'<speciesReference species="{s}" stoichiometry="{c}" constant="true"/>'
+            for s, c in stoich.items()
+        )
+
+    species_xml = "".join(
+        f'<species id="{s}" compartment="c" initialConcentration="0" '
+        f'hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>'
+        for s in species
+    )
+    params_xml = "".join(
+        f'<parameter id="k{i}" value="{r.get("k", 0.0)}" constant="true"/>'
+        for i, r in enumerate(reactions)
+    )
+    reactions_xml = ""
+    for i, r in enumerate(reactions):
+        reactants = r.get("reactants", {})
+        # mass-action rate: k_i * prod(reactant ** stoichiometry)
+        factors = "".join(
+            f"<ci>{s}</ci>" for s, c in reactants.items() for _ in range(int(c))
+        )
+        reactions_xml += (
+            f'<reaction id="R{i}" reversible="false">'
+            f"<listOfReactants>{refs(reactants)}</listOfReactants>"
+            f'<listOfProducts>{refs(r.get("products", {}))}</listOfProducts>'
+            f'<kineticLaw><math xmlns="http://www.w3.org/1998/Math/MathML">'
+            f"<apply><times/><ci>k{i}</ci>{factors}</apply>"
+            f"</math></kineticLaw></reaction>"
+        )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">'
+        '<model id="crn">'
+        '<listOfCompartments><compartment id="c" size="1" constant="true"/></listOfCompartments>'
+        f"<listOfSpecies>{species_xml}</listOfSpecies>"
+        f"<listOfParameters>{params_xml}</listOfParameters>"
+        f"<listOfReactions>{reactions_xml}</listOfReactions>"
+        "</model></sbml>"
+    )
+
+
+def sbml_from_config(config):
+    """The model as SBML — generated from a CRN `network`, or passed through as
+    `sbml`. We never PARSE SBML; the engines do."""
+    config = config or {}
+    if config.get("sbml"):
+        return config["sbml"]
+    return crn_to_sbml(config.get("network", {}))
+
+
 class EulerIntegrator:
     """Forward-Euler over a mass-action CRN.
 
@@ -75,7 +133,7 @@ class CopasiCvode:
         import basico
 
         self._basico = basico
-        sbml = (config or {}).get("sbml", "")
+        sbml = sbml_from_config(config)
         # load_model takes a path; write the content to a temp file (works on any
         # basico version, and keeps the model addressable by content over the wire).
         fd, path = tempfile.mkstemp(suffix=".xml")
@@ -119,7 +177,7 @@ class RoadRunnerCvode:
     def __init__(self, config):
         import roadrunner
 
-        sbml = (config or {}).get("sbml", "")
+        sbml = sbml_from_config(config)
         self.rr = roadrunner.RoadRunner(sbml)
         self.species = list(self.rr.model.getFloatingSpeciesIds())
 

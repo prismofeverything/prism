@@ -67,9 +67,14 @@ pub fn fulfillers<'a>(program: &'a Program, demanded: &ContractRef) -> Vec<&'a s
             let (name, iface): (&str, &Interface) = match def {
                 Def::Protocol(pd) => match program.lookup(&pd.wrapped) {
                     Some(Def::Composite(c)) => (pd.name.as_str(), &c.interface),
+                    Some(Def::Process(p)) => (pd.name.as_str(), &p.interface),
+                    Some(Def::Step(s)) => (pd.name.as_str(), &s.interface),
                     _ => return None,
                 },
+                // A wrapped definer (of any kind) is queried under its ALIAS.
                 Def::Composite(c) if wrapped.contains(c.name.as_str()) => return None,
+                Def::Process(p) if wrapped.contains(p.name.as_str()) => return None,
+                Def::Step(s) if wrapped.contains(s.name.as_str()) => return None,
                 _ => def_interface(def)?,
             };
             let fulfills = iface.outputs.values().any(|pd| {
