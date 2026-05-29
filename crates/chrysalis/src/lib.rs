@@ -29,6 +29,7 @@ pub mod check;
 pub mod cli;
 pub mod codegen;
 pub mod compile;
+pub mod contract;
 pub mod eval;
 pub mod fixtures;
 pub mod parse;
