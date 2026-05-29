@@ -1,0 +1,128 @@
+# ═════════════════════════════════════════════════════════════════════════
+# Three notions of agreement — the process-contract demo
+# ═════════════════════════════════════════════════════════════════════════
+#
+# The question SED-ML / KISAO never answers: when do two simulators "agree"?
+# Matching port SHAPES ("counts in, a time series out") is not enough — a
+# deterministic ODE and an exact-stochastic trajectory share that shape while
+# approximating DIFFERENT mathematical objects. A process-contract states the
+# meaning: its TARGET (which object) and its CLAIMS (the sense in which two
+# realizations agree). And the claim is what selects the comparison metric.
+#
+# ONE model (A -> B at k=0.7, from 100 molecules of A), TWO targets:
+#
+#   • DeterministicMassAction  — the mass-action ODE (the deterministic limit).
+#       Two methods (RK4, ForwardEuler) agree PATHWISE → compare by trajectory
+#       MSE. Their overlay is two curves that coincide.
+#
+#   • ExactCME                 — the chemical master equation (the exact process).
+#       A single SSA path is a SAMPLE: two seeds give wildly different paths, so
+#       fulfillers agree only DISTRIBUTIONALLY → compare ensembles by a
+#       standardized-mean distance. The overlay of two single paths is jagged
+#       and divergent — yet the ensembles agree, and the ensemble mean tracks
+#       the very ODE the deterministic lane integrates.
+#
+# THE TEETH: the two lanes are NOT substitutable. Wiring an ExactCME path into
+# the DeterministicMassAction `Compare` (or a deterministic trajectory into
+# `DistCompare`) is a COMPILE error — proven in tests/contract_enforcement.rs
+# (cme_source_is_refused_at_a_deterministic_comparison, and its reverse). The
+# comparison metric physically cannot be applied to the wrong target.
+
+type TimeSeries = { times: list[float], columns: map[list[float]] }
+type Ensemble   = { times: list[float], mean: map[list[float]], std: map[list[float]] }
+type Figure     = { svg: string }
+
+# ── The two points in contract-space ────────────────────────────────────
+contract DeterministicMassAction (
+  target:  MassActionODE,
+  claims:  Deterministic,
+  advance: Continuous
+)
+
+contract ExactCME (
+  target:  ChemicalMasterEquation,
+  claims:  Distributional,
+  advance: DiscreteEvent
+)
+
+from core import RunProcess
+from integrators import rk4, euler
+from stochastic import ssa
+from chem import CRN
+from io import Path
+
+# ── Deterministic fulfillers — same target, different method ─────────────
+process Rk4[network: CRN]
+  fulfills DeterministicMassAction[method: Rk4]
+  ~{state: map[float]} ->{state: map[float]}
+  ( rk4.integrate(network, state, interval) )
+
+process ForwardEuler[network: CRN]
+  fulfills DeterministicMassAction[method: ForwardEuler]
+  ~{state: map[float]} ->{state: map[float]}
+  ( euler.integrate(network, state, interval) )
+
+# ── Stochastic fulfillers — single sample paths and ensembles ────────────
+step Ssa[network: CRN, runtime: float, timestep: float, seed: float]
+  fulfills ExactCME[method: SsaDirect]
+  ~{state: map[float]} ->{timeseries: TimeSeries}
+  ( {timeseries: ssa.simulate(network, state, runtime, timestep, seed)} )
+
+step SsaEnsemble[network: CRN, runtime: float, timestep: float, base_seed: float, n_runs: float]
+  fulfills ExactCME[method: SsaDirect]
+  ~{state: map[float]} ->{ensemble: Ensemble}
+  ( {ensemble: ssa.ensemble(network, state, runtime, timestep, base_seed, n_runs)} )
+
+# ── Claim-driven comparisons — each DEMANDS its contract ─────────────────
+# Trajectory MSE is meaningful only at a Deterministic claim; the distributional
+# distance only at a Distributional one. The `:: C` demands are the teeth.
+step Compare ~{a: TimeSeries :: DeterministicMassAction, b: TimeSeries :: DeterministicMassAction} ->{mse: map[float]} (
+  {mse: a.species_mse(b)}
+)
+
+step DistCompare ~{a: Ensemble :: ExactCME, b: Ensemble :: ExactCME} ->{distance: map[float]} (
+  {distance: a.distributional_distance(b)}
+)
+
+# ── Figures — the visceral contrast ──────────────────────────────────────
+step PlotDeterministic ~{a: TimeSeries, b: TimeSeries} ->{figure: Figure} (
+  {figure: a.overlay(b, 'deterministic: RK4 vs Euler — coincide (agree pathwise)')}
+)
+
+step PlotStochastic ~{a: TimeSeries, b: TimeSeries} ->{figure: Figure} (
+  {figure: a.overlay(b, 'stochastic: SSA seed 1 vs 2 — diverge (agree only in distribution)')}
+)
+
+step Output[path: Path] ~{det: Figure, stoch: Figure, det_mse: map[float], dist: map[float]} (
+  det.svg(path / 'deterministic-overlay') |
+  stoch.svg(path / 'stochastic-overlay') |
+  det_mse.csv(path / 'deterministic-mse') |
+  dist.csv(path / 'distributional-distance')
+)
+
+# ── The shared model ─────────────────────────────────────────────────────
+def network :: CRN = {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}
+
+# ── The workflow: one model → two lanes → two claim-appropriate comparisons ─
+composite Agreement[out: Path = 'outputs/agreement'] ->{deterministic_mse: map[float], distributional_distance: map[float]} (
+  init: {A: 100.0, B: 0.0} |
+
+  # Deterministic lane: two integrators, compared by trajectory MSE.
+  rk4:    RunProcess[proc: Rk4[network: network],          runtime: 5.0, timestep: 0.2] ~{state: init} ->{timeseries: rk4_traj} |
+  euler:  RunProcess[proc: ForwardEuler[network: network], runtime: 5.0, timestep: 0.2] ~{state: init} ->{timeseries: euler_traj} |
+  detcmp: Compare         ~{a: rk4_traj, b: euler_traj}   ->{mse: deterministic_mse} |
+  detfig: PlotDeterministic ~{a: rk4_traj, b: euler_traj} ->{figure: det_fig} |
+
+  # Stochastic lane: single paths (for the figure) + ensembles (for the metric).
+  s1:      Ssa[network: network, runtime: 5.0, timestep: 0.2, seed: 1.0] ~{state: init} ->{timeseries: ssa1} |
+  s2:      Ssa[network: network, runtime: 5.0, timestep: 0.2, seed: 2.0] ~{state: init} ->{timeseries: ssa2} |
+  ea:      SsaEnsemble[network: network, runtime: 5.0, timestep: 0.2, base_seed: 1.0,    n_runs: 64.0] ~{state: init} ->{ensemble: ens_a} |
+  eb:      SsaEnsemble[network: network, runtime: 5.0, timestep: 0.2, base_seed: 1000.0, n_runs: 64.0] ~{state: init} ->{ensemble: ens_b} |
+  distcmp: DistCompare      ~{a: ens_a, b: ens_b} ->{distance: distributional_distance} |
+  stochfig: PlotStochastic  ~{a: ssa1, b: ssa2}   ->{figure: stoch_fig} |
+
+  # Write the artifacts (the workflow outputs its own evidence).
+  output: Output[path: out] ~{det: det_fig, stoch: stoch_fig, det_mse: deterministic_mse, dist: distributional_distance}
+)
+
+Agreement[]
