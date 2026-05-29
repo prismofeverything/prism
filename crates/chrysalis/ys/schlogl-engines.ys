@@ -1,0 +1,59 @@
+# ═════════════════════════════════════════════════════════════════════════
+# Schlögl — the bistable showcase, across engines
+# ═════════════════════════════════════════════════════════════════════════
+#
+# The Schlögl model is the canonical BISTABLE mass-action system: its
+# deterministic ODE has two stable states, and which one a trajectory settles
+# into depends on the initial condition. (Reduced to the single bistable species
+# X, with the chemostatted pools folded into the rate constants.)
+#
+#   dX/dt = 6·X² − X³ + 6 − 11·X = −(X−1)(X−2)(X−3)
+#
+# Stable at X=1 and X=3, unstable at X=2. So from X₀=0.6 a trajectory falls into
+# the LOW basin (X→1); from X₀=4.0 into the HIGH basin (X→3). Same model, two fates.
+#
+# This runs it on COPASI (over the rest bridge) from both ICs, plus native RK4 on
+# the high basin — and uses the contract `Compare` two ways:
+#   • bistable_gap = Compare(low, high)      → LARGE (the two basins diverge)
+#   • copasi_vs_rk4 = Compare(COPASI, RK4)   → ~0    (the engines agree on a basin)
+# Both comparisons are legal (both sides are DeterministicMassAction); the metric
+# just reports a big gap for bistability and a tiny one for engine agreement.
+#
+# Run against a service: `process-server/serve.sh 8765 &`, then run the demo.
+
+import External from 'lib/external.ys'
+from core import RunProcess
+
+def schlogl :: CRN = {
+  species: ['X'],
+  reactions: [
+    { reactants: {X: 2.0}, products: {X: 3.0}, k: 6.0 },   # 2X -> 3X   (autocatalysis)
+    { reactants: {X: 3.0}, products: {X: 2.0}, k: 1.0 },   # 3X -> 2X
+    { reactants: {},       products: {X: 1.0}, k: 6.0 },   #  ∅ -> X    (source)
+    { reactants: {X: 1.0}, products: {},       k: 11.0 }   #  X -> ∅    (sink)
+  ]
+}
+
+composite SchloglBistability ->{
+  bistable_gap: map[float],
+  copasi_vs_rk4: map[float]
+} (
+  lo: {X: 0.6} |
+  hi: {X: 4.0} |
+
+  cl: RunProcess[proc: CopasiCvode[network: schlogl], runtime: 4.0, timestep: 0.1]
+    ~{state: lo} ->{timeseries: copasi_low} |
+
+  ch: RunProcess[proc: CopasiCvode[network: schlogl], runtime: 4.0, timestep: 0.1]
+    ~{state: hi} ->{timeseries: copasi_high} |
+
+  rh: RunProcess[proc: Rk4[network: schlogl], runtime: 4.0, timestep: 0.1]
+    ~{state: hi} ->{timeseries: rk4_high} |
+
+  # Bistability: the two basins diverge → a large gap.
+  gap: Compare ~{a: copasi_low, b: copasi_high} ->{mse: bistable_gap} |
+  # Engine agreement on the high basin: COPASI ≈ native RK4 → ~0.
+  agree: Compare ~{a: copasi_high, b: rk4_high} ->{mse: copasi_vs_rk4}
+)
+
+SchloglBistability[]

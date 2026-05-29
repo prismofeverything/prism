@@ -20,6 +20,17 @@ const SKIP: &[(&str, &str)] = &[
          homoiconic method call on a sited cell — needs `?c :: Cell` + \
          `divide()` as a first-class entity method. Runs once that lands.",
     ),
+    (
+        "agreement-engines.ys",
+        "integration: drives COPASI/Tellurium over rest — needs a running \
+         process-server (process-server/serve.sh 8765). Run via the \
+         agreement_engines integration test (--ignored).",
+    ),
+    (
+        "schlogl-engines.ys",
+        "integration: drives COPASI + RK4 on the bistable Schlögl over rest — \
+         needs process-server/serve.sh 8765. Run via the schlogl integration test.",
+    ),
 ];
 
 fn skip_reason(name: &str) -> Option<&'static str> {
