@@ -44,11 +44,34 @@ fn def_interface(def: &Def) -> Option<(&str, &Interface)> {
 /// that refines it (`fulfills C` normally stamps the same `C` on every output).
 pub fn fulfillers<'a>(program: &'a Program, demanded: &ContractRef) -> Vec<&'a str> {
     let dem = contract_ref_schema(demanded, program);
+    // Composites wrapped by a `protocol` alias are queried under the ALIAS (which
+    // carries the transport address), never the bare local name — so a
+    // rest-addressed remote engine (e.g. `CopasiCvode = rest<CopasiModel, …>`) is
+    // selected as itself, runs remotely, and is indistinguishable in the query
+    // from a native fulfiller.
+    let wrapped: std::collections::HashSet<&str> = program
+        .defs
+        .iter()
+        .filter_map(|d| match d {
+            Def::Protocol(pd) => Some(pd.wrapped.as_str()),
+            _ => None,
+        })
+        .collect();
     program
         .defs
         .iter()
         .filter_map(|def| {
-            let (name, iface) = def_interface(def)?;
+            // The control name to return + the interface whose output-port
+            // contracts we test. A protocol alias inherits its wrapped
+            // composite's interface (and thus its `fulfills`).
+            let (name, iface): (&str, &Interface) = match def {
+                Def::Protocol(pd) => match program.lookup(&pd.wrapped) {
+                    Some(Def::Composite(c)) => (pd.name.as_str(), &c.interface),
+                    _ => return None,
+                },
+                Def::Composite(c) if wrapped.contains(c.name.as_str()) => return None,
+                _ => def_interface(def)?,
+            };
             let fulfills = iface.outputs.values().any(|pd| {
                 pd.contract
                     .as_ref()

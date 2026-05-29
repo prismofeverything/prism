@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────────────────────────────────
+# external — rest-addressed simulation engines (COPASI, Tellurium) as
+# contracted fulfillers of DeterministicMassAction.
+# ─────────────────────────────────────────────────────────────────────────
+#
+# These are INDISTINGUISHABLE in `fulfillers(DeterministicMassAction)` from the
+# native integrators in simulators.ys — the whole point of the contract index:
+# the fan-out runs native + COPASI + Tellurium uniformly and compares them.
+#
+# Each engine is a remote COMPOSITE (a composite may be remote — encapsulation):
+# its local shape carries the mass-action interface + contract, and a `rest<>`
+# alias overrides its address to a running process-server (process-server/
+# serve.sh). prism connects by URL; it never spawns the python (memory:
+# project_sidecar_service_model). The `process` field selects the python class;
+# daughters inherit the address on division.
+
+import Sim from 'simulators.ys'
+
+# Local shape — body is a passthrough placeholder; the `rest<>` alias below makes
+# it run in COPASI/Tellurium, not here.
+composite CopasiModel
+  fulfills DeterministicMassAction[method: Copasi]
+  ~{state: map[float]} ->{state: map[float]}
+  ( state: state )
+
+composite RoadRunnerModel
+  fulfills DeterministicMassAction[method: RoadRunner]
+  ~{state: map[float]} ->{state: map[float]}
+  ( state: state )
+
+protocol CopasiCvode = rest<CopasiModel, process: 'CopasiCvode', host: '127.0.0.1', port: '8765'>
+protocol RoadRunnerCvode = rest<RoadRunnerModel, process: 'RoadRunnerCvode', host: '127.0.0.1', port: '8765'>

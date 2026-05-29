@@ -454,6 +454,32 @@ impl Parser {
             other => Err(self.err(&format!("expected identifier, found {other:?}"))),
         }
     }
+
+    /// A field/key name that may collide with a keyword — e.g. a `rest<>`
+    /// protocol field named `process`. Accepts a plain identifier OR any keyword
+    /// token, mapping the keyword back to its source text.
+    fn field_name(&mut self) -> Result<String, ParseError> {
+        let kw = match self.bump() {
+            Tok::Ident(s) => return Ok(s),
+            Tok::Type => "type",
+            Tok::Def => "def",
+            Tok::With => "with",
+            Tok::Process => "process",
+            Tok::Step => "step",
+            Tok::Composite => "composite",
+            Tok::Reaction => "reaction",
+            Tok::Unit => "unit",
+            Tok::Context => "context",
+            Tok::Using => "using",
+            Tok::Import => "import",
+            Tok::Contract => "contract",
+            Tok::Fulfills => "fulfills",
+            Tok::Where => "where",
+            Tok::Replace => "replace",
+            other => return Err(self.err(&format!("expected field name, found {other:?}"))),
+        };
+        Ok(kw.to_string())
+    }
 }
 
 /// Parse a full `.ys` program (string form; `import` directives are left as
@@ -768,7 +794,7 @@ impl Parser {
         let wrapped = self.ident()?; // the composite/process being addressed
         let mut fields = Vec::new();
         while self.accept(&Tok::Comma) {
-            let field = self.ident()?;
+            let field = self.field_name()?; // may be a keyword, e.g. `process:`
             self.expect(&Tok::Colon)?;
             let value = self.parse_postfix()?; // literal / var — stops before `>`
             fields.push((field, value));
@@ -1708,7 +1734,15 @@ impl Parser {
             self.expect(&Tok::RParen)?;
             using.push(crate::ast::ContextUse { name: ctx, args });
         }
-        let interface = self.parse_interface()?;
+        // `fulfills C[…]` may sit before or after the interface (as for
+        // processes) — a composite can be a contracted fulfiller too, e.g. a
+        // rest-addressed remote engine queried via `fulfillers`.
+        let fulfills_before = self.parse_optional_fulfills()?;
+        let mut interface = self.parse_interface()?;
+        let fulfills_after = self.parse_optional_fulfills()?;
+        if let Some(c) = fulfills_before.or(fulfills_after) {
+            apply_fulfills(&mut interface, &c);
+        }
         // Auto-key any bare subprocess terms in the body (so they're registered).
         let body = auto_key_subprocesses(self.parse_body()?);
         Ok(Def::Composite(crate::ast::CompositeDef {
