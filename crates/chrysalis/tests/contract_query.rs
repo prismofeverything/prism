@@ -95,8 +95,9 @@ fn fulfillers_of_a_different_target_are_disjoint() {
 // runs+compares that set (ys_files_run), so only the auto-wiring is outstanding.
 #[test]
 fn fulfillers_query_drives_the_agreement_demos_comparison_set() {
-    let src = include_str!("../ys/agreement.ys");
-    let program = chrysalis::parse::parse_program(src).expect("parse agreement.ys");
+    // parse_FILE resolves the `import` so the library's fulfillers are merged in.
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ys/agreement.ys");
+    let program = chrysalis::parse::parse_file(&path).expect("parse_file agreement.ys");
 
     let mut deterministic = fulfillers(&program, &ContractRef::new("DeterministicMassAction"));
     deterministic.sort();

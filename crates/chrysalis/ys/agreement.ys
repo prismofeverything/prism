@@ -28,76 +28,18 @@
 # (cme_source_is_refused_at_a_deterministic_comparison, and its reverse). The
 # comparison metric physically cannot be applied to the wrong target.
 
-type TimeSeries = {
-  times: list[float],
-  columns: map[list[float]]
-}
+import Simulators from 'lib/simulators.ys'
 
-type Ensemble = {
-  times: list[float],
-  mean: map[list[float]],
-  std: map[list[float]]
-}
-
+# The library (lib/simulators.ys) supplies the contracts (DeterministicMassAction,
+# ExactCME), the fulfiller processes, and the claim-driven comparisons. This file
+# adds the figures, the model, and the workflow that composes them.
 type Figure = { svg: string }
 
-# ── The two points in contract-space ────────────────────────────────────
-contract DeterministicMassAction (
-  target:  MassActionODE,
-  claims:  Deterministic,
-  advance: Continuous
-)
-
-contract ExactCME (
-  target:  ChemicalMasterEquation,
-  claims:  Distributional,
-  advance: DiscreteEvent
-)
-
 from core import RunProcess
-from integrators import rk4, euler
-from stochastic import ssa
-from chem import CRN
 from io import Path
 
-# ── Deterministic fulfillers — same target, different method ─────────────
-process Rk4[network: CRN]
-  fulfills DeterministicMassAction[method: Rk4]
-  ~{state: map[float]} ->{state: map[float]}
-  ( rk4.integrate(network, state, interval) )
-
-process ForwardEuler[network: CRN]
-  fulfills DeterministicMassAction[method: ForwardEuler]
-  ~{state: map[float]} ->{state: map[float]}
-  ( euler.integrate(network, state, interval) )
-
-# ── Stochastic fulfillers — single sample paths and ensembles ────────────
-step Ssa[network: CRN, runtime: float, timestep: float, seed: float]
-  fulfills ExactCME[method: SsaDirect]
-  ~{state: map[float]} ->{timeseries: TimeSeries}
-  ( {timeseries: ssa.simulate(network, state, runtime, timestep, seed)} )
-
-step SsaEnsemble[network: CRN, runtime: float, timestep: float, base_seed: float, n_runs: float]
-  fulfills ExactCME[method: SsaDirect]
-  ~{state: map[float]} ->{ensemble: Ensemble}
-  ( {ensemble: ssa.ensemble(network, state, runtime, timestep, base_seed, n_runs)} )
-
-# ── Claim-driven comparisons — each DEMANDS its contract ─────────────────
-# Trajectory MSE is meaningful only at a Deterministic claim; the distributional
-# distance only at a Distributional one. The `:: C` demands are the teeth.
-step Compare ~{
-  a: TimeSeries :: DeterministicMassAction,
-  b: TimeSeries :: DeterministicMassAction
-} ->{mse: map[float]} (
-  {mse: a.species_mse(b)}
-)
-
-step DistCompare ~{
-  a: Ensemble :: ExactCME,
-  b: Ensemble :: ExactCME
-} ->{distance: map[float]} (
-  {distance: a.distributional_distance(b)}
-)
+# The fulfillers (Rk4 / ForwardEuler / Ssa / SsaEnsemble) and the claim-driven
+# comparisons (Compare / DistCompare) come from lib/simulators.ys.
 
 # ── Figures — the visceral contrast ──────────────────────────────────────
 step PlotDeterministic ~{a: TimeSeries, b: TimeSeries} ->{figure: Figure} (

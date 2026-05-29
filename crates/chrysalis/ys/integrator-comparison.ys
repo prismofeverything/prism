@@ -34,44 +34,19 @@
 # `RunProcess` are imported native capabilities; the ports, the contract, and
 # the comparison are the language's.
 
-type TimeSeries = {
-  times: list[float],
-  columns: map[list[float]]
-}
+import Simulators from 'lib/simulators.ys'
 
+# The library (lib/simulators.ys) supplies the DeterministicMassAction contract,
+# the Rk4 / ForwardEuler fulfillers, and the warranted `Compare`. This file adds
+# the figure, the model, and the workflow.
 type Figure = {svg: string}
 
-# The contract — a point in contract-space the fulfillers share. `method` is
-# left open, so two different methods can fulfill the same target.
-contract DeterministicMassAction (
-  target: MassActionODE,
-  claims: Deterministic,
-  advance: Continuous
-)
-
 from core import RunProcess
-from integrators import rk4, euler
-from chem import CRN
 from io import Path
 
-# The two fulfillers — same target (the mass-action ODE), different method. The
-# math is the imported native function; the ports + `fulfills` contract are ours.
-process Rk4[network: CRN]
-  fulfills DeterministicMassAction[method: Rk4]
-  ~{state: map[float]} ->{state: map[float]}
-  ( rk4.integrate(network, state, interval) )
-
-process ForwardEuler[network: CRN]
-  fulfills DeterministicMassAction[method: ForwardEuler]
-  ~{state: map[float]} ->{state: map[float]}
-  ( euler.integrate(network, state, interval) )
-
-# Analysis steps. `Compare` is the warranted MSE; `Plot` overlays the two
-# trajectories; `Output` writes the artifacts itself (`.csv`/`.svg` are native
-# effects), so the workflow needs no external harness to produce its outputs.
-step Compare ~{a: TimeSeries :: DeterministicMassAction, b: TimeSeries :: DeterministicMassAction} ->{mse: map[float]} (
-  {mse: a.species_mse(b)}
-)
+# `Rk4` / `ForwardEuler` (the fulfillers) and the warranted `Compare` come from
+# lib/simulators.ys. `Plot` overlays the two trajectories; `Output` writes the
+# artifacts itself (`.csv`/`.svg` are native effects).
 
 step Plot ~{a: TimeSeries, b: TimeSeries} ->{figure: Figure} (
   {figure: a.overlay(b, 'Rk4 vs ForwardEuler')}

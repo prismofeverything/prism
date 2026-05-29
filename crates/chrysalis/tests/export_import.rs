@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use chrysalis::compile::compile_with_modules;
-use chrysalis::parse::parse_program;
+use chrysalis::parse::parse_file;
 use chrysalis::prelude::{std_methods, std_modules, std_registry};
 use chrysalis::runner::{document_of, run, run_document};
 use prism_bigraph::Document;
@@ -14,15 +14,29 @@ use prism_schema::Value;
 
 const SRC: &str = include_str!("../ys/integrator-comparison.ys");
 
-/// Point the workflow's `Output` step at a fresh temp dir (no source-tree writes).
-fn src_to_temp(tag: &str) -> (String, PathBuf) {
+fn ys_path(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ys").join(name)
+}
+
+/// integrator-comparison.ys with its library import rewritten to an absolute
+/// path (so a temp copy outside ys/ resolves it) and `Output` pointed at a temp
+/// dir. Returns the parsed (import-resolved) program + the out dir.
+fn temp_program(tag: &str) -> (chrysalis::ast::Program, PathBuf) {
     let out = std::env::temp_dir().join(format!("prism-exportimport-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&out);
-    let src = SRC.replace(
-        "IntegratorComparison[]",
-        &format!("IntegratorComparison[out: '{}']", out.display()),
-    );
-    (src, out)
+    let abs_lib = ys_path("lib/simulators.ys");
+    let src = SRC
+        .replace("'lib/simulators.ys'", &format!("'{}'", abs_lib.display()))
+        .replace(
+            "IntegratorComparison[]",
+            &format!("IntegratorComparison[out: '{}']", out.display()),
+        );
+    let tmp =
+        std::env::temp_dir().join(format!("prism-exportimport-{tag}-{}.ys", std::process::id()));
+    std::fs::write(&tmp, &src).expect("write temp ys");
+    let prog = parse_file(&tmp).expect("parse_file temp ys");
+    let _ = std::fs::remove_file(&tmp);
+    (prog, out)
 }
 
 fn mse(state: &Value) -> Option<Value> {
@@ -31,8 +45,7 @@ fn mse(state: &Value) -> Option<Value> {
 
 #[test]
 fn import_export_equals_run() {
-    let (src, out) = src_to_temp("roundtrip");
-    let prog = parse_program(&src).expect("parse");
+    let (prog, out) = temp_program("roundtrip");
 
     // Direct run.
     let direct = run(&prog, std_registry(), std_methods(), std_modules(), 2.0).expect("run");
