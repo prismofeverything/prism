@@ -284,6 +284,7 @@ pub fn std_modules_at(ys_root: Option<std::path::PathBuf>) -> ModuleRegistry {
         .process("core", "Simulate")
         .object("integrators", "rk4", prism_std::integrator("rk4"))
         .object("integrators", "euler", prism_std::integrator("euler"))
+        .object("stochastic", "ssa", prism_std::stochastic("ssa"))
         .type_(
             "chem",
             "CRN",

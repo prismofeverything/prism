@@ -55,15 +55,29 @@ impl MassActionNetwork {
         self
     }
 
-    /// `dx/dt` at state `x`: each reaction's propensity `v = k · ∏ xᵢ^νᵢ` over
-    /// reactants contributes `(νprod − νreac)·v` to each species.
+    /// Per-reaction mass-action propensity `v = k · ∏ xᵢ^νᵢ` over reactants —
+    /// the rate each reaction fires at state `x`. Shared by the deterministic
+    /// `derivatives` (summed into `dx/dt`) and the stochastic SSA (the Gillespie
+    /// event rates): the SAME propensities, which is *why* the SSA ensemble mean
+    /// tracks the ODE — one model, two targets, the demo's whole point.
+    pub fn propensities(&self, x: &[f64]) -> Vec<f64> {
+        self.reactions
+            .iter()
+            .map(|r| {
+                let mut v = r.k;
+                for &(i, coeff) in &r.reactants {
+                    v *= x[i].powi(coeff as i32);
+                }
+                v
+            })
+            .collect()
+    }
+
+    /// `dx/dt` at state `x`: each reaction's propensity contributes
+    /// `(νprod − νreac)·v` to each species.
     pub fn derivatives(&self, x: &[f64]) -> Vec<f64> {
         let mut dx = vec![0.0; self.species.len()];
-        for r in &self.reactions {
-            let mut v = r.k;
-            for &(i, coeff) in &r.reactants {
-                v *= x[i].powi(coeff as i32);
-            }
+        for (r, &v) in self.reactions.iter().zip(self.propensities(x).iter()) {
             for &(i, coeff) in &r.reactants {
                 dx[i] -= coeff as f64 * v;
             }
@@ -103,6 +117,107 @@ fn rk4_step(net: &MassActionNetwork, x: &[f64], dt: f64) -> Vec<f64> {
     (0..x.len())
         .map(|i| x[i] + dt / 6.0 * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i]))
         .collect()
+}
+
+// ── Stochastic simulation (Gillespie direct) — the EXACT-CME target ─────
+//
+// The stochastic sibling of the integrators: the same network's reactions fired
+// as discrete events at the same mass-action propensities, so a single path is a
+// jagged sample of the chemical master equation whose ENSEMBLE mean tracks the
+// deterministic ODE. A single seeded PRNG runs over the whole trajectory, so the
+// path is reproducible from `seed` (repeatability) while different seeds give
+// genuinely different paths (the ensemble) — exactly the distinction the
+// `claims: Distributional` contract names.
+
+/// A tiny deterministic PRNG (splitmix64). SSA needs randomness, but the point
+/// of the stochastic lane is REPRODUCIBILITY — a fixed seed ⇒ a fixed path — so
+/// we carry our own seeded generator rather than depend on a thread RNG.
+struct SplitMix64(u64);
+
+impl SplitMix64 {
+    fn next_u64(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// Uniform in `(0, 1]` — never 0, so `-ln(u)` (the exponential waiting time)
+    /// is always finite.
+    fn next_unit(&mut self) -> f64 {
+        ((self.next_u64() >> 11) as f64 + 1.0) / 9_007_199_254_740_992.0
+    }
+}
+
+/// Sample the next reaction event `(absolute_time, reaction_index)` by the
+/// Gillespie direct method, or `None` at an absorbing state (zero propensity).
+fn schedule_event(
+    net: &MassActionNetwork,
+    x: &[f64],
+    t: f64,
+    rng: &mut SplitMix64,
+) -> Option<(f64, usize)> {
+    let props = net.propensities(x);
+    let a0: f64 = props.iter().sum();
+    if a0 <= 0.0 {
+        return None;
+    }
+    let tau = -rng.next_unit().ln() / a0;
+    // Pick the firing reaction with probability proportional to its propensity.
+    let mut r = rng.next_unit() * a0;
+    let mut j = props.len() - 1;
+    for (i, &p) in props.iter().enumerate() {
+        if r < p {
+            j = i;
+            break;
+        }
+        r -= p;
+    }
+    Some((t + tau, j))
+}
+
+/// Apply reaction `j`'s stoichiometry (products gained, reactants consumed) to
+/// the count vector `x`.
+fn fire(net: &MassActionNetwork, x: &mut [f64], j: usize) {
+    let r = &net.reactions[j];
+    for &(i, coeff) in &r.reactants {
+        x[i] -= coeff as f64;
+    }
+    for &(i, coeff) in &r.products {
+        x[i] += coeff as f64;
+    }
+}
+
+/// One Gillespie-direct trajectory of `net` from counts `x0`, sampled on the
+/// grid `0, dt, … runtime`. The state is piecewise-constant between events; at
+/// each grid point we fire every pending event up to that time, then record the
+/// counts. Reproducible from `seed`. Returns `(times, rows)` where `rows[k]` is
+/// the count vector at `times[k]`.
+fn ssa_trajectory(
+    net: &MassActionNetwork,
+    x0: &[f64],
+    runtime: f64,
+    dt: f64,
+    seed: u64,
+) -> (Vec<f64>, Vec<Vec<f64>>) {
+    let n_points = (runtime / dt).round().max(0.0) as usize + 1;
+    let times: Vec<f64> = (0..n_points).map(|k| k as f64 * dt).collect();
+    let mut rng = SplitMix64(seed);
+    let mut x = x0.to_vec();
+    let mut next = schedule_event(net, &x, 0.0, &mut rng);
+    let mut rows: Vec<Vec<f64>> = Vec::with_capacity(n_points);
+    for &target in &times {
+        while let Some((event_time, j)) = next {
+            if event_time > target {
+                break;
+            }
+            fire(net, &mut x, j);
+            next = schedule_event(net, &x, event_time, &mut rng);
+        }
+        rows.push(x.clone());
+    }
+    (times, rows)
 }
 
 // ── The integrator as a plain (stepwise) Process ───────────────────────
@@ -256,6 +371,19 @@ pub fn integrator(method: &str) -> Value {
     ])
 }
 
+/// A native stochastic-stepper object for `from stochastic import ssa`: the
+/// value `{_type: "Stochastic", method}` whose `simulate(network, state,
+/// runtime, timestep, seed)` runs one Gillespie trajectory and returns a
+/// `TimeSeries`. The stochastic sibling of [`integrator`] — same network, the
+/// EXACT-CME target rather than the deterministic limit. A `.ys` `step` wraps
+/// it, declaring the ports + `fulfills ExactCME` contract.
+pub fn stochastic(method: &str) -> Value {
+    Value::tree([
+        ("_type", Value::from("Stochastic")),
+        ("method", Value::from(method)),
+    ])
+}
+
 /// Register `TimeSeries` value-methods (`species_mse`, `overlay`) and the
 /// `Integrator` `integrate` method on a `MethodRegistry`. A workflow that
 /// composes the integrators merges this into the method registry so ys-native
@@ -295,6 +423,48 @@ pub fn register_methods(reg: &mut MethodRegistry) {
                 .map(|(s, v)| (s, Value::float(v))),
         );
         Ok(Value::tree([("state", out)]))
+    });
+    // `ssa.simulate(network, state, runtime, timestep, seed)` — one whole
+    // Gillespie trajectory of `network` from `state`, sampled on the timestep
+    // grid, returned as a `TimeSeries` (the same shape `RunProcess` emits, so
+    // `Compare`/`overlay` work on it unchanged). The stochastic counterpart of
+    // `Integrator::integrate`; one seeded path = a sample of the exact CME.
+    reg.register("Stochastic", "simulate", |recv, args| {
+        let method = recv
+            .get_field("method")
+            .and_then(|v| v.as_str())
+            .unwrap_or("ssa")
+            .to_string();
+        let network = args
+            .first()
+            .map(network_from_value)
+            .ok_or_else(|| ts_err("simulate", "argument 0 must be a reaction network"))?;
+        let state = args.get(1).and_then(|v| v.as_map());
+        let runtime = args.get(2).and_then(|v| v.as_f64()).unwrap_or(1.0);
+        let timestep = args.get(3).and_then(|v| v.as_f64()).unwrap_or(0.1);
+        let seed = args.get(4).and_then(|v| v.as_f64()).unwrap_or(0.0) as u64;
+        let x0: Vec<f64> = network
+            .species
+            .iter()
+            .map(|s| {
+                state
+                    .and_then(|m| m.get(s.as_str()))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0)
+            })
+            .collect();
+        let (times, rows) = ssa_trajectory(&network, &x0, runtime, timestep, seed);
+        // Transpose the per-grid-point count rows into columns `{species: [..]}`.
+        let columns = Value::tree(network.species.iter().enumerate().map(|(i, sp)| {
+            let col: Vec<Value> = rows.iter().map(|row| Value::float(row[i])).collect();
+            (sp.clone(), Value::List(col))
+        }));
+        Ok(Value::tree([
+            ("_type", Value::from("TimeSeries")),
+            ("name", Value::from(method.as_str())),
+            ("times", Value::List(times.into_iter().map(Value::float).collect())),
+            ("columns", columns),
+        ]))
     });
     reg.register("TimeSeries", "species_mse", |recv, args| {
         let a = ts_columns(recv).ok_or_else(|| ts_err("species_mse", "receiver is not a TimeSeries"))?;
@@ -521,6 +691,36 @@ mod tests {
         let a = next.get_field("A").and_then(|v| v.as_f64()).unwrap();
         let expected = rk4_step(&net, &[1.0, 0.0], 0.1)[0];
         assert!((a - expected).abs() < 1e-12, "{a} vs {expected}");
+    }
+
+    #[test]
+    fn ssa_is_reproducible_and_conserves_mass() {
+        let net = a_to_b(0.7);
+        let (t, r1) = ssa_trajectory(&net, &[100.0, 0.0], 5.0, 0.1, 42);
+        let (_, r2) = ssa_trajectory(&net, &[100.0, 0.0], 5.0, 0.1, 42);
+        assert_eq!(r1, r2, "same seed ⇒ identical trajectory (reproducible)");
+        assert_eq!(t.first(), Some(&0.0));
+        assert_eq!(r1.first().unwrap(), &vec![100.0, 0.0], "starts at the init counts");
+        for row in &r1 {
+            assert!((row[0] + row[1] - 100.0).abs() < 1e-9, "A+B conserved");
+            assert!(row[0] >= 0.0 && row[1] >= 0.0, "counts stay non-negative");
+        }
+        // A→B only: A is non-increasing along the path.
+        assert!(r1.windows(2).all(|w| w[1][0] <= w[0][0]), "A only decreases");
+    }
+
+    #[test]
+    fn ssa_differs_by_seed_but_ensemble_tracks_the_ode() {
+        let net = a_to_b(0.7);
+        let (_, a) = ssa_trajectory(&net, &[100.0, 0.0], 5.0, 0.1, 1);
+        let (_, b) = ssa_trajectory(&net, &[100.0, 0.0], 5.0, 0.1, 2);
+        assert_ne!(a, b, "different seeds ⇒ different sample paths (genuinely stochastic)");
+        // The ensemble mean of A(5) should track the deterministic limit
+        // A₀·e^{−k·t} = 100·e^{−3.5} ≈ 3.02 (a single path does not).
+        let final_a = |seed| ssa_trajectory(&net, &[100.0, 0.0], 5.0, 0.1, seed).1.last().unwrap()[0];
+        let mean: f64 = (1..=64u64).map(final_a).sum::<f64>() / 64.0;
+        let ode = 100.0 * (-0.7 * 5.0_f64).exp();
+        assert!((mean - ode).abs() < 5.0, "SSA ensemble mean {mean} should track ODE {ode}");
     }
 
     #[test]

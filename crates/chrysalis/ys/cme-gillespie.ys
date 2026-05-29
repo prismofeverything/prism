@@ -1,0 +1,47 @@
+# ─────────────────────────────────────────────────────────────────────────
+# The CME lane — a Gillespie SSA step fulfilling ExactCME.
+# ─────────────────────────────────────────────────────────────────────────
+#
+# The stochastic counterpart of the deterministic integrators
+# (ys/integrator-comparison.ys), over the SAME reaction network. A single SSA
+# trajectory is one *sample* of the chemical master equation — jagged, and
+# different every seed — so two fulfillers of this contract can only "agree"
+# DISTRIBUTIONALLY, never pathwise. The `claims: Distributional` axis states
+# exactly that, and it's a DIFFERENT target from DeterministicMassAction — so
+# MSE-ing a single SSA path against an ODE trajectory is the category error the
+# contract layer rules out (the comparison the demo will refuse).
+#
+# Unlike the integrators (fixed-step processes driven by RunProcess), SSA is an
+# inherently whole-path simulation: one seeded PRNG runs the entire trajectory
+# (reproducible from `seed`), sampled on the timestep grid. So it is a one-shot
+# `step` that carries the contract on its own `timeseries` output directly.
+
+type TimeSeries = { times: list[float], columns: map[list[float]] }
+
+# The exact-CME target — different target AND claims from DeterministicMassAction.
+contract ExactCME (
+  target: ChemicalMasterEquation,
+  claims: Distributional,
+  advance: DiscreteEvent
+)
+
+from stochastic import ssa
+from chem import CRN
+
+# One stochastic realization as a TimeSeries. The math is the imported native
+# `ssa.simulate`; the ports + `fulfills` contract are the language's.
+step Ssa[network: CRN, runtime: float, timestep: float, seed: float]
+  fulfills ExactCME[method: SsaDirect]
+  ~{state: map[float]} ->{timeseries: TimeSeries}
+  ( {timeseries: ssa.simulate(network, state, runtime, timestep, seed)} )
+
+# The shared model — the SAME A -> B network the integrators use.
+def network :: CRN = {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}
+
+# Run one SSA trajectory from 100 molecules of A.
+composite Cme ->{timeseries: TimeSeries} (
+  init: {A: 100.0, B: 0.0} |
+  run:  Ssa[network: network, runtime: 5.0, timestep: 0.2, seed: 1.0] ~{state: init} ->{timeseries: timeseries}
+)
+
+Cme[]

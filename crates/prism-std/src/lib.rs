@@ -8,7 +8,7 @@ pub mod mass_action;
 pub mod process_runner;
 pub mod simulate;
 
-pub use mass_action::{integrator, register_methods};
+pub use mass_action::{integrator, register_methods, stochastic};
 pub use process_runner::RunProcess;
 pub use simulate::Simulate;
 
