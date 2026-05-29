@@ -419,7 +419,14 @@ fn forwarded_contract(
         _ => None,
     })?;
     let inner_control = term_control(inner)?;
-    let iface = interface_of(program.lookup(&inner_control)?)?;
+    // A protocol alias (a rest-addressed `CopasiCvode`) forwards its WRAPPED
+    // process's contract — resolve through it, so a remote engine's trajectory
+    // carries DeterministicMassAction exactly as a native's does.
+    let def = match program.lookup(&inner_control)? {
+        crate::ast::Def::Protocol(pd) => program.lookup(&pd.wrapped)?,
+        other => other,
+    };
+    let iface = interface_of(def)?;
     let contract = iface.outputs.get(rule.from_output)?.contract.clone()?;
     Some((contract, rule.to_outputs))
 }

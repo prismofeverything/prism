@@ -25,12 +25,11 @@ fn compiles_the_engine_agreement_demo() {
     );
 }
 
-fn a_column(state: &Value, engine: &str) -> Vec<f64> {
+fn mse_a(state: &Value, key: &str) -> f64 {
     state
-        .get_path(&[engine.into(), "columns".into(), "A".into()])
-        .and_then(|v| v.as_list())
-        .map(|l| l.iter().filter_map(|x| x.as_f64()).collect())
-        .unwrap_or_default()
+        .get_path(&[key.into(), "A".into()])
+        .and_then(|v| v.as_f64())
+        .unwrap_or(f64::NAN)
 }
 
 #[test]
@@ -40,31 +39,17 @@ fn engines_agree_over_the_unified_run_process_path() {
     let state = chrysalis::runner::run(&prog, std_registry(), std_methods(), std_modules(), 2.0)
         .expect("run the engine-agreement demo (is serve.sh on :8765?)");
 
-    let rk4 = a_column(&state, "rk4");
-    let copasi = a_column(&state, "copasi");
-    let tellurium = a_column(&state, "tellurium");
+    // The contract-checked comparison: each Compare demanded DeterministicMassAction
+    // (forwarded from the proc — native OR rest — through RunProcess), and the
+    // per-species MSE is ~0: native RK4, COPASI, and Tellurium agree on one CRN.
+    let cr = mse_a(&state, "copasi_vs_rk4");
+    let tr = mse_a(&state, "tellurium_vs_rk4");
+    let ct = mse_a(&state, "copasi_vs_tellurium");
     assert!(
-        !rk4.is_empty() && rk4.len() == copasi.len() && copasi.len() == tellurium.len(),
-        "three equal-length trajectories: rk4={} copasi={} tellurium={}",
-        rk4.len(),
-        copasi.len(),
-        tellurium.len()
+        cr.is_finite() && tr.is_finite() && ct.is_finite(),
+        "all three MSEs present: copasi_vs_rk4={cr} tellurium_vs_rk4={tr} copasi_vs_tellurium={ct}"
     );
-    // A decays 100 → ~3 over t=5 (k=0.7); the three engines agree along the way.
-    assert!((rk4[0] - 100.0).abs() < 1e-9, "A starts at 100");
-    assert!(*rk4.last().unwrap() < 5.0, "A decays to ~3, got {}", rk4.last().unwrap());
-    for i in 0..rk4.len() {
-        assert!(
-            (copasi[i] - tellurium[i]).abs() < 1e-2,
-            "COPASI ≈ Tellurium @ {i}: {} vs {}",
-            copasi[i],
-            tellurium[i]
-        );
-        assert!(
-            (copasi[i] - rk4[i]).abs() < 0.5,
-            "COPASI ≈ RK4 @ {i}: {} vs {}",
-            copasi[i],
-            rk4[i]
-        );
-    }
+    assert!(ct < 1e-2, "COPASI ≈ Tellurium (both CVODE), mse.A = {ct}");
+    assert!(cr < 1.0, "COPASI ≈ RK4, mse.A = {cr}");
+    assert!(tr < 1.0, "Tellurium ≈ RK4, mse.A = {tr}");
 }

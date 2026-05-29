@@ -24,9 +24,9 @@ def network :: CRN = {
 }
 
 composite EngineAgreement ->{
-  rk4:       TimeSeries,
-  copasi:    TimeSeries,
-  tellurium: TimeSeries
+  copasi_vs_rk4:       map[float],
+  tellurium_vs_rk4:    map[float],
+  copasi_vs_tellurium: map[float]
 } (
   init: {A: 100.0, B: 0.0} |
 
@@ -37,7 +37,14 @@ composite EngineAgreement ->{
     ~{state: init} ->{timeseries: copasi} |
 
   t: RunProcess[proc: RoadRunnerCvode[network: network], runtime: 5.0, timestep: 0.2]
-    ~{state: init} ->{timeseries: tellurium}
+    ~{state: init} ->{timeseries: tellurium} |
+
+  # The teeth: each Compare DEMANDS DeterministicMassAction on its inputs — the
+  # contract forwards from each proc (native OR rest-addressed), through
+  # RunProcess, onto its trajectory. The per-species MSE is the agreement metric.
+  cr: Compare ~{a: copasi,    b: rk4}       ->{mse: copasi_vs_rk4} |
+  tr: Compare ~{a: tellurium, b: rk4}       ->{mse: tellurium_vs_rk4} |
+  ct: Compare ~{a: copasi,    b: tellurium} ->{mse: copasi_vs_tellurium}
 )
 
 EngineAgreement[]
