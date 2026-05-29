@@ -1,24 +1,25 @@
 # ─────────────────────────────────────────────────────────────────────────
-# The CME lane — a Gillespie SSA step fulfilling ExactCME.
+# The CME lane — Gillespie SSA fulfilling ExactCME, compared DISTRIBUTIONALLY.
 # ─────────────────────────────────────────────────────────────────────────
 #
 # The stochastic counterpart of the deterministic integrators
-# (ys/integrator-comparison.ys), over the SAME reaction network. A single SSA
+# (ys/integrator-comparison.ys), over the SAME A -> B network. A single SSA
 # trajectory is one *sample* of the chemical master equation — jagged, and
-# different every seed — so two fulfillers of this contract can only "agree"
-# DISTRIBUTIONALLY, never pathwise. The `claims: Distributional` axis states
-# exactly that, and it's a DIFFERENT target from DeterministicMassAction — so
-# MSE-ing a single SSA path against an ODE trajectory is the category error the
-# contract layer rules out (the comparison the demo will refuse).
+# different every seed — so two fulfillers of this contract agree only
+# DISTRIBUTIONALLY, never pathwise. The `claims: Distributional` axis says so.
 #
-# Unlike the integrators (fixed-step processes driven by RunProcess), SSA is an
-# inherently whole-path simulation: one seeded PRNG runs the entire trajectory
-# (reproducible from `seed`), sampled on the timestep grid. So it is a one-shot
-# `step` that carries the contract on its own `timeseries` output directly.
+# That is the demo's pivot: the comparison metric is chosen by the CLAIM.
+#   • DeterministicMassAction (integrator-comparison.ys) → trajectory MSE.
+#   • ExactCME (here)                                    → distributional distance.
+# Each comparison step DEMANDS its contract, so the metric physically cannot be
+# applied to the wrong data (wiring an SSA path into the MSE Compare, or a single
+# trajectory into DistCompare, is a compile error — the refused comparison).
 
 type TimeSeries = { times: list[float], columns: map[list[float]] }
+type Ensemble   = { times: list[float], mean: map[list[float]], std: map[list[float]] }
 
-# The exact-CME target — different target AND claims from DeterministicMassAction.
+# The exact-CME target — a different target AND a different claim from
+# DeterministicMassAction, so the two lanes are not substitutable.
 contract ExactCME (
   target: ChemicalMasterEquation,
   claims: Distributional,
@@ -28,20 +29,36 @@ contract ExactCME (
 from stochastic import ssa
 from chem import CRN
 
-# One stochastic realization as a TimeSeries. The math is the imported native
-# `ssa.simulate`; the ports + `fulfills` contract are the language's.
+# One stochastic realization (a single sample path). Reproducible from `seed`.
 step Ssa[network: CRN, runtime: float, timestep: float, seed: float]
   fulfills ExactCME[method: SsaDirect]
   ~{state: map[float]} ->{timeseries: TimeSeries}
   ( {timeseries: ssa.simulate(network, state, runtime, timestep, seed)} )
 
+# An ENSEMBLE of `n_runs` paths, reduced to per-species mean ± std bands — the
+# distributional object two fulfillers of a Distributional contract agree on.
+step SsaEnsemble[network: CRN, runtime: float, timestep: float, base_seed: float, n_runs: float]
+  fulfills ExactCME[method: SsaDirect]
+  ~{state: map[float]} ->{ensemble: Ensemble}
+  ( {ensemble: ssa.ensemble(network, state, runtime, timestep, base_seed, n_runs)} )
+
+# The claims-appropriate comparison: a DISTRIBUTIONAL distance (the standardized
+# mean difference), DEMANDING ExactCME on both inputs. Only Distributional-claim
+# ensembles may be compared this way — a deterministic trajectory is refused here.
+step DistCompare ~{a: Ensemble :: ExactCME, b: Ensemble :: ExactCME} ->{distance: map[float]} (
+  {distance: a.distributional_distance(b)}
+)
+
 # The shared model — the SAME A -> B network the integrators use.
 def network :: CRN = {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}
 
-# Run one SSA trajectory from 100 molecules of A.
-composite Cme ->{timeseries: TimeSeries} (
+# Two independent ensembles (disjoint seed ranges) of the SAME process: their
+# distributions agree (small distance) even though individual paths do not.
+composite Cme ->{distance: map[float]} (
   init: {A: 100.0, B: 0.0} |
-  run:  Ssa[network: network, runtime: 5.0, timestep: 0.2, seed: 1.0] ~{state: init} ->{timeseries: timeseries}
+  ea:  SsaEnsemble[network: network, runtime: 5.0, timestep: 0.2, base_seed: 1.0,    n_runs: 64.0] ~{state: init} ->{ensemble: ens_a} |
+  eb:  SsaEnsemble[network: network, runtime: 5.0, timestep: 0.2, base_seed: 1000.0, n_runs: 64.0] ~{state: init} ->{ensemble: ens_b} |
+  cmp: DistCompare ~{a: ens_a, b: ens_b} ->{distance: distance}
 )
 
 Cme[]

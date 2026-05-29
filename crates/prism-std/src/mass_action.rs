@@ -220,6 +220,52 @@ fn ssa_trajectory(
     (times, rows)
 }
 
+/// `n_runs` independent Gillespie trajectories (seeds `base_seed + 0..n_runs`),
+/// reduced to the per-species, per-grid-point ENSEMBLE mean and (population)
+/// standard deviation — the distributional summary a `claims: Distributional`
+/// comparison works on. A single path is noise; the ensemble mean is the signal
+/// (it tracks the deterministic ODE), the std is the spread. Returns
+/// `(times, mean[species][k], std[species][k])`.
+fn ssa_ensemble(
+    net: &MassActionNetwork,
+    x0: &[f64],
+    runtime: f64,
+    dt: f64,
+    base_seed: u64,
+    n_runs: usize,
+) -> (Vec<f64>, Vec<Vec<f64>>, Vec<Vec<f64>>) {
+    let n_species = x0.len();
+    let runs = n_runs.max(1);
+    let mut times: Vec<f64> = Vec::new();
+    let mut sum: Vec<Vec<f64>> = Vec::new();
+    let mut sumsq: Vec<Vec<f64>> = Vec::new();
+    for run in 0..runs {
+        let (t, rows) = ssa_trajectory(net, x0, runtime, dt, base_seed + run as u64);
+        if run == 0 {
+            times = t;
+            sum = vec![vec![0.0; times.len()]; n_species];
+            sumsq = vec![vec![0.0; times.len()]; n_species];
+        }
+        for (k, row) in rows.iter().enumerate() {
+            for i in 0..n_species {
+                sum[i][k] += row[i];
+                sumsq[i][k] += row[i] * row[i];
+            }
+        }
+    }
+    let n = runs as f64;
+    let mut mean = vec![vec![0.0; times.len()]; n_species];
+    let mut std = vec![vec![0.0; times.len()]; n_species];
+    for i in 0..n_species {
+        for k in 0..times.len() {
+            let m = sum[i][k] / n;
+            mean[i][k] = m;
+            std[i][k] = ((sumsq[i][k] / n) - m * m).max(0.0).sqrt();
+        }
+    }
+    (times, mean, std)
+}
+
 // ── The integrator as a plain (stepwise) Process ───────────────────────
 
 /// A one-step mass-action integrator: `update(state, interval)` advances the
@@ -465,6 +511,93 @@ pub fn register_methods(reg: &mut MethodRegistry) {
             ("times", Value::List(times.into_iter().map(Value::float).collect())),
             ("columns", columns),
         ]))
+    });
+    // `ssa.ensemble(network, state, runtime, timestep, base_seed, n_runs)` — the
+    // distributional summary of `n_runs` Gillespie paths: per-species mean ± std
+    // bands. A single path is a sample; the ENSEMBLE is what a `Distributional`
+    // claim is about. Returns `{_type: "Ensemble", n_runs, times, mean, std}`.
+    reg.register("Stochastic", "ensemble", |_recv, args| {
+        let network = args
+            .first()
+            .map(network_from_value)
+            .ok_or_else(|| ts_err("ensemble", "argument 0 must be a reaction network"))?;
+        let state = args.get(1).and_then(|v| v.as_map());
+        let runtime = args.get(2).and_then(|v| v.as_f64()).unwrap_or(1.0);
+        let timestep = args.get(3).and_then(|v| v.as_f64()).unwrap_or(0.1);
+        let base_seed = args.get(4).and_then(|v| v.as_f64()).unwrap_or(0.0) as u64;
+        let n_runs = args.get(5).and_then(|v| v.as_f64()).unwrap_or(64.0) as usize;
+        let x0: Vec<f64> = network
+            .species
+            .iter()
+            .map(|s| {
+                state
+                    .and_then(|m| m.get(s.as_str()))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0)
+            })
+            .collect();
+        let (times, mean, std) = ssa_ensemble(&network, &x0, runtime, timestep, base_seed, n_runs);
+        let band = |data: &[Vec<f64>]| {
+            Value::tree(network.species.iter().enumerate().map(|(i, sp)| {
+                (sp.clone(), Value::List(data[i].iter().map(|v| Value::float(*v)).collect()))
+            }))
+        };
+        Ok(Value::tree([
+            ("_type", Value::from("Ensemble")),
+            ("n_runs", Value::float(n_runs.max(1) as f64)),
+            ("times", Value::List(times.into_iter().map(Value::float).collect())),
+            ("mean", band(&mean)),
+            ("std", band(&std)),
+        ]))
+    });
+    // `a.distributional_distance(b)` — per species, the MAX over time of the
+    // standardized mean difference |mean_a − mean_b| / √(SEₐ² + SE_b²), SE =
+    // std/√n. For two ensembles of the SAME process this is O(1) — they agree
+    // DISTRIBUTIONALLY — whereas the trajectory MSE of two single paths is large
+    // (they do NOT agree pathwise). The `claims` axis says which metric is the
+    // meaningful one; this is the `species_mse` of the stochastic lane.
+    reg.register("Ensemble", "distributional_distance", |recv, args| {
+        let other = args
+            .first()
+            .ok_or_else(|| ts_err("distributional_distance", "argument 0 must be an Ensemble"))?;
+        let n_a = recv.get_field("n_runs").and_then(|v| v.as_f64()).unwrap_or(1.0).max(1.0);
+        let n_b = other.get_field("n_runs").and_then(|v| v.as_f64()).unwrap_or(1.0).max(1.0);
+        let (mean_a, std_a, mean_b, std_b) = match (
+            recv.get_field("mean").and_then(|v| v.as_map()),
+            recv.get_field("std").and_then(|v| v.as_map()),
+            other.get_field("mean").and_then(|v| v.as_map()),
+            other.get_field("std").and_then(|v| v.as_map()),
+        ) {
+            (Some(a), Some(b), Some(c), Some(d)) => (a, b, c, d),
+            _ => {
+                return Err(ts_err(
+                    "distributional_distance",
+                    "receiver and argument 0 must both be Ensembles",
+                ))
+            }
+        };
+        let dist = mean_a.iter().filter_map(|(sp, ma)| {
+            let ma = ts_floats(ma);
+            let mb = ts_floats(mean_b.get(sp.as_str())?);
+            let sa = ts_floats(std_a.get(sp.as_str())?);
+            let sb = ts_floats(std_b.get(sp.as_str())?);
+            let n = ma.len().min(mb.len()).min(sa.len()).min(sb.len());
+            let mut max_z = 0.0_f64;
+            for i in 0..n {
+                let se = (sa[i] * sa[i] / n_a + sb[i] * sb[i] / n_b).sqrt();
+                let diff = (ma[i] - mb[i]).abs();
+                let z = if se > 1e-9 {
+                    diff / se
+                } else if diff < 1e-9 {
+                    0.0
+                } else {
+                    f64::INFINITY
+                };
+                max_z = max_z.max(z);
+            }
+            Some((sp.to_string(), Value::float(max_z)))
+        });
+        Ok(Value::tree(dist))
     });
     reg.register("TimeSeries", "species_mse", |recv, args| {
         let a = ts_columns(recv).ok_or_else(|| ts_err("species_mse", "receiver is not a TimeSeries"))?;
@@ -721,6 +854,40 @@ mod tests {
         let mean: f64 = (1..=64u64).map(final_a).sum::<f64>() / 64.0;
         let ode = 100.0 * (-0.7 * 5.0_f64).exp();
         assert!((mean - ode).abs() < 5.0, "SSA ensemble mean {mean} should track ODE {ode}");
+    }
+
+    #[test]
+    fn distributional_metric_agrees_where_pathwise_does_not() {
+        // The revelation, quantified: the `claims` axis decides which notion of
+        // "agree" is meaningful. For the CME target, two single SSA PATHS diverge
+        // (pathwise comparison is wrong), yet two ENSEMBLES agree (distributional
+        // comparison is right). Same data, opposite verdicts — the contract picks.
+        let net = a_to_b(0.7);
+        let x0 = [100.0, 0.0];
+
+        // Two single paths: their per-step A values diverge — a large MSE.
+        let (_, p1) = ssa_trajectory(&net, &x0, 5.0, 0.1, 1);
+        let (_, p2) = ssa_trajectory(&net, &x0, 5.0, 0.1, 2);
+        let path_mse: f64 =
+            p1.iter().zip(&p2).map(|(a, b)| (a[0] - b[0]).powi(2)).sum::<f64>() / p1.len() as f64;
+        assert!(path_mse > 2.0, "two SSA paths must diverge pathwise (MSE {path_mse})");
+
+        // Two ensembles of the SAME process (disjoint seed ranges): their A means
+        // agree within sampling error — a small standardized distance.
+        let n = 64.0;
+        let (_, ma, sa) = ssa_ensemble(&net, &x0, 5.0, 0.1, 1, 64);
+        let (_, mb, sb) = ssa_ensemble(&net, &x0, 5.0, 0.1, 1000, 64);
+        let max_z = (0..ma[0].len())
+            .map(|k| {
+                let se = (sa[0][k] * sa[0][k] / n + sb[0][k] * sb[0][k] / n).sqrt();
+                if se > 1e-9 {
+                    (ma[0][k] - mb[0][k]).abs() / se
+                } else {
+                    0.0
+                }
+            })
+            .fold(0.0_f64, f64::max);
+        assert!(max_z < 5.0, "two SSA ensembles must agree distributionally (max z {max_z})");
     }
 
     #[test]
