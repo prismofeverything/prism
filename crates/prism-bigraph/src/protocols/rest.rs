@@ -206,10 +206,11 @@ impl Process for RestProcess {
     }
 }
 
-/// Fetch `/inputs/{id}` or `/outputs/{id}` and convert into a
-/// [`PortSchema`]. Each value is currently treated as
-/// [`Schema::Any`] — the wiring layer enforces shape; the REST
-/// process just shuttles JSON.
+/// Fetch `/inputs/{id}` or `/outputs/{id}` and convert into a [`PortSchema`].
+/// Each reported type expression is parsed back into a REAL [`Schema`] (the
+/// inverse of `Schema`'s Display / upstream's `render`), so the bridge speaks
+/// actual schemas — cross-boundary apply/reconcile (delta sums, overwrite
+/// overwrites, units) flows through the closed algebra, not an additive `Any`.
 fn fetch_port_schema(agent: &ureq::Agent, url: &str) -> Result<PortSchema, ProtocolError> {
     let resp = agent.get(url).call().map_err(|e| ProtocolError::Other {
         protocol: "rest".into(),
@@ -224,11 +225,14 @@ fn fetch_port_schema(agent: &ureq::Agent, url: &str) -> Result<PortSchema, Proto
         None => return Ok(IndexMap::new()),
     };
     let mut ports = IndexMap::new();
-    for (k, _v) in map {
-        // TODO: parse upstream type strings (e.g. "float", "map[float]")
-        // via prism_schema::type_parser. For tier 1 the wiring layer
-        // operates on Value, so Schema::Any is sufficient.
-        ports.insert(k.clone(), Schema::Any);
+    for (k, v) in map {
+        // Parse the server's reported type expression back into a real Schema.
+        // A non-string (or unknown) type degrades to `Any` rather than failing.
+        let schema = v
+            .as_str()
+            .map(prism_schema::parse_type_expression)
+            .unwrap_or(Schema::Any);
+        ports.insert(k.clone(), schema);
     }
     Ok(ports)
 }

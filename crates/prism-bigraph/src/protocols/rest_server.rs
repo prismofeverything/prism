@@ -260,8 +260,10 @@ fn route(
     }
 }
 
-/// `inputs()` / `outputs()` → `{port: "any"}`. The client uses port NAMES; types
-/// are shuttled as `Value`, so the concrete type string is informational.
+/// `inputs()` / `outputs()` → `{port: "<type>"}`, where `<type>` is the port's
+/// Schema rendered as a type expression (`Schema`'s Display — the inverse of
+/// `prism_schema::parse_type_expression`). The client reconstructs the REAL
+/// Schema, so cross-boundary apply/reconcile speaks actual schemas — not `Any`.
 fn port_response(processes: &Processes, id: &str, inputs: bool) -> (&'static str, String) {
     let map = processes.lock().unwrap();
     let Some(node) = map.get(id) else {
@@ -273,8 +275,8 @@ fn port_response(processes: &Processes, id: &str, inputs: bool) -> (&'static str
         node.outputs()
     };
     let obj: serde_json::Map<String, serde_json::Value> = ports
-        .keys()
-        .map(|k| (k.clone(), serde_json::Value::String("any".to_string())))
+        .iter()
+        .map(|(k, schema)| (k.clone(), serde_json::Value::String(schema.to_string())))
         .collect();
     ("200 OK", serde_json::Value::Object(obj).to_string())
 }
