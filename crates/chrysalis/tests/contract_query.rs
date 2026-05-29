@@ -130,3 +130,22 @@ fn pinning_a_method_narrows_the_result() {
         "a method-pinned demand selects exactly the matching method"
     );
 }
+
+#[test]
+fn fulfillers_queries_an_imported_library() {
+    // The package payoff: `cme-gillespie.ys` declares no processes of its own —
+    // it `import`s `lib/simulators.ys`. After `parse_file` merges the library,
+    // `fulfillers(C)` queries the IMPORTED contracted processes by contract.
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ys/cme-gillespie.ys");
+    let program = chrysalis::parse::parse_file(&path).expect("parse_file cme-gillespie.ys");
+
+    let mut cme = fulfillers(&program, &ContractRef::new("ExactCME"));
+    cme.sort();
+    assert_eq!(cme, vec!["Ssa", "SsaEnsemble"], "the CME fulfillers, from the imported library");
+
+    // The deterministic fulfillers are merged in too (the whole library is), so
+    // they're queryable even though this demo only uses the CME lane.
+    let mut det = fulfillers(&program, &ContractRef::new("DeterministicMassAction"));
+    det.sort();
+    assert_eq!(det, vec!["ForwardEuler", "Rk4"], "the deterministic fulfillers, also from the library");
+}

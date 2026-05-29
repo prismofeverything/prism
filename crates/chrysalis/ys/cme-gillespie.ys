@@ -2,62 +2,38 @@
 # The CME lane — Gillespie SSA fulfilling ExactCME, compared DISTRIBUTIONALLY.
 # ─────────────────────────────────────────────────────────────────────────
 #
-# The stochastic counterpart of the deterministic integrators
-# (ys/integrator-comparison.ys), over the SAME A -> B network. A single SSA
-# trajectory is one *sample* of the chemical master equation — jagged, and
-# different every seed — so two fulfillers of this contract agree only
-# DISTRIBUTIONALLY, never pathwise. The `claims: Distributional` axis says so.
+# A single SSA trajectory is one *sample* of the chemical master equation —
+# jagged, and different every seed — so two fulfillers of ExactCME agree only
+# DISTRIBUTIONALLY, never pathwise. `DistCompare` DEMANDS the ExactCME contract,
+# so a deterministic trajectory is refused there (the wrong metric won't compile).
 #
-# That is the demo's pivot: the comparison metric is chosen by the CLAIM.
-#   • DeterministicMassAction (integrator-comparison.ys) → trajectory MSE.
-#   • ExactCME (here)                                    → distributional distance.
-# Each comparison step DEMANDS its contract, so the metric physically cannot be
-# applied to the wrong data (wiring an SSA path into the MSE Compare, or a single
-# trajectory into DistCompare, is a compile error — the refused comparison).
+# The contracts, the SSA fulfillers, and the comparison all come from the shared
+# process library (lib/simulators.ys) — this file imports it, picks the model,
+# and composes a workflow.
 
-type TimeSeries = { times: list[float], columns: map[list[float]] }
-type Ensemble   = { times: list[float], mean: map[list[float]], std: map[list[float]] }
+import Simulators from 'lib/simulators.ys'
 
-# The exact-CME target — a different target AND a different claim from
-# DeterministicMassAction, so the two lanes are not substitutable.
-contract ExactCME (
-  target: ChemicalMasterEquation,
-  claims: Distributional,
-  advance: DiscreteEvent
-)
-
-from stochastic import ssa
-from chem import CRN
-
-# One stochastic realization (a single sample path). Reproducible from `seed`.
-step Ssa[network: CRN, runtime: float, timestep: float, seed: float]
-  fulfills ExactCME[method: SsaDirect]
-  ~{state: map[float]} ->{timeseries: TimeSeries}
-  ( {timeseries: ssa.simulate(network, state, runtime, timestep, seed)} )
-
-# An ENSEMBLE of `n_runs` paths, reduced to per-species mean ± std bands — the
-# distributional object two fulfillers of a Distributional contract agree on.
-step SsaEnsemble[network: CRN, runtime: float, timestep: float, base_seed: float, n_runs: float]
-  fulfills ExactCME[method: SsaDirect]
-  ~{state: map[float]} ->{ensemble: Ensemble}
-  ( {ensemble: ssa.ensemble(network, state, runtime, timestep, base_seed, n_runs)} )
-
-# The claims-appropriate comparison: a DISTRIBUTIONAL distance (the standardized
-# mean difference), DEMANDING ExactCME on both inputs. Only Distributional-claim
-# ensembles may be compared this way — a deterministic trajectory is refused here.
-step DistCompare ~{a: Ensemble :: ExactCME, b: Ensemble :: ExactCME} ->{distance: map[float]} (
-  {distance: a.distributional_distance(b)}
-)
-
-# The shared model — the SAME A -> B network the integrators use.
+# The shared model — A -> B at k = 0.7.
 def network :: CRN = {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}
 
 # Two independent ensembles (disjoint seed ranges) of the SAME process: their
 # distributions agree (small distance) even though individual paths do not.
 composite Cme ->{distance: map[float]} (
   init: {A: 100.0, B: 0.0} |
-  ea:  SsaEnsemble[network: network, runtime: 5.0, timestep: 0.2, base_seed: 1.0,    n_runs: 64.0] ~{state: init} ->{ensemble: ens_a} |
-  eb:  SsaEnsemble[network: network, runtime: 5.0, timestep: 0.2, base_seed: 1000.0, n_runs: 64.0] ~{state: init} ->{ensemble: ens_b} |
+  ea: SsaEnsemble[
+    network: network,
+    runtime: 5.0,
+    timestep: 0.2,
+    base_seed: 1.0,
+    n_runs: 64.0
+  ] ~{state: init} ->{ensemble: ens_a} |
+  eb: SsaEnsemble[
+    network: network,
+    runtime: 5.0,
+    timestep: 0.2,
+    base_seed: 1000.0,
+    n_runs: 64.0
+  ] ~{state: init} ->{ensemble: ens_b} |
   cmp: DistCompare ~{a: ens_a, b: ens_b} ->{distance: distance}
 )
 
