@@ -69,7 +69,7 @@ process ForwardEuler[network: CRN]
 # Analysis steps. `Compare` is the warranted MSE; `Plot` overlays the two
 # trajectories; `Output` writes the artifacts itself (`.csv`/`.svg` are native
 # effects), so the workflow needs no external harness to produce its outputs.
-step Compare ~{a: TimeSeries, b: TimeSeries} ->{mse: map[float]} (
+step Compare ~{a: TimeSeries :: DeterministicMassAction, b: TimeSeries :: DeterministicMassAction} ->{mse: map[float]} (
   {mse: a.species_mse(b)}
 )
 

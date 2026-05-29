@@ -145,3 +145,83 @@ fn uncontracted_producer_is_rejected() {
         "an uncontracted source must be rejected by a demanding port; got {errs:?}"
     );
 }
+
+// ── Contract forwarding through a generic wrapper (RunProcess), task #14 ──
+// A native wrapper like `RunProcess` has no chrysalis interface of its own; the
+// contract lives on the inner `proc:` process. The wrapper must FORWARD it so a
+// demanding consumer is still checked — "a contract survives a generic wrapper".
+
+/// `process Name ~{state: Float} ->{state: Float :: contract}` — the shape of a
+/// real integrator: its `fulfills` rides the `state` output, the port a
+/// `RunProcess` wrapping it (`proc: Name[…]`) forwards onto its `timeseries`.
+fn integrator(name: &str, contract_name: &str) -> Def {
+    Def::Process(ProcessDef {
+        name: name.into(),
+        params: vec![],
+        interface: Interface::new()
+            .with_input("state", PortDecl::required(SchemaExpr::Float))
+            .with_output(
+                "state",
+                PortDecl::required(SchemaExpr::Float)
+                    .with_contract(ContractRef::new(contract_name)),
+            ),
+        body: Expr::Record(IndexMap::new()),
+    })
+}
+
+/// The flagship's shape: `rk = RunProcess[proc: <inner>] ->{timeseries: traj}`
+/// wired into `Compare ~{a: traj}` (which demands `DeterministicMassAction`).
+/// `traj` carries whatever contract RunProcess forwards from the inner's
+/// `state` output. `RunProcess` is left undefined (a native import has no Def),
+/// exactly as in a real program.
+fn run_process_workflow(name: &str, inner_ctrl: &str) -> Def {
+    Def::Composite(CompositeDef {
+        name: name.into(),
+        params: vec![],
+        interface: Interface::new(),
+        using: vec![],
+        body: Expr::parallel(vec![
+            Expr::entry(
+                "rk",
+                Expr::term("RunProcess")
+                    .arg_named("proc", Expr::term(inner_ctrl).build())
+                    .output("timeseries", Expr::Var("traj".into()))
+                    .build(),
+            ),
+            Expr::term("Compare")
+                .input("a", Expr::Var("traj".into()))
+                .build(),
+        ]),
+    })
+}
+
+#[test]
+fn runprocess_forwards_inner_contract() {
+    // RunProcess has no chrysalis interface; the contract lives on the inner
+    // `proc:` process. Forwarding must carry it across the wrapper so the
+    // demanding Compare accepts it.
+    let mut p = base_program();
+    p.push(integrator("Rk4Step", "DeterministicMassAction"));
+    p.push(run_process_workflow("WrapGood", "Rk4Step"));
+    let errs = validate_connections(&p);
+    assert!(
+        errs.is_empty(),
+        "RunProcess wrapping a DeterministicMassAction integrator must satisfy \
+         Compare's demand via the forwarded contract; got {errs:?}"
+    );
+}
+
+#[test]
+fn runprocess_with_wrong_target_inner_is_rejected() {
+    // The forwarded contract is the INNER process's real contract, so a
+    // wrong-target inner is rejected exactly as a directly-wired one would be.
+    let mut p = base_program();
+    p.push(integrator("FbaStep", "ConstraintBasedFlux"));
+    p.push(run_process_workflow("WrapBad", "FbaStep"));
+    let errs = validate_connections(&p);
+    assert!(
+        errs.iter().any(|e| e.message.contains("contract mismatch")),
+        "RunProcess wrapping a steady-state-flux process must NOT satisfy a \
+         DeterministicMassAction demand; got {errs:?}"
+    );
+}

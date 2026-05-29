@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use indexmap::IndexMap;
 
 use crate::ast::{
-    ContractRef, Def, Expr, Interface, Name, PathRoot, PortDecl, Program, SchemaExpr,
+    ContractRef, Def, Expr, Interface, Name, PathRoot, PortDecl, Program, SchemaExpr, TermArg,
 };
 use crate::units::UnitEnv;
 
@@ -373,6 +373,57 @@ fn collect_bindings(e: &Expr, out: &mut HashMap<String, String>) {
     }
 }
 
+/// Native wrappers that FORWARD a contract from a config-argument process's
+/// output onto their own output(s). `RunProcess` (`from core import RunProcess`,
+/// registered in `prelude.rs`) runs its `proc` argument over time, so its
+/// `timeseries` / `trace` outputs carry whatever contract `proc`'s `state`
+/// output declares — *a contract must survive a generic wrapper*
+/// (docs/process-contracts.md). Native processes have NO chrysalis `Interface`
+/// (they live in `ResolvedImports.processes`, a bare name set — see compile.rs),
+/// which is exactly why the carried contract is otherwise lost at the wrapper.
+/// Declared here as DATA and interpreted generically by [`forwarded_contract`] —
+/// not a control-name special-case baked into the checking algorithm.
+struct ContractForward {
+    /// The wrapper control that forwards a contract (`RunProcess`).
+    control: &'static str,
+    /// The wrapper's config argument naming the inner process (`proc`).
+    from_arg: &'static str,
+    /// The inner process's output port whose contract is forwarded (`state`).
+    from_output: &'static str,
+    /// The wrapper outputs that carry the forwarded contract.
+    to_outputs: &'static [&'static str],
+}
+
+const CONTRACT_FORWARDS: &[ContractForward] = &[ContractForward {
+    control: "RunProcess",
+    from_arg: "proc",
+    from_output: "state",
+    to_outputs: &["timeseries", "trace"],
+}];
+
+/// If `control` is a forwarding wrapper (see [`CONTRACT_FORWARDS`]), resolve the
+/// contract it forwards: find its `from_arg` argument — the inner process term
+/// (`proc: Rk4[…]`) — look up that process's definer, and read the contract on
+/// its `from_output` port. Returns the contract and the wrapper outputs that
+/// carry it. This reuses the inner process's REAL declared contract, so a
+/// wrong-target inner is rejected exactly as a directly-wired one would be — no
+/// new algebra op, just `refines` over the forwarded contract downstream.
+fn forwarded_contract(
+    control: &str,
+    args: &[TermArg],
+    program: &Program,
+) -> Option<(ContractRef, &'static [&'static str])> {
+    let rule = CONTRACT_FORWARDS.iter().find(|f| f.control == control)?;
+    let inner = args.iter().find_map(|a| match a {
+        TermArg::Named { name, value } if name.as_str() == rule.from_arg => Some(value),
+        _ => None,
+    })?;
+    let inner_control = term_control(inner)?;
+    let iface = interface_of(program.lookup(&inner_control)?)?;
+    let contract = iface.outputs.get(rule.from_output)?.contract.clone()?;
+    Some((contract, rule.to_outputs))
+}
+
 /// Collect `slot name → contract` for outputs wired to a slot: a term
 /// `Ctrl ->{port: slot}` whose output `port` carries a contract makes `slot`
 /// carry it, so a later consumer `~{a: slot}` can be checked against it. This is
@@ -392,12 +443,27 @@ fn collect_slot_contracts(e: &Expr, program: &Program, out: &mut HashMap<String,
             }
             collect_slot_contracts(&b.value, program, out);
         }
-        Expr::Term { control, ports, .. } => {
+        Expr::Term { control, args, ports, .. } => {
+            // A producer with a DECLARED interface contract on an output → slot.
             if let Some(iface) = program.lookup(control).and_then(interface_of) {
                 for (port, target) in &ports.outputs {
                     if let (Some(decl), Expr::Var(slot)) = (iface.outputs.get(port), target) {
                         if let Some(c) = &decl.contract {
                             out.insert(slot.clone(), c.clone());
+                        }
+                    }
+                }
+            }
+            // A native forwarding wrapper (`RunProcess`): the contract lives on
+            // the inner `proc:` process, not the wrapper's (absent) interface —
+            // forward it onto the configured outputs so a downstream consumer
+            // (`Compare ~{a: slot :: C}`) is still checked. Slot wiring is the
+            // shape the flagship uses (`->{timeseries: rk4_traj}`).
+            if let Some((contract, fwd_outputs)) = forwarded_contract(control, args, program) {
+                for (port, target) in &ports.outputs {
+                    if let Expr::Var(slot) = target {
+                        if fwd_outputs.contains(&port.as_str()) {
+                            out.insert(slot.clone(), contract.clone());
                         }
                     }
                 }
