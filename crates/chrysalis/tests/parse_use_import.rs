@@ -1,6 +1,7 @@
-//! `from <module> import <names>` — native host imports (the `extern`
-//! replacement). Parses to `Def::Use { module, names }`, distinct from the
-//! file-import `import Name from "path.ys"` (`Def::Import`).
+//! `from <module> import <names>` — the ONE import form (#50). Parses to
+//! `Def::Use { module, names }`. A single-segment module with no backing `.ys`
+//! is a native host import (the `extern` replacement); a dotted package path or
+//! a sibling `.ys` file is a file module, resolved by `parse_file`.
 
 use chrysalis::ast::Def;
 use chrysalis::parse::parse_program;

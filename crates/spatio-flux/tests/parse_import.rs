@@ -1,9 +1,10 @@
-//! The `.ys` parser, M3 cross-file: `parse_file` resolves `import Dish from
-//! "dish.ys"` — loading + merging another file's defs — then the composite is
-//! compiled and run. This is the composite-process use case (#6) as TWO real
-//! `.ys` files: `Dish` defined in `dish.ys`, imported and nested by
-//! `culture.ys`, simulated. `Dish` wires the native `DiffusionAdvection`,
-//! imported via `from diffusion import …` (the `extern` replacement).
+//! The `.ys` parser, M3 cross-file: `parse_file` resolves `from dish import
+//! Dish` — loading the sibling file and merging the named def (+ its
+//! transitive deps + vocabulary) — then the composite is compiled and run. This
+//! is the composite-process use case (#6) as TWO real `.ys` files: `Dish`
+//! defined in `dish.ys`, imported and nested by `culture.ys`, simulated. `Dish`
+//! wires the native `DiffusionAdvection`, imported via `from diffusion import …`
+//! (the `extern` replacement).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,7 +15,7 @@ use prism_schema::{MethodRegistry, Value};
 
 use chrysalis::ast::Def;
 use chrysalis::compile::compile_with_modules;
-use chrysalis::parse::parse_file;
+use chrysalis::parse::parse_file_with_natives;
 use spatio_flux::prelude::sf_modules;
 use spatio_flux::processes::diffusion_advection::DiffusionAdvection;
 
@@ -50,8 +51,12 @@ fn slot_glucose(state: &Value, slot: &str) -> Vec<f64> {
 
 #[test]
 fn import_resolves_and_runs_across_files() {
-    // parse_file loads culture.ys AND resolves `import Dish from "dish.ys"`.
-    let program = parse_file(culture_path()).expect("parse + resolve imports");
+    // parse_file_with_natives loads culture.ys AND resolves `from dish import Dish`
+    // (a sibling file). Passing spatio-flux's native names makes `from diffusion
+    // import …` (inside dish.ys) bind the native, NOT the `diffusion.ys` demo that
+    // sits beside it — std-module-first (#50).
+    let program = parse_file_with_natives(culture_path(), &sf_modules().module_names())
+        .expect("parse + resolve imports");
 
     // The merged program has Dish (imported), its `from diffusion import …`
     // native import (came along with Dish), and Culture.
@@ -68,8 +73,11 @@ fn import_resolves_and_runs_across_files() {
         "Dish's native import (`from diffusion import DiffusionAdvection`) came along"
     );
     assert!(
-        !program.defs.iter().any(|d| matches!(d, Def::Import { .. })),
-        "imports resolved away"
+        !program
+            .defs
+            .iter()
+            .any(|d| matches!(d, Def::Use { module, .. } if module == "dish")),
+        "the `from dish import Dish` file-module is resolved away (only native `use`s remain)"
     );
 
     // Compile through the spatio-flux native modules (the `extern` replacement):

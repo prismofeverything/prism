@@ -11,7 +11,7 @@
 # process library (lib/simulators.ys) — this file imports it, picks the model,
 # and composes a workflow.
 
-import Simulators from 'lib/simulators.ys'
+from chrysalis.lib.simulators import SsaEnsemble, DistCompare
 
 # The shared model — A -> B at k = 0.7.
 def network :: CRN = {species: ['A', 'B'], reactions: [{reactants: {A: 1.0}, products: {B: 1.0}, k: 0.7}]}

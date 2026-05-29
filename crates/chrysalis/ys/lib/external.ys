@@ -14,7 +14,11 @@
 # (memory: project_sidecar_service_model). The `process` field selects the python
 # class; daughters inherit the address on division.
 
-import Sim from 'simulators.ys'
+# Explicit named imports from the sibling library (#50): the `CRN` model type
+# and the `DeterministicMassAction` contract each engine fulfills, plus the
+# native fulfillers `Rk4`/`ForwardEuler` — so one `fulfillers(DeterministicMassAction)`
+# query over this file returns native AND external engines together (the point).
+from simulators import CRN, DeterministicMassAction, Rk4, ForwardEuler
 
 # A contracted leaf process. Its config is the `network` param (the python
 # wrapper turns the CRN into SBML); the body is an unused local placeholder (the

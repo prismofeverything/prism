@@ -13,118 +13,11 @@ use prism_bigraph::ProcessRegistry;
 use prism_schema::MethodRegistry;
 
 use crate::ast::{
-    CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, SchemaExpr, TermArg,
+    CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, SchemaExpr,
 };
 use crate::compile::ModuleRegistry;
-use crate::parse::parse_file;
+use crate::parse::parse_file_with_natives;
 use crate::runner::{invoke, invoke_driven, invoke_trace, run, serve_process, serve_stream};
-
-/// Resolve `.ys`-file imports before compiling. A `from <module> import <names>`
-/// is a **file module** when a `.ys` file backs it — it brings in that file's
-/// top-level defs (recursively for its own `.ys` imports), PREPENDED so the
-/// importer's own entry (its LAST interfaced def) is preserved:
-///   - single-segment `from cell import Cell` ⇒ `<ys_root>/cell.ys` **iff it
-///     exists** (a sibling file); otherwise it's a native/host import, left for
-///     compile's `resolve_imports`;
-///   - dotted `from <pkg>.<sub>.<file> import …` ⇒ `<ys_root>/<sub>/<file>.ys`
-///     (package-rooted), always a file module.
-/// The `ys_root` (the entry file's dir) is threaded constant so a nested import
-/// resolves from the same package root, not the importer's subdir. (#25)
-fn resolve_file_modules(
-    program: &mut crate::ast::Program,
-    ys_root: &std::path::Path,
-) -> Result<(), String> {
-    let mut prefix: Vec<Def> = Vec::new();
-    let mut kept: Vec<Def> = Vec::new();
-    for def in std::mem::take(&mut program.defs) {
-        let (module, names) = match &def {
-            Def::Use { module, names } => (module.clone(), names.clone()),
-            _ => {
-                kept.push(def);
-                continue;
-            }
-        };
-        // The `.ys` file backing this module, if any: dotted skips the package
-        // segment, single-segment is a sibling of the entry file.
-        let file = if module.contains('.') {
-            let rel: std::path::PathBuf = module.split('.').skip(1).collect();
-            ys_root.join(&rel).with_extension("ys")
-        } else {
-            ys_root.join(&module).with_extension("ys")
-        };
-        // A single-segment module is a file module only if its `.ys` exists; else
-        // it's a native/host import (kept for compile's `resolve_imports`).
-        if !module.contains('.') && !file.exists() {
-            kept.push(def);
-            continue;
-        }
-        {
-            let mut imported = parse_file(&file)
-                .map_err(|e| format!("import from `{module}` ({}): {e}", file.display()))?;
-            resolve_file_modules(&mut imported, ys_root)?;
-                // The module's host imports + TYPE vocabulary always come along; its
-                // VALUE defs come by transitive reachability from the imported names
-                // (so `import CometSection` pulls `Comet`, `Plot`, `Output`, … it
-                // references — #25 transitive value-deps).
-                let mut value_defs: std::collections::HashMap<String, Def> =
-                    std::collections::HashMap::new();
-                for d in imported.defs {
-                    // Host imports + the whole VOCABULARY (types, units, contexts,
-                    // contracts) always travel with a module: a `type Mass =
-                    // Quantity[unit: pg, …]` is useless without its `unit pg`, and
-                    // unit/context defs aren't reachable through value-ref scanning.
-                    // VALUE defs come by transitive reachability from the imported
-                    // names (below).
-                    if matches!(
-                        d,
-                        Def::Use { .. }
-                            | Def::Type(_)
-                            | Def::Unit(_)
-                            | Def::Context(_)
-                            | Def::Contract(_)
-                    ) {
-                        prefix.push(d);
-                    } else {
-                        value_defs.insert(crate::ast::def_name(&d).to_string(), d);
-                    }
-                }
-                let mut want: Vec<String> = names.iter().map(|n| n.to_string()).collect();
-                let mut taken: std::collections::HashSet<String> = std::collections::HashSet::new();
-                while let Some(name) = want.pop() {
-                    if !taken.insert(name.clone()) {
-                        continue;
-                    }
-                    if let Some(d) = value_defs.get(&name) {
-                        let mut refs = std::collections::HashSet::new();
-                        collect_def_refs(d, &mut refs);
-                        for r in refs {
-                            if !taken.contains(&r) && value_defs.contains_key(&r) {
-                                want.push(r);
-                            }
-                        }
-                        prefix.push(d.clone());
-                    }
-                }
-        }
-    }
-    // Merge imported defs (prefix) ahead of the program's own (kept), so the
-    // importer's last-def entry is preserved; de-duplicate by content so several
-    // sections re-importing the shared report.section module don't duplicate
-    // Trace/Figure or `from io import Path` (a duplicate type import would clash).
-    let mut seen = std::collections::HashSet::new();
-    program.defs = prefix
-        .into_iter()
-        .chain(kept)
-        .filter(|d| {
-            let key = match d {
-                Def::Use { module, names } => format!("use:{module}:{}", names.join(",")),
-                other => format!("def:{}", crate::ast::def_name(other)),
-            };
-            seen.insert(key)
-        })
-        .collect();
-    Ok(())
-}
 
 /// Resolve a `stream` protocol's relative `.ys` `path` against the entry file's
 /// dir (`ys_root`), exactly like a sibling `from cell import` — so a child cell
@@ -266,142 +159,6 @@ fn lower_first(s: &str) -> String {
     }
 }
 
-/// The other-def names a def REFERENCES in its body (controls + bare vars) — to
-/// pull a module's transitive value-deps when importing one of its defs.
-fn collect_def_refs(def: &Def, out: &mut std::collections::HashSet<String>) {
-    match def {
-        Def::Composite(d) => collect_refs(&d.body, out),
-        Def::Process(d) => collect_refs(&d.body, out),
-        Def::Step(d) => collect_refs(&d.body, out),
-        Def::Function(d) => collect_refs(&d.body, out),
-        _ => {}
-    }
-}
-
-fn collect_refs(e: &Expr, out: &mut std::collections::HashSet<String>) {
-    match e {
-        Expr::Var(n) => {
-            out.insert(n.to_string());
-        }
-        Expr::Term {
-            control,
-            args,
-            body,
-            ..
-        } => {
-            out.insert(control.to_string());
-            for a in args {
-                collect_refs(arg_expr(a), out);
-            }
-            if let Some(b) = body {
-                collect_refs(b, out);
-            }
-        }
-        Expr::Parallel(v) | Expr::List(v) => {
-            for x in v {
-                collect_refs(x, out);
-            }
-        }
-        Expr::KeyedEntry { value, .. } => collect_refs(value, out),
-        Expr::Map(pairs) => {
-            for (_, x) in pairs {
-                collect_refs(x, out);
-            }
-        }
-        Expr::Record(m) => {
-            for x in m.values() {
-                collect_refs(x, out);
-            }
-        }
-        Expr::Block(b) => {
-            for (_, x) in &b.bindings {
-                collect_refs(x, out);
-            }
-            collect_refs(&b.value, out);
-        }
-        Expr::Let { bindings, body } => {
-            for (_, x) in bindings {
-                collect_refs(x, out);
-            }
-            collect_refs(body, out);
-        }
-        Expr::If { cond, then_, else_ } => {
-            collect_refs(cond, out);
-            collect_refs(then_, out);
-            if let Some(e) = else_ {
-                collect_refs(e, out);
-            }
-        }
-        Expr::BinOp { lhs, rhs, .. } => {
-            collect_refs(lhs, out);
-            collect_refs(rhs, out);
-        }
-        Expr::UnaryOp { operand, .. } => collect_refs(operand, out),
-        Expr::Method { receiver, args, .. } => {
-            collect_refs(receiver, out);
-            for x in args {
-                collect_refs(x, out);
-            }
-        }
-        Expr::Field { base, .. } => collect_refs(base, out),
-        Expr::Call { func, args } => {
-            collect_refs(func, out);
-            for x in args {
-                collect_refs(x, out);
-            }
-        }
-        Expr::Comprehension {
-            source,
-            filter,
-            body,
-            key,
-            ..
-        } => {
-            collect_refs(source, out);
-            if let Some(f) = filter {
-                collect_refs(f, out);
-            }
-            collect_refs(body, out);
-            if let Some(k) = key {
-                collect_refs(k, out);
-            }
-        }
-        Expr::Rule { redex, reactum } => {
-            collect_refs(redex, out);
-            collect_refs(reactum, out);
-        }
-        Expr::Site { sort, .. } => {
-            if let Some(s) = sort {
-                collect_refs(s, out);
-            }
-        }
-        Expr::ReplaceWith { id, with } => {
-            collect_refs(id, out);
-            collect_refs(with, out);
-        }
-        Expr::Where { inner, predicate } => {
-            collect_refs(inner, out);
-            collect_refs(predicate, out);
-        }
-        // Literals + place/link forms reference no other def.
-        Expr::Unit
-        | Expr::Bool(_)
-        | Expr::Int(_)
-        | Expr::Float(_)
-        | Expr::Str(_)
-        | Expr::Path(_)
-        | Expr::Unbound
-        | Expr::LinkVar(_) => {}
-    }
-}
-
-fn arg_expr(a: &TermArg) -> &Expr {
-    match a {
-        TermArg::Positional(e) => e,
-        TermArg::Named { value, .. } => value,
-    }
-}
-
 /// `run <file.ys> [--time T] [--<port> SOURCE ...] [--in TRACE] [--out FILE]
 /// [--trace [--sample-dt DT]]` over the given packages. Returns a process exit
 /// code; prints results to stdout, errors to stderr. A `composite` entry with no
@@ -468,24 +225,21 @@ pub fn run_command(
         );
         return 2;
     };
-    let mut prog = match parse_file(&path) {
+    // Resolve file-module imports std-module-first: a native (e.g. `diffusion`)
+    // wins over a same-named sibling `.ys` demo (#50).
+    let mut prog = match parse_file_with_natives(&path, &modules.module_names()) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("parse {path}: {e}");
             return 1;
         }
     };
-    // Resolve `.ys`-file imports (a dotted `from pkg.sub import file`): merge the
-    // imported files' defs into this program before compiling (#25).
+    // `.ys`-file imports are already resolved by `parse_file` (#50). The entry
+    // file's dir is still needed to absolutize relative `stream:<.ys>` child
+    // paths (so a `stream<Cell, path: 'cell.ys'>` cell spawns regardless of cwd).
     let ys_root = std::path::Path::new(&path)
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."));
-    if let Err(e) = resolve_file_modules(&mut prog, ys_root) {
-        eprintln!("{e}");
-        return 1;
-    }
-    // Absolutize relative `stream:<.ys>` child paths against the entry file's dir
-    // (so a `stream<Cell, path: 'cell.ys'>` cell spawns regardless of cwd).
     resolve_stream_paths(&mut prog, ys_root);
     // A bare `process`/`step` entry gets a default harness so it runs standalone
     // (`chrysalis run grow.ys --mass 1 --glucose 5`). Skip when serving as a

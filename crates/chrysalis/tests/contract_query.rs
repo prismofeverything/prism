@@ -134,19 +134,28 @@ fn pinning_a_method_narrows_the_result() {
 
 #[test]
 fn fulfillers_queries_an_imported_library() {
-    // The package payoff: `cme-gillespie.ys` declares no processes of its own —
-    // it `import`s `lib/simulators.ys`. After `parse_file` merges the library,
-    // `fulfillers(C)` queries the IMPORTED contracted processes by contract.
+    // The package payoff under EXPLICIT named selection (#50): `cme-gillespie.ys`
+    // declares no processes of its own — it imports exactly the two it uses,
+    // `from chrysalis.lib.simulators import SsaEnsemble, DistCompare`. After
+    // `parse_file` merges them, `fulfillers(C)` queries the IMPORTED processes by
+    // contract — finding only what was imported, never a whole-file dump.
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ys/cme-gillespie.ys");
     let program = chrysalis::parse::parse_file(&path).expect("parse_file cme-gillespie.ys");
 
-    let mut cme = fulfillers(&program, &ContractRef::new("ExactCME"));
-    cme.sort();
-    assert_eq!(cme, vec!["Ssa", "SsaEnsemble"], "the CME fulfillers, from the imported library");
+    // `SsaEnsemble` fulfills ExactCME; `DistCompare` DEMANDS it (not a fulfiller).
+    // `Ssa` also fulfills ExactCME but is NOT imported, so it is NOT queryable.
+    let cme = fulfillers(&program, &ContractRef::new("ExactCME"));
+    assert_eq!(
+        cme,
+        vec!["SsaEnsemble"],
+        "only the imported CME fulfiller — explicit selection, not a whole-file dump"
+    );
 
-    // The deterministic fulfillers are merged in too (the whole library is), so
-    // they're queryable even though this demo only uses the CME lane.
-    let mut det = fulfillers(&program, &ContractRef::new("DeterministicMassAction"));
-    det.sort();
-    assert_eq!(det, vec!["ForwardEuler", "Rk4"], "the deterministic fulfillers, also from the library");
+    // No deterministic fulfiller (Rk4/ForwardEuler) is imported, so none is
+    // queryable — the inverse of the old whole-file merge, which pulled them all.
+    let det = fulfillers(&program, &ContractRef::new("DeterministicMassAction"));
+    assert!(
+        det.is_empty(),
+        "no deterministic fulfiller imported ⇒ none queryable (#50); got {det:?}"
+    );
 }

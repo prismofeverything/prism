@@ -13,10 +13,10 @@ use crate::ast::{
 };
 
 /// Unparse a whole program: each definition blank-line separated, except
-/// consecutive imports (`from … import …` / `import … from …`), which group
-/// together with a single newline.
+/// consecutive imports (`from … import …`), which group together with a single
+/// newline.
 pub fn unparse(program: &Program) -> String {
-    let is_import = |d: &Def| matches!(d, Def::Use { .. } | Def::Import { .. });
+    let is_import = |d: &Def| matches!(d, Def::Use { .. });
     let mut out = String::new();
     for (i, def) in program.defs.iter().enumerate() {
         if i > 0 {
@@ -145,7 +145,6 @@ fn unparse_def(def: &Def) -> String {
                 format!("contract {} ({axes})", c.name)
             }
         }
-        Def::Import { name, path } => format!("import {name} from '{path}'"),
         Def::Use { module, names } => format!("from {module} import {}", names.join(", ")),
         Def::Protocol(p) => {
             let fields = p

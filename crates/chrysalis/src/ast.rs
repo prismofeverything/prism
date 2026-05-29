@@ -473,21 +473,20 @@ pub enum Def {
     /// the typed address `{_type: protocol, …fields}` (the transport realizes it
     /// into a live process). See docs/protocols-as-types.md.
     Protocol(ProtocolDef),
-    /// `import Name from "path.ys"` — pull another file's definitions into
-    /// scope. Resolved by [`crate::parse::parse_file`] (load the file, merge
-    /// its defs); after resolution no `Import` remains in a `Program`.
-    Import {
-        name: Name,
-        path: String,
-    },
-    /// `from <module> import <name>, …` — pull NATIVE host capabilities into
-    /// scope: either a whole process (`from core import RunProcess`, used as-is
-    /// with no interface redeclaration) or functions/objects
-    /// (`from integrators import rk4, euler`) that a `.ys` `process`/`step` body
-    /// then calls (`rk4.integrate(network, state, interval)`). Resolved at
-    /// compile time against the host-supplied native module registry — the
-    /// replacement for `extern`. (Distinct from [`Def::Import`], which pulls in
-    /// another `.ys` *file*.)
+    /// `from <module> import <name>, …` — the ONE import form (#50). `module`
+    /// is a dotted path; `names` are the EXPLICITLY selected defs (no whole-file
+    /// "dump" — every name traces to its import). Resolved in one of two ways,
+    /// FILE-module first:
+    ///   - **file module**: a backing `.ys` exists (a dotted `<pkg>.<sub>.<file>`,
+    ///     or a single-segment sibling that exists) — [`crate::parse::parse_file`]
+    ///     merges the named defs + their transitive value-deps + the file's
+    ///     type/contract/unit/context/`use` vocabulary; no file-module `Use`
+    ///     survives resolution.
+    ///   - **native host module** (`from core import RunProcess`,
+    ///     `from integrators import rk4, euler`): no backing file — resolved at
+    ///     compile time against the host-supplied module registry (the `extern`
+    ///     replacement). A `.ys` `process`/`step` body then calls the imported
+    ///     object (`rk4.integrate(network, state, interval)`).
     Use {
         module: Name,
         names: Vec<Name>,
@@ -672,8 +671,8 @@ impl Program {
         let mut order: Vec<Name> = Vec::new();
         let mut map: indexmap::IndexMap<Name, EntityDef> = indexmap::IndexMap::new();
         for def in &self.defs {
-            // Import/Use don't contribute slots — skip name registration.
-            if matches!(def, Def::Import { .. } | Def::Use { .. }) {
+            // `use` imports don't contribute slots — skip name registration.
+            if matches!(def, Def::Use { .. }) {
                 continue;
             }
             let name = def_name(def).to_string();
@@ -854,7 +853,7 @@ impl EntityDef {
             Def::Binding { schema, value, .. } => {
                 self.binding = Some((schema.clone(), value.clone()));
             }
-            Def::Import { .. } | Def::Use { .. } => {}
+            Def::Use { .. } => {}
         }
     }
 
@@ -1118,8 +1117,8 @@ impl<'a> EntityView<'a> {
             Def::Unit(d) => self.unit = Some(d),
             Def::Context(d) => self.context = Some(d),
             Def::Binding { schema, value, .. } => self.binding = Some((schema, value)),
-            // Import / Use are directives, not entities: they don't fill a slot.
-            Def::Import { .. } | Def::Use { .. } => {}
+            // `use` imports are directives, not entities: they don't fill a slot.
+            Def::Use { .. } => {}
         }
     }
 
@@ -1157,7 +1156,6 @@ pub fn def_name(def: &Def) -> &str {
         Def::Type(d) => &d.name,
         Def::Contract(d) => &d.name,
         Def::Protocol(d) => &d.name,
-        Def::Import { name, .. } => name,
         Def::Use { module, .. } => module,
         Def::Binding { name, .. } => name,
     }

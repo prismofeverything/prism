@@ -15,8 +15,9 @@ fn ys_path(name: &str) -> std::path::PathBuf {
 
 #[test]
 fn external_engines_join_the_deterministic_fulfillers() {
-    // parse_file resolves `import Sim from 'simulators.ys'`, so the native
-    // fulfillers + contracts are merged in alongside external.ys's own defs.
+    // parse_file resolves external.ys's `from simulators import Rk4, ForwardEuler,
+    // CRN, DeterministicMassAction` — the explicitly named native fulfillers +
+    // contract are merged in alongside external.ys's own COPASI/Tellurium engines.
     let program = parse_file(&ys_path("lib/external.ys")).expect("parse_file lib/external.ys");
 
     let mut got = fulfillers(&program, &ContractRef::new("DeterministicMassAction"));

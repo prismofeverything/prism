@@ -19,24 +19,20 @@ fn ys_path(name: &str) -> PathBuf {
 }
 
 /// Run with the `Output` step pointed at a fresh temp dir (no source-tree
-/// writes), returning the final state. The demo `import`s lib/simulators.ys, so
-/// we rewrite that import to an absolute path (the temp copy lives outside ys/)
-/// and `parse_file` it to resolve the merge.
+/// writes), returning the final state. The demo imports `lib/simulators.ys`; we
+/// resolve its imports against the real `ys/` dir with `parse_program_in` — no
+/// temp file, no path rewriting (the dotted `from chrysalis.lib.simulators
+/// import …` carries no path to rewrite). (#50)
 fn run_workflow(tag: &str) -> (Value, PathBuf) {
     let out = std::env::temp_dir().join(format!("prism-integrator-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&out);
-    let abs_lib = ys_path("lib/simulators.ys");
-    let src = SRC
-        .replace("'lib/simulators.ys'", &format!("'{}'", abs_lib.display()))
-        .replace(
-            "IntegratorComparison[]",
-            &format!("IntegratorComparison[out: '{}']", out.display()),
-        );
-    let tmp =
-        std::env::temp_dir().join(format!("prism-integrator-{tag}-{}.ys", std::process::id()));
-    std::fs::write(&tmp, &src).expect("write temp ys");
-    let prog = parse_file(&tmp).expect("parse_file temp ys");
-    let _ = std::fs::remove_file(&tmp);
+    let src = SRC.replace(
+        "IntegratorComparison[]",
+        &format!("IntegratorComparison[out: '{}']", out.display()),
+    );
+    let ys_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ys");
+    let prog = chrysalis::parse::parse_program_in(&src, &ys_dir)
+        .expect("parse_program_in (imports resolve against ys/)");
     let state = chrysalis::runner::run(&prog, std_registry(), std_methods(), std_modules(), 2.0)
         .expect("run");
     (state, out)

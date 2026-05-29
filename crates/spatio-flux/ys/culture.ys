@@ -4,7 +4,7 @@
 # parent slot (fields_a / fields_b). This is the composite-process use case —
 # define once, import, nest, simulate — as two real `.ys` files.
 
-import Dish from "dish.ys"
+from dish import Dish
 
 composite Culture[
   grad_a: map[array[[3, 3], float]] =

@@ -2,7 +2,7 @@
 # Three notions of agreement — the process-contract demo
 # ═════════════════════════════════════════════════════════════════════════
 #
-# The question SED-ML / KISAO never answers: when do two simulators "agree"?
+# What does it mean to agree? When do two simulators "agree"?
 # Matching port SHAPES ("counts in, a time series out") is not enough — a
 # deterministic ODE and an exact-stochastic trajectory share that shape while
 # approximating DIFFERENT mathematical objects. A process-contract states the
@@ -28,7 +28,7 @@
 # (cme_source_is_refused_at_a_deterministic_comparison, and its reverse). The
 # comparison metric physically cannot be applied to the wrong target.
 
-import Simulators from 'lib/simulators.ys'
+from chrysalis.lib.simulators import Rk4, ForwardEuler, Ssa, SsaEnsemble, Compare, DistCompare
 
 # The library (lib/simulators.ys) supplies the contracts (DeterministicMassAction,
 # ExactCME), the fulfiller processes, and the claim-driven comparisons. This file

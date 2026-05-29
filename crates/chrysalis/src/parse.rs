@@ -482,8 +482,11 @@ impl Parser {
     }
 }
 
-/// Parse a full `.ys` program (string form; `import` directives are left as
-/// `Def::Import` — use [`parse_file`] to resolve them).
+/// Parse a full `.ys` program from a string. FILE-module imports (a `from
+/// <dotted.path> import …` backed by a `.ys`) are left UNRESOLVED as plain
+/// `Def::Use`; resolve them with [`parse_file`] or [`parse_program_in`] (which
+/// know a directory to resolve against). Native host `Def::Use` (`from core
+/// import …`, no backing file) are resolved later, at compile time.
 pub fn parse_program(src: &str) -> Result<Program, ParseError> {
     let toks = lex(src)?;
     let mut p = Parser {
@@ -551,50 +554,333 @@ pub fn parse_schema_expr(src: &str) -> Result<SchemaExpr, ParseError> {
     Ok(schema)
 }
 
-/// Parse a `.ys` file, **resolving `import Name from "rel"`** by loading the
-/// referenced files (relative to each file's directory) and merging their
-/// definitions. Imported `main` bindings and already-defined names are skipped;
-/// import cycles are guarded. After resolution the `Program` has no
-/// `Def::Import`. This is the file-driven form of the program-merge "import"
-/// mechanism.
+/// Parse a `.ys` file, resolving its FILE-module imports — every `from
+/// <dotted.path> import <Name, …>` backed by a `.ys` file is replaced by the
+/// EXPLICITLY named defs (+ their transitive value-deps + the file's
+/// type/contract/unit/context/`use` vocabulary). Each file's imports resolve
+/// **relative to that file's own directory** (so a library can import a sibling
+/// regardless of who the entry is), recursively.
+///
+/// This entry point knows NO native module names, so a single-segment `from X
+/// import` resolves to a sibling `X.ys` whenever one exists — correct when no
+/// native module shares a name with a sibling file. When a host's natives CAN
+/// collide with sibling demos (spatio-flux's `diffusion`/`kinetics`), use
+/// [`parse_file_with_natives`] so the native wins (std-module-first, #50).
+/// Modules are loaded once (memoized); import cycles are reported, not looped.
 pub fn parse_file(path: impl AsRef<std::path::Path>) -> Result<Program, ParseError> {
-    let mut visited = std::collections::HashSet::new();
-    load_file(path.as_ref(), &mut visited)
+    parse_file_with_natives(path, &std::collections::HashSet::new())
 }
 
+/// [`parse_file`] aware of the host's native module names: a single-segment
+/// import whose name is a native module binds the native (std-module-first),
+/// even if a same-named sibling `.ys` exists. Pass `registry.module_names()`.
+pub fn parse_file_with_natives(
+    path: impl AsRef<std::path::Path>,
+    natives: &std::collections::HashSet<String>,
+) -> Result<Program, ParseError> {
+    let mut cache: std::collections::HashMap<std::path::PathBuf, Program> =
+        std::collections::HashMap::new();
+    let mut stack: Vec<std::path::PathBuf> = Vec::new();
+    load_file(path.as_ref(), natives, &mut cache, &mut stack)
+}
+
+/// Like [`parse_file`], but for a program already in memory: resolve its
+/// file-module imports as if the source lived in `dir`. Used when the entry text
+/// is synthesized (e.g. a test redirecting an output path) yet its imports must
+/// resolve against a real package directory — no temp file, no path rewriting.
+pub fn parse_program_in(src: &str, dir: impl AsRef<std::path::Path>) -> Result<Program, ParseError> {
+    let raw = parse_program(src)?;
+    let natives = std::collections::HashSet::new();
+    let mut cache: std::collections::HashMap<std::path::PathBuf, Program> =
+        std::collections::HashMap::new();
+    let mut stack: Vec<std::path::PathBuf> = Vec::new();
+    resolve_file_modules(raw, dir.as_ref(), &natives, &mut cache, &mut stack)
+}
+
+/// Load + fully resolve one file's program (memoized by path). The returned
+/// program is self-contained: its own file-module imports are already merged in.
 fn load_file(
     path: &std::path::Path,
-    visited: &mut std::collections::HashSet<std::path::PathBuf>,
+    natives: &std::collections::HashSet<String>,
+    cache: &mut std::collections::HashMap<std::path::PathBuf, Program>,
+    stack: &mut Vec<std::path::PathBuf>,
 ) -> Result<Program, ParseError> {
-    visited.insert(path.to_path_buf());
+    if let Some(p) = cache.get(path) {
+        return Ok(p.clone());
+    }
+    if stack.iter().any(|p| p == path) {
+        return Err(ParseError {
+            message: format!("import cycle through {}", path.display()),
+            line: 0,
+        });
+    }
     let src = std::fs::read_to_string(path).map_err(|e| ParseError {
         message: format!("cannot read {}: {e}", path.display()),
         line: 0,
     })?;
     let raw = parse_program(&src)?;
     let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let mut program = Program::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    stack.push(path.to_path_buf());
+    let resolved = resolve_file_modules(raw, dir, natives, cache, stack);
+    stack.pop();
+    let resolved = resolved?;
+    cache.insert(path.to_path_buf(), resolved.clone());
+    Ok(resolved)
+}
+
+/// Resolve the file-module `Def::Use`s in `raw` against `dir` (the importer's
+/// directory): each backing `.ys` is loaded and its named selection merged in as
+/// a PREFIX, ahead of the importer's own defs (so the entry — the last
+/// interfaced def — is preserved). Native `Def::Use` (no backing file) pass
+/// through untouched. Defs are de-duplicated by content, so a module pulled
+/// through several importers contributes each def once.
+fn resolve_file_modules(
+    raw: Program,
+    dir: &std::path::Path,
+    natives: &std::collections::HashSet<String>,
+    cache: &mut std::collections::HashMap<std::path::PathBuf, Program>,
+    stack: &mut Vec<std::path::PathBuf>,
+) -> Result<Program, ParseError> {
+    let mut prefix: Vec<Def> = Vec::new();
+    let mut kept: Vec<Def> = Vec::new();
     for def in raw.defs {
-        if let Def::Import { path: rel, .. } = &def {
-            let imported_path = dir.join(rel);
-            if visited.contains(&imported_path) {
-                continue; // already loaded / cycle
+        let (module, names) = match &def {
+            Def::Use { module, names } => (module.clone(), names.clone()),
+            _ => {
+                kept.push(def);
+                continue;
             }
-            let imported = load_file(&imported_path, visited)?;
-            for d in imported.defs {
-                let name = crate::ast::def_name(&d).to_string();
-                if name == "main" || !seen.insert(name) {
-                    continue; // skip the imported `main` and duplicate names
-                }
-                program.push(d);
-            }
+        };
+        // FILE-module iff it has a backing `.ys`. A dotted package path always
+        // is one. A single segment is a file only when it is NOT a known native
+        // module (std-module-first) AND the sibling `.ys` exists — otherwise it's
+        // a native host import (`core`, `integrators`, …) left for compile.
+        let file = module_file(&module, dir);
+        let is_file_module =
+            module.contains('.') || (!natives.contains(module.as_str()) && file.exists());
+        if !is_file_module {
+            kept.push(def);
+            continue;
+        }
+        let imported = load_file(&file, natives, cache, stack)?;
+        merge_named(&imported, &names, &mut prefix);
+    }
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let defs = prefix
+        .into_iter()
+        .chain(kept)
+        .filter(|d| {
+            let key = match d {
+                Def::Use { module, names } => format!("use:{module}:{}", names.join(",")),
+                other => format!("def:{}", crate::ast::def_name(other)),
+            };
+            seen.insert(key)
+        })
+        .collect();
+    Ok(Program { defs })
+}
+
+/// The `.ys` file backing a module path, resolved against `dir` (the importer's
+/// directory). A DOTTED `<pkg>.<sub>.<file>` is package-rooted — the leading
+/// package segment is dropped, the rest map to directories
+/// (`chrysalis.lib.simulators` → `<dir>/lib/simulators.ys`; `spatio-flux.report
+/// .section` → `<dir>/report/section.ys`). A single segment is a sibling file
+/// (`<dir>/<module>.ys`).
+fn module_file(module: &str, dir: &std::path::Path) -> std::path::PathBuf {
+    if module.contains('.') {
+        let rel: std::path::PathBuf = module.split('.').skip(1).collect();
+        dir.join(rel).with_extension("ys")
+    } else {
+        dir.join(module).with_extension("ys")
+    }
+}
+
+/// Pull the EXPLICITLY named defs from an already-resolved imported program into
+/// `prefix`, with (a) their transitive value-deps — the controls a named def
+/// references, so a named composite drags in the processes it wires and a named
+/// protocol drags in the control it wraps — and (b) the file's whole
+/// type/contract/unit/context/`use` VOCABULARY (a pulled process body needs the
+/// `from integrators import rk4` it calls; its `fulfills C` needs `contract C`;
+/// a `type Mass` needs its `unit pg`). Value defs neither named nor reached
+/// transitively stay behind: explicit selection, no whole-file dump (#50).
+fn merge_named(imported: &Program, names: &[crate::ast::Name], prefix: &mut Vec<Def>) {
+    let mut value_defs: std::collections::HashMap<String, &Def> =
+        std::collections::HashMap::new();
+    for d in &imported.defs {
+        if matches!(
+            d,
+            Def::Use { .. } | Def::Type(_) | Def::Unit(_) | Def::Context(_) | Def::Contract(_)
+        ) {
+            prefix.push(d.clone()); // vocabulary always travels with the module
         } else {
-            seen.insert(crate::ast::def_name(&def).to_string());
-            program.push(def);
+            value_defs.insert(crate::ast::def_name(d).to_string(), d);
         }
     }
-    Ok(program)
+    // Worklist over the named defs + their transitive value-deps. A name that is
+    // not a value def (a type/contract/`use` named explicitly) is a no-op here —
+    // it already arrived as vocabulary above.
+    let mut want: Vec<String> = names.iter().map(|n| n.to_string()).collect();
+    let mut taken: std::collections::HashSet<String> = std::collections::HashSet::new();
+    while let Some(name) = want.pop() {
+        if !taken.insert(name.clone()) {
+            continue;
+        }
+        if let Some(d) = value_defs.get(&name) {
+            let mut refs = std::collections::HashSet::new();
+            collect_def_refs(d, &mut refs);
+            for r in refs {
+                if !taken.contains(&r) && value_defs.contains_key(&r) {
+                    want.push(r);
+                }
+            }
+            prefix.push((*d).clone());
+        }
+    }
+}
+
+/// The other-def names a def REFERENCES (controls + bare vars in its body), used
+/// to pull a module's transitive value-deps when one of its defs is imported.
+fn collect_def_refs(def: &Def, out: &mut std::collections::HashSet<String>) {
+    match def {
+        Def::Composite(d) => collect_refs(&d.body, out),
+        Def::Process(d) => collect_refs(&d.body, out),
+        Def::Step(d) => collect_refs(&d.body, out),
+        Def::Function(d) => collect_refs(&d.body, out),
+        // A protocol alias depends on the control it wraps (and any control named
+        // in its address fields): importing the alias drags the wrapped
+        // process/composite along (`CopasiCvode` ⇒ `CopasiModel`).
+        Def::Protocol(d) => {
+            out.insert(d.wrapped.to_string());
+            for (_, e) in &d.fields {
+                collect_refs(e, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_refs(e: &Expr, out: &mut std::collections::HashSet<String>) {
+    match e {
+        Expr::Var(n) => {
+            out.insert(n.to_string());
+        }
+        Expr::Term {
+            control,
+            args,
+            body,
+            ..
+        } => {
+            out.insert(control.to_string());
+            for a in args {
+                collect_refs(arg_expr(a), out);
+            }
+            if let Some(b) = body {
+                collect_refs(b, out);
+            }
+        }
+        Expr::Parallel(v) | Expr::List(v) => {
+            for x in v {
+                collect_refs(x, out);
+            }
+        }
+        Expr::KeyedEntry { value, .. } => collect_refs(value, out),
+        Expr::Map(pairs) => {
+            for (_, x) in pairs {
+                collect_refs(x, out);
+            }
+        }
+        Expr::Record(m) => {
+            for x in m.values() {
+                collect_refs(x, out);
+            }
+        }
+        Expr::Block(b) => {
+            for (_, x) in &b.bindings {
+                collect_refs(x, out);
+            }
+            collect_refs(&b.value, out);
+        }
+        Expr::Let { bindings, body } => {
+            for (_, x) in bindings {
+                collect_refs(x, out);
+            }
+            collect_refs(body, out);
+        }
+        Expr::If { cond, then_, else_ } => {
+            collect_refs(cond, out);
+            collect_refs(then_, out);
+            if let Some(e) = else_ {
+                collect_refs(e, out);
+            }
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            collect_refs(lhs, out);
+            collect_refs(rhs, out);
+        }
+        Expr::UnaryOp { operand, .. } => collect_refs(operand, out),
+        Expr::Method { receiver, args, .. } => {
+            collect_refs(receiver, out);
+            for x in args {
+                collect_refs(x, out);
+            }
+        }
+        Expr::Field { base, .. } => collect_refs(base, out),
+        Expr::Call { func, args } => {
+            collect_refs(func, out);
+            for x in args {
+                collect_refs(x, out);
+            }
+        }
+        Expr::Comprehension {
+            source,
+            filter,
+            body,
+            key,
+            ..
+        } => {
+            collect_refs(source, out);
+            if let Some(f) = filter {
+                collect_refs(f, out);
+            }
+            collect_refs(body, out);
+            if let Some(k) = key {
+                collect_refs(k, out);
+            }
+        }
+        Expr::Rule { redex, reactum } => {
+            collect_refs(redex, out);
+            collect_refs(reactum, out);
+        }
+        Expr::Site { sort, .. } => {
+            if let Some(s) = sort {
+                collect_refs(s, out);
+            }
+        }
+        Expr::ReplaceWith { id, with } => {
+            collect_refs(id, out);
+            collect_refs(with, out);
+        }
+        Expr::Where { inner, predicate } => {
+            collect_refs(inner, out);
+            collect_refs(predicate, out);
+        }
+        // Literals + place/link forms reference no other def.
+        Expr::Unit
+        | Expr::Bool(_)
+        | Expr::Int(_)
+        | Expr::Float(_)
+        | Expr::Str(_)
+        | Expr::Path(_)
+        | Expr::Unbound
+        | Expr::LinkVar(_) => {}
+    }
+}
+
+fn arg_expr(a: &crate::ast::TermArg) -> &Expr {
+    match a {
+        crate::ast::TermArg::Positional(e) => e,
+        crate::ast::TermArg::Named { value, .. } => value,
+    }
 }
 
 impl Parser {
@@ -609,21 +895,14 @@ impl Parser {
             Tok::Unit => self.parse_unit_def(),
             Tok::Context => self.parse_context_def(),
             Tok::Contract => self.parse_contract_def(),
-            Tok::Import => {
-                self.bump();
-                let name = self.ident()?;
-                let from = self.ident()?; // `from` is a contextual keyword
-                if from != "from" {
-                    return Err(self.err(&format!("expected `from` in import, found `{from}`")));
-                }
-                let path = match self.bump() {
-                    Tok::Str(s) => s,
-                    other => {
-                        return Err(self.err(&format!("expected a quoted path, found {other:?}")));
-                    }
-                };
-                Ok(Def::Import { name, path })
-            }
+            // The `import N from 'path'` whole-file "dump" form was removed (#50):
+            // it was lossy — a vestigial name, invisible defs, and (with several
+            // imports) no way to tell which file a later control came from. There
+            // is ONE import form now; point the writer at it.
+            Tok::Import => Err(self.err(
+                "the `import N from 'path'` form was removed; use \
+                 `from <dotted.path> import <Name, …>` (explicit named selection)",
+            )),
             // `from <module> import <name>, …` — native host imports (the
             // `extern` replacement). `from` is a contextual keyword, so guard on
             // it not being a `from = …` binding.

@@ -8,7 +8,7 @@
 //! cargo run -p spatio-flux --bin sf -- run <file.ys> [--time T]
 //! ```
 
-use chrysalis::parse::parse_file;
+use chrysalis::parse::parse_file_with_natives;
 use spatio_flux::prelude::{sf_methods, sf_modules, sf_registry};
 
 fn main() {
@@ -37,11 +37,14 @@ fn main() {
         std::process::exit(2);
     };
 
-    let prog = parse_file(&path).unwrap_or_else(|e| {
+    // Resolve file-module imports std-module-first against spatio-flux's natives,
+    // so `from diffusion import …` binds the native (not the `diffusion.ys` demo).
+    let modules = sf_modules();
+    let prog = parse_file_with_natives(&path, &modules.module_names()).unwrap_or_else(|e| {
         eprintln!("sf: parse {path}: {e}");
         std::process::exit(1);
     });
-    let state = chrysalis::runner::run(&prog, sf_registry(), sf_methods(), sf_modules(), time)
+    let state = chrysalis::runner::run(&prog, sf_registry(), sf_methods(), modules, time)
         .unwrap_or_else(|e| {
             eprintln!("sf: run {path}: {e}");
             std::process::exit(1);

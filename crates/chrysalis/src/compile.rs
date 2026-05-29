@@ -116,6 +116,15 @@ impl ModuleRegistry {
         Self::default()
     }
 
+    /// The set of NATIVE host module names this registry knows (`core`,
+    /// `integrators`, `diffusion`, …). File-module import resolution consults it
+    /// so a native module wins over a same-named sibling `.ys` (std-module-first:
+    /// `from diffusion import …` binds the native even when a `diffusion.ys` demo
+    /// sits beside the importer). (#50)
+    pub fn module_names(&self) -> HashSet<String> {
+        self.modules.keys().cloned().collect()
+    }
+
     /// Declare that `module` exports a whole native process named `name`
     /// (its factory must be registered in the `ProcessRegistry`).
     pub fn process(mut self, module: &str, name: &str) -> Self {
@@ -403,10 +412,9 @@ pub fn compile_with_modules(
             // composite via the generic `Composite` factory, with the address
             // overridden to the typed protocol address (see eval::build_protocol_outer).
             | Def::Protocol(_)
-            // `Import` is resolved away by `parse::parse_file`; a leftover one
-            // registers no factory. `Use` (native host imports) is resolved
-            // separately (binds imported names); registers no factory here.
-            | Def::Import { .. }
+            // `Use`: file-module imports are resolved away by `parse::parse_file`;
+            // native host imports are resolved separately (binds imported names).
+            // Either way it registers no factory here.
             | Def::Use { .. }
             | Def::Binding { .. } => {}
         }

@@ -21,7 +21,8 @@
 #
 # Run against a service: `process-server/serve.sh 8765 &`, then run the demo.
 
-import External from 'lib/external.ys'
+from chrysalis.lib.external import CopasiCvode
+from chrysalis.lib.simulators import Rk4, Compare
 from core import RunProcess
 
 def schlogl :: CRN = {

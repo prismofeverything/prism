@@ -6,7 +6,6 @@
 use std::path::PathBuf;
 
 use chrysalis::compile::compile_with_modules;
-use chrysalis::parse::parse_file;
 use chrysalis::prelude::{std_methods, std_modules, std_registry};
 use chrysalis::runner::{document_of, run, run_document};
 use prism_bigraph::Document;
@@ -14,28 +13,19 @@ use prism_schema::Value;
 
 const SRC: &str = include_str!("../ys/integrator-comparison.ys");
 
-fn ys_path(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ys").join(name)
-}
-
-/// integrator-comparison.ys with its library import rewritten to an absolute
-/// path (so a temp copy outside ys/ resolves it) and `Output` pointed at a temp
-/// dir. Returns the parsed (import-resolved) program + the out dir.
+/// integrator-comparison.ys with `Output` pointed at a temp dir. Its imports
+/// resolve against the real `ys/` dir via `parse_program_in` — no temp file, no
+/// path rewriting (#50). Returns the parsed (import-resolved) program + out dir.
 fn temp_program(tag: &str) -> (chrysalis::ast::Program, PathBuf) {
     let out = std::env::temp_dir().join(format!("prism-exportimport-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&out);
-    let abs_lib = ys_path("lib/simulators.ys");
-    let src = SRC
-        .replace("'lib/simulators.ys'", &format!("'{}'", abs_lib.display()))
-        .replace(
-            "IntegratorComparison[]",
-            &format!("IntegratorComparison[out: '{}']", out.display()),
-        );
-    let tmp =
-        std::env::temp_dir().join(format!("prism-exportimport-{tag}-{}.ys", std::process::id()));
-    std::fs::write(&tmp, &src).expect("write temp ys");
-    let prog = parse_file(&tmp).expect("parse_file temp ys");
-    let _ = std::fs::remove_file(&tmp);
+    let src = SRC.replace(
+        "IntegratorComparison[]",
+        &format!("IntegratorComparison[out: '{}']", out.display()),
+    );
+    let ys_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ys");
+    let prog = chrysalis::parse::parse_program_in(&src, &ys_dir)
+        .expect("parse_program_in (imports resolve against ys/)");
     (prog, out)
 }
 

@@ -14,7 +14,8 @@
 #
 # Run against a service: `process-server/serve.sh 8765 &`, then run the demo.
 
-import External from 'lib/external.ys'
+from chrysalis.lib.external import CopasiCvode, RoadRunnerCvode
+from chrysalis.lib.simulators import Rk4, Compare
 from core import RunProcess
 
 # The shared model (the canonical CRN; the python wrappers generate SBML from it).

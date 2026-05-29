@@ -34,7 +34,7 @@
 # `RunProcess` are imported native capabilities; the ports, the contract, and
 # the comparison are the language's.
 
-import Simulators from 'lib/simulators.ys'
+from chrysalis.lib.simulators import Rk4, ForwardEuler, Compare
 
 # The library (lib/simulators.ys) supplies the DeterministicMassAction contract,
 # the Rk4 / ForwardEuler fulfillers, and the warranted `Compare`. This file adds
