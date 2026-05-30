@@ -363,6 +363,9 @@ pub fn compile_with_modules(
     // algebra to each type's representation (first-class Custom dispatch).
     let mut type_registry = TypeRegistry::new();
     register_user_types(&mut type_registry, &program_arc);
+    // The `Qubits` quantum-register type (overwrite-apply + N-qubit gate
+    // methods) is part of chrysalis's std vocabulary, like the builtins.
+    crate::quantum::register_quantum_type(&mut type_registry);
     let type_registry = Arc::new(type_registry);
 
     // The Composite factory needs the WHOLE Core to build subengines (so a

@@ -1,32 +1,21 @@
-# Streaming variant of quantum-lifecycle.ys — the split/merge entanglement
-# lifecycle where each QuantumSystem runs as its OWN `chrysalis run
-# quantum-system.ys --serve-process` child over Arrow pipes (the `stream:`
-# protocol), NOT as a local in-thread sub-composite.
+# Streaming variant of quantum-lifecycle.ys — each QuantumSystem runs as
+# its OWN `chrysalis run quantum-system.ys --serve-process` child over
+# Arrow pipes (the `stream:` protocol), not a local in-thread composite.
 # ────────────────────────────────────────────────────────────────────
 #
-# This is the EXACT analog of environment.ys (StreamingCell) for the
-# quantum lifecycle: the ONLY change from quantum-lifecycle.ys is
-# `QuantumSystem` → `StreamingQuantumSystem` (a `stream<…>` protocol
-# alias) and the slot type `map[QuantumSystem]` → `map[StreamingQuantumSystem]`.
-# Per docs/merge-protocol.md the structural `_remove`/`_add` ride the
-# OUTPUT bridge (already update-based, proven by grow_divide_stream.rs),
-# so split/merge should cross the wire unchanged. Probe: does the
-# `_add` of a freshly-AUTHORED `StreamingQuantumSystem[state0: …]` Term
-# (vs. an inherited divide_by_schema daughter) spawn a stream child?
+# The ONLY change from quantum-lifecycle.ys is `QuantumSystem` →
+# `StreamingQuantumSystem` (a `stream<…>` alias) + the slot type. The
+# structural `_remove`/`_add` ride the (already update-based) output
+# bridge, so split/merge crosses the wire unchanged (proven by
+# grow_divide_stream.rs). Uses the `Qubits` type's methods — `.factorize`
+# / `.tensor` — exactly as the local version does.
 #
-# Three phases, visible at three `--time` snapshots:
-#       initial             →   split                →   merged
-#   { ab: <|++⟩> }    →    { a: <|+⟩>, b: <|+⟩> } →   { ab2: <|++⟩> }
-#   --time 0          →    --time 1               →   --time 2+
+#       t=0 { ab: |++⟩ }  →  t=1 { a: |+⟩, b: |+⟩ }  →  t=2+ { ab2: |++⟩ }
 
-from meta import factorize, tensor
 from quantum-system import QuantumSystem
 
 protocol StreamingQuantumSystem = stream<QuantumSystem, path: 'quantum-system.ys'>
 
-# Sequential split-then-merge picker — identical to quantum-lifecycle.ys
-# except each `_add` emits a STREAM-addressed `StreamingQuantumSystem`
-# Term (a serialized stream-node spec) instead of a local composite Term.
 process Lifecycle
   ~{systems :: map[StreamingQuantumSystem]}
   ->{systems :: map[StreamingQuantumSystem]}
@@ -35,9 +24,9 @@ process Lifecycle
     {systems: {
       _remove: ['ab'],
       _add: {
-        a: StreamingQuantumSystem[state0: factorize(systems.ab.state, 1.0).a]
+        a: StreamingQuantumSystem[state0: systems.ab.state.factorize(1.0).a]
             ~{state: %.state} ->{state: %.state},
-        b: StreamingQuantumSystem[state0: factorize(systems.ab.state, 1.0).b]
+        b: StreamingQuantumSystem[state0: systems.ab.state.factorize(1.0).b]
             ~{state: %.state} ->{state: %.state}
       }
     }}
@@ -47,7 +36,7 @@ process Lifecycle
         {systems: {
           _remove: ['a', 'b'],
           _add: {
-            ab2: StreamingQuantumSystem[state0: tensor(systems.a.state, systems.b.state)]
+            ab2: StreamingQuantumSystem[state0: systems.a.state.tensor(systems.b.state)]
                   ~{state: %.state} ->{state: %.state}
           }
         }}
@@ -57,12 +46,11 @@ process Lifecycle
       {systems: {}}
 )
 
-# Initial state: a SINGLE streaming `ab` holding |+⟩⊗|+⟩.
 composite Lab ~{} ->{
   systems :: map[StreamingQuantumSystem] @ systems
 } (
   systems: {
-    ab: StreamingQuantumSystem[state0: {'00': 0.5, '01': 0.5, '10': 0.5, '11': 0.5}]
+    ab: StreamingQuantumSystem[state0: {_type: 'Qubits', '00': 0.5, '01': 0.5, '10': 0.5, '11': 0.5}]
       ~{state: %.state} ->{state: %.state}
   } |
   cycle: Lifecycle ~{systems: systems} ->{systems: systems}

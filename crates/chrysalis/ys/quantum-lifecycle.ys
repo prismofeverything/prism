@@ -1,52 +1,29 @@
 # Q4-spirit demo of #36 — quantum entanglement LIFECYCLE through the
-# place graph. The structural reflection of "one program vs many".
+# place graph (the structural reflection of "one program vs many").
 # ────────────────────────────────────────────────────────────────────
 #
-# Three phases, visible at three different `--time` snapshots:
-#
+# Three phases, visible at three `--time` snapshots:
 #       initial             →   split                →   merged
-#   ──────────────────────────────────────────────────────────────
-#   { ab: <|++⟩> }    →    { a: <|+⟩>,         →   { ab2: <|++⟩> }
-#                            b: <|+⟩> }
+#   { ab: <|++⟩> }    →    { a: <|+⟩>, b: <|+⟩> } →   { ab2: <|++⟩> }
+#   --time 0          →    --time 1               →   --time 2+
 #
-#   --time 0          →    --time 1             →   --time 2+
-#
-# Mechanism: ONE `Lifecycle` process handles both phases sequentially
-# — at each tick it inspects `systems` and emits the appropriate
-# structural intent:
-#
-#   • If `ab` is present:  SPLIT  →  `_remove: [ab]` + `_add: {a, b}`
-#   • Else if `a, b`:      MERGE  →  `_remove: [a, b]` + `_add: {ab2}`
-#   • Else:                no-op  (final state reached)
-#
-# `systems :: map[QuantumSystem]` — each entry is a REAL sub-composite
-# (a `QuantumSystem` from `quantum-system.ys`) with its own bridge +
-# internal Publish process. The Lifecycle reads each sibling's state
-# through the bridge (`systems.<id>.state`); structural intents
-# (`_remove`/`_add`) mutate the place graph itself, spawning/tearing
-# down sub-composites. See docs/merge-protocol.md for the symmetric-
-# bridge + reactions-as-updates design this is built on.
+# `systems :: map[QuantumSystem]` — each entry a REAL sub-composite with
+# its own Publish + bridge. The `Lifecycle` process reads each sibling's
+# `Qubits` state and uses the type's METHODS — `state.factorize(1)` to
+# split, `a.tensor(b)` to merge — emitting `_remove`/`_add` structural
+# intents. See docs/merge-protocol.md + docs/quantum-bigraphs.md.
 
-from meta import factorize, tensor
 from quantum-system import QuantumSystem
 
-# ── Lifecycle: sequential split-then-merge picker. ─────────────────
-# Each `_add` emits a `QuantumSystem[state0: …] ~{…} ->{…}` Term — a
-# serialized composite (full spec with the Publish process intact),
-# not just a raw state map. That's what makes the new entry actually
-# RUN as a composite once added: it has its internal processes + bridge
-# wiring, so its state publishes to the parent through the bridge each
-# tick. The default ports route the inner `state` slot to/from the
-# parent's `%.state` (the `a`/`b`/`ab2` node's own state field).
 process Lifecycle ~{systems :: map[QuantumSystem]} ->{systems :: map[QuantumSystem]}
 (
   if 'ab' in systems then
     {systems: {
       _remove: ['ab'],
       _add: {
-        a: QuantumSystem[state0: factorize(systems.ab.state, 1.0).a]
+        a: QuantumSystem[state0: systems.ab.state.factorize(1.0).a]
             ~{state: %.state} ->{state: %.state},
-        b: QuantumSystem[state0: factorize(systems.ab.state, 1.0).b]
+        b: QuantumSystem[state0: systems.ab.state.factorize(1.0).b]
             ~{state: %.state} ->{state: %.state}
       }
     }}
@@ -56,7 +33,7 @@ process Lifecycle ~{systems :: map[QuantumSystem]} ->{systems :: map[QuantumSyst
         {systems: {
           _remove: ['a', 'b'],
           _add: {
-            ab2: QuantumSystem[state0: tensor(systems.a.state, systems.b.state)]
+            ab2: QuantumSystem[state0: systems.a.state.tensor(systems.b.state)]
                   ~{state: %.state} ->{state: %.state}
           }
         }}
@@ -66,13 +43,11 @@ process Lifecycle ~{systems :: map[QuantumSystem]} ->{systems :: map[QuantumSyst
       {systems: {}}
 )
 
-# Initial state: a SINGLE `QuantumSystem` `ab` holding the |+⟩⊗|+⟩
-# joint state. The Splitter will factorize it on first tick.
 composite Lab ~{} ->{
   systems :: map[QuantumSystem] @ systems
 } (
   systems: {
-    ab: QuantumSystem[state0: {'00': 0.5, '01': 0.5, '10': 0.5, '11': 0.5}]
+    ab: QuantumSystem[state0: {_type: 'Qubits', '00': 0.5, '01': 0.5, '10': 0.5, '11': 0.5}]
       ~{state: %.state} ->{state: %.state}
   } |
   cycle: Lifecycle ~{systems: systems} ->{systems: systems}

@@ -27,6 +27,7 @@ pub fn std_methods() -> MethodRegistry {
     let mut m = MethodRegistry::new();
     prism_std::register_methods(&mut m);
     register_document_methods(&mut m);
+    crate::quantum::register_quantum_methods(&mut m);
     m
 }
 

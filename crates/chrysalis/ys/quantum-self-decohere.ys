@@ -1,0 +1,44 @@
+# Task #4 — the LOAD-BEARING child: a quantum system that DECODES its own
+# entanglement, so its factorizability is a CONSEQUENCE of its own
+# computation, not a re-read of a seed.
+# ────────────────────────────────────────────────────────────────────
+#
+# `Decohere` applies a CNOT each tick UNTIL the state factorizes (CNOT
+# decodes a Bell pair: (|00⟩+|11⟩)/√2 --cnot(0,1)--> (|00⟩+|10⟩)/√2 =
+# |+⟩⊗|0⟩, separable). The `.separable(1)` guard makes it a fixed point —
+# once decoded, it holds. `Observe` republishes the live self-verdict.
+#
+#   t=0 : state = Bell  (|00⟩+|11⟩)/√2 ,  separable = false   (entangled)
+#   t=1+: state = |+⟩⊗|0⟩              ,  separable = true    (DECODED)
+#
+# The structural decision (`separable`) flips because the child COMPUTED
+# itself separable via the gate method — exactly what makes "splits when
+# it factorizes" real rather than scripted. Pair with quantum-auto-split.ys
+# (the parent that enacts the split on this verdict).
+#
+# Run: `chrysalis run quantum-self-decohere.ys --time 1`
+
+# Decode toward separability: CNOT while entangled, hold once factorizable.
+process Decohere ~{state :: Qubits} ->{state :: Qubits}
+(
+  if state.separable(1.0) then
+    {state: state}
+  else
+    {state: state.cnot(0.0, 1.0)}
+)
+
+# Republish the live self-verdict each tick (overwrite = snapshot, replace).
+process Observe ~{state :: Qubits} ->{separable :: overwrite[bool]}
+(
+  {separable: state.separable(1.0)}
+)
+
+composite Decohering ~{} ->{
+  state     :: Qubits @ state,
+  separable :: bool @ separable
+} (
+  state: {_type: 'Qubits', '00': 0.7071067811865476, '01': 0.0, '10': 0.0, '11': 0.7071067811865476} |
+  separable: false |
+  decohere: Decohere ~{state: state} ->{state: state} |
+  observe:  Observe  ~{state: state} ->{separable: separable}
+)

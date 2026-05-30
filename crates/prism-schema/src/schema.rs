@@ -872,6 +872,20 @@ impl Schema {
     }
 
     pub(crate) fn apply_update(&self, current: &Value, update: &Value) -> Value {
+        self.apply_with_reg(None, current, update)
+    }
+
+    /// The single registry-threading apply recursion. `reg` is carried through
+    /// EVERY sub-schema call, so a `Custom` type dispatches its registered
+    /// `TypeMethods::apply` consistently at any depth — never the registryless
+    /// replace fallback. `apply_update` is `apply_with_reg(None, …)`;
+    /// `apply_update_with` is `apply_with_reg(Some(reg), …)`.
+    pub(crate) fn apply_with_reg(
+        &self,
+        reg: Option<&crate::registry::TypeRegistry>,
+        current: &Value,
+        update: &Value,
+    ) -> Value {
         match self {
             // Const: immutable — apply is a no-op, current value preserved.
             // Mirrors upstream `bigraph_schema.methods.apply` on Const.
@@ -920,13 +934,14 @@ impl Schema {
                             if let Some(idx) = layout.index_of(k) {
                                 let schema = branches.get(k).unwrap_or(&Schema::Any);
                                 let existing = &values[idx];
-                                new_values[idx] = schema.apply_update(existing, v);
+                                new_values[idx] = schema.apply_with_reg(reg, existing, v);
                             }
                         }
                         Value::Struct { layout: layout.clone(), values: new_values }
                     }
                     // Map current + Map update — unified through `apply_map_with`.
                     (Value::Map(cur), Value::Map(upd)) => Value::Map(apply_map_with(
+                        reg,
                         cur,
                         upd,
                         |k| branches.get(k).unwrap_or(&Schema::Any),
@@ -938,7 +953,23 @@ impl Schema {
             // Map: every entry uses `val_schema`; unified through `apply_map_with`.
             Self::Map { value: val_schema } => {
                 if let (Value::Map(cur), Value::Map(upd)) = (current, update) {
-                    Value::Map(apply_map_with(cur, upd, |_| val_schema))
+                    // `_divide` sentinel (registry-driven): apply any co-located
+                    // deltas first, then split the named child by the value
+                    // schema. Folded in from the old `apply_update_with` so the
+                    // single threaded recursion owns it.
+                    if let Some(r) = reg {
+                        if upd.contains_key("_divide") {
+                            let mut rest = upd.clone();
+                            rest.shift_remove("_divide");
+                            let base = if rest.is_empty() {
+                                current.clone()
+                            } else {
+                                self.apply_with_reg(Some(r), current, &Value::Map(rest))
+                            };
+                            return apply_divide_sentinel(val_schema, r, &base, upd);
+                        }
+                    }
+                    Value::Map(apply_map_with(reg, cur, upd, |_| val_schema))
                 } else {
                     update.clone()
                 }
@@ -976,7 +1007,7 @@ impl Schema {
                 match (current, update) {
                     (Value::None, _) => update.clone(),
                     (_, Value::None) => Value::None,
-                    _ => inner.apply_update(current, update),
+                    _ => inner.apply_with_reg(reg, current, update),
                 }
             }
 
@@ -999,9 +1030,9 @@ impl Schema {
                             cur.iter().zip(upd.iter())
                                 .map(|(c, u)| match (c, u) {
                                     // Nested → recurse one dimension deeper.
-                                    (Value::List(_), Value::List(_)) => sub_array.apply_update(c, u),
+                                    (Value::List(_), Value::List(_)) => sub_array.apply_with_reg(reg, c, u),
                                     // Flat numeric leaf → additive element apply.
-                                    _ => element.apply_update(c, u),
+                                    _ => element.apply_with_reg(reg, c, u),
                                 })
                                 .collect()
                         )
@@ -1018,7 +1049,7 @@ impl Schema {
                             cur.iter().zip(upd.iter()).enumerate()
                                 .map(|(i, (c, u))| {
                                     let schema = elements.get(i).unwrap_or(&Schema::Any);
-                                    schema.apply_update(c, u)
+                                    schema.apply_with_reg(reg, c, u)
                                 })
                                 .collect()
                         )
@@ -1042,7 +1073,7 @@ impl Schema {
             | Self::CompositeLink { .. } => Schema::Tree {
                 branches: self.node_data_branches(),
             }
-            .apply_update(current, update),
+            .apply_with_reg(reg, current, update),
 
             // Bridge: wiring data, replaced wholesale on update.
             Self::Bridge { .. } => update.clone(),
@@ -1060,11 +1091,11 @@ impl Schema {
                             match (&existing, v) {
                                 // Both maps: recurse as tree
                                 (Value::Map(_), Value::Map(_)) => {
-                                    result.insert(k.clone(), self.apply_update(&existing, v));
+                                    result.insert(k.clone(), self.apply_with_reg(reg, &existing, v));
                                 }
                                 // Both leaves: apply leaf semantics
                                 (_, _) if existing.as_map().is_none() && v.as_map().is_none() => {
-                                    result.insert(k.clone(), leaf.apply_update(&existing, v));
+                                    result.insert(k.clone(), leaf.apply_with_reg(reg, &existing, v));
                                 }
                                 // Type mismatch (map vs leaf): update replaces
                                 _ => {
@@ -1074,15 +1105,18 @@ impl Schema {
                         }
                         Value::Map(result)
                     }
-                    _ => leaf.apply_update(current, update),
+                    _ => leaf.apply_with_reg(reg, current, update),
                 }
             }
 
-            // Custom: dispatched through TypeRegistry — at the Schema
-            // level we don't have the registry, so fall back to update
-            // (replace). Engine integration uses `apply_update_with`
-            // to consult the registry instead.
-            Self::Custom { .. } => update.clone(),
+            // Custom: dispatch the type's registered `apply` whenever the
+            // registry is threaded — which, in the engine, it always now is.
+            // Only a genuinely registryless call (a bare-schema unit test)
+            // falls back to replace.
+            Self::Custom { name, .. } => match reg {
+                Some(r) => r.type_apply(name, current, update),
+                None => update.clone(),
+            },
 
             // Any: infer behavior from the value types
             Self::Any => {
@@ -1096,7 +1130,7 @@ impl Schema {
                     // Both maps → recursive merge with _add/_remove, every key
                     // through `Any` (unified via `apply_map_with`).
                     (Value::Map(cur), Value::Map(upd)) => {
-                        Value::Map(apply_map_with(cur, upd, |_| &Schema::Any))
+                        Value::Map(apply_map_with(reg, cur, upd, |_| &Schema::Any))
                     }
                     // Struct current + Map update → update fields in place
                     (Value::Struct { layout, values }, Value::Map(upd)) => {
@@ -1105,7 +1139,7 @@ impl Schema {
                             if k == "_add" || k == "_remove" { continue; }
                             if let Some(idx) = layout.index_of(k) {
                                 let existing = &values[idx];
-                                new_values[idx] = Schema::Any.apply_update(existing, v);
+                                new_values[idx] = Schema::Any.apply_with_reg(reg, existing, v);
                             }
                         }
                         Value::Struct { layout: layout.clone(), values: new_values }
@@ -1134,37 +1168,10 @@ impl Schema {
         current: &Value,
         update: &Value,
     ) -> Value {
-        if let Self::Custom { name, .. } = self {
-            if let Some(reg) = registry {
-                return reg.type_apply(name, current, update);
-            }
-        }
-        // `_divide` sentinel on a Map: split the named child by the value
-        // schema, drop the mother, install the daughters. Faithful port of
-        // bigraph-schema `_handle_divide_sentinel`; needs the registry to
-        // run the schema-driven divide.
-        if let (Self::Map { value }, Some(reg)) = (self, registry) {
-            if let Some(um) = update.as_map() {
-                if um.contains_key("_divide") {
-                    // Apply the regular (non-`_divide`) part FIRST — sibling
-                    // entries' deltas AND the mother's own delta from the same
-                    // tick — THEN enact the divide on the result. So a tick that
-                    // both grows and divides conserves mass (the mother is split
-                    // at its post-growth value, and no co-located delta is
-                    // dropped). Returning early on `_divide` alone silently
-                    // discarded those deltas — a conservation leak.
-                    let mut rest = um.clone();
-                    rest.shift_remove("_divide");
-                    let base = if rest.is_empty() {
-                        current.clone()
-                    } else {
-                        self.apply_update_with(registry, current, &Value::Map(rest))
-                    };
-                    return apply_divide_sentinel(value, reg, &base, um);
-                }
-            }
-        }
-        self.apply_update(current, update)
+        // Custom dispatch + the `_divide` sentinel now live INSIDE the threaded
+        // recursion ([`Self::apply_with_reg`]), so they apply at any depth —
+        // not just at the top level. This is the single registry-aware entry.
+        self.apply_with_reg(registry, current, update)
     }
 
     /// Serialize a typed value to a JSON-compatible representation.
@@ -1695,6 +1702,7 @@ fn merge_replace(base: &Value, over: &Value) -> Value {
 /// end for sub-composites: the sender ships a serialized value, the
 /// receiver's apply realizes it.
 pub(crate) fn apply_map_with<'a>(
+    reg: Option<&crate::registry::TypeRegistry>,
     current_map: &crate::value::StateMap,
     update_map: &crate::value::StateMap,
     schema_for: impl Fn(&Key) -> &'a Schema,
@@ -1724,7 +1732,7 @@ pub(crate) fn apply_map_with<'a>(
         }
         let s = schema_for(k);
         let existing = result.get(k).cloned().unwrap_or(Value::None);
-        result.insert(k.clone(), s.apply_update(&existing, v));
+        result.insert(k.clone(), s.apply_with_reg(reg, &existing, v));
     }
     result
 }

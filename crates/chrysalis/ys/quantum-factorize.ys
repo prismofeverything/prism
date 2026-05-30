@@ -1,50 +1,40 @@
-# Q5 of #36 — `factorize`: the inverse of `tensor`. The substrate for
-# auto-divide-on-factorizability.
+# Q5 of #36 — `factorize`: the inverse of `tensor`, now a METHOD on
+# `Qubits`. The substrate for auto-divide-on-factorizability.
 # ────────────────────────────────────────────────────────────────────
 #
-# `factorize(joint, k)` examines a joint quantum-state map and tries to
-# split it at bit `k` into two separable factor states:
-#   • `tensor(a, b) == joint`  ⇒  returns `{separable: true, a, b}`
-#   • not separable             ⇒  returns `{separable: false, a: {}, b: {}}`
+# `joint.factorize(k)` examines a joint register and tries to split it at
+# bit `k` into two separable factor registers:
+#   • `a.tensor(b) == joint`  ⇒  `{separable: true, a, b}`  (a, b are Qubits)
+#   • not separable           ⇒  `{separable: false, a: {}, b: {}}`
+# `joint.separable(k)` is the boolean query.
 #
 # Algorithmically: the joint amplitudes form an m×n matrix (rows = first k
-# bits, cols = remaining bits). Separable iff this matrix has rank 1. The
-# Bell state's matrix is rank 2 — provably not factorizable into a product.
-#
-# `docs/quantum-bigraphs.md` §V/VII: this is what lets a composite
-# "self-observe" — after a measurement, the resulting joint state may
-# collapse to a separable form, at which point the bigraph CAN divide its
-# entangled composite back into independent sub-composites. The structural
-# change reflects the physics.
-#
-# This demo shows three cases:
-#   1. SEPARABLE (|+⟩ ⊗ |+⟩) — factorize recovers the two |+⟩ states.
-#   2. ENTANGLED (Bell state) — factorize returns separable=false.
-#   3. ROUND-TRIP — tensor(a, b) then factorize, recovering a and b.
+# bits, cols = remaining bits). Separable iff rank 1. The Bell state's
+# matrix is rank 2 — provably not factorizable.
 #
 # Run: `chrysalis run quantum-factorize.ys --time 0`
 
-from meta import tensor, factorize
-
 # ── Case 1: separable. ────────────────────────────────────────────────
-def plus       = {'0': 0.7071, '1': 0.7071}
-def separable  = tensor(plus, plus)             # |++⟩
-def f_separable = factorize(separable, 1.0)     # → {separable: true, a, b}
+def plus        = {_type: 'Qubits', '0': 0.7071, '1': 0.7071}
+def separable   = plus.tensor(plus)               # |++⟩
+def f_separable = separable.factorize(1.0)         # → {separable: true, a, b}
 
-# ── Case 2: entangled. ────────────────────────────────────────────────
-# The Bell state (|00⟩ + |11⟩)/√2 has no product form.
-def bell       = {'00': 0.7071, '01': 0.0, '10': 0.0, '11': 0.7071}
-def f_bell     = factorize(bell, 1.0)           # → {separable: false}
+# ── Case 2: entangled. The Bell state has no product form. ────────────
+def bell    = {_type: 'Qubits', '00': 0.7071, '01': 0.0, '10': 0.0, '11': 0.7071}
+def f_bell  = bell.factorize(1.0)                  # → {separable: false}
 
 # ── Case 3: round-trip. ───────────────────────────────────────────────
-def zero       = {'0': 1.0, '1': 0.0}
-def plus_zero  = tensor(plus, zero)             # |+0⟩
-def roundtrip  = factorize(plus_zero, 1.0)      # → recovers (|+⟩, |0⟩)
+def zero       = {_type: 'Qubits', '0': 1.0, '1': 0.0}
+def plus_zero  = plus.tensor(zero)                 # |+0⟩
+def roundtrip  = plus_zero.factorize(1.0)          # → recovers (|+⟩, |0⟩)
 
+# The result of `factorize` is a `Factorization` — a real named type
+# (`{separable: bool, a: Qubits, b: Qubits}`), NOT `any` and not an
+# anonymous record repeated at every use site.
 composite FactorizeDemo ~{} ->{
-  separable_result   :: any,
-  bell_result        :: any,
-  roundtrip_result   :: any
+  separable_result :: Factorization,
+  bell_result      :: Factorization,
+  roundtrip_result :: Factorization
 } (
   separable_result: f_separable |
   bell_result:      f_bell |
