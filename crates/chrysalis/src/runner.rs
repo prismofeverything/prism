@@ -145,8 +145,8 @@ fn bind_arg(
     kind: &str,
 ) -> Result<(), RunError> {
     let schema = lower_schema_in_program(schema_expr, program);
-    let val = if let Some(spec) = args.get(name) {
-        algebra::realize(&schema, &parse_encoded(&read_source(spec)?))
+    let raw = if let Some(spec) = args.get(name) {
+        parse_encoded(&read_source(spec)?)
     } else if let Some(def) = default {
         ev.eval_value(def, env).map_err(CompileError::from)?
     } else {
@@ -154,6 +154,10 @@ fn bind_arg(
             "missing required {kind} `--{name}`"
         )));
     };
+    // Realize at the DECLARED type (registry-threaded) — a `:: Qubits` config
+    // param / input port promotes a bare literal to a full tagged instance,
+    // the same single typed-construction path as inner params + typed defs.
+    let val = algebra::realize_with(Some(ev.types.as_ref()), &schema, &raw);
     env.insert(name.to_string(), val);
     Ok(())
 }

@@ -14,8 +14,8 @@
 # Run: `chrysalis run quantum-tensor.ys --time 0`
 
 # ── Two separable single-qubit registers. `Qubits` values carry `_type`.
-def plus_state = {_type: 'Qubits', '0': 0.7071, '1': 0.7071}   # |+⟩ = (|0⟩+|1⟩)/√2
-def zero_state = {_type: 'Qubits', '0': 1.0,    '1': 0.0}       # |0⟩
+def plus_state :: Qubits = {'0': 0.7071, '1': 0.7071}   # |+⟩ = (|0⟩+|1⟩)/√2
+def zero_state :: Qubits = {'0': 1.0,    '1': 0.0}       # |0⟩
 
 # ── Tensor product (a METHOD): combine two separable systems into one.
 def two_plus  = plus_state.tensor(plus_state)

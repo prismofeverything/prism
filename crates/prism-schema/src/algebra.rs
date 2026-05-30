@@ -110,6 +110,20 @@ pub fn realize(schema: &Schema, encoded: &Value) -> Value {
     schema.realize(encoded)
 }
 
+/// `realize` consulting a [`TypeRegistry`] for `Schema::Custom` dispatch at any
+/// depth — so a declared type tags/canonicalizes a bare value (the registry-
+/// aware sibling of [`realize`], mirroring [`apply_with`]). The engine /
+/// chrysalis binding sites use this so a `:: Qubits` position auto-promotes a
+/// literal to a tagged instance.
+#[inline]
+pub fn realize_with(
+    registry: Option<&TypeRegistry>,
+    schema: &Schema,
+    encoded: &Value,
+) -> Value {
+    schema.realize_with_reg(registry, encoded)
+}
+
 // ── Codec ──────────────────────────────────────────────────────────────
 
 /// `serialize(s, v)` — encode a typed value to a JSON-compatible value.

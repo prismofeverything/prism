@@ -52,9 +52,9 @@ composite Lab ~{} ->{
   systems :: map[StreamingQuantumSystem] @ systems
 } (
   systems: {
-    sep: StreamingQuantumSystem[state0: {_type: 'Qubits', '00': 0.5, '01': 0.5, '10': 0.5, '11': 0.5}]
+    sep: StreamingQuantumSystem[state0: {'00': 0.5, '01': 0.5, '10': 0.5, '11': 0.5}]
       ~{state: %.state} ->{state: %.state},
-    bell: StreamingQuantumSystem[state0: {_type: 'Qubits', '00': 0.7071067811865476, '01': 0.0, '10': 0.0, '11': 0.7071067811865476}]
+    bell: StreamingQuantumSystem[state0: {'00': 0.7071067811865476, '01': 0.0, '10': 0.0, '11': 0.7071067811865476}]
       ~{state: %.state} ->{state: %.state}
   } |
   split: AutoSplit ~{systems: systems} ->{systems: systems}

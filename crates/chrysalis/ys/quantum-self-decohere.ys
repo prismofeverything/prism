@@ -33,11 +33,12 @@ process Observe ~{state :: Qubits} ->{separable :: overwrite[bool]}
   {separable: state.separable(1.0)}
 )
 
-composite Decohering ~{} ->{
+composite Decohering[state0 :: Qubits = {'00': 0.7071067811865476, '01': 0.0, '10': 0.0, '11': 0.7071067811865476}]
+  ->{
   state     :: Qubits @ state,
   separable :: bool @ separable
 } (
-  state: {_type: 'Qubits', '00': 0.7071067811865476, '01': 0.0, '10': 0.0, '11': 0.7071067811865476} |
+  state: state0 |
   separable: false |
   decohere: Decohere ~{state: state} ->{state: state} |
   observe:  Observe  ~{state: state} ->{separable: separable}

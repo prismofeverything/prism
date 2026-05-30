@@ -351,22 +351,19 @@ pub fn compile_with_modules(
     register_divide_methods(&mut methods, &program);
     register_user_type_methods(&mut methods, &program_arc);
     let methods = Arc::new(methods);
+    // ONE program-aware type registry (builtins + user `type`s + std `Qubits`),
+    // threaded into BOTH the Evaluator (realize-at-binding) AND the Core below —
+    // a single registry per compile context, never an ad-hoc default.
+    let type_registry = build_type_registry(&program_arc);
+
     let evaluator = Arc::new(Evaluator::with_native_imports(
         Arc::clone(&program_arc),
         Arc::clone(&methods),
+        Arc::clone(&type_registry),
         imports,
         imported_processes,
         imported_functions,
     ));
-
-    // User `type` declarations → a TypeRegistry whose entries delegate the
-    // algebra to each type's representation (first-class Custom dispatch).
-    let mut type_registry = TypeRegistry::new();
-    register_user_types(&mut type_registry, &program_arc);
-    // The `Qubits` quantum-register type (overwrite-apply + N-qubit gate
-    // methods) is part of chrysalis's std vocabulary, like the builtins.
-    crate::quantum::register_quantum_type(&mut type_registry);
-    let type_registry = Arc::new(type_registry);
 
     // The Composite factory needs the WHOLE Core to build subengines (so a
     // subengine inherits types/methods/protocols). The Core contains the process
@@ -535,14 +532,23 @@ pub(crate) fn collect_top_level_bindings(
 ) -> Result<IndexMap<Name, Value>, CompileError> {
     let mut env: IndexMap<Name, Value> = IndexMap::new();
     for def in &program.defs {
-        if let Def::Binding { name, value, .. } = def {
-            // `main` is handled separately at the top of compile(). A `:: Type`
-            // ascription is documentary here — the value is realized through the
-            // consuming method (e.g. a `CRN` record by the integrator).
+        if let Def::Binding { name, schema, value } = def {
+            // `main` is handled separately at the top of compile().
             if name == "main" {
                 continue;
             }
             let v = evaluator.eval_value(value, &env)?;
+            // `def x :: T = …` realizes the value at its DECLARED type
+            // (registry-threaded) — `def plus :: Qubits = {…}` becomes a full
+            // tagged instance, the same single typed-construction path as
+            // params. Untyped `def`s pass through unchanged.
+            let v = match schema {
+                Some(s) => {
+                    let sch = crate::schema::lower_schema_in_program(s, &evaluator.program);
+                    prism_schema::algebra::realize_with(Some(evaluator.types.as_ref()), &sch, &v)
+                }
+                None => v,
+            };
             env.insert(name.clone(), v);
         }
     }
@@ -682,6 +688,17 @@ fn register_user_type_methods(methods: &mut MethodRegistry, program: &Arc<Progra
 /// Register every `type Name = <repr> …` in the `TypeRegistry` with its
 /// representation schema and a [`RepresentationType`] handler, so a
 /// `Custom(Name)` slot is first-class: the algebra runs on its representation.
+/// The program-aware type registry: builtins + the program's `type`s + the std
+/// `Qubits` quantum vocabulary. Built ONCE per compile and threaded into the
+/// Evaluator and the Core (one registry, never an ad-hoc default). Also what
+/// every standalone `Evaluator::new` builds from its own program.
+pub(crate) fn build_type_registry(program: &Arc<Program>) -> Arc<TypeRegistry> {
+    let mut types = TypeRegistry::new();
+    register_user_types(&mut types, program);
+    crate::quantum::register_quantum_type(&mut types);
+    Arc::new(types)
+}
+
 fn register_user_types(types: &mut TypeRegistry, program: &Arc<Program>) {
     for def in &program.defs {
         match def {

@@ -21,6 +21,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use thiserror::Error;
 
+use prism_schema::registry::TypeRegistry;
 use prism_schema::{Key, MethodError, MethodRegistry, Pattern, Value, value_type_name};
 
 use crate::ast::{
@@ -77,16 +78,43 @@ pub struct Evaluator {
     /// dispatched as `name(args)`. The host functions take `&[Value]` and
     /// return `Value`. Pairs with the `Expr::Call` resolution path.
     pub imported_functions: IndexMap<Name, crate::compile::HostFn>,
+    /// The type registry (builtins + this program's `type`s + the std `Qubits`
+    /// vocabulary). The Evaluator is schema-registry-aware so it can REALIZE a
+    /// value at its declared type at construction — a `:: Qubits` param/def/slot
+    /// turns a bare literal into a full tagged instance via `realize_with`. One
+    /// program-aware registry, threaded; never a bare default.
+    pub types: Arc<TypeRegistry>,
 }
 
 impl Evaluator {
     pub fn new(program: Arc<Program>, methods: Arc<MethodRegistry>) -> Self {
+        let types = crate::compile::build_type_registry(&program);
         Self {
             program,
             methods,
             imports: IndexMap::new(),
             imported_processes: HashSet::new(),
             imported_functions: IndexMap::new(),
+            types,
+        }
+    }
+
+    /// As [`Evaluator::new`] but with a pre-built (shared) type registry — the
+    /// compile path builds ONE and threads the same `Arc` into both the
+    /// Evaluator and the [`Core`](prism_bigraph::Core), so there is a single
+    /// registry per compile context.
+    pub fn with_types(
+        program: Arc<Program>,
+        methods: Arc<MethodRegistry>,
+        types: Arc<TypeRegistry>,
+    ) -> Self {
+        Self {
+            program,
+            methods,
+            imports: IndexMap::new(),
+            imported_processes: HashSet::new(),
+            imported_functions: IndexMap::new(),
+            types,
         }
     }
 
@@ -96,6 +124,7 @@ impl Evaluator {
     pub fn with_native_imports(
         program: Arc<Program>,
         methods: Arc<MethodRegistry>,
+        types: Arc<TypeRegistry>,
         imports: IndexMap<Name, Value>,
         imported_processes: HashSet<Name>,
         imported_functions: IndexMap<Name, crate::compile::HostFn>,
@@ -106,6 +135,7 @@ impl Evaluator {
             imports,
             imported_processes,
             imported_functions,
+            types,
         }
     }
 
@@ -974,6 +1004,14 @@ impl Evaluator {
                     });
                 }
             };
+            // Realize the bound value at its DECLARED type — a `:: Qubits` (or
+            // any Custom) param promotes a bare literal to a full tagged
+            // instance. The registry-threaded realize is the single typed-
+            // construction path: the value is born carrying its type, so no
+            // hand-written `_type:` is needed at the call site.
+            let schema = crate::schema::lower_schema_in_program(&param.schema, &self.program);
+            let value =
+                prism_schema::algebra::realize_with(Some(self.types.as_ref()), &schema, &value);
             resolved.insert(param.name.clone(), value);
         }
         Ok(resolved)

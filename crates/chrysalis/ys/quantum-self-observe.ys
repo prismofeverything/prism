@@ -25,21 +25,23 @@ process FactorizeCheck
   {observation: state.factorize(1.0)}
 )
 
-composite EntangledSystem ~{} ->{
+composite EntangledSystem[state0 :: Qubits = {'00': 0.7071, '01': 0.0, '10': 0.0, '11': 0.7071}]
+  ->{
   state       :: Qubits,
   observation :: Factorization
 } (
-  state: {_type: 'Qubits', '00': 0.7071, '01': 0.0, '10': 0.0, '11': 0.7071} |
-  observation: {separable: false, a: {_type: 'Qubits'}, b: {_type: 'Qubits'}} |
+  state: state0 |
+  observation: {separable: false} |
   check: FactorizeCheck ~{state: state} ->{observation: observation}
 )
 
-composite SeparableSystem ~{} ->{
+composite SeparableSystem[state0 :: Qubits = {'00': 0.5, '01': 0.5, '10': 0.5, '11': 0.5}]
+  ->{
   state       :: Qubits,
   observation :: Factorization
 } (
-  state: {_type: 'Qubits', '00': 0.5, '01': 0.5, '10': 0.5, '11': 0.5} |
-  observation: {separable: false, a: {_type: 'Qubits'}, b: {_type: 'Qubits'}} |
+  state: state0 |
+  observation: {separable: false} |
   check: FactorizeCheck ~{state: state} ->{observation: observation}
 )
 

@@ -15,16 +15,16 @@
 # Run: `chrysalis run quantum-factorize.ys --time 0`
 
 # ── Case 1: separable. ────────────────────────────────────────────────
-def plus        = {_type: 'Qubits', '0': 0.7071, '1': 0.7071}
+def plus :: Qubits = {'0': 0.7071, '1': 0.7071}
 def separable   = plus.tensor(plus)               # |++⟩
 def f_separable = separable.factorize(1.0)         # → {separable: true, a, b}
 
 # ── Case 2: entangled. The Bell state has no product form. ────────────
-def bell    = {_type: 'Qubits', '00': 0.7071, '01': 0.0, '10': 0.0, '11': 0.7071}
+def bell :: Qubits = {'00': 0.7071, '01': 0.0, '10': 0.0, '11': 0.7071}
 def f_bell  = bell.factorize(1.0)                  # → {separable: false}
 
 # ── Case 3: round-trip. ───────────────────────────────────────────────
-def zero       = {_type: 'Qubits', '0': 1.0, '1': 0.0}
+def zero :: Qubits = {'0': 1.0, '1': 0.0}
 def plus_zero  = plus.tensor(zero)                 # |+0⟩
 def roundtrip  = plus_zero.factorize(1.0)          # → recovers (|+⟩, |0⟩)
 

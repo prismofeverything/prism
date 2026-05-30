@@ -1438,6 +1438,70 @@ impl Schema {
             _ => encoded.clone(),
         }
     }
+
+    /// Registry-threaded `realize` — a `Custom` type's `realize` (which stamps
+    /// its `_type` tag, fills its canonical form) dispatches at ANY depth, the
+    /// same way [`Self::apply_with_reg`] threads `apply`. This is what lets a
+    /// declared type — a typed `def`, a `:: Qubits` config/port position — turn
+    /// a bare literal into a full tagged instance with NO hand-written
+    /// `_type:` (the value carries its declared type because the schema said so).
+    /// Recurses through the container arms with `reg`; leaf / Tuple /
+    /// RecursiveTree / JSON-string forms delegate to the registryless
+    /// [`Self::realize`] (they carry no nested `Custom` in current use).
+    pub fn realize_with_reg(
+        &self,
+        reg: Option<&crate::registry::TypeRegistry>,
+        encoded: &Value,
+    ) -> Value {
+        let Some(r) = reg else {
+            return self.realize(encoded);
+        };
+        match (self, encoded) {
+            (Self::Custom { name, .. }, _) => r.type_realize(name, encoded),
+            (Self::Overwrite { inner } | Self::Const { inner }, _) => {
+                inner.realize_with_reg(reg, encoded)
+            }
+            (Self::Maybe { .. }, Value::None) => Value::None,
+            (Self::Maybe { inner }, _) => inner.realize_with_reg(reg, encoded),
+            (Self::Map { value }, Value::Map(m)) => Value::Map(
+                m.iter()
+                    .map(|(k, v)| (k.clone(), value.realize_with_reg(reg, v)))
+                    .collect(),
+            ),
+            (Self::List { element }, Value::List(items)) => {
+                Value::List(items.iter().map(|v| element.realize_with_reg(reg, v)).collect())
+            }
+            (Self::Tree { branches }, Value::Map(m)) => {
+                let mut result: IndexMap<Key, Value> = branches
+                    .iter()
+                    .map(|(k, s)| (k.clone(), s.default_value()))
+                    .collect();
+                for (k, v) in m {
+                    let s = branches.get(k).unwrap_or(&Schema::Any);
+                    result.insert(k.clone(), s.realize_with_reg(reg, v));
+                }
+                Value::Map(result)
+            }
+            (
+                Self::Link { .. }
+                | Self::StepLink { .. }
+                | Self::ProcessLink { .. }
+                | Self::CompositeLink { .. },
+                Value::Map(map),
+            ) => {
+                let branches = self.node_data_branches();
+                Value::Map(
+                    map.iter()
+                        .filter(|(k, _)| !matches!(k.as_str(), "_inputs" | "_outputs"))
+                        .map(|(k, v)| {
+                            (k.clone(), branches.get(k).unwrap_or(&Schema::Any).realize_with_reg(reg, v))
+                        })
+                        .collect(),
+                )
+            }
+            _ => self.realize(encoded),
+        }
+    }
 }
 
 /// Render port schema as a type expression string.

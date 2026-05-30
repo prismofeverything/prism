@@ -23,7 +23,7 @@ process Publish ~{state :: Qubits} ->{state :: overwrite[Qubits]}
   {state: state}
 )
 
-composite QuantumSystem[state0 :: Qubits = {_type: 'Qubits', '0': 1.0, '1': 0.0}]
+composite QuantumSystem[state0 :: Qubits = {'0': 1.0, '1': 0.0}]
   ~{state :: Qubits @ state = state0}
   ->{state :: overwrite[Qubits] @ state}
 (
