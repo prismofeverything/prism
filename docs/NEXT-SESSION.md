@@ -110,34 +110,6 @@
 
 A side-quest doc captured the broader landscape: `docs/exploring-the-computational-unknown.md` — survey of reflective towers, meta-circular interpreters, macros, Futamura projections, staging, algebraic effects, probabilistic / differentiable / reversible / quantum / unconventional computing, and the axes that compose into the space of methods.
 
-## ⏯️ NEXT-SESSION PROMPT (2026-05-28 — process-contract "three notions of agreement" demo)
-
-> Workspace GREEN. A detour from the quantum/merge arc: built the process-contract
-> demo (#44) end to end — see `docs/agreement-demo.md` and `ys/agreement.ys`.
->
-> **What landed (all tested):** (1) contracts survive `RunProcess` — a forwarding
-> rule in `check.rs`; the flagship `Compare` now demands its contract (**#12 DONE**).
-> (2) `fulfillers(C)` library query (`chrysalis/src/contract.rs`). (3) ordered
-> `claims` axis through the `.ys` path (`schema.rs` `Enum`-downset). (4) the CME
-> lane — Gillespie SSA + `ensemble` + `distributional_distance` in
-> `prism-std/src/mass_action.rs`, wired as `ExactCME` steps. (5) claim-driven
-> comparison (trajectory MSE vs distributional, each gated by its contract).
-> (6) the teeth — cross-lane comparison is a compile error. (7) the unified
-> `agreement.ys` runs + writes figures (det MSE 3.59, dist distance 1.63).
->
-> **NEXT:** (a) **auto-fan-out** — a comprehension over `fulfillers(C)` that
-> GENERATES the `RunProcess` children ("run every fulfiller of C" — the original
-> combinatorial idea) + the dt-sweep (#9); (b) then either resume the quantum/merge
-> arc (#39 `tensor_by_schema` → #42 → #43 → #40, below) or do **#33** KISAO/SED-ML/
-> OMEX export (the deferred standards-interop layer — informed by, not constraining,
-> the core).
->
-> **Test status:** `cargo test -p chrysalis -p prism-std` green; downstream
-> (spatio-flux, prism-mapk) green. New: `contract_query.rs` (3),
-> `contract_enforcement.rs` (+5 — forwarding, claim-chain, refused cross-lane),
-> `mass_action.rs` (+3 — SSA reproducible/conserves, ensemble-tracks-ODE,
-> distributional-vs-pathwise). New `.ys`: `agreement.ys`, `cme-gillespie.ys`.
-
 ---
 
 ## ⏯️ NEXT-SESSION PROMPT (2026-05-28 — symmetric bridge apply + lifecycle on real composites + schema-algebra unification)

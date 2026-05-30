@@ -699,26 +699,51 @@ impl Schema {
             Self::Map { value } => value.schema_at_path(&path[1..]),
             Self::Array { element, .. } => element.schema_at_path(&path[1..]),
             Self::RecursiveTree { .. } => self,
-            Self::Link { inputs, outputs, .. } => {
-                // Navigate into link's port schemas
+            Self::Link { inputs, outputs, .. }
+            | Self::StepLink { inputs, outputs, .. }
+            | Self::ProcessLink { inputs, outputs, .. }
+            | Self::CompositeLink { inputs, outputs, .. } => {
+                // Explicit face addressing (`[…, inputs|outputs, port]`).
                 match path[0].as_str() {
                     "inputs" => {
-                        if path.len() > 1 {
-                            inputs.get(&path[1]).unwrap_or(&Schema::Any)
+                        return if path.len() > 1 {
+                            inputs
+                                .get(&path[1])
+                                .unwrap_or(&Schema::Any)
                                 .schema_at_path(&path[2..])
                         } else {
                             &Schema::Any
-                        }
+                        };
                     }
                     "outputs" => {
-                        if path.len() > 1 {
-                            outputs.get(&path[1]).unwrap_or(&Schema::Any)
+                        return if path.len() > 1 {
+                            outputs
+                                .get(&path[1])
+                                .unwrap_or(&Schema::Any)
                                 .schema_at_path(&path[2..])
                         } else {
                             &Schema::Any
-                        }
+                        };
                     }
-                    _ => &Schema::Any,
+                    _ => {}
+                }
+                // The implicit SELF-SLOT: a bridged port's value lives directly
+                // at `[port]` (the `%.port` self-wire target). Type it by the
+                // declared face — OUTPUT wins, since it governs how writes
+                // APPLY — so a composite's `overwrite[T]` output port makes the
+                // parent slot REPLACE the snapshot it republishes each tick
+                // rather than additively accumulating it. Without this the slot
+                // fell through to the raw link / `Any`, and `apply` summed
+                // `map[float]` amplitudes every tick (the doubling bug).
+                if let Some(s) = outputs.get(&path[0]).or_else(|| inputs.get(&path[0])) {
+                    return s.schema_at_path(&path[1..]);
+                }
+                // Not a port (address/config/_type/…): the bare `Link` offers no
+                // inner type (`Any`); the richer links describe everything below
+                // them (`self`), as before.
+                match self {
+                    Self::Link { .. } => &Schema::Any,
+                    _ => self,
                 }
             }
             _ => self, // Leaf schema applies to everything below
@@ -832,6 +857,14 @@ impl Schema {
                 matches!(
                     s,
                     Schema::Float { .. } | Schema::Delta { .. } | Schema::Integer { .. }
+                    // An output port DECLARING replace semantics (`overwrite[T]`)
+                    // must be part of the data face too. A composite that
+                    // republishes a snapshot each tick (e.g. a `map[float]`
+                    // quantum state via `overwrite[map[float]]`) would otherwise
+                    // fall to the `Any` passthrough below, which is ADDITIVE for
+                    // numeric leaves — so the snapshot DOUBLES every tick. Honor
+                    // the declared modifier here, uniformly across node kinds.
+                    | Schema::Overwrite { .. }
                 )
             })
             .map(|(k, s)| (k.clone(), s.clone()))
@@ -1769,6 +1802,42 @@ mod tests {
             ("name", Value::from("test")),
         ]);
         assert!(!schema.check(&bad));
+    }
+
+    #[test]
+    fn schema_at_path_types_link_self_slot_by_output_face() {
+        // A composite node's bridged `state` value lives at the self-slot
+        // `[systems, x, state]` (the `%.state` self-wire target). Its schema
+        // must be the OUTPUT port's declared type (`overwrite[map[float]]`) so a
+        // republished snapshot REPLACES (not accumulates) at the parent.
+        // Regression for the amplitude-doubling bug in the streaming quantum
+        // lifecycle (docs/merge-protocol.md).
+        let state_ty = Schema::overwrite(Schema::map(Schema::float()));
+        let link = Schema::CompositeLink {
+            inputs: IndexMap::from([(Key::from("state"), Schema::map(Schema::float()))]),
+            outputs: IndexMap::from([(Key::from("state"), state_ty)]),
+            interval: 1.0,
+            inner_schema: Box::new(Schema::Tree {
+                branches: IndexMap::new(),
+            }),
+        };
+        let top = Schema::tree([("systems", Schema::map(link))]);
+        let at = top.schema_at_path(&[Key::from("systems"), Key::from("x"), Key::from("state")]);
+        assert!(
+            matches!(at, Schema::Overwrite { .. }),
+            "self-slot typed by the output face (overwrite), got {at:?}"
+        );
+        // Explicit face addressing still resolves the port too.
+        let face = top.schema_at_path(&[
+            Key::from("systems"),
+            Key::from("x"),
+            Key::from("outputs"),
+            Key::from("state"),
+        ]);
+        assert!(
+            matches!(face, Schema::Overwrite { .. }),
+            "explicit outputs face: {face:?}"
+        );
     }
 
     #[test]

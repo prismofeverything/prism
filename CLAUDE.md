@@ -27,6 +27,16 @@ application domain.
   encapsulation/BSP already encode it, the gaps, a phased plan (#25–#29), and the
   build-vs-adopt decision (cluster = a protocol with a pluggable backend). Read
   before distributed/scaling work.
+- **`docs/bigraphs-all-the-way-down.md`** — the thesis that prism's
+  "two place graphs" (state-tree *inside* a composite; composites
+  *within* composites) are ONE self-similar bigraph; the composite
+  boundary is a `fold` we built for distribution; `fold`/`unfurl` is the
+  object↔morphism maneuver (ports = where the link graph is cut); and one
+  BRS can rewrite **both** levels — topology-rewriting reactions over the
+  distributed/peer/mesh streaming bigraph. Also: link-graph scoping = the
+  **implicit composite** (a connected component) vs today's place-graph
+  *mediating* composite. Read for the distributed-bigraph / program-
+  autonomy direction.
 - **`docs/schema-algebra.md`** — the schema layer stated as an **algebra**:
   the sorts, the closed set of operations (`default`/`check`/`apply`/
   `reconcile`/`resolve`/`promote`/`merge`/`diff`/`generalize`/`coerce`/

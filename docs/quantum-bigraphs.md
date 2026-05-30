@@ -332,10 +332,18 @@ through `factorize`. Tests in `tests/quantum_factorize.rs`; demo
 two side-by-side composites (Bell-state vs `|+⟩⊗|+⟩`) self-observe and
 report their separability. The composite *knows* whether it's
 entangled.
-**Remaining**: a Divider-style step (analogous to
-`environment.ys`'s `Divider`) that emits a `_divide` intent when a
-child composite reports separable. This converts the observation
-into structural change.
+**Landed (2026-05-30)**: `quantum-auto-split.ys` +
+`tests/quantum_auto_split.rs` (3 green) — a `factorize`-gated
+`AutoSplit` process splits a streaming system *because its state
+factorizes* (separable `|++⟩` → two stream children), while an entangled
+Bell stays one joint composite. The observation now drives structural
+change; the place graph's shape comes to match the entanglement
+structure on its own (the §VII duality, realized over the stream
+protocol). Each system is its own `--serve-process` child.
+**Still ahead**: express it through the schema-driven `_divide` sentinel
++ `tensor_by_schema`/`divide_by_schema` (the full divide↔tensor algebra
+duality, #39) rather than an explicit `_remove`/`_add`; and `fold` /
+`unfurl` as named algebra ops (`docs/bigraphs-all-the-way-down.md`).
 
 ### Slice Q4/Q5 — Structural lifecycle ✅ (data-map flavor)
 The user's vision realized: a single demo where the place-graph
@@ -357,11 +365,26 @@ deterministically. Demo: `crates/chrysalis/ys/quantum-lifecycle.ys`;
 regression: `tests/quantum_lifecycle.rs` (4 tests).
 
 **Caveats / remaining work toward full Q4**:
-- Each system is a raw data map, not a sub-composite — the lifecycle
-  is structural but each entry doesn't run its own internal processes.
-  Streaming variant (`map[StreamingQuantumSystem]`) is the next step
-  and surfaces an open question: how does `_add` instantiate sub-
-  composites from override-map values?
+- ✅ Each system is now a REAL sub-composite (a `QuantumSystem` with its
+  own `Publish` + bridge), local OR streamed. The **streaming variant**
+  (`quantum-lifecycle-stream.ys`, `map[StreamingQuantumSystem]`) landed
+  (2026-05-30): every system runs as its own `chrysalis run
+  quantum-system.ys --serve-process` child over Arrow pipes, and the
+  split/merge crosses the wire (`tests/quantum_lifecycle_stream.rs`,
+  4 green; a `/bin/false` differential + an `strace` `serve-process`
+  count confirm the children are real subprocesses, not a local
+  fallback). This **answers the open question** — `_add` of a
+  freshly-authored `StreamingQuantumSystem[state0: …]` Term lowers to a
+  full stream-node spec (`address: stream:…` + config + bridge +
+  schema), and engine discovery instantiates the child, exactly as
+  `environment.ys`'s `StreamingCell` daughters do. **Remaining
+  honesty**: the children aren't yet load-bearing for the *decision* —
+  the parent `Lifecycle` reads each system's seeded `state` and drives
+  factorize/tensor; the children spawn + republish but don't yet compute
+  anything the lifecycle reacts to. Making the children evolve their own
+  state (so factorizability is a *consequence* of their computation,
+  then moving the split/merge decision INTO the peers) is the bridge to
+  the autonomy / mesh direction.
 - Two parallel `step`s (Splitter + Merger) race in the BSP cycle and
   produce non-deterministic results; collapsing into one `process`
   with sequential `if/else` fixes this. The Splitter/Merger race is

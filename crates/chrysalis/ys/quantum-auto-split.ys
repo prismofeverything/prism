@@ -1,0 +1,72 @@
+# Autonomous, PHYSICS-DRIVEN split over the stream protocol — the first
+# time the place graph reflects the entanglement structure on its own.
+# ────────────────────────────────────────────────────────────────────
+#
+# Unlike quantum-lifecycle-stream.ys (which scripts split-then-merge by
+# KEY NAME), here the structural decision is driven by `factorize` of the
+# system's LIVE state: a system splits *because* its state factorizes,
+# and an entangled system STAYS JOINT *because* it does not. No key in
+# the rule decides the physics — the physics decides the structure.
+#
+#       t=0                          t=1
+#   ────────────────────────────────────────────────────────────────
+#   { sep:  |++⟩  (separable),  →   { sep_0: |+⟩, sep_1: |+⟩,   ← SPLIT
+#     bell: Bell  (entangled) }       bell:  Bell }              ← stays
+#
+# `sep` factorizes (rank-1) → AutoSplit replaces it with its two factors,
+# each a stream child. `bell` = (|00⟩+|11⟩)/√2 is rank-2 → `factorize`
+# reports `separable: false` → AutoSplit leaves it joint. The place
+# graph's shape now MATCHES the link/entanglement graph (docs/
+# bigraphs-all-the-way-down.md §VII–VIII). This is slice S0 of that doc:
+# the composite self-observes, the container enacts (Form-3, like the
+# cell's `divide` face). Each system runs as its own `chrysalis run
+# quantum-system.ys --serve-process` child.
+
+from meta import factorize
+from quantum-system import QuantumSystem
+
+protocol StreamingQuantumSystem = stream<QuantumSystem, path: 'quantum-system.ys'>
+
+# Apply the SAME rule — "split iff your state factorizes" — to each
+# system. `sep` matches (separable); `bell` is checked and rejected
+# (entangled). The factor states come straight from `factorize` of the
+# live state, so the split is a consequence of the physics, not a script.
+process AutoSplit
+  ~{systems :: map[StreamingQuantumSystem]}
+  ->{systems :: map[StreamingQuantumSystem]}
+(
+  if 'sep' in systems then
+    if factorize(systems.sep.state, 1.0).separable then
+      {systems: {
+        _remove: ['sep'],
+        _add: {
+          sep_0: StreamingQuantumSystem[state0: factorize(systems.sep.state, 1.0).a]
+                  ~{state: %.state} ->{state: %.state},
+          sep_1: StreamingQuantumSystem[state0: factorize(systems.sep.state, 1.0).b]
+                  ~{state: %.state} ->{state: %.state}
+        }
+      }}
+    else
+      {systems: {}}
+  else
+    if 'bell' in systems then
+      if factorize(systems.bell.state, 1.0).separable then
+        {systems: {_remove: ['bell']}}
+      else
+        {systems: {}}
+    else
+      {systems: {}}
+)
+
+# Two streaming systems side by side: one separable, one entangled.
+composite Lab ~{} ->{
+  systems :: map[StreamingQuantumSystem] @ systems
+} (
+  systems: {
+    sep: StreamingQuantumSystem[state0: {'00': 0.5, '01': 0.5, '10': 0.5, '11': 0.5}]
+      ~{state: %.state} ->{state: %.state},
+    bell: StreamingQuantumSystem[state0: {'00': 0.7071067811865476, '01': 0.0, '10': 0.0, '11': 0.7071067811865476}]
+      ~{state: %.state} ->{state: %.state}
+  } |
+  split: AutoSplit ~{systems: systems} ->{systems: systems}
+)

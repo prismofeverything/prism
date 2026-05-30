@@ -26,7 +26,7 @@ process Publish ~{state :: map[float]} ->{state :: overwrite[map[float]]}
 
 composite QuantumSystem[state0 :: map[float] = {'0': 1.0, '1': 0.0}]
   ~{state :: map[float] @ state = state0}
-  ->{state :: map[float] @ state}
+  ->{state :: overwrite[map[float]] @ state}
 (
   state: state0 |
   publish: Publish ~{state: state} ->{state: state}

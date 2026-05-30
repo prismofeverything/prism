@@ -318,6 +318,59 @@ through (`_type: composite` is the spec sentinel). This keeps the
 round-trip law `r(s(v)) ≡ v` intact for arbitrary values, with the
 spec form as the natural fixed-point of `r ∘ s`.
 
+### Bug found + fixed (2026-05-30) — `overwrite` output ports cross the bridge
+
+A composite that republishes a snapshot each tick (the `Publish`
+pattern) was ACCUMULATING at the parent: a *persisting* system's
+`map[float]` state DOUBLED every tick (`0.7071 → 1.4142 → 2.8284 → …`).
+Root cause: `Schema::node_data_branches` — the self-exported data face
+that a link node's `apply` traverses (`apply_update` routes every
+`Link`/`ProcessLink`/`StepLink`/`CompositeLink` through `Tree { branches:
+node_data_branches() }`) — filtered to **scalar** ports only
+(`Float`/`Delta`/`Integer`). So a `map[float]` (or even
+`overwrite[map[float]]`) output port fell through to the additive `Any`
+passthrough, which sums numeric leaves — hence the doubling.
+
+Fix (both in `prism-schema/src/schema.rs`): (a) `node_data_branches`
+now also includes ports that declare an explicit `Overwrite` modifier,
+so a snapshot port REPLACES; (b) `schema_at_path` types a link node's
+self-slot (`%.port`) by its declared output face, so a *direct* leaf
+apply honors it too. This is the symmetric-apply principle (slice 1)
+made to hold for the OUTPUT face, uniformly local AND streamed — a
+composite's declared `overwrite[T]` output port now replaces across the
+bridge. Requires the surface annotation (`quantum-system.ys` output port
+is now `overwrite[map[float]]`). Regression: the stability assertions in
+`tests/quantum_auto_split.rs` + a `schema_at_path` unit test. The local
+lifecycle hid this — it splits/merges every tick, so nothing persisted
+to accumulate.
+
+### Landed (2026-05-30) — split/merge over the `stream:` protocol
+
+The lifecycle now runs with each `QuantumSystem` as a real `stream:`
+child — `crates/chrysalis/ys/quantum-lifecycle-stream.ys`
+(`map[StreamingQuantumSystem]`, the sole change from the local
+`quantum-lifecycle.ys` being the `stream<QuantumSystem, …>` protocol
+alias). Regression: `crates/chrysalis/tests/quantum_lifecycle_stream.rs`
+(4 green). Confirmed real subprocesses via a `CHRYSALIS_BIN=/bin/false`
+differential (child spawn fails with an Arrow IPC error) + an `strace`
+`serve-process` exec count — not a silent local fallback.
+
+This validates slice 8's premise (the merge protocol distributes) for
+the **output direction**: the structural `_remove`/`_add` ride the
+already-update-based output bridge and cross the wire unchanged — the
+same path `grow_divide_stream.rs` proved for cell division. An `_add`
+of a freshly-authored `StreamingQuantumSystem[state0: …]` Term spawns a
+stream child (the spec lowers to `address: stream:…` + config + bridge;
+discovery instantiates it).
+
+**What it does NOT yet exercise**: the children are not load-bearing for
+the *decision*. The parent `Lifecycle` reads each system's seeded
+`state` and computes factorize/tensor itself; the children spawn and
+republish but don't feed the lifecycle. The input wire is still
+snapshot-flavoured (see slice 1's note below) — sending a *merge command
+or reaction DOWN* to a remote child (slices 5/6) needs the symmetric
+input wire, which is the remaining unification.
+
 ### Algebra question — idempotence at the fixed point
 
 Open question for the schema algebra: should there be a law for
