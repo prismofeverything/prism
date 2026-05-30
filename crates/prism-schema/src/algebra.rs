@@ -91,10 +91,24 @@ pub fn default(schema: &Schema) -> Value {
     schema.default_value()
 }
 
+/// `default` consulting a [`TypeRegistry`] for `Schema::Custom` dispatch — the
+/// registry-aware sibling (registryless `default` returns `None` for Custom).
+#[inline]
+pub fn default_with(registry: Option<&TypeRegistry>, schema: &Schema) -> Value {
+    schema.default_with_reg(registry)
+}
+
 /// `check(s, v)` — membership: is `v` a value of sort `s`.
 #[inline]
 pub fn check(schema: &Schema, value: &Value) -> bool {
     schema.check(value)
+}
+
+/// `check` consulting a [`TypeRegistry`] for `Schema::Custom` dispatch — the
+/// registry-aware sibling (registryless `check` returns `false` for Custom).
+#[inline]
+pub fn check_with(registry: Option<&TypeRegistry>, schema: &Schema, value: &Value) -> bool {
+    schema.check_with_reg(registry, value)
 }
 
 /// `infer(v)` — the least sort `v` inhabits (structural, honoring `_type`).
@@ -132,6 +146,13 @@ pub fn realize_with(
 #[inline]
 pub fn serialize(schema: &Schema, value: &Value) -> Value {
     schema.encode(value)
+}
+
+/// `serialize` consulting a [`TypeRegistry`] for `Schema::Custom` dispatch (the
+/// type's canonical wire form) — the registry-aware sibling of [`serialize`].
+#[inline]
+pub fn serialize_with(registry: Option<&TypeRegistry>, schema: &Schema, value: &Value) -> Value {
+    schema.serialize_with_reg(registry, value)
 }
 
 /// `deserialize(s, v)` — decode a JSON-compatible value back to a typed value

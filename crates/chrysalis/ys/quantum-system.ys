@@ -13,19 +13,19 @@
 # two). The split/merge lifecycle mutates the keyset freely as the qubit
 # methods (`factorize`/`tensor`/`cnot`/…) change the structure.
 
-# Output port is `overwrite[Qubits]`: a republished snapshot REPLACES at the
-# parent slot. (The `Qubits` type's own apply is already overwrite; the
-# explicit wrapper is what survives schema reconciliation across the stream
-# bridge, where the node carries no port schema — see task #8: `resolve`
-# should preserve a declared `Custom` against an inferred structural type.)
-process Publish ~{state :: Qubits} ->{state :: overwrite[Qubits]}
+# The `Publish` process re-emits `state` each tick so the snapshot surfaces
+# through the bridge to a parent step. Its output is bare `:: Qubits` — no
+# `overwrite[…]` wrapper needed: the `Qubits` type OWNS its apply (overwrite),
+# and a `Custom` output port is part of the node data face, so the type's own
+# replace law governs the parent slot across the stream bridge.
+process Publish ~{state :: Qubits} ->{state :: Qubits}
 (
   {state: state}
 )
 
 composite QuantumSystem[state0 :: Qubits = {'0': 1.0, '1': 0.0}]
   ~{state :: Qubits @ state = state0}
-  ->{state :: overwrite[Qubits] @ state}
+  ->{state :: Qubits @ state}
 (
   state: state0 |
   publish: Publish ~{state: state} ->{state: state}

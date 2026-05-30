@@ -859,12 +859,18 @@ impl Schema {
                     Schema::Float { .. } | Schema::Delta { .. } | Schema::Integer { .. }
                     // An output port DECLARING replace semantics (`overwrite[T]`)
                     // must be part of the data face too. A composite that
-                    // republishes a snapshot each tick (e.g. a `map[float]`
-                    // quantum state via `overwrite[map[float]]`) would otherwise
-                    // fall to the `Any` passthrough below, which is ADDITIVE for
-                    // numeric leaves — so the snapshot DOUBLES every tick. Honor
-                    // the declared modifier here, uniformly across node kinds.
+                    // republishes a snapshot each tick would otherwise fall to
+                    // the `Any` passthrough below, which is ADDITIVE for numeric
+                    // leaves — so the snapshot DOUBLES every tick.
                     | Schema::Overwrite { .. }
+                    // A `Custom` type OWNS its apply (e.g. `Qubits`, whose apply
+                    // is overwrite). It belongs in the data face so the type's
+                    // own composition law governs the bridged slot — without it
+                    // the snapshot falls to the additive `Any` passthrough and a
+                    // `:: Qubits` quantum register doubles every tick. (The
+                    // missing arm here — NOT `resolve` dropping the Custom, which
+                    // it preserves fine — was the real stream-bridge doubling.)
+                    | Schema::Custom { .. }
                 )
             })
             .map(|(k, s)| (k.clone(), s.clone()))
@@ -1474,7 +1480,7 @@ impl Schema {
             (Self::Tree { branches }, Value::Map(m)) => {
                 let mut result: IndexMap<Key, Value> = branches
                     .iter()
-                    .map(|(k, s)| (k.clone(), s.default_value()))
+                    .map(|(k, s)| (k.clone(), s.default_with_reg(reg)))
                     .collect();
                 for (k, v) in m {
                     let s = branches.get(k).unwrap_or(&Schema::Any);
@@ -1500,6 +1506,90 @@ impl Schema {
                 )
             }
             _ => self.realize(encoded),
+        }
+    }
+
+    /// Registry-threaded `default` — a `Custom` type's `default` dispatches
+    /// (the registryless `default_value` returns `None` for any `Custom`).
+    pub fn default_with_reg(&self, reg: Option<&crate::registry::TypeRegistry>) -> Value {
+        let Some(r) = reg else {
+            return self.default_value();
+        };
+        match self {
+            Self::Custom { name, .. } => r.type_default(name),
+            Self::Tree { branches } => {
+                Value::tree(branches.iter().map(|(k, s)| (k.clone(), s.default_with_reg(reg))))
+            }
+            Self::Overwrite { inner } | Self::Const { inner } => inner.default_with_reg(reg),
+            Self::Tuple { elements } => {
+                Value::List(elements.iter().map(|s| s.default_with_reg(reg)).collect())
+            }
+            _ => self.default_value(),
+        }
+    }
+
+    /// Registry-threaded `check` — a `Custom` type's `check` dispatches (the
+    /// registryless `check` returns FALSE for any `Custom`, so validating a
+    /// typed value MUST go through here).
+    pub fn check_with_reg(
+        &self,
+        reg: Option<&crate::registry::TypeRegistry>,
+        value: &Value,
+    ) -> bool {
+        let Some(r) = reg else {
+            return self.check(value);
+        };
+        match (self, value) {
+            (Self::Custom { name, .. }, _) => r.type_check(name, value),
+            (Self::Overwrite { inner } | Self::Const { inner }, v) => inner.check_with_reg(reg, v),
+            (Self::Maybe { inner }, v) if !matches!(v, Value::None) => inner.check_with_reg(reg, v),
+            (Self::List { element }, Value::List(items)) => {
+                items.iter().all(|i| element.check_with_reg(reg, i))
+            }
+            (Self::Map { value: vs }, Value::Map(m)) => {
+                m.values().all(|v| vs.check_with_reg(reg, v))
+            }
+            (Self::Tree { branches }, Value::Map(m)) => branches
+                .iter()
+                .all(|(k, s)| m.get(k).is_some_and(|v| s.check_with_reg(reg, v))),
+            (Self::Tuple { elements }, Value::List(items)) => {
+                elements.len() == items.len()
+                    && elements.iter().zip(items).all(|(s, v)| s.check_with_reg(reg, v))
+            }
+            _ => self.check(value),
+        }
+    }
+
+    /// Registry-threaded `serialize`/`encode` — a `Custom` type's `serialize`
+    /// dispatches (canonical wire form) at any depth.
+    pub fn serialize_with_reg(
+        &self,
+        reg: Option<&crate::registry::TypeRegistry>,
+        value: &Value,
+    ) -> Value {
+        let Some(r) = reg else {
+            return self.encode(value);
+        };
+        match (self, value) {
+            (Self::Custom { name, .. }, _) => r.type_serialize(name, value),
+            (Self::Maybe { .. }, Value::None) => Value::None,
+            (Self::Overwrite { inner } | Self::Const { inner } | Self::Maybe { inner }, _) => {
+                inner.serialize_with_reg(reg, value)
+            }
+            (Self::List { element }, Value::List(items)) => {
+                Value::List(items.iter().map(|v| element.serialize_with_reg(reg, v)).collect())
+            }
+            (Self::Map { value: vs }, Value::Map(m)) => Value::Map(
+                m.iter().map(|(k, v)| (k.clone(), vs.serialize_with_reg(reg, v))).collect(),
+            ),
+            (Self::Tree { branches }, Value::Map(m)) => Value::Map(
+                m.iter()
+                    .map(|(k, v)| {
+                        (k.clone(), branches.get(k).unwrap_or(&Schema::Any).serialize_with_reg(reg, v))
+                    })
+                    .collect(),
+            ),
+            _ => self.encode(value),
         }
     }
 }
@@ -1874,6 +1964,59 @@ mod tests {
             ("name", Value::from("test")),
         ]);
         assert!(!schema.check(&bad));
+    }
+
+    #[test]
+    fn registry_aware_ops_dispatch_custom_where_registryless_evades() {
+        use crate::registry::{DivideContext, TypeMethods, TypeRegistry};
+        use std::sync::Arc;
+
+        #[derive(Debug)]
+        struct TestType;
+        impl TypeMethods for TestType {
+            fn default(&self, _: &TypeRegistry, _: &Schema) -> Value {
+                Value::String("DEFAULT".into())
+            }
+            fn apply(&self, _: &TypeRegistry, _: &Schema, _: &Value, u: &Value) -> Value {
+                u.clone()
+            }
+            fn divide(&self, _: &TypeRegistry, _: &Schema, s: &Value, _: &DivideContext) -> Vec<Value> {
+                vec![s.clone()]
+            }
+            fn serialize(&self, _: &TypeRegistry, _: &Schema, _: &Value) -> Value {
+                Value::String("SER".into())
+            }
+            fn realize(&self, _: &TypeRegistry, _: &Schema, _: &Value) -> Value {
+                Value::String("REAL".into())
+            }
+            fn check(&self, _: &TypeRegistry, _: &Schema, _: &Value) -> bool {
+                true
+            }
+        }
+
+        let mut reg = TypeRegistry::new();
+        reg.register_full("T".to_string(), Schema::Any, None, Some(Arc::new(TestType)), Vec::new());
+        let t = Schema::Custom {
+            name: "T".into(),
+            parameters: IndexMap::new(),
+        };
+        let v = Value::Int(1);
+
+        // Registryless: the evasions — None / false / opaque.
+        assert_eq!(t.default_value(), Value::None);
+        assert!(!t.check(&v));
+        // Registry-aware: dispatches the type's methods at every op.
+        assert_eq!(t.default_with_reg(Some(&reg)), Value::String("DEFAULT".into()));
+        assert!(t.check_with_reg(Some(&reg), &v));
+        assert_eq!(t.serialize_with_reg(Some(&reg), &v), Value::String("SER".into()));
+        assert_eq!(t.realize_with_reg(Some(&reg), &v), Value::String("REAL".into()));
+        // Nested inside a container — dispatch reaches any depth.
+        let nested = Schema::map(t.clone());
+        let m = Value::Map([(Key::from("k"), v.clone())].into_iter().collect());
+        let out = nested.default_with_reg(Some(&reg));
+        assert!(matches!(out, Value::Map(_)), "map default builds an empty map: {out:?}");
+        let checked = nested.check_with_reg(Some(&reg), &m);
+        assert!(checked, "Custom inside a Map checks via the registry");
     }
 
     #[test]
