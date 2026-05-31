@@ -239,7 +239,7 @@ mod tests {
 
     fn round_trips(schema: &Schema, a: &Value, b: &Value) {
         match diff(schema, a, b) {
-            Some(u) => assert_eq!(&algebra::apply(schema, a, &u), b, "apply(a, diff(a,b)) != b"),
+            Some(u) => assert_eq!(&algebra::apply_with(None, schema, a, &u), b, "apply(a, diff(a,b)) != b"),
             None => assert_eq!(a, b, "diff returned None but a != b"),
         }
     }

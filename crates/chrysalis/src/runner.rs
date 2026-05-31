@@ -359,9 +359,8 @@ fn drive_step(
         if let Some(v) = frame.get_field(name) {
             let path = output_path(name, port);
             let schema = lower_schema_in_program(&port.schema, program);
-            engine
-                .state_mut()
-                .set_path(&path, algebra::realize(&schema, v));
+            let realized = algebra::realize_with(Some(engine.core().types.as_ref()), &schema, v);
+            engine.state_mut().set_path(&path, realized);
             changed.push(path);
         }
     }
@@ -440,7 +439,9 @@ pub fn serve_stream(
         let frame = match &cur_in {
             None => in_payload.clone(),
             Some(prev) if matches!(in_payload, Value::None) => prev.clone(),
-            Some(prev) => algebra::apply(&in_elem, prev, &in_payload),
+            Some(prev) => {
+                algebra::apply_with(Some(engine.core().types.as_ref()), &in_elem, prev, &in_payload)
+            }
         };
         cur_in = Some(frame.clone());
 
@@ -506,6 +507,9 @@ pub fn serve_process(
     // The header is only the Arrow decode shape (the parent infers it from the
     // routed input values); no `refines` check — see the rest server.
     let in_elem = value_to_schema(reader.element()).unwrap_or(Schema::Any);
+    // One program-aware registry so the input fold dispatches a `Custom`-typed
+    // port (e.g. `:: Qubits`) the parent routed in — the bridge is a typed wire.
+    let types = crate::compile::build_type_registry(&std::sync::Arc::new(program.clone()));
 
     let composite = build_entry_composite(program, registry, methods, modules, args, &entry)?;
     let out_schema = output_schema(&entry, program);
@@ -524,7 +528,7 @@ pub fn serve_process(
         let full = match &cur_in {
             None => payload.clone(),
             Some(prev) if matches!(payload, Value::None) => prev.clone(),
-            Some(prev) => algebra::apply(&in_elem, prev, &payload),
+            Some(prev) => algebra::apply_with(Some(types.as_ref()), &in_elem, prev, &payload),
         };
         cur_in = Some(full.clone());
         let dt = time - prev_time;
@@ -650,6 +654,7 @@ fn output_path(name: &Name, port: &PortDecl) -> Vec<Key> {
 /// The entry's `->{outputs}` pulled through their bridges and `serialize`d into
 /// one record — the batch final frame.
 fn output_record(state: &Value, entry: &CompositeDef, program: &Program) -> Value {
+    let types = crate::compile::build_type_registry(&std::sync::Arc::new(program.clone()));
     let mut record: IndexMap<Key, Value> = IndexMap::new();
     for (name, port) in &entry.interface.outputs {
         let val = state
@@ -657,7 +662,10 @@ fn output_record(state: &Value, entry: &CompositeDef, program: &Program) -> Valu
             .cloned()
             .unwrap_or(Value::None);
         let schema = lower_schema_in_program(&port.schema, program);
-        record.insert(Key::from(name.as_str()), algebra::serialize(&schema, &val));
+        record.insert(
+            Key::from(name.as_str()),
+            algebra::serialize_with(Some(types.as_ref()), &schema, &val),
+        );
     }
     Value::Map(record)
 }

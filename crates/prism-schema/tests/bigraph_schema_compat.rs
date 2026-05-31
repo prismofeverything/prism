@@ -200,42 +200,42 @@ fn test_parse_step() {
 #[test]
 fn test_default_float() {
     let schema = Schema::float();
-    let val = schema.default_value();
+    let val = prism_schema::algebra::default_with(None, &schema);
     assert_eq!(val, Value::float(0.0));
 }
 
 #[test]
 fn test_default_float_with_default() {
     let schema = Schema::float_default(11.111);
-    let val = schema.default_value();
+    let val = prism_schema::algebra::default_with(None, &schema);
     assert_eq!(val, Value::float(11.111));
 }
 
 #[test]
 fn test_default_string() {
     let schema = Schema::string();
-    let val = schema.default_value();
+    let val = prism_schema::algebra::default_with(None, &schema);
     assert_eq!(val, Value::String(String::new()));
 }
 
 #[test]
 fn test_default_integer() {
     let schema = Schema::integer();
-    let val = schema.default_value();
+    let val = prism_schema::algebra::default_with(None, &schema);
     assert_eq!(val, Value::Int(0));
 }
 
 #[test]
 fn test_default_bool() {
     let schema = Schema::bool();
-    let val = schema.default_value();
+    let val = prism_schema::algebra::default_with(None, &schema);
     assert_eq!(val, Value::Bool(false));
 }
 
 #[test]
 fn test_default_map() {
     let schema = Schema::map(Schema::float());
-    let val = schema.default_value();
+    let val = prism_schema::algebra::default_with(None, &schema);
     assert_eq!(val, Value::Map(IndexMap::new()));
 }
 
@@ -246,7 +246,7 @@ fn test_default_enum() {
         values: vec!["one".into(), "two".into(), "three".into()],
         default: None,
     };
-    let val = schema.default_value();
+    let val = prism_schema::algebra::default_with(None, &schema);
     assert_eq!(val, Value::String("one".to_string()));
 }
 
@@ -256,7 +256,7 @@ fn test_default_enum_with_default() {
         values: vec!["x".into(), "y".into(), "z".into()],
         default: Some("y".into()),
     };
-    let val = schema.default_value();
+    let val = prism_schema::algebra::default_with(None, &schema);
     assert_eq!(val, Value::String("y".to_string()));
 }
 
@@ -274,20 +274,20 @@ fn test_check_tree_float() {
         ])),
         ("c", Value::float(3.3)),
     ]);
-    assert!(schema.check(&tree_a));
+    assert!(prism_schema::algebra::check_with(None, &schema, &tree_a));
 }
 
 #[test]
 fn test_check_tree_rejects_string() {
     let schema = parse_type_expression("tree[float]");
-    assert!(!schema.check(&Value::String("not a tree".into())));
+    assert!(!prism_schema::algebra::check_with(None, &schema, &Value::String("not a tree".into())));
 }
 
 #[test]
 fn test_check_float() {
     let schema = Schema::float();
-    assert!(schema.check(&Value::float(5.5)));
-    assert!(!schema.check(&Value::String("nope".into())));
+    assert!(prism_schema::algebra::check_with(None, &schema, &Value::float(5.5)));
+    assert!(!prism_schema::algebra::check_with(None, &schema, &Value::String("nope".into())));
 }
 
 #[test]
@@ -300,8 +300,8 @@ fn test_check_map() {
     let bad = Value::Map(IndexMap::from([
         ("a".into(), Value::String("nope".into())),
     ]));
-    assert!(schema.check(&good));
-    assert!(!schema.check(&bad));
+    assert!(prism_schema::algebra::check_with(None, &schema, &good));
+    assert!(!prism_schema::algebra::check_with(None, &schema, &bad));
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -314,7 +314,7 @@ fn test_apply_float_additive() {
     let schema = Schema::float();
     let current = Value::float(10.0);
     let update = Value::float(5.0);
-    let result = prism_schema::algebra::apply(&schema, &current, &update);
+    let result = prism_schema::algebra::apply_with(None, &schema, &current, &update);
     assert_eq!(result, Value::float(15.0));
 }
 
@@ -324,7 +324,7 @@ fn test_apply_integer_additive() {
     let schema = Schema::integer();
     let current = Value::Int(10);
     let update = Value::Int(3);
-    let result = prism_schema::algebra::apply(&schema, &current, &update);
+    let result = prism_schema::algebra::apply_with(None, &schema, &current, &update);
     assert_eq!(result, Value::Int(13));
 }
 
@@ -334,7 +334,7 @@ fn test_apply_overwrite() {
     let schema = Schema::Overwrite { inner: Box::new(Schema::float()) };
     let current = Value::float(10.0);
     let update = Value::float(99.9);
-    let result = prism_schema::algebra::apply(&schema, &current, &update);
+    let result = prism_schema::algebra::apply_with(None, &schema, &current, &update);
     assert_eq!(result, Value::float(99.9));
 }
 
@@ -350,7 +350,7 @@ fn test_apply_map_merge() {
         ("a".into(), Value::float(0.5)),
         ("c".into(), Value::float(3.0)),
     ]));
-    let result = prism_schema::algebra::apply(&schema, &current, &update);
+    let result = prism_schema::algebra::apply_with(None, &schema, &current, &update);
     let map = result.as_map().unwrap();
     // a: 1.0 + 0.5 = 1.5 (additive)
     assert_eq!(map.get("a").unwrap().as_f64().unwrap(), 1.5);
@@ -373,7 +373,7 @@ fn test_apply_map_add() {
             ("c".into(), Value::float(3.0)),
         ]))),
     ]));
-    let result = prism_schema::algebra::apply(&schema, &current, &update);
+    let result = prism_schema::algebra::apply_with(None, &schema, &current, &update);
     let map = result.as_map().unwrap();
     assert_eq!(map.len(), 3);
     assert_eq!(map.get("b").unwrap().as_f64().unwrap(), 2.0);
@@ -393,7 +393,7 @@ fn test_apply_map_remove() {
             Value::String("b".into()),
         ])),
     ]));
-    let result = prism_schema::algebra::apply(&schema, &current, &update);
+    let result = prism_schema::algebra::apply_with(None, &schema, &current, &update);
     let map = result.as_map().unwrap();
     assert_eq!(map.len(), 2);
     assert!(!map.contains_key("b"));
@@ -416,7 +416,7 @@ fn test_apply_tree() {
         ("mass", Value::float(0.5)),
         ("name", Value::String("updated".into())),
     ]);
-    let result = prism_schema::algebra::apply(&schema, &current, &update);
+    let result = prism_schema::algebra::apply_with(None, &schema, &current, &update);
     let map = result.as_map().unwrap();
     // mass: 1.0 + 0.5 = 1.5 (float is additive)
     assert_eq!(map.get("mass").unwrap().as_f64().unwrap(), 1.5);
@@ -432,7 +432,7 @@ fn test_apply_tuple() {
     };
     let current = Value::List(vec![Value::float(1.0), Value::float(2.0)]);
     let update = Value::List(vec![Value::float(0.5), Value::float(0.3)]);
-    let result = prism_schema::algebra::apply(&schema, &current, &update);
+    let result = prism_schema::algebra::apply_with(None, &schema, &current, &update);
     let list = result.as_list().unwrap();
     assert_eq!(list[0].as_f64().unwrap(), 1.5);
     assert_eq!(list[1].as_f64().unwrap(), 2.3);
@@ -444,7 +444,7 @@ fn test_apply_list_replace() {
     let schema = Schema::List { element: Box::new(Schema::float()) };
     let current = Value::List(vec![Value::float(1.0), Value::float(2.0)]);
     let update = Value::List(vec![Value::float(10.0)]);
-    let result = prism_schema::algebra::apply(&schema, &current, &update);
+    let result = prism_schema::algebra::apply_with(None, &schema, &current, &update);
     // Lists replace entirely (different from Tuple which is element-wise)
     let list = result.as_list().unwrap();
     assert_eq!(list.len(), 1);
@@ -483,7 +483,7 @@ fn test_merge_trees() {
 
     // Merging tree_b into tree_a: tree_a values take precedence for
     // existing keys, tree_b contributes new keys
-    let result = prism_schema::algebra::apply(&schema, &tree_b, &tree_a);
+    let result = prism_schema::algebra::apply_with(None, &schema, &tree_b, &tree_a);
     let map = result.as_map().unwrap();
     let a = map.get("a").unwrap().as_map().unwrap();
     // 'x' in tree_a is a subtree, in tree_b it's a float.
@@ -536,7 +536,7 @@ fn test_traverse_tree() {
 fn test_link_schema_default() {
     // Python: default link has address='local:edge', default wiring
     let schema = parse_type_expression("link[mass:float,mass:delta]");
-    let default = schema.default_value();
+    let default = prism_schema::algebra::default_with(None, &schema);
     let map = default.as_map().unwrap();
     assert_eq!(map.get("address").unwrap().as_str().unwrap(), "local:edge");
     // Default wiring: port name → [port_name]
@@ -556,10 +556,10 @@ fn test_link_check() {
         ("inputs", Value::tree([("mass", Value::List(vec![Value::String("cell".into()), Value::String("mass".into())]))])),
         ("outputs", Value::tree([("mass", Value::List(vec![Value::String("cell".into()), Value::String("mass".into())]))])),
     ]);
-    assert!(schema.check(&good));
+    assert!(prism_schema::algebra::check_with(None, &schema, &good));
 
     // A plain float should not pass link check
-    assert!(!schema.check(&Value::float(44.44)));
+    assert!(!prism_schema::algebra::check_with(None, &schema, &Value::float(44.44)));
 }
 
 #[test]
@@ -577,7 +577,7 @@ fn test_link_serialize() {
             ("concentrations", Value::List(vec![Value::String("cell".into()), Value::String("internal".into())])),
         ])),
     ]);
-    let encoded = schema.encode(&link_state);
+    let encoded = prism_schema::algebra::serialize_with(None, &schema, &link_state);
     let map = encoded.as_map().unwrap();
     assert_eq!(map.get("address").unwrap().as_str().unwrap(), "local:edge");
     assert!(map.contains_key("_inputs"));
@@ -623,7 +623,7 @@ fn test_generate_with_link() {
     ]);
 
     // Realize should fill A with the default from port schema (5.5)
-    let realized = schema.realize(&state);
+    let realized = prism_schema::algebra::realize_with(None, &schema, &state);
     let map = realized.as_map().unwrap();
     // A should get its default from the schema (0.0 since Schema::float())
     assert_eq!(map.get("A").unwrap().as_f64().unwrap(), 0.0);
@@ -672,9 +672,9 @@ fn test_resolve_conflict() {
 fn test_round_trip_float() {
     let schema = Schema::float();
     let state = Value::float(55.55);
-    let serialized = schema.encode(&state);
-    let realized = schema.realize(&serialized);
-    assert!(schema.check(&realized));
+    let serialized = prism_schema::algebra::serialize_with(None, &schema, &state);
+    let realized = prism_schema::algebra::realize_with(None, &schema, &serialized);
+    assert!(prism_schema::algebra::check_with(None, &schema, &realized));
     assert_eq!(realized.as_f64().unwrap(), 55.55);
 }
 
@@ -690,9 +690,9 @@ fn test_round_trip_tree() {
         ("a", Value::float(5.5)),
         ("b", Value::String("hello".into())),
     ]);
-    let serialized = schema.encode(&state);
-    let realized = schema.realize(&serialized);
-    assert!(schema.check(&realized));
+    let serialized = prism_schema::algebra::serialize_with(None, &schema, &state);
+    let realized = prism_schema::algebra::realize_with(None, &schema, &serialized);
+    assert!(prism_schema::algebra::check_with(None, &schema, &realized));
     assert_eq!(realized.as_map().unwrap().get("a").unwrap().as_f64().unwrap(), 5.5);
     assert_eq!(realized.as_map().unwrap().get("b").unwrap().as_str().unwrap(), "hello");
 }
@@ -720,7 +720,7 @@ fn test_realize_string_encoded() {
             Value::String(r#"{"x": 5, "y": 11}"#.into()),
         ])),
     ]);
-    let realized = schema.realize(&encoded);
+    let realized = prism_schema::algebra::realize_with(None, &schema, &encoded);
     let map = realized.as_map().unwrap();
     // Integer from string
     assert_eq!(map.get("a").unwrap().as_i64().unwrap(), 5555);
@@ -739,7 +739,7 @@ fn test_serialize_float() {
         branches: IndexMap::from([("a".into(), Schema::float())]),
     };
     let state = Value::tree([("a", Value::float(55.55555))]);
-    let encoded = schema.encode(&state);
+    let encoded = prism_schema::algebra::serialize_with(None, &schema, &state);
     assert_eq!(encoded.as_map().unwrap().get("a").unwrap().as_f64().unwrap(), 55.55555);
 }
 
@@ -831,7 +831,7 @@ fn test_link_realize() {
             ("mass", Value::List(vec![Value::String("cell".into()), Value::String("mass".into())])),
         ])),
     ]);
-    let realized = schema.realize(&encoded);
+    let realized = prism_schema::algebra::realize_with(None, &schema, &encoded);
     let map = realized.as_map().unwrap();
     assert_eq!(map.get("address").unwrap().as_str().unwrap(), "local:edge");
     let inputs = map.get("inputs").unwrap().as_map().unwrap();
@@ -851,31 +851,31 @@ fn test_link_realize() {
 #[test]
 fn test_check_bool() {
     let s = Schema::bool();
-    assert!(s.check(&Value::Bool(true)));
-    assert!(s.check(&Value::Bool(false)));
-    assert!(!s.check(&Value::float(1.0)));
-    assert!(!s.check(&Value::String("true".into())));
+    assert!(prism_schema::algebra::check_with(None, &s, &Value::Bool(true)));
+    assert!(prism_schema::algebra::check_with(None, &s, &Value::Bool(false)));
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::float(1.0)));
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::String("true".into())));
 }
 
 #[test]
 fn test_apply_bool_replace() {
     let s = Schema::bool();
     // Bools replace (no additive semantics)
-    assert_eq!(prism_schema::algebra::apply(&s, &Value::Bool(false), &Value::Bool(true)), Value::Bool(true));
+    assert_eq!(prism_schema::algebra::apply_with(None, &s, &Value::Bool(false), &Value::Bool(true)), Value::Bool(true));
 }
 
 #[test]
 fn test_encode_bool() {
     let s = Schema::bool();
-    assert_eq!(s.encode(&Value::Bool(true)), Value::Bool(true));
+    assert_eq!(prism_schema::algebra::serialize_with(None, &s, &Value::Bool(true)), Value::Bool(true));
 }
 
 #[test]
 fn test_realize_bool() {
     let s = Schema::bool();
-    assert_eq!(s.realize(&Value::Bool(true)), Value::Bool(true));
-    assert_eq!(s.realize(&Value::String("true".into())), Value::Bool(true));
-    assert_eq!(s.realize(&Value::String("false".into())), Value::Bool(false));
+    assert_eq!(prism_schema::algebra::realize_with(None, &s, &Value::Bool(true)), Value::Bool(true));
+    assert_eq!(prism_schema::algebra::realize_with(None, &s, &Value::String("true".into())), Value::Bool(true));
+    assert_eq!(prism_schema::algebra::realize_with(None, &s, &Value::String("false".into())), Value::Bool(false));
 }
 
 #[test]
@@ -888,27 +888,27 @@ fn test_infer_bool() {
 #[test]
 fn test_check_integer() {
     let s = Schema::integer();
-    assert!(s.check(&Value::Int(42)));
-    assert!(!s.check(&Value::float(42.0)));
-    assert!(!s.check(&Value::String("42".into())));
+    assert!(prism_schema::algebra::check_with(None, &s, &Value::Int(42)));
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::float(42.0)));
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::String("42".into())));
 }
 
 #[test]
 fn test_default_integer_with_default() {
     let s = Schema::Integer { default: Some(99) };
-    assert_eq!(s.default_value(), Value::Int(99));
+    assert_eq!(prism_schema::algebra::default_with(None, &s), Value::Int(99));
 }
 
 #[test]
 fn test_encode_integer() {
     let s = Schema::integer();
-    assert_eq!(s.encode(&Value::Int(42)), Value::Int(42));
+    assert_eq!(prism_schema::algebra::serialize_with(None, &s, &Value::Int(42)), Value::Int(42));
 }
 
 #[test]
 fn test_realize_integer_from_string() {
     let s = Schema::integer();
-    assert_eq!(s.realize(&Value::String("123".into())), Value::Int(123));
+    assert_eq!(prism_schema::algebra::realize_with(None, &s, &Value::String("123".into())), Value::Int(123));
 }
 
 #[test]
@@ -921,15 +921,15 @@ fn test_infer_integer() {
 #[test]
 fn test_check_string() {
     let s = Schema::string();
-    assert!(s.check(&Value::String("hello".into())));
-    assert!(!s.check(&Value::Int(5)));
+    assert!(prism_schema::algebra::check_with(None, &s, &Value::String("hello".into())));
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::Int(5)));
 }
 
 #[test]
 fn test_apply_string_replace() {
     let s = Schema::string();
     assert_eq!(
-        prism_schema::algebra::apply(&s, &Value::String("old".into()), &Value::String("new".into())),
+        prism_schema::algebra::apply_with(None, &s, &Value::String("old".into()), &Value::String("new".into())),
         Value::String("new".into())
     );
 }
@@ -937,13 +937,13 @@ fn test_apply_string_replace() {
 #[test]
 fn test_encode_string() {
     let s = Schema::string();
-    assert_eq!(s.encode(&Value::String("hi".into())), Value::String("hi".into()));
+    assert_eq!(prism_schema::algebra::serialize_with(None, &s, &Value::String("hi".into())), Value::String("hi".into()));
 }
 
 #[test]
 fn test_realize_string() {
     let s = Schema::string();
-    assert_eq!(s.realize(&Value::String("hi".into())), Value::String("hi".into()));
+    assert_eq!(prism_schema::algebra::realize_with(None, &s, &Value::String("hi".into())), Value::String("hi".into()));
 }
 
 // ── Enum ──
@@ -951,17 +951,17 @@ fn test_realize_string() {
 #[test]
 fn test_check_enum() {
     let s = Schema::Enum { values: vec!["a".into(), "b".into(), "c".into()], default: None };
-    assert!(s.check(&Value::String("a".into())));
-    assert!(s.check(&Value::String("c".into())));
-    assert!(!s.check(&Value::String("d".into())));
-    assert!(!s.check(&Value::Int(1)));
+    assert!(prism_schema::algebra::check_with(None, &s, &Value::String("a".into())));
+    assert!(prism_schema::algebra::check_with(None, &s, &Value::String("c".into())));
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::String("d".into())));
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::Int(1)));
 }
 
 #[test]
 fn test_apply_enum_replace() {
     let s = Schema::Enum { values: vec!["x".into(), "y".into()], default: None };
     assert_eq!(
-        prism_schema::algebra::apply(&s, &Value::String("x".into()), &Value::String("y".into())),
+        prism_schema::algebra::apply_with(None, &s, &Value::String("x".into()), &Value::String("y".into())),
         Value::String("y".into())
     );
 }
@@ -969,13 +969,13 @@ fn test_apply_enum_replace() {
 #[test]
 fn test_encode_enum() {
     let s = Schema::Enum { values: vec!["a".into()], default: None };
-    assert_eq!(s.encode(&Value::String("a".into())), Value::String("a".into()));
+    assert_eq!(prism_schema::algebra::serialize_with(None, &s, &Value::String("a".into())), Value::String("a".into()));
 }
 
 #[test]
 fn test_realize_enum() {
     let s = Schema::Enum { values: vec!["a".into()], default: None };
-    assert_eq!(s.realize(&Value::String("a".into())), Value::String("a".into()));
+    assert_eq!(prism_schema::algebra::realize_with(None, &s, &Value::String("a".into())), Value::String("a".into()));
 }
 
 #[test]
@@ -991,36 +991,36 @@ fn test_infer_enum() {
 #[test]
 fn test_default_delta() {
     let s = Schema::Delta { default: None };
-    assert_eq!(s.default_value(), Value::float(0.0));
+    assert_eq!(prism_schema::algebra::default_with(None, &s), Value::float(0.0));
     let s2 = Schema::Delta { default: Some(5.5) };
-    assert_eq!(s2.default_value(), Value::float(5.5));
+    assert_eq!(prism_schema::algebra::default_with(None, &s2), Value::float(5.5));
 }
 
 #[test]
 fn test_check_delta() {
     let s = Schema::Delta { default: None };
-    assert!(s.check(&Value::float(1.0)));
-    assert!(s.check(&Value::Int(1)));
-    assert!(!s.check(&Value::String("nope".into())));
+    assert!(prism_schema::algebra::check_with(None, &s, &Value::float(1.0)));
+    assert!(prism_schema::algebra::check_with(None, &s, &Value::Int(1)));
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::String("nope".into())));
 }
 
 #[test]
 fn test_apply_delta_additive() {
     let s = Schema::Delta { default: None };
-    assert_eq!(prism_schema::algebra::apply(&s, &Value::float(10.0), &Value::float(3.0)), Value::float(13.0));
+    assert_eq!(prism_schema::algebra::apply_with(None, &s, &Value::float(10.0), &Value::float(3.0)), Value::float(13.0));
 }
 
 #[test]
 fn test_encode_delta() {
     let s = Schema::Delta { default: None };
-    assert_eq!(s.encode(&Value::float(5.5)), Value::float(5.5));
+    assert_eq!(prism_schema::algebra::serialize_with(None, &s, &Value::float(5.5)), Value::float(5.5));
 }
 
 #[test]
 fn test_realize_delta() {
     let s = Schema::Delta { default: None };
-    assert_eq!(s.realize(&Value::String("3.14".into())), Value::float(3.14));
-    assert_eq!(s.realize(&Value::Int(5)), Value::float(5.0));
+    assert_eq!(prism_schema::algebra::realize_with(None, &s, &Value::String("3.14".into())), Value::float(3.14));
+    assert_eq!(prism_schema::algebra::realize_with(None, &s, &Value::Int(5)), Value::float(5.0));
 }
 
 // ── List ──
@@ -1028,30 +1028,30 @@ fn test_realize_delta() {
 #[test]
 fn test_default_list() {
     let s = Schema::list(Schema::float());
-    assert_eq!(s.default_value(), Value::List(vec![]));
+    assert_eq!(prism_schema::algebra::default_with(None, &s), Value::List(vec![]));
 }
 
 #[test]
 fn test_check_list() {
     let s = Schema::list(Schema::float());
-    assert!(s.check(&Value::List(vec![Value::float(1.0), Value::float(2.0)])));
-    assert!(s.check(&Value::List(vec![]))); // empty list is valid
-    assert!(!s.check(&Value::List(vec![Value::String("nope".into())])));
-    assert!(!s.check(&Value::float(1.0)));
+    assert!(prism_schema::algebra::check_with(None, &s, &Value::List(vec![Value::float(1.0), Value::float(2.0)])));
+    assert!(prism_schema::algebra::check_with(None, &s, &Value::List(vec![]))); // empty list is valid
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::List(vec![Value::String("nope".into())])));
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::float(1.0)));
 }
 
 #[test]
 fn test_encode_list() {
     let s = Schema::list(Schema::float());
     let val = Value::List(vec![Value::float(1.0), Value::float(2.0)]);
-    assert_eq!(s.encode(&val), val);
+    assert_eq!(prism_schema::algebra::serialize_with(None, &s, &val), val);
 }
 
 #[test]
 fn test_realize_list() {
     let s = Schema::list(Schema::integer());
     let encoded = Value::List(vec![Value::String("1".into()), Value::String("2".into())]);
-    let realized = s.realize(&encoded);
+    let realized = prism_schema::algebra::realize_with(None, &s, &encoded);
     let list = realized.as_list().unwrap();
     assert_eq!(list[0].as_i64().unwrap(), 1);
     assert_eq!(list[1].as_i64().unwrap(), 2);
@@ -1072,7 +1072,7 @@ fn test_encode_map() {
         ("a".into(), Value::float(1.0)),
         ("b".into(), Value::float(2.0)),
     ]));
-    assert_eq!(s.encode(&val), val);
+    assert_eq!(prism_schema::algebra::serialize_with(None, &s, &val), val);
 }
 
 #[test]
@@ -1081,7 +1081,7 @@ fn test_realize_map() {
     let encoded = Value::Map(IndexMap::from([
         ("x".into(), Value::String("42".into())),
     ]));
-    let realized = s.realize(&encoded);
+    let realized = prism_schema::algebra::realize_with(None, &s, &encoded);
     assert_eq!(realized.as_map().unwrap().get("x").unwrap().as_i64().unwrap(), 42);
 }
 
@@ -1089,7 +1089,7 @@ fn test_realize_map() {
 fn test_realize_map_from_json_string() {
     let s = Schema::map(Schema::integer());
     let json_str = Value::String(r#"{"a": 1, "b": 2}"#.into());
-    let realized = s.realize(&json_str);
+    let realized = prism_schema::algebra::realize_with(None, &s, &json_str);
     let map = realized.as_map().unwrap();
     assert_eq!(map.get("a").unwrap().as_i64().unwrap(), 1);
     assert_eq!(map.get("b").unwrap().as_i64().unwrap(), 2);
@@ -1116,7 +1116,7 @@ fn test_default_tree() {
             ("b".into(), Schema::string()),
         ]),
     };
-    let d = s.default_value();
+    let d = prism_schema::algebra::default_with(None, &s);
     let map = d.as_map().unwrap();
     assert_eq!(map.get("a").unwrap().as_f64().unwrap(), 0.0);
     assert_eq!(map.get("b").unwrap().as_str().unwrap(), "");
@@ -1131,8 +1131,8 @@ fn test_check_tree() {
         ]),
     };
     let good = Value::tree([("x", Value::float(1.0)), ("y", Value::String("hi".into()))]);
-    assert!(s.check(&good));
-    assert!(!s.check(&Value::String("nope".into())));
+    assert!(prism_schema::algebra::check_with(None, &s, &good));
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::String("nope".into())));
 }
 
 // ── Tuple ──
@@ -1140,7 +1140,7 @@ fn test_check_tree() {
 #[test]
 fn test_default_tuple() {
     let s = Schema::tuple(vec![Schema::float(), Schema::string(), Schema::bool()]);
-    let d = s.default_value();
+    let d = prism_schema::algebra::default_with(None, &s);
     let list = d.as_list().unwrap();
     assert_eq!(list.len(), 3);
     assert_eq!(list[0].as_f64().unwrap(), 0.0);
@@ -1151,18 +1151,18 @@ fn test_default_tuple() {
 #[test]
 fn test_check_tuple() {
     let s = Schema::tuple(vec![Schema::float(), Schema::string()]);
-    assert!(s.check(&Value::List(vec![Value::float(1.0), Value::String("hi".into())])));
+    assert!(prism_schema::algebra::check_with(None, &s, &Value::List(vec![Value::float(1.0), Value::String("hi".into())])));
     // Wrong length
-    assert!(!s.check(&Value::List(vec![Value::float(1.0)])));
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::List(vec![Value::float(1.0)])));
     // Wrong types
-    assert!(!s.check(&Value::List(vec![Value::String("x".into()), Value::float(1.0)])));
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::List(vec![Value::String("x".into()), Value::float(1.0)])));
 }
 
 #[test]
 fn test_encode_tuple() {
     let s = Schema::tuple(vec![Schema::float(), Schema::string()]);
     let val = Value::List(vec![Value::float(1.5), Value::String("hi".into())]);
-    assert_eq!(s.encode(&val), val);
+    assert_eq!(prism_schema::algebra::serialize_with(None, &s, &val), val);
 }
 
 #[test]
@@ -1190,7 +1190,7 @@ fn test_parse_array() {
 #[test]
 fn test_default_array() {
     let s = Schema::array(vec![2, 3], Schema::float());
-    let d = s.default_value();
+    let d = prism_schema::algebra::default_with(None, &s);
     let rows = d.as_list().unwrap();
     assert_eq!(rows.len(), 2);
     let row0 = rows[0].as_list().unwrap();
@@ -1205,8 +1205,8 @@ fn test_check_array() {
         Value::List(vec![Value::float(1.0), Value::float(2.0)]),
         Value::List(vec![Value::float(3.0), Value::float(4.0)]),
     ]);
-    assert!(s.check(&good));
-    assert!(!s.check(&Value::float(1.0)));
+    assert!(prism_schema::algebra::check_with(None, &s, &good));
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::float(1.0)));
 }
 
 #[test]
@@ -1214,7 +1214,7 @@ fn test_apply_array_elementwise() {
     let s = Schema::array(vec![2], Schema::float());
     let current = Value::List(vec![Value::float(1.0), Value::float(2.0)]);
     let update = Value::List(vec![Value::float(0.5), Value::float(0.3)]);
-    let result = prism_schema::algebra::apply(&s, &current, &update);
+    let result = prism_schema::algebra::apply_with(None, &s, &current, &update);
     let list = result.as_list().unwrap();
     assert_eq!(list[0].as_f64().unwrap(), 1.5);
     assert_eq!(list[1].as_f64().unwrap(), 2.3);
@@ -1224,14 +1224,14 @@ fn test_apply_array_elementwise() {
 fn test_encode_array() {
     let s = Schema::array(vec![2], Schema::float());
     let val = Value::List(vec![Value::float(1.0), Value::float(2.0)]);
-    assert_eq!(s.encode(&val), val);
+    assert_eq!(prism_schema::algebra::serialize_with(None, &s, &val), val);
 }
 
 #[test]
 fn test_realize_array() {
     let s = Schema::array(vec![2], Schema::float());
     let val = Value::List(vec![Value::float(1.0), Value::float(2.0)]);
-    assert_eq!(s.realize(&val), val);
+    assert_eq!(prism_schema::algebra::realize_with(None, &s, &val), val);
 }
 
 // ── Maybe ──
@@ -1239,38 +1239,38 @@ fn test_realize_array() {
 #[test]
 fn test_default_maybe() {
     let s = Schema::maybe(Schema::float());
-    assert_eq!(s.default_value(), Value::None);
+    assert_eq!(prism_schema::algebra::default_with(None, &s), Value::None);
 }
 
 #[test]
 fn test_check_maybe() {
     let s = Schema::maybe(Schema::float());
-    assert!(s.check(&Value::None));
-    assert!(s.check(&Value::float(5.5)));
-    assert!(!s.check(&Value::String("nope".into())));
+    assert!(prism_schema::algebra::check_with(None, &s, &Value::None));
+    assert!(prism_schema::algebra::check_with(None, &s, &Value::float(5.5)));
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::String("nope".into())));
 }
 
 #[test]
 fn test_apply_maybe() {
     let s = Schema::maybe(Schema::float());
     // Apply to None → set value
-    assert_eq!(prism_schema::algebra::apply(&s, &Value::None, &Value::float(5.0)), Value::float(5.0));
+    assert_eq!(prism_schema::algebra::apply_with(None, &s, &Value::None, &Value::float(5.0)), Value::float(5.0));
     // Apply to existing → additive (inner float semantics)
-    assert_eq!(prism_schema::algebra::apply(&s, &Value::float(3.0), &Value::float(2.0)), Value::float(5.0));
+    assert_eq!(prism_schema::algebra::apply_with(None, &s, &Value::float(3.0), &Value::float(2.0)), Value::float(5.0));
 }
 
 #[test]
 fn test_encode_maybe() {
     let s = Schema::maybe(Schema::float());
-    assert_eq!(s.encode(&Value::None), Value::None);
-    assert_eq!(s.encode(&Value::float(5.5)), Value::float(5.5));
+    assert_eq!(prism_schema::algebra::serialize_with(None, &s, &Value::None), Value::None);
+    assert_eq!(prism_schema::algebra::serialize_with(None, &s, &Value::float(5.5)), Value::float(5.5));
 }
 
 #[test]
 fn test_realize_maybe() {
     let s = Schema::maybe(Schema::float());
-    assert_eq!(s.realize(&Value::None), Value::None);
-    assert_eq!(s.realize(&Value::String("3.14".into())), Value::float(3.14));
+    assert_eq!(prism_schema::algebra::realize_with(None, &s, &Value::None), Value::None);
+    assert_eq!(prism_schema::algebra::realize_with(None, &s, &Value::String("3.14".into())), Value::float(3.14));
 }
 
 // ── Overwrite ──
@@ -1278,26 +1278,26 @@ fn test_realize_maybe() {
 #[test]
 fn test_default_overwrite() {
     let s = Schema::overwrite(Schema::float_default(7.7));
-    assert_eq!(s.default_value(), Value::float(7.7));
+    assert_eq!(prism_schema::algebra::default_with(None, &s), Value::float(7.7));
 }
 
 #[test]
 fn test_check_overwrite() {
     let s = Schema::overwrite(Schema::float());
-    assert!(s.check(&Value::float(1.0)));
-    assert!(!s.check(&Value::String("nope".into())));
+    assert!(prism_schema::algebra::check_with(None, &s, &Value::float(1.0)));
+    assert!(!prism_schema::algebra::check_with(None, &s, &Value::String("nope".into())));
 }
 
 #[test]
 fn test_encode_overwrite() {
     let s = Schema::overwrite(Schema::float());
-    assert_eq!(s.encode(&Value::float(5.5)), Value::float(5.5));
+    assert_eq!(prism_schema::algebra::serialize_with(None, &s, &Value::float(5.5)), Value::float(5.5));
 }
 
 #[test]
 fn test_realize_overwrite() {
     let s = Schema::overwrite(Schema::float());
-    assert_eq!(s.realize(&Value::String("3.14".into())), Value::float(3.14));
+    assert_eq!(prism_schema::algebra::realize_with(None, &s, &Value::String("3.14".into())), Value::float(3.14));
 }
 
 // ── RecursiveTree ──
@@ -1311,7 +1311,7 @@ fn test_parse_recursive_tree() {
 #[test]
 fn test_default_recursive_tree() {
     let s = Schema::recursive_tree(Schema::float());
-    assert_eq!(s.default_value(), Value::Map(IndexMap::new()));
+    assert_eq!(prism_schema::algebra::default_with(None, &s), Value::Map(IndexMap::new()));
 }
 
 #[test]
@@ -1325,7 +1325,7 @@ fn test_apply_recursive_tree_nested() {
         ("a", Value::tree([("b", Value::float(0.5))])),
         ("d", Value::float(3.0)),
     ]);
-    let result = prism_schema::algebra::apply(&s, &current, &update);
+    let result = prism_schema::algebra::apply_with(None, &s, &current, &update);
     let map = result.as_map().unwrap();
     // a.b: 1.0 + 0.5 = 1.5
     assert_eq!(
@@ -1342,14 +1342,14 @@ fn test_apply_recursive_tree_nested() {
 fn test_encode_recursive_tree() {
     let s = Schema::recursive_tree(Schema::float());
     let val = Value::tree([("a", Value::tree([("b", Value::float(1.0))]))]);
-    assert_eq!(s.encode(&val), val);
+    assert_eq!(prism_schema::algebra::serialize_with(None, &s, &val), val);
 }
 
 #[test]
 fn test_realize_recursive_tree() {
     let s = Schema::recursive_tree(Schema::float());
     let val = Value::tree([("a", Value::tree([("b", Value::float(1.0))]))]);
-    assert_eq!(s.realize(&val), val);
+    assert_eq!(prism_schema::algebra::realize_with(None, &s, &val), val);
 }
 
 #[test]
@@ -1372,7 +1372,7 @@ fn test_apply_link_replace() {
     let old = Value::tree([("address", Value::String("local:A".into()))]);
     let new = Value::tree([("address", Value::String("local:B".into()))]);
     // Links replace entirely
-    let result = prism_schema::algebra::apply(&s, &old, &new);
+    let result = prism_schema::algebra::apply_with(None, &s, &old, &new);
     assert_eq!(result.as_map().unwrap().get("address").unwrap().as_str().unwrap(), "local:B");
 }
 

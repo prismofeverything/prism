@@ -747,8 +747,8 @@ fn register_user_types(types: &mut TypeRegistry, program: &Arc<Program>) {
 struct RepresentationType;
 
 impl TypeMethods for RepresentationType {
-    fn default(&self, _reg: &TypeRegistry, schema: &Schema) -> Value {
-        algebra::default(schema)
+    fn default(&self, reg: &TypeRegistry, schema: &Schema) -> Value {
+        algebra::default_with(Some(reg), schema)
     }
     fn apply(&self, reg: &TypeRegistry, schema: &Schema, state: &Value, update: &Value) -> Value {
         algebra::apply_with(Some(reg), schema, state, update)
@@ -762,14 +762,14 @@ impl TypeMethods for RepresentationType {
     ) -> Vec<Value> {
         divide_by_schema(schema, state, ctx, reg)
     }
-    fn serialize(&self, _reg: &TypeRegistry, schema: &Schema, state: &Value) -> Value {
-        algebra::serialize(schema, state)
+    fn serialize(&self, reg: &TypeRegistry, schema: &Schema, state: &Value) -> Value {
+        algebra::serialize_with(Some(reg), schema, state)
     }
-    fn realize(&self, _reg: &TypeRegistry, schema: &Schema, encoded: &Value) -> Value {
-        algebra::realize(schema, encoded)
+    fn realize(&self, reg: &TypeRegistry, schema: &Schema, encoded: &Value) -> Value {
+        algebra::realize_with(Some(reg), schema, encoded)
     }
-    fn check(&self, _reg: &TypeRegistry, schema: &Schema, state: &Value) -> bool {
-        algebra::check(schema, state)
+    fn check(&self, reg: &TypeRegistry, schema: &Schema, state: &Value) -> bool {
+        algebra::check_with(Some(reg), schema, state)
     }
 }
 

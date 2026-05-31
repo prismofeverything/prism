@@ -55,7 +55,7 @@ fn stream_process_drives_a_child_lock_step_over_pipes() {
     let mut acc = Value::tree([("n", Value::float(0.0))]);
     let mut trajectory = Vec::new();
     for u in &updates {
-        acc = algebra::apply(&elem, &acc, u);
+        acc = algebra::apply_with(None, &elem, &acc, u);
         trajectory.push(acc.get_field("n").and_then(|v| v.as_f64()).unwrap_or(f64::NAN));
     }
     assert_eq!(

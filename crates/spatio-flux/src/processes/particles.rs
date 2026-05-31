@@ -720,8 +720,8 @@ mod motion_tests {
             )])
         };
         // A drift, then a Brownian-style step — they superpose onto one position.
-        let s1 = algebra::apply(&schema, &state0, &delta(1.0, 2.0));
-        let s2 = algebra::apply(&schema, &s1, &delta(0.5, -0.5));
+        let s1 = algebra::apply_with(None, &schema, &state0, &delta(1.0, 2.0));
+        let s2 = algebra::apply_with(None, &schema, &s1, &delta(0.5, -0.5));
 
         let pos = s2
             .get_path(&["p1".into(), "position".into()])

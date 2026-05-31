@@ -95,7 +95,9 @@ pub fn frames(trace: &Value) -> Vec<Value> {
     if let Some(deltas) = trace.get_field("deltas").and_then(|v| v.as_list()) {
         for d in deltas {
             if !matches!(d, Value::None) {
-                cur = algebra::apply(&elem, &cur, d);
+                // Trace replay folds the inferred-structural delta-log; no Core
+                // here, so `None` (the untyped boundary — no Custom in a trace).
+                cur = algebra::apply_with(None, &elem, &cur, d);
             }
             out.push(cur.clone());
         }
@@ -111,7 +113,9 @@ pub fn state_at(trace: &Value, t: usize) -> Value {
     if let Some(deltas) = trace.get_field("deltas").and_then(|v| v.as_list()) {
         for d in deltas.iter().take(t) {
             if !matches!(d, Value::None) {
-                cur = algebra::apply(&elem, &cur, d);
+                // Trace replay folds the inferred-structural delta-log; no Core
+                // here, so `None` (the untyped boundary — no Custom in a trace).
+                cur = algebra::apply_with(None, &elem, &cur, d);
             }
         }
     }

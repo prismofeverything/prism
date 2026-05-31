@@ -441,7 +441,7 @@ proptest! {
         let v = arb_value(&s); (Just(s), v)
     })) {
         let id = identity_update(&schema, &value);
-        let out = algebra::apply(&schema, &value, &id);
+        let out = algebra::apply_with(None, &schema, &value, &id);
         prop_assert!(value_eq(&out, &value), "apply(s,v,id) != v\n s={schema:?}\n v={value:?}\n id={id:?}\n out={out:?}");
     }
 
@@ -458,10 +458,10 @@ proptest! {
         let us = prop::collection::vec(arb_face_update(&s), 0..4);
         (Just(s), v, us)
     })) {
-        let folded = updates.iter().fold(value.clone(), |acc, u| algebra::apply(&schema, &acc, u));
+        let folded = updates.iter().fold(value.clone(), |acc, u| algebra::apply_with(None, &schema, &acc, u));
         match algebra::reconcile(&schema, &updates) {
             Some(u) => {
-                let batched = algebra::apply(&schema, &value, &u);
+                let batched = algebra::apply_with(None, &schema, &value, &u);
                 prop_assert!(value_eq(&batched, &folded), "reconcile incoherent\n s={schema:?}\n v={value:?}\n updates={updates:?}\n batched={batched:?}\n folded={folded:?}");
             }
             None => prop_assert!(value_eq(&folded, &value), "reconcile None but fold changed value\n s={schema:?}\n v={value:?}\n updates={updates:?}\n folded={folded:?}"),
@@ -475,7 +475,7 @@ proptest! {
     })) {
         match algebra::diff(&schema, &a, &b) {
             Some(u) => {
-                let out = algebra::apply(&schema, &a, &u);
+                let out = algebra::apply_with(None, &schema, &a, &u);
                 prop_assert!(value_eq(&out, &b), "apply(a, diff(a,b)) != b\n s={schema:?}\n a={a:?}\n b={b:?}\n u={u:?}\n out={out:?}");
             }
             None => prop_assert!(value_eq(&a, &b), "diff returned None but a != b\n s={schema:?}\n a={a:?}\n b={b:?}"),
@@ -485,8 +485,8 @@ proptest! {
     // Law 6 — Check preservation. `check(s, default(s))`.
     #[test]
     fn law_check_default(schema in arb_schema()) {
-        let d = algebra::default(&schema);
-        prop_assert!(algebra::check(&schema, &d), "check(s, default(s)) failed\n s={schema:?}\n default={d:?}");
+        let d = algebra::default_with(None, &schema);
+        prop_assert!(algebra::check_with(None, &schema, &d), "check(s, default(s)) failed\n s={schema:?}\n default={d:?}");
     }
 
     // Law 6 — Apply stays in the sort. `check(s, apply(s, v, u))`.
@@ -494,10 +494,10 @@ proptest! {
     fn law_apply_preserves_sort((schema, value, update) in arb_schema().prop_flat_map(|s| {
         let v = arb_value(&s); let u = arb_value(&s); (Just(s), v, u)
     })) {
-        let out = algebra::apply(&schema, &value, &update);
+        let out = algebra::apply_with(None, &schema, &value, &update);
         // Maybe can legitimately become None (delete); skip that case.
         if matches!(schema, Schema::Maybe { .. }) && matches!(out, Value::None) { return Ok(()); }
-        prop_assert!(algebra::check(&schema, &out), "apply left the sort\n s={schema:?}\n v={value:?}\n u={update:?}\n out={out:?}");
+        prop_assert!(algebra::check_with(None, &schema, &out), "apply left the sort\n s={schema:?}\n v={value:?}\n u={update:?}\n out={out:?}");
     }
 
     // Law 8 — Codec round-trip. `deserialize(s, serialize(s, v)) ≡ v`.
@@ -505,8 +505,8 @@ proptest! {
     fn law_codec_round_trip((schema, value) in arb_schema().prop_flat_map(|s| {
         let v = arb_value(&s); (Just(s), v)
     })) {
-        let enc = algebra::serialize(&schema, &value);
-        let dec = algebra::deserialize(&schema, &enc);
+        let enc = algebra::serialize_with(None, &schema, &value);
+        let dec = algebra::realize_with(None, &schema, &enc);
         prop_assert!(value_eq(&dec, &value), "round-trip changed value\n s={schema:?}\n v={value:?}\n enc={enc:?}\n dec={dec:?}");
     }
 

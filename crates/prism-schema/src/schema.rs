@@ -537,7 +537,7 @@ impl Schema {
     }
 
     /// Generate a default value for this schema.
-    pub fn default_value(&self) -> Value {
+    pub(crate) fn default_value(&self) -> Value {
         match self {
             Self::Any => Value::None,
             Self::Bool { default } => Value::Bool(default.unwrap_or(false)),
@@ -623,7 +623,7 @@ impl Schema {
     }
 
     /// Check if a value conforms to this schema.
-    pub fn check(&self, value: &Value) -> bool {
+    pub(crate) fn check(&self, value: &Value) -> bool {
         match (self, value) {
             (Self::Any, _) => true,
             (Self::Bool { .. }, Value::Bool(_)) => true,
@@ -1185,7 +1185,7 @@ impl Schema {
     /// This is the inverse of `realize`. Numbers, strings, and bools
     /// pass through. Maps and trees recurse. Links encode their
     /// address and port schemas.
-    pub fn encode(&self, value: &Value) -> Value {
+    pub(crate) fn encode(&self, value: &Value) -> Value {
         match (self, value) {
             // Atoms pass through
             (Self::Float { .. } | Self::Delta { .. }, _) => value.clone(),
@@ -1291,7 +1291,7 @@ impl Schema {
     ///
     /// This is the inverse of `serialize`. Converts string-encoded
     /// numbers, parses JSON strings into structured values, etc.
-    pub fn realize(&self, encoded: &Value) -> Value {
+    pub(crate) fn realize(&self, encoded: &Value) -> Value {
         match (self, encoded) {
             // Float: accept string encoding
             (Self::Float { .. } | Self::Delta { .. }, Value::String(s)) => {

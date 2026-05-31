@@ -129,7 +129,7 @@ fn test_process_apply() {
     };
     let state = Value::tree([("level", Value::float(5.5))]);
     let update = proc.update(&state, 1.0).into_value().unwrap();
-    let result = prism_schema::algebra::apply(&schema, &state, &update);
+    let result = prism_schema::algebra::apply_with(None, &schema, &state, &update);
     let level = result
         .as_map()
         .unwrap()
@@ -539,8 +539,9 @@ fn test_infer_process_from_state() {
         _ => panic!("expected Tree, got {:?}", schema),
     }
 
-    // Realize the state with the inferred schema
-    let realized = schema.realize(&state);
+    // Realize the state with the inferred schema (registryless — pure structural
+    // compat test, no Custom types in play).
+    let realized = prism_schema::algebra::realize_with(None, &schema, &state);
     let map = realized.as_map().unwrap();
     // "11.11" string should be realized as float
     assert_eq!(map.get("value").unwrap().as_f64().unwrap(), 11.11);

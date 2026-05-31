@@ -60,17 +60,15 @@ pub use crate::merge::merge;
 // ── Value/update ops ───────────────────────────────────────────────────
 
 /// `apply(s, v, u)` — act update `u` on value `v` under sort `s` (the action
-/// of the update monoid). Additive for numeric/`Delta`, replacing for
-/// `Overwrite`, structural `_add`/`_remove` for collections.
+/// of the update monoid): additive for numeric/`Delta`, replacing for
+/// `Overwrite`, structural `_add`/`_remove` for collections, and `Custom`
+/// dispatch + the `_divide` sentinel when a registry is threaded.
+///
+/// THE single apply door — there is no registryless `apply`. `registry`
+/// is `Option` only so a genuinely-untyped context (a pure-schema unit test)
+/// can pass `None`; every path where a `Custom` value can flow passes `Some`.
 ///
 /// Law: `apply(s, v, default-update(s)) ≡ v` (empty update is the identity).
-#[inline]
-pub fn apply(schema: &Schema, current: &Value, update: &Value) -> Value {
-    schema.apply_update(current, update)
-}
-
-/// `apply` consulting a [`TypeRegistry`] for `Schema::Custom` dispatch and the
-/// `_divide` sentinel. The registry-aware entry point the engine uses.
 #[inline]
 pub fn apply_with(
     registry: Option<&TypeRegistry>,
@@ -83,29 +81,17 @@ pub fn apply_with(
 
 // ── Value queries / construction ───────────────────────────────────────
 
-/// `default(s)` — the canonical inhabitant (unit) of a sort.
+/// `default(s)` — the canonical inhabitant (unit) of a sort; dispatches a
+/// `Custom` type's default when a registry is threaded. THE single default door.
 ///
 /// Law: `check(s, default(s))`.
-#[inline]
-pub fn default(schema: &Schema) -> Value {
-    schema.default_value()
-}
-
-/// `default` consulting a [`TypeRegistry`] for `Schema::Custom` dispatch — the
-/// registry-aware sibling (registryless `default` returns `None` for Custom).
 #[inline]
 pub fn default_with(registry: Option<&TypeRegistry>, schema: &Schema) -> Value {
     schema.default_with_reg(registry)
 }
 
-/// `check(s, v)` — membership: is `v` a value of sort `s`.
-#[inline]
-pub fn check(schema: &Schema, value: &Value) -> bool {
-    schema.check(value)
-}
-
-/// `check` consulting a [`TypeRegistry`] for `Schema::Custom` dispatch — the
-/// registry-aware sibling (registryless `check` returns `false` for Custom).
+/// `check(s, v)` — membership: is `v` a value of sort `s`; dispatches a
+/// `Custom` type's check when a registry is threaded. THE single check door.
 #[inline]
 pub fn check_with(registry: Option<&TypeRegistry>, schema: &Schema, value: &Value) -> bool {
     schema.check_with_reg(registry, value)
@@ -118,17 +104,10 @@ pub fn infer(value: &Value) -> Schema {
 }
 
 /// `realize(s, v)` — fill defaults / decode an encoded value to a complete
-/// value of sort `s`. (Codec inverse of [`serialize`].)
-#[inline]
-pub fn realize(schema: &Schema, encoded: &Value) -> Value {
-    schema.realize(encoded)
-}
-
-/// `realize` consulting a [`TypeRegistry`] for `Schema::Custom` dispatch at any
-/// depth — so a declared type tags/canonicalizes a bare value (the registry-
-/// aware sibling of [`realize`], mirroring [`apply_with`]). The engine /
-/// chrysalis binding sites use this so a `:: Qubits` position auto-promotes a
-/// literal to a tagged instance.
+/// value of sort `s` (codec inverse of [`serialize_with`]); dispatches a
+/// `Custom` type's realize at any depth when a registry is threaded, so a
+/// declared type (`:: Qubits`) auto-promotes a bare literal to a tagged
+/// instance. THE single realize door.
 #[inline]
 pub fn realize_with(
     registry: Option<&TypeRegistry>,
@@ -140,24 +119,12 @@ pub fn realize_with(
 
 // ── Codec ──────────────────────────────────────────────────────────────
 
-/// `serialize(s, v)` — encode a typed value to a JSON-compatible value.
+/// `serialize(s, v)` — encode a typed value to a JSON-compatible value;
+/// dispatches a `Custom` type's canonical wire form when a registry is
+/// threaded. THE single serialize door (decode via [`realize_with`]).
 ///
-/// Law: `deserialize(s, serialize(s, v)) ≡ v`.
-#[inline]
-pub fn serialize(schema: &Schema, value: &Value) -> Value {
-    schema.encode(value)
-}
-
-/// `serialize` consulting a [`TypeRegistry`] for `Schema::Custom` dispatch (the
-/// type's canonical wire form) — the registry-aware sibling of [`serialize`].
+/// Law: `realize_with(r, s, serialize_with(r, s, v)) ≡ v`.
 #[inline]
 pub fn serialize_with(registry: Option<&TypeRegistry>, schema: &Schema, value: &Value) -> Value {
     schema.serialize_with_reg(registry, value)
-}
-
-/// `deserialize(s, v)` — decode a JSON-compatible value back to a typed value
-/// (the inverse of [`serialize`]; same as [`realize`]).
-#[inline]
-pub fn deserialize(schema: &Schema, encoded: &Value) -> Value {
-    schema.realize(encoded)
 }

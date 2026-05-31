@@ -315,7 +315,7 @@ mod tests {
         let mut cur = rows[0].1.clone();
         let mut got = vec![cur.clone()];
         for (_, d) in &rows[1..] {
-            cur = algebra::apply(&elem, &cur, d);
+            cur = algebra::apply_with(None, &elem, &cur, d);
             got.push(cur.clone());
         }
         assert_eq!(got, want, "streamed (time, delta) rows replay to the original frames");

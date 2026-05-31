@@ -127,7 +127,10 @@ impl Step for Simulate {
             // Overwrite/Array replace. THIS distinguishes Simulate from RunProcess
             // (which uses each update as the full next state).
             let update = inner.update(&cur, self.timestep).into_value().unwrap_or_else(Value::map);
-            cur = algebra::apply(&element, &cur, &update);
+            // Fold via the inner's port schema, threading Simulate's own Core so a
+            // `Custom`-typed port dispatches its apply (Simulate HAS the Core —
+            // injected via `set_core` and already bound as `core` above).
+            cur = algebra::apply_with(Some(core.types.as_ref()), &element, &cur, &update);
             samples.push(((step + 1) as f64 * self.timestep, cur.clone()));
         }
 

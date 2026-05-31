@@ -456,7 +456,12 @@ impl Engine {
 
         // 2. Apply state update using merged schema
         if !state_update.is_none() {
-            let new_state = algebra::apply(&self.schema, &self.state, &state_update);
+            let new_state = algebra::apply_with(
+                Some(self.core.types.as_ref()),
+                &self.schema,
+                &self.state,
+                &state_update,
+            );
             self.state = new_state;
         }
 
@@ -466,7 +471,8 @@ impl Engine {
                 for (key, child_schema) in branches {
                     if !state_map.contains_key(key) {
                         // New schema branch — fill with default
-                        let default_val = child_schema.default_value();
+                        let default_val =
+                            algebra::default_with(Some(self.core.types.as_ref()), child_schema);
                         state_map.insert(key.clone(), default_val);
                     }
                 }
