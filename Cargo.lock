@@ -421,6 +421,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "coda"
+version = "0.1.0"
+dependencies = [
+ "chrysalis",
+ "indexmap",
+ "prism-bigraph",
+ "prism-schema",
+ "prism-std",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "compact_str"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

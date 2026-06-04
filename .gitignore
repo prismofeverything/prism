@@ -4,3 +4,8 @@ perf.data*
 out/
 /outputs
 __pycache__*
+
+# Nix
+/result
+/result-*
+.direnv/

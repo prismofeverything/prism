@@ -1,0 +1,16 @@
+[package]
+name = "coda"
+description = "Whale (and beyond) communication research: question registry, audio + DSP pipeline, coda encoding, sequence models, two-way translation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+prism-schema = { workspace = true }
+prism-bigraph = { workspace = true }
+prism-std = { workspace = true }
+chrysalis = { workspace = true }
+indexmap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }

@@ -62,7 +62,14 @@ completion, multi-line). **`compile`/codegen is live**: a program importing a
 staleness, so prism edits rebuild it), and runs it; a `project.ys` manifest names
 the package. `run`/`server`/`import` share that one package-resolution +
 `Core`-assembly path. The consumer that proved it: the whole spatio-flux demo
-suite, rewritten as `.ys` (layer 5).
+suite, rewritten as `.ys` (layer 5). **`project.ys` supports two forms:**
+`package <name>` (the co-located default, used by `spatio-flux` — the crate lives
+next to project.ys) and `package <name> at <path>` (decoupled — the crate lives at
+`<path>`, resolved relative to project.ys or absolute; used by the `coda`
+research project at `/home/prism/code/coda`, which links the `coda` crate at
+`crates/coda/` from outside the prism monorepo). Without the `at` form,
+chrysalis would not be a complete language for projects that live outside the
+nest. See `crates/chrysalis/src/codegen.rs::Manifest::crate_dir`.
 
 **4. The boundary, made real.** A process or composite is a black box reachable
 through **protocols** (`local` in-process; `rest` / `parallel` remote) — the
