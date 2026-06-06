@@ -249,6 +249,14 @@ principle)
    identifies cross-composite redexes, emits the merge update to one
    composite + the reaction update to its `Bigraph` input. *Reactor
    extension.*
+   - ✅ **Foundational mechanism** (S2 / `prism_schema::fire_across_composites`,
+     2026-06-06): given a parent + ReactionRule + composite paths,
+     `unfurl_into` each composite, `find_matches` + `fire_rule_at` +
+     `apply_fire` against the flat union, `fold_at` each back. Tests in
+     `prism-schema/tests/fire_across_composites.rs` prove cross-composite
+     redex matching + rewriting. REMAINING: auto-detection of which
+     composites a redex names (today the caller passes the paths);
+     engine-level BRS process that consumes the mechanism each tick.
 
 7. **Sibling-addressing in reaction syntax** — small parser slice so
    `alice~{state: a} | bob~{state: b}` can express the cross-composite

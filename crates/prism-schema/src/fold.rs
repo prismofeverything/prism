@@ -48,6 +48,7 @@
 
 use indexmap::IndexMap;
 
+use crate::reaction::{apply_fire, find_matches, fire_rule_at, ReactionRule};
 use crate::value::{Key, StateMap, Value};
 
 /// The `_type` sentinel for an unfurled composite envelope.
@@ -457,3 +458,90 @@ fn rewire_one(
     new_path.extend(suffix);
     Some(Value::List(new_path))
 }
+
+// ════════════════════════════════════════════════════════════════════
+// BRS-by-unfurl — the cross-composite reactor (S2 / BATWD §V / #43)
+// ════════════════════════════════════════════════════════════════════
+
+/// Outcome of [`fire_across_composites`] — the post-fire parent (with
+/// composites re-sealed) and a flag indicating whether a match was
+/// found and fired.
+#[derive(Clone, Debug)]
+pub struct CrossFireResult {
+    /// The parent state after fold/unfurl/fire/fold. When `fired` is
+    /// false, this equals the input parent (unfurl + immediate fold).
+    pub parent: Value,
+    /// `true` iff `find_matches` produced a match and the rule fired.
+    pub fired: bool,
+}
+
+/// BRS-by-unfurl: fire a [`ReactionRule`] against a `parent` place
+/// graph whose redex may span multiple composites. The maneuver from
+/// `docs/bigraphs-all-the-way-down.md` §V, made executable:
+///
+/// 1. For each composite at `composite_paths`, [`unfurl_into`] hoists
+///    the inner state up to its slot — the boundaries dissolve into
+///    one larger flat bigraph.
+/// 2. [`find_matches`] runs against the now-flat union; the redex can
+///    name slots from inside multiple composites at once.
+/// 3. If a match is found, [`fire_rule_at`] + [`apply_fire`] enact the
+///    reactum on the flat parent.
+/// 4. [`fold_at`] reseals each composite — daughters of the fire end
+///    up back inside whichever composite contained their match path.
+///
+/// Returns `None` if any `composite_path` doesn't point to a valid
+/// composite spec, or if the boundary metadata fails to fold. On a
+/// match-free run, the returned `parent` equals the input (the
+/// unfurl/fold pair is the identity, S1's defining law).
+///
+/// **Limitations (first slice)**: face slots captured at unfurl time
+/// are restored as-is on fold even if the reaction modified the inner
+/// state — the bridge would normally update them on the next engine
+/// tick. Reactions that move state ACROSS composite boundaries (a
+/// match path under one composite producing additions under another)
+/// will land correctly only if their reactum path falls under one of
+/// the unfurled composites or in the surrounding flat parent; cases
+/// that require redistribution between composites are a follow-on
+/// slice. The common case — a redex spans composites, the reactum
+/// rewrites state inside them — works.
+///
+/// See also: [`unfurl_into`] (the inline half) and [`fold_at`] (the
+/// reseal half); [`refuse_links`] (used for engine-level equivalence,
+/// not needed here because the matcher operates on state STRUCTURE).
+pub fn fire_across_composites(
+    parent: &Value,
+    rule: &ReactionRule,
+    composite_paths: &[&[Key]],
+) -> Option<CrossFireResult> {
+    // ── 1. Unfurl all named composites, remember each boundary ──
+    let mut current = parent.clone();
+    let mut boundaries: Vec<(Vec<Key>, Value)> = Vec::with_capacity(composite_paths.len());
+    for path in composite_paths {
+        let result = unfurl_into(&current, path)?;
+        current = result.parent;
+        boundaries.push((path.to_vec(), result.boundary));
+    }
+
+    // ── 2. Match against the flat union ──
+    let matches = find_matches(&current, &rule.redex, None);
+
+    // ── 3. Fire if there's a match ──
+    let fired = if let Some(m) = matches.first() {
+        let fire_update = fire_rule_at(rule, m)?;
+        current = apply_fire(&current, &fire_update);
+        true
+    } else {
+        false
+    };
+
+    // ── 4. Re-fold (in reverse order — innermost composites last) ──
+    for (path, boundary) in boundaries.iter().rev() {
+        current = fold_at(&current, path, boundary)?;
+    }
+
+    Some(CrossFireResult {
+        parent: current,
+        fired,
+    })
+}
+

@@ -25,7 +25,8 @@ pub use reaction::{
     instantiate, is_active,
 };
 pub use fold::{
-    fold, fold_at, refuse_links, unfurl, unfurl_into, UnfurlAt, COMPOSITE_TYPE, UNFURLED_TYPE,
+    fire_across_composites, fold, fold_at, refuse_links, unfurl, unfurl_into, CrossFireResult,
+    UnfurlAt, COMPOSITE_TYPE, UNFURLED_TYPE,
 };
 pub use reconcile::reconcile;
 pub use registry::{

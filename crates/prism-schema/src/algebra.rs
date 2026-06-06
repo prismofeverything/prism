@@ -65,7 +65,10 @@ pub use crate::merge::merge;
 // parent-context lift (`unfurl_into` / `fold_at`) operates on a
 // composite at a path in a parent place graph — inlines the spec into
 // its slot and reseals from the boundary descriptor.
-pub use crate::fold::{fold, fold_at, refuse_links, unfurl, unfurl_into, UnfurlAt};
+pub use crate::fold::{
+    fire_across_composites, fold, fold_at, refuse_links, unfurl, unfurl_into, CrossFireResult,
+    UnfurlAt,
+};
 
 // ── Value/update ops ───────────────────────────────────────────────────
 
