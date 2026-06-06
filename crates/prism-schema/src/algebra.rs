@@ -61,8 +61,11 @@ pub use crate::merge::merge;
 //
 // The BATWD §IV maneuver: `unfurl` opens a composite spec into a flat
 // envelope; `fold` reseals it. Law: `fold ∘ unfurl ≡ id`. The
-// composite-level lift of the value-level divide↔tensor duality.
-pub use crate::fold::{fold, unfurl};
+// composite-level lift of the value-level divide↔tensor duality. The
+// parent-context lift (`unfurl_into` / `fold_at`) operates on a
+// composite at a path in a parent place graph — inlines the spec into
+// its slot and reseals from the boundary descriptor.
+pub use crate::fold::{fold, fold_at, unfurl, unfurl_into, UnfurlAt};
 
 // ── Value/update ops ───────────────────────────────────────────────────
 

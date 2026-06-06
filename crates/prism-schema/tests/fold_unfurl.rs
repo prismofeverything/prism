@@ -10,7 +10,9 @@
 //! (`docs/bigraphs-all-the-way-down.md` §IV).
 
 use indexmap::IndexMap;
-use prism_schema::{algebra, fold, unfurl, Key, Value, COMPOSITE_TYPE, UNFURLED_TYPE};
+use prism_schema::{
+    algebra, fold, fold_at, unfurl, unfurl_into, Key, Value, COMPOSITE_TYPE, UNFURLED_TYPE,
+};
 
 fn val_str(s: &str) -> Value {
     Value::String(s.to_string())
@@ -144,6 +146,164 @@ fn fold_and_unfurl_reachable_through_algebra_module() {
     let unfurled = algebra::unfurl(&spec).unwrap();
     let resealed = algebra::fold(&unfurled).unwrap();
     assert_eq!(resealed, spec);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Parent-context fold/unfurl (S1 part B)
+// ════════════════════════════════════════════════════════════════════
+
+/// A parent place graph with a composite at `cells.alice` plus
+/// surrounding state — the minimal interesting setup.
+fn parent_with_alice_composite() -> Value {
+    Value::tree([
+        ("glucose_pool", Value::float(100.0)),
+        ("alice_mass_slot", Value::float(0.0)),
+        (
+            "cells",
+            Value::tree([("alice", cell_composite_spec())]),
+        ),
+    ])
+}
+
+#[test]
+fn unfurl_into_inlines_inner_state_at_composite_path() {
+    // After unfurl_into, the composite at cells.alice is replaced by
+    // its inner state — the spec wrapper is gone; the body shows
+    // through directly. Sibling state (glucose_pool / alice_mass_slot)
+    // is preserved.
+    let parent = parent_with_alice_composite();
+    let path = [Key::from("cells"), Key::from("alice")];
+    let result = unfurl_into(&parent, &path).expect("unfurl_into");
+
+    let alice_now = result
+        .parent
+        .get_path(&path)
+        .expect("alice still at cells.alice");
+    // Inner state's `mass` is at the top of cells.alice now — not
+    // buried under config.state.
+    let mass = alice_now.get_field("mass").and_then(|v| v.as_f64());
+    assert_eq!(mass, Some(5.0), "inner state's mass is hoisted to cells.alice");
+    // The composite spec sentinel is gone.
+    assert!(
+        alice_now.get_field("_type").and_then(|v| v.as_str()) != Some(COMPOSITE_TYPE),
+        "no _type:composite at cells.alice after inline"
+    );
+    // The inner process `grow` is still present (and its wires are
+    // untouched — they were already relative to its slot).
+    let grow = alice_now.get_field("grow").expect("grow process present");
+    assert_eq!(
+        grow.get_field("_type").and_then(|v| v.as_str()),
+        Some("process"),
+        "inner process structure preserved"
+    );
+    // Sibling state untouched.
+    assert_eq!(
+        result.parent.get_field("glucose_pool").and_then(|v| v.as_f64()),
+        Some(100.0),
+        "sibling state preserved"
+    );
+}
+
+#[test]
+fn unfurl_into_then_fold_at_is_identity() {
+    // The defining law of the parent-context pair.
+    let parent = parent_with_alice_composite();
+    let path = [Key::from("cells"), Key::from("alice")];
+    let result = unfurl_into(&parent, &path).expect("unfurl_into");
+    let resealed = fold_at(&result.parent, &path, &result.boundary).expect("fold_at");
+    assert_eq!(
+        resealed, parent,
+        "fold_at(unfurl_into(parent, p).parent, p, .boundary) ≡ parent"
+    );
+}
+
+#[test]
+fn unfurl_into_rejects_paths_that_are_not_composites() {
+    let parent = parent_with_alice_composite();
+    // Sibling state is a scalar — not a composite spec.
+    let pool_path = [Key::from("glucose_pool")];
+    assert!(unfurl_into(&parent, &pool_path).is_none());
+    // Missing path — None.
+    let missing = [Key::from("does_not_exist")];
+    assert!(unfurl_into(&parent, &missing).is_none());
+}
+
+#[test]
+fn fold_at_rejects_non_boundary_metadata() {
+    let parent = parent_with_alice_composite();
+    let path = [Key::from("cells"), Key::from("alice")];
+    let result = unfurl_into(&parent, &path).unwrap();
+    // The composite-spec form is NOT a valid boundary (it's _type:composite,
+    // not _type:unfurled).
+    let bogus_boundary = parent.get_path(&path).cloned().unwrap();
+    assert!(fold_at(&result.parent, &path, &bogus_boundary).is_none());
+    // A bare scalar — None.
+    assert!(fold_at(&result.parent, &path, &Value::None).is_none());
+}
+
+#[test]
+fn unfurl_into_root_level_composite() {
+    // The composite IS the parent (empty path). Edge case — the whole
+    // root value gets replaced by its inner state, and fold_at reseals
+    // back to the original spec.
+    let spec = cell_composite_spec();
+    let empty_path: [Key; 0] = [];
+    let result = unfurl_into(&spec, &empty_path).expect("unfurl at root");
+    // The parent's root IS now the inner state — `mass` and `grow` at
+    // the top.
+    assert_eq!(
+        result.parent.get_field("mass").and_then(|v| v.as_f64()),
+        Some(5.0),
+        "root-level unfurl exposes inner state at root"
+    );
+    let resealed = fold_at(&result.parent, &empty_path, &result.boundary).expect("fold_at");
+    assert_eq!(resealed, spec, "root-level round-trip");
+}
+
+#[test]
+fn unfurl_into_one_of_multiple_sibling_composites() {
+    // Two composites at sibling paths. Unfurl one; the other stays a
+    // composite. Round-trip restores both.
+    let parent = Value::tree([
+        (
+            "cells",
+            Value::tree([
+                ("alice", cell_composite_spec()),
+                ("bob", cell_composite_spec()),
+            ]),
+        ),
+    ]);
+    let alice_path = [Key::from("cells"), Key::from("alice")];
+    let result = unfurl_into(&parent, &alice_path).expect("unfurl alice");
+
+    // Bob untouched — still a composite spec.
+    let bob = result
+        .parent
+        .get_path(&[Key::from("cells"), Key::from("bob")])
+        .expect("bob present");
+    assert_eq!(
+        bob.get_field("_type").and_then(|v| v.as_str()),
+        Some(COMPOSITE_TYPE),
+        "sibling composite is untouched"
+    );
+    // Alice is inlined.
+    let alice = result.parent.get_path(&alice_path).expect("alice present");
+    assert!(alice.get_field("_type").and_then(|v| v.as_str()) != Some(COMPOSITE_TYPE));
+
+    // Round-trip restores Alice fully.
+    let resealed = fold_at(&result.parent, &alice_path, &result.boundary).unwrap();
+    assert_eq!(resealed, parent, "alice round-trips while bob is preserved");
+}
+
+#[test]
+fn parent_context_round_trip_via_algebra_module() {
+    // The closure-of-the-algebra: unfurl_into / fold_at are reachable
+    // through `prism_schema::algebra`.
+    let parent = parent_with_alice_composite();
+    let path = [Key::from("cells"), Key::from("alice")];
+    let result = algebra::unfurl_into(&parent, &path).unwrap();
+    let resealed = algebra::fold_at(&result.parent, &path, &result.boundary).unwrap();
+    assert_eq!(resealed, parent);
 }
 
 #[test]

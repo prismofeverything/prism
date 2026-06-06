@@ -147,6 +147,101 @@ pub fn unfurl(spec: &Value) -> Option<Value> {
     Some(Value::Map(unfurled))
 }
 
+/// The result of unfurling a composite IN A PARENT place graph: the
+/// inlined `parent` (with the composite's inner state hoisted up to its
+/// slot) plus a `boundary` value capturing everything needed to
+/// reconstruct the original composite spec via [`fold_at`].
+///
+/// `boundary` is a `Value::Map` carrying `address` / `bridge` /
+/// `schema` / `inputs` / `outputs` / `face` (plus `interval` when
+/// declared) — the same data the spec-level [`unfurl`] surfaces minus
+/// the inner state itself (which now lives in the parent).
+#[derive(Clone, Debug, PartialEq)]
+pub struct UnfurlAt {
+    /// The parent state with the composite's spec at `composite_path`
+    /// replaced by the inner state (`config.state`).
+    pub parent: Value,
+    /// Metadata required to reconstruct the original composite via
+    /// [`fold_at`]. Treat as opaque — its shape is part of fold/unfurl
+    /// internals.
+    pub boundary: Value,
+}
+
+/// Inline a composite spec at `composite_path` IN a parent place graph.
+///
+/// Pre-condition: `parent.get_path(composite_path)` is a composite spec
+/// (i.e. a `_type:"composite"` map). Returns `None` otherwise.
+///
+/// Post-condition: the returned `parent` has the composite's INNER STATE
+/// (`config.state`) at `composite_path`, with the spec wrapper removed.
+/// The returned `boundary` captures the spec's address / bridge / inner
+/// schema / outer interface / self-face — everything needed to reseal.
+///
+/// Inner processes' wires are PRESERVED unchanged — they were relative
+/// to their own slot, which (after inline) still sits at the same
+/// position in the place graph. The bridge wires (cross-boundary
+/// connections from outer ports to internal paths) are deferred to the
+/// boundary value — the structural inline does not yet "re-fuse" them
+/// into direct relative-path wires; that's the third slice of S1 (see
+/// `docs/bigraphs-all-the-way-down.md` §IV "rewrite each bridge wire
+/// back into an ordinary relative-path wire").
+///
+/// Law: `fold_at(unfurl_into(parent, p)?.parent, p, &unfurl_into(parent, p)?.boundary) ≡ parent`.
+pub fn unfurl_into(parent: &Value, composite_path: &[Key]) -> Option<UnfurlAt> {
+    let spec = parent.get_path(composite_path)?;
+    let envelope = unfurl(spec)?;
+    let env_map = envelope.as_map()?;
+
+    // Pull the inner state out of the envelope; everything else becomes
+    // the boundary record (a map carrying the spec metadata sans state).
+    let inner_state = env_map.get("state").cloned().unwrap_or(Value::None);
+    let mut boundary: StateMap = StateMap::new();
+    for (k, v) in env_map {
+        if k.as_str() == "state" {
+            continue;
+        }
+        boundary.insert(k.clone(), v.clone());
+    }
+
+    // Replace the composite spec at `composite_path` with its inner state.
+    let mut new_parent = parent.clone();
+    new_parent.set_path(composite_path, inner_state);
+
+    Some(UnfurlAt {
+        parent: new_parent,
+        boundary: Value::Map(boundary),
+    })
+}
+
+/// Reseal the inlined state at `composite_path` back into a composite
+/// spec, using the `boundary` produced by [`unfurl_into`].
+///
+/// Pre-condition: `boundary` is a `Value::Map` whose `_type` is
+/// [`UNFURLED_TYPE`] (the shape `unfurl_into` produces); `parent` has
+/// inlined inner state at `composite_path`. Returns `None` otherwise.
+///
+/// Inverse: [`unfurl_into`]. Together they satisfy
+/// `fold_at(unfurl_into(parent, p)?.parent, p, &boundary) ≡ parent`.
+pub fn fold_at(parent: &Value, composite_path: &[Key], boundary: &Value) -> Option<Value> {
+    let state = parent.get_path(composite_path)?.clone();
+    // Stitch the inner state back into the unfurled envelope shape, then
+    // call the spec-level `fold` for the wrapping.
+    let b_map = boundary.as_map()?;
+    if b_map.get("_type").and_then(|v| v.as_str()) != Some(UNFURLED_TYPE) {
+        return None;
+    }
+    let mut envelope: StateMap = StateMap::new();
+    for (k, v) in b_map {
+        envelope.insert(k.clone(), v.clone());
+    }
+    envelope.insert(Key::from("state"), state);
+    let spec = fold(&Value::Map(envelope))?;
+
+    let mut new_parent = parent.clone();
+    new_parent.set_path(composite_path, spec);
+    Some(new_parent)
+}
+
 /// Reseal an unfurled envelope into a composite spec.
 ///
 /// Pre-condition: `unfurled` is a `Value::Map` whose `_type` is
