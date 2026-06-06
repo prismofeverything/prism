@@ -1067,15 +1067,22 @@ impl Evaluator {
         // prism's native `instantiate`); one that doesn't (a method call or
         // computed expression like `?cell.divide(?cid)`) is COMPUTED,
         // evaluated against the match bindings at fire time.
-        let reactum = {
+        // Classify the reactum by STRUCTURE, not by catching a lowering error: a
+        // pure template (controls/sites/links) is a STRUCTURAL rewrite (prism's
+        // native `instantiate` — MAPK-style link/rest); one containing
+        // computation (`?cell.divide(?cid)`, `?f.blueprint`, arithmetic) is
+        // COMPUTED, evaluated against the match at fire time. A malformed
+        // structural reactum now reports a real error (the `?`) instead of
+        // silently mis-routing to a broken computed one.
+        let reactum = if reactum_is_structural(&def.reactum) {
             let mut reactum_bindings = RuleBindings::new();
-            match self.eval_pattern(&def.reactum, &rule_env, &mut reactum_bindings) {
-                Ok(pat) => Reactum::Structural {
-                    reactum: pat,
-                    instantiation: IndexMap::new(),
-                },
-                Err(_) => Reactum::Computed(def.reactum.clone()),
+            let pat = self.eval_pattern(&def.reactum, &rule_env, &mut reactum_bindings)?;
+            Reactum::Structural {
+                reactum: pat,
+                instantiation: IndexMap::new(),
             }
+        } else {
+            Reactum::Computed(def.reactum.clone())
         };
 
         let rule = Rule {
@@ -1642,6 +1649,78 @@ fn subst_ports(
             .iter()
             .map(|(k, v)| (k.clone(), substitute_vars(v, subs)))
             .collect(),
+    }
+}
+
+/// Is this reactum a pure STRUCTURAL template (controls / sites / links /
+/// parallels / literals), fired by prism's native `instantiate`? Or does it
+/// contain COMPUTATION (a method call like `?c.divide()`, a field read like
+/// `?f.blueprint`, arithmetic, `if`, …) that must be EVALUATED against the match
+/// at fire time? Classifying by STRUCTURE — rather than by catching a lowering
+/// error — means a malformed structural reactum reports a real error instead of
+/// silently becoming a (then-broken) computed one.
+fn reactum_is_structural(expr: &Expr) -> bool {
+    match expr {
+        Expr::Term {
+            args, ports, body, ..
+        } => {
+            args.iter().all(|a| match a {
+                TermArg::Positional(e) => reactum_is_structural(e),
+                TermArg::Named { value, .. } => reactum_is_structural(value),
+            }) && ports.inputs.values().all(reactum_is_structural)
+                && ports.outputs.values().all(reactum_is_structural)
+                && body.as_deref().map_or(true, reactum_is_structural)
+        }
+        Expr::Parallel(es) => es.iter().all(reactum_is_structural),
+        Expr::KeyedEntry { value, .. } => reactum_is_structural(value),
+        Expr::Map(entries) => entries.iter().all(|(_, v)| reactum_is_structural(v)),
+        Expr::Record(fields) => fields.values().all(reactum_is_structural),
+        Expr::List(items) => items.iter().all(reactum_is_structural),
+        Expr::Site { sort, .. } => sort.as_deref().map_or(true, reactum_is_structural),
+        Expr::LinkVar(_)
+        | Expr::Unbound
+        | Expr::Var(_)
+        | Expr::Bool(_)
+        | Expr::Int(_)
+        | Expr::Float(_)
+        | Expr::Str(_) => true,
+        // Method / Call / BinOp / UnaryOp / If / Field / Comprehension /
+        // ReplaceWith / Let / Block / Where / Path / Unit / Rule → COMPUTED.
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod reactum_classify_tests {
+    use super::reactum_is_structural;
+    use crate::ast::Def;
+    use crate::parse::parse_program;
+
+    fn reactum_is_structural_for(src: &str) -> bool {
+        let prog = parse_program(src).expect("parse");
+        match prog.lookup("R") {
+            Some(Def::Reaction(r)) => reactum_is_structural(&r.reactum),
+            other => panic!("expected reaction R, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn structural_template_reactum() {
+        assert!(reactum_is_structural_for(
+            "reaction R ( (a: A) => (a: B (x: ?y | rest: ?r)) )"
+        ));
+    }
+
+    #[test]
+    fn method_call_reactum_is_computed() {
+        assert!(!reactum_is_structural_for("reaction R ( ?c => ?c.divide() )"));
+    }
+
+    #[test]
+    fn field_read_reactum_is_computed() {
+        assert!(!reactum_is_structural_for(
+            "reaction R ( (?f :: F) => F[blueprint: ?f.blueprint] )"
+        ));
     }
 }
 
