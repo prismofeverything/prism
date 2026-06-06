@@ -528,7 +528,10 @@ pub fn fire_across_composites(
     // ── 3. Fire if there's a match ──
     let fired = if let Some(m) = matches.first() {
         let fire_update = fire_rule_at(rule, m)?;
-        current = apply_fire(&current, &fire_update);
+        // Structural cross-composite fire (no `Custom`-typed split here yet);
+        // pass `None`. When a registry-driven fire (e.g. `_divide`) is needed
+        // across composites, thread the Core's registry through here.
+        current = apply_fire(&current, &fire_update, None);
         true
     } else {
         false

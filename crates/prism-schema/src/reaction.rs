@@ -984,8 +984,13 @@ fn remap_keys(value: &Value, key_map: &IndexMap<Key, Key>) -> Value {
 #[derive(Clone, Debug)]
 pub struct FireUpdate {
     pub path: Path,
-    pub removed_keys: Vec<Key>,
-    pub added: Value,
+    /// The localized delta at `path` — a `{_remove, _add, _divide, …}` map (or
+    /// any value `apply` accepts). [`apply_fire`] enacts it through the
+    /// SCHEMA-AWARE algebra apply (the SAME mechanism the engine uses), so a
+    /// `_divide` sentinel splits via `divide_by_schema`, numeric leaves add,
+    /// `_add` entries realize, etc. Fire-application IS algebra apply — there is
+    /// no schemaless structural mutator that would silently drop a sentinel.
+    pub delta: Value,
     pub label: String,
 }
 
@@ -1023,57 +1028,38 @@ pub fn fire_rule_at(rule: &ReactionRule, m: &Match) -> Option<FireUpdate> {
         _ => return None,
     };
 
-    // Removed keys = state keys consumed by the redex (everything in
-    // key_map's range).
-    let removed_keys: Vec<Key> = m.bindings.key_map.values().cloned().collect();
+    // Removed keys = state keys consumed by the redex (everything in key_map's
+    // range). Express the change as a `{_remove, _add}` localized delta so
+    // `apply_fire` enacts it through the one schema-aware algebra apply.
+    let removed: Vec<Value> = m
+        .bindings
+        .key_map
+        .values()
+        .map(|k| Value::String(k.to_string()))
+        .collect();
+    let delta = Value::Map(StateMap::from_iter([
+        (Key::from("_remove"), Value::List(removed)),
+        (Key::from("_add"), added),
+    ]));
 
     Some(FireUpdate {
         path: m.path.clone(),
-        removed_keys,
-        added,
+        delta,
         label: rule.label.clone(),
     })
 }
 
 /// Build a [`FireUpdate`] from a computed reactum's produced delta.
 ///
-/// The produced value is interpreted as a localized delta at the match
-/// path: an explicit `{_remove: [keys], _add: {entries}}` map supplies
-/// the removed keys and added entries directly; any other map is treated
-/// as a bare `_add` (pure insertion, no removal); any non-map becomes the
-/// single added value. Removal is never inferred from `key_map` here —
-/// the caller states it explicitly via `_remove`.
+/// The produced value IS the localized delta at the match path — it already
+/// carries its own `_remove`/`_add`/`_divide` sentinels (set by the surface
+/// firing convention). [`apply_fire`] enacts it through the schema-aware algebra
+/// apply, so every sentinel is handled by the one apply mechanism (no bespoke
+/// extraction here that could drop a sentinel like `_divide`).
 fn computed_fire_update(rule: &ReactionRule, m: &Match, produced: Value) -> FireUpdate {
-    let mut removed_keys: Vec<Key> = Vec::new();
-    let added: Value = match produced {
-        Value::Map(mut mp) if mp.contains_key("_remove") || mp.contains_key("_add") => {
-            if let Some(Value::List(rm)) = mp.shift_remove("_remove") {
-                removed_keys = rm
-                    .iter()
-                    .filter_map(|v| v.as_str().map(Key::from))
-                    .collect();
-            }
-            let add = mp.shift_remove("_add").unwrap_or_else(Value::map);
-            // Any leftover (non-sentinel) fields merge in as plain additions.
-            match add {
-                Value::Map(mut add_map) => {
-                    for (k, v) in mp {
-                        add_map.insert(k, v);
-                    }
-                    Value::Map(add_map)
-                }
-                // `_add` was a non-map value; emit it directly (leftover
-                // sibling fields, if any, are dropped — an explicit `_add`
-                // scalar is the caller's whole intent).
-                other => other,
-            }
-        }
-        other => other,
-    };
     FireUpdate {
         path: m.path.clone(),
-        removed_keys,
-        added,
+        delta: produced,
         label: rule.label.clone(),
     }
 }
@@ -1091,11 +1077,23 @@ pub fn fire_rule(
 
 /// Apply a [`FireUpdate`] to a `Value`, returning the new value.
 ///
-/// At the match path, removes the consumed keys then merges the
-/// reactum's added keys. Used by the BRS process and by tests.
-pub fn apply_fire(state: &Value, update: &FireUpdate) -> Value {
+/// Enacts the localized delta at the match path through the ONE schema-aware
+/// algebra apply — the SAME mechanism the engine uses — so every sentinel
+/// (`_remove`/`_add`/`_divide`) is handled uniformly. The schema is inferred
+/// from the live subtree; `infer` honors `_type` brands, so a `_divide` over
+/// branded cells (`_type: Cell`) resolves `Cell → CompositeLink` via the
+/// registry and splits by `divide_by_schema` (conserving mass across the
+/// dividing tick). `registry` (the Core's `TypeRegistry`, threaded via the
+/// firing process's `set_core`) is required for `Custom`-typed splits; pass
+/// `None` for purely structural fires. There is NO schemaless structural path
+/// that could silently drop a sentinel.
+pub fn apply_fire(
+    state: &Value,
+    update: &FireUpdate,
+    registry: Option<&crate::registry::TypeRegistry>,
+) -> Value {
     let mut next = state.clone();
-    let parent: &mut Value = if update.path.is_empty() {
+    let slot: &mut Value = if update.path.is_empty() {
         &mut next
     } else {
         match next.get_path_mut(&update.path) {
@@ -1103,13 +1101,39 @@ pub fn apply_fire(state: &Value, update: &FireUpdate) -> Value {
             None => return next,
         }
     };
-    if let Some(map) = parent.as_map_mut() {
-        for k in &update.removed_keys {
-            map.shift_remove(k);
-        }
-        if let Value::Map(add_map) = &update.added {
-            for (k, v) in add_map {
-                map.insert(k.clone(), v.clone());
+    // A registry-driven sentinel (`_divide`) needs the SCHEMA-AWARE algebra
+    // apply: it brand-resolves the target (`_type: Cell → CompositeLink`) and
+    // splits by `divide_by_schema`, conserving mass when the engine applies it
+    // late alongside the same-tick growth. A purely structural delta
+    // (`_remove`/`_add` of opaque children) applies directly — the proven path
+    // that never re-infers a child's type, so it can't degrade an opaque node.
+    let has_schema_sentinel = update
+        .delta
+        .as_map()
+        .is_some_and(|m| m.contains_key("_divide"));
+    if has_schema_sentinel {
+        let cur = slot.clone();
+        let schema = crate::algebra::infer(&cur);
+        *slot = crate::algebra::apply_with(registry, &schema, &cur, &update.delta);
+    } else if let Some(map) = slot.as_map_mut() {
+        if let Some(delta) = update.delta.as_map() {
+            if let Some(Value::List(keys)) = delta.get("_remove") {
+                for k in keys {
+                    if let Some(s) = k.as_str() {
+                        map.shift_remove(s);
+                    }
+                }
+            }
+            if let Some(Value::Map(adds)) = delta.get("_add") {
+                for (k, v) in adds {
+                    map.insert(k.clone(), v.clone());
+                }
+            }
+            // Any leftover non-sentinel keys merge in as plain entries.
+            for (k, v) in delta {
+                if k != "_add" && k != "_remove" {
+                    map.insert(k.clone(), v.clone());
+                }
             }
         }
     }
@@ -1357,9 +1381,15 @@ mod tests {
         // compartment lives), and `cyto` is removed and re-added with
         // the modified content.
         assert_eq!(update.path, Vec::<Key>::new());
-        assert!(update.removed_keys.contains(&Key::from("cyto")));
+        let removed = update
+            .delta
+            .get_field("_remove")
+            .and_then(|v| v.as_list())
+            .map(|l| l.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
+            .unwrap_or_default();
+        assert!(removed.iter().any(|k| k == "cyto"));
 
-        let next = apply_fire(&state, &update);
+        let next = apply_fire(&state, &update, None);
         let cyto = next.get_path(&[Key::from("cyto")]).unwrap();
         // One of {erk1, erk2} is now pERK; the other is still ERK.
         let cm = cyto.as_map().unwrap();
@@ -1457,8 +1487,14 @@ mod tests {
         assert_eq!(matches.len(), 1);
         assert!(rule.passes_guard(&matches[0].bindings));
         let upd = fire_rule_at(&rule, &matches[0]).expect("fire");
-        assert_eq!(upd.removed_keys, vec![Key::from("0")]);
-        let after = apply_fire(&big, &upd);
+        assert_eq!(
+            upd.delta
+                .get_field("_remove")
+                .and_then(|v| v.as_list())
+                .map(<[Value]>::to_vec),
+            Some(vec![Value::String("0".into())]),
+        );
+        let after = apply_fire(&big, &upd, None);
         let am = after.as_map().unwrap();
         assert!(!am.contains_key("0"), "mother removed");
         assert!(am.contains_key("0_0") && am.contains_key("0_1"), "two daughters");

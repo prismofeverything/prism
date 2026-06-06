@@ -26,14 +26,15 @@
 //! Gillespie stays cheap on large states.
 
 use std::any::Any;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
+use prism_schema::TypeRegistry;
 use prism_schema::reaction::{
-    ControlStatus, Match, ReactionRule, apply_fire, find_matches, fire_rule_at,
+    ControlStatus, FireUpdate, Match, ReactionRule, apply_fire, find_matches, fire_rule_at,
 };
 use prism_schema::{Key, Schema, StateMap, Value};
 
@@ -76,6 +77,12 @@ pub struct BigraphicalReactiveSystem {
     pub interval: f64,
     rng: Mutex<StdRng>,
     fired_log: Mutex<Vec<FiredEvent>>,
+    /// The Core's type registry, captured via `set_core`. Threaded into
+    /// `apply_fire` so a registry-driven fire (e.g. a `_divide` over branded
+    /// `_type: Cell` nodes) enacts SCHEMA-AWARE — splitting via the same
+    /// `divide_by_schema(CompositeLink)` the engine/Divider use, conserving mass.
+    /// `None` until `set_core` runs (purely structural fires need no registry).
+    types: Option<Arc<TypeRegistry>>,
 }
 
 impl std::fmt::Debug for BigraphicalReactiveSystem {
@@ -115,6 +122,7 @@ impl BigraphicalReactiveSystem {
             interval,
             rng: Mutex::new(StdRng::seed_from_u64(seed)),
             fired_log: Mutex::new(Vec::new()),
+            types: None,
         }
     }
 
@@ -191,9 +199,11 @@ impl BigraphicalReactiveSystem {
         candidates.last()
     }
 
-    /// Fire one rule (deterministic or stochastic).
-    /// Returns the new subtree, the fired event, or None if nothing fires.
-    fn fire_one(&self, subtree: &Value, sim_time: f64) -> Option<(Value, FiredEvent)> {
+    /// Fire one rule (deterministic or stochastic). Returns the new subtree (for
+    /// multi-fire iteration), the fire's localized DELTA nested under its match
+    /// path (emitted for the engine to apply schema-aware), and the fired event —
+    /// or None if nothing fires.
+    fn fire_one(&self, subtree: &Value, sim_time: f64) -> Option<(Value, Value, FiredEvent)> {
         match self.mode {
             BrsMode::Deterministic => {
                 let status = self.control_status.as_ref();
@@ -203,9 +213,11 @@ impl BigraphicalReactiveSystem {
                     // structurally-first match).
                     if let Some(m) = matches.into_iter().find(|m| rule.passes_guard(&m.bindings)) {
                         let upd = fire_rule_at(rule, &m)?;
-                        let new_subtree = apply_fire(subtree, &upd);
+                        let nested = nest_fire_delta(&upd);
+                        let new_subtree = apply_fire(subtree, &upd, self.types.as_deref());
                         return Some((
                             new_subtree,
+                            nested,
                             FiredEvent {
                                 sim_time,
                                 rule_label: rule.label.clone(),
@@ -221,9 +233,11 @@ impl BigraphicalReactiveSystem {
                 let (rule_idx, m, _rate) = self.pick_candidate(&candidates)?.clone();
                 let rule = &self.rules[rule_idx];
                 let upd = fire_rule_at(rule, &m)?;
-                let new_subtree = apply_fire(subtree, &upd);
+                let nested = nest_fire_delta(&upd);
+                let new_subtree = apply_fire(subtree, &upd, self.types.as_deref());
                 Some((
                     new_subtree,
+                    nested,
                     FiredEvent {
                         sim_time,
                         rule_label: rule.label.clone(),
@@ -269,7 +283,7 @@ impl BigraphicalReactiveSystem {
                 Some(u) => u,
                 None => break,
             };
-            subtree = apply_fire(&subtree, &upd);
+            subtree = apply_fire(&subtree, &upd, self.types.as_deref());
             self.fired_log.lock().unwrap().push(FiredEvent {
                 sim_time: t,
                 rule_label: rule.label.clone(),
@@ -283,6 +297,15 @@ impl BigraphicalReactiveSystem {
 }
 
 impl Process for BigraphicalReactiveSystem {
+    /// Capture the Core's type registry so fires apply SCHEMA-AWARE: a `_divide`
+    /// (or any registry-driven sentinel) in a reactum then enacts through the
+    /// same algebra apply the engine uses — splitting branded cells via
+    /// `divide_by_schema(CompositeLink)` and conserving mass. (The engine calls
+    /// `set_core` on every discovered process node.)
+    fn set_core(&mut self, core: crate::Core) {
+        self.types = Some(core.types);
+    }
+
     fn inputs(&self) -> PortSchema {
         let mut p = IndexMap::new();
         p.insert("state".to_string(), Schema::Any);
@@ -303,42 +326,53 @@ impl Process for BigraphicalReactiveSystem {
         // Pull the wired subtree off the "state" input port.
         let subtree = state.get_field("state").cloned().unwrap_or(Value::None);
 
-        let initial = subtree.clone();
-
-        let final_subtree = match self.mode {
+        let delta = match self.mode {
+            // Gillespie τ-leap: many firings collapse into the net structural
+            // change (chemical kinetics — no `_divide`), so a diff is apt.
             BrsMode::Gillespie => {
+                let initial = subtree.clone();
                 let (s, fired) = self.gillespie_step(subtree, interval);
                 if !fired {
                     return Update::Noop;
                 }
-                s
+                structural_diff(&initial, &s)
             }
+            // Deterministic / Stochastic: emit the RECONCILED FIRE DELTAS — the
+            // raw `_divide`/`_remove`/`_add` directives — for the ENGINE to apply
+            // schema-aware, NOT a structural diff of an internal apply. So a
+            // `_divide` reaches the engine and splits the LIVE node (this tick's
+            // growth included), alongside other processes' deltas — conserving
+            // mass across a divide (the Form-3 property, now for reaction-driven
+            // division). The internal `apply_fire` below only advances `current`
+            // so multi-fire iteration finds the NEXT match, not the same one.
             _ => {
                 let mut current = subtree;
-                let mut any = false;
+                let mut deltas: Vec<Value> = Vec::new();
                 for _ in 0..self.max_per_tick {
                     match self.fire_one(&current, interval) {
-                        Some((next, ev)) => {
+                        Some((next, nested_delta, ev)) => {
                             self.fired_log.lock().unwrap().push(ev);
                             current = next;
-                            any = true;
+                            deltas.push(nested_delta);
                         }
                         None => break,
                     }
                 }
-                if !any {
+                if deltas.is_empty() {
                     return Update::Noop;
                 }
-                current
+                prism_schema::reconcile::reconcile_with(
+                    self.types.as_deref(),
+                    &Schema::Any,
+                    &deltas,
+                )
+                .unwrap_or(Value::None)
             }
         };
 
-        // Diff initial → final and emit a path-localized update.
-        let delta = structural_diff(&initial, &final_subtree);
         if is_zero(&delta) {
             return Update::Noop;
         }
-
         let mut out = StateMap::new();
         out.insert(Key::from("state"), delta);
         Update::Value(Value::Map(out))
@@ -350,6 +384,20 @@ impl Process for BigraphicalReactiveSystem {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
+}
+
+/// Nest a fire's localized delta under its match path, so per-fire deltas can be
+/// reconciled and emitted at the subtree root (the engine then applies the
+/// combined delta schema-aware at the wired slot). `[a, b] + delta → {a: {b:
+/// delta}}`; an empty path returns the delta unchanged.
+fn nest_fire_delta(upd: &FireUpdate) -> Value {
+    let mut v = upd.delta.clone();
+    for seg in upd.path.iter().rev() {
+        let mut m = StateMap::new();
+        m.insert(seg.clone(), v);
+        v = Value::Map(m);
+    }
+    v
 }
 
 /// Recursively diff two values, producing an update that uses

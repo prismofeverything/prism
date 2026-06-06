@@ -33,7 +33,7 @@ use prism_schema::algebra;
 use prism_schema::registry::TypeMethods;
 use prism_schema::units::Context;
 use prism_schema::{
-    DivideContext, MethodError, MethodRegistry, Schema, TypeRegistry, Value,
+    DivideContext, Key, MethodError, MethodRegistry, Schema, TypeRegistry, Value,
     divide_by_schema,
 };
 
@@ -354,7 +354,7 @@ pub fn compile_with_modules(
     // AND the Core below — a single registry per compile context, never an
     // ad-hoc default.
     let type_registry = build_type_registry(&program_arc);
-    register_divide_methods(&mut methods, &program, &type_registry);
+    register_divide_methods(&mut methods, &program);
     register_user_type_methods(&mut methods, &program_arc);
     let methods = Arc::new(methods);
 
@@ -781,35 +781,27 @@ impl TypeMethods for RepresentationType {
     }
 }
 
-fn register_divide_methods(
-    methods: &mut MethodRegistry,
-    program: &Program,
-    types: &Arc<TypeRegistry>,
-) {
+fn register_divide_methods(methods: &mut MethodRegistry, program: &Program) {
     for def in &program.defs {
         let Def::Composite(c) = def else { continue };
-        // Divide the cell by its REAL representation — the `CompositeLink` (the
-        // SAME schema the Form-3 `_divide`/Divider path uses). This unifies the
-        // two division paths onto ONE mechanism, `divide_by_schema(CompositeLink)`:
-        // the extensive face (`mass: Delta`) splits, intensive (`glucose: Float`)
-        // is shared, the spec (`address`/`config`) is shared so each daughter
-        // re-realizes as a live cell, and a `Custom`-typed face dispatches through
-        // the registry.
+        // Only composites with a divisible self-exported face get `divide`
+        // (a faceless wiring composite has nothing to split).
         let schema = crate::schema::def_schema(def, program);
-        // Skip composites with no divisible self-exported face (nothing to split).
         if schema.node_data_branches().is_empty() {
             continue;
         }
-        let reg = Arc::clone(types);
-        methods.register(c.name.clone(), "divide", move |recv, _args| {
-            // `divide()` SPLITS — it returns the division PRODUCTS as a list. It
-            // invents no keys: the CONTAINER (the firing reaction's
-            // `reaction_delta`, or a Divider step) owns the daughters' keys, so a
-            // cell stays position-agnostic — it never names its own key (see
-            // environment.ys). The reaction firing keys them `<mother>_0/_1`.
-            let ctx = DivideContext::binary();
-            let daughters = divide_by_schema(&schema, recv, &ctx, &reg);
-            Ok(Value::List(daughters))
+        methods.register(c.name.clone(), "divide", move |_recv, _args| {
+            // `divide()` emits a binary `_divide` DIRECTIVE (split into two, no
+            // per-daughter overrides). The schema-driven split happens LATE, at
+            // APPLY time, via the `_divide` sentinel + `divide_by_schema(
+            // CompositeLink)` — the SAME path the Form-3 `Divider` uses. So there
+            // is ONE split mechanism, and the apply splits the LIVE node
+            // (including this tick's growth), conserving mass across a divide.
+            // The container (the firing) keys the daughters `<mother>_0/_1`.
+            Ok(Value::Map(IndexMap::from([(
+                Key::from("_divide"),
+                Value::List(vec![Value::map(), Value::map()]),
+            )])))
         });
     }
 }

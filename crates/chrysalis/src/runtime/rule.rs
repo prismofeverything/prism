@@ -292,30 +292,36 @@ fn reaction_delta(
         })
         .collect();
 
+    // A DIVIDE directive — `?c.divide()` returns `{_divide: [<override per
+    // daughter>]}`. Route it through the LATE-BOUND `_divide` apply (the SAME
+    // path the Form-3 Divider uses): the apply splits the LIVE node — INCLUDING
+    // this tick's growth — via `divide_by_schema(CompositeLink)`, so growth in
+    // the dividing tick is CONSERVED (an early snapshot-split would drop it). The
+    // container owns the keys: each daughter is named `<mother>_i`. This unifies
+    // reaction-driven and step-driven (Divider) division onto ONE mechanism.
+    if let Some(overrides) = reactum_val
+        .as_map()
+        .and_then(|m| m.get("_divide"))
+        .and_then(|v| v.as_list())
+    {
+        if let Some(mother) = matched_keys.first().and_then(|v| v.as_str()) {
+            let mut daughters: StateMap = StateMap::new();
+            for (i, ov) in overrides.iter().enumerate() {
+                daughters.insert(Key::from(format!("{mother}_{i}").as_str()), ov.clone());
+            }
+            let div = Value::Map(IndexMap::from([
+                (Key::from("mother"), Value::String(mother.to_string())),
+                (Key::from("daughters"), Value::Map(daughters)),
+            ]));
+            return Value::Map(IndexMap::from([(Key::from("_divide"), div)]));
+        }
+    }
+
     let mut delta: StateMap = StateMap::new();
     if !matched_keys.is_empty() {
         delta.insert(Key::from("_remove"), Value::List(matched_keys.clone()));
     }
     match reactum_val {
-        // Division products: `?c.divide()` returns the schema-driven split as a
-        // LIST of daughters (the method splits; it does NOT invent keys). The
-        // CONTAINER — this firing — owns the keys: name each daughter by the
-        // consumed mother key + index (`<mother>_0`, `<mother>_1`, …), matching
-        // the Form-3 Divider convention. Mother keys are unique, so daughters
-        // never collide even when several cells divide in one tick. With no
-        // consumed key (anonymous match), fall back to a fresh id.
-        Value::List(products) => {
-            let base = matched_keys
-                .first()
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-                .unwrap_or_else(fresh_id);
-            let mut add: StateMap = StateMap::new();
-            for (i, d) in products.into_iter().enumerate() {
-                add.insert(Key::from(format!("{base}_{i}").as_str()), d);
-            }
-            delta.insert(Key::from("_add"), Value::Map(add));
-        }
         // Explicit delta from the reactum — pass its sentinels through.
         Value::Map(mut m) if m.contains_key("_add") || m.contains_key("_remove") => {
             if let Some(rem) = m.shift_remove("_remove") {

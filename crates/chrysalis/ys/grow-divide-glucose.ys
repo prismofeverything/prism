@@ -1,113 +1,84 @@
-# Grow / divide on a shared glucose pool
-# ──────────────────────────────────────
+# Grow / divide on a shared glucose pool — the link-graph surface
+# ──────────────────────────────────────────────────────────────────────
+# Cells grow on a FINITE shared glucose pool and divide when big enough.
+# Two firsts make this run end-to-end:
 #
-# A `Grow` process and a `Divide` reaction in a first-class BRS system
-# — also now growth is bounded by a finite glucose pool shared across
-# the whole environment.
+#   1. `link glucose` is the shared pool — a value-bearing HYPEREDGE. Every
+#      cell attaches by NAME (`~{glucose: ~glucose}`), so all cells read the
+#      SAME level and their uptakes accumulate on the ONE slot. The engine
+#      resolves `~glucose` up the place graph to the nearest `link glucose`
+#      (depth-independent — a daughter attaches wherever it lands). As the
+#      population grows, total uptake grows, the pool depletes, and growth
+#      slows to zero: biomass SATURATES rather than diverging.
 #
-# Each cell:
-#   - reads the shared glucose level through an input port,
-#   - grows at a Monod-saturating rate   mu = mu_max · S / (k_half + S),
-#   - draws glucose from the pool in proportion to the biomass it makes
-#     (yield Y):   consumed = grew / Y.
+#   2. Division is a first-class BRS REACTION: `?c :: Cell[mass: ?m] where
+#      ?m > threshold => ?c.divide()`. The redex binds the matched cell as a
+#      typed value `?c`; `?c.divide()` emits a binary `_divide` directive; the
+#      engine enacts the schema-driven split (`divide_by_schema(CompositeLink)`:
+#      mass halves, the spec — including the pool attachment — is inherited by
+#      both daughters). It is the SAME split the Form-3 Divider uses.
 #
-# As the population goes exponential, total uptake goes exponential too,
-# so the pool depletes and mu → 0. Biomass approaches an asymptote set by
-# the initial glucose and the yield.
+# Mass is CONSERVED every tick: the pool's glucose becomes biomass (Δmass = u,
+# Δglucose = −u), and division splits mass — so glucose + Σ(cell mass) = const.
+# The invariant + bounded division are asserted in
+# crates/chrysalis/tests/grow_divide_glucose.rs.
 #
-#   THE TEST: total biomass *saturates* rather than diverging, and final
-#   biomass ≈ Y · S₀ (every fmol of glucose becomes Y pg of biomass).
-#
-# Exchange wiring: each Cell exposes a `glucose` port; the Environment's
-# `glucose` field bridges to every cell's port — one shared link (a
-# hyperedge over all cells), so all cells read the same level and their
-# uptake deltas accumulate on the one pool. The cell emits glucose as a
-# negative `delta` (uptake); the pool's additive apply depletes it.
-#
-# Spec only — parser is task #12. See docs/chrysalis-design.md,
-# "Units and quantities" and benchmark example 1b.
+# Run: `chrysalis run grow-divide-glucose.ys --time 200`
 
 
 # ── Dimensioned scalar types ────────────────────────────────────────
-# `Glucose` (the pool) and `HalfSat` (the Monod constant) share the
-# dimension [substance] but differ in extensivity — extensivity is
-# orthogonal to dimension. The pool depletes/splits; the constant copies.
+# Both `Mass` and `Glucose` are EXTENSIVE (→ `Delta`): they split on divide
+# and accumulate on apply. (Extensivity is the schema's, orthogonal to unit.)
 unit pg   : [mass]      = 1e-12 kg
 unit fmol : [substance] = 1e-15 mol
-
-Mass    = Quantity[unit: pg,     extensive]   # cell biomass
-Glucose = Quantity[unit: fmol,   extensive]   # the shared pool — depletes
-HalfSat = Quantity[unit: fmol]                # Monod K — intensive, same dim
-Rate    = Quantity[unit: 1/s]                 # intensive
-Yield   = Quantity[unit: pg/fmol]             # biomass per glucose, [mass]/[substance]
-Time    = Quantity[unit: s]
+Mass    = Quantity[unit: pg,   extensive]   # cell biomass
+Glucose = Quantity[unit: fmol, extensive]   # the shared pool — depletes
 
 
-# Monod-limited growth that consumes glucose from the shared pool.
-process Grow[
-  mu_max: Rate    = 0.2,
-  k_half: HalfSat = 50.0,
-  yield:  Yield   = 0.5
-]
-  ~{mass: Mass, glucose: Glucose, interval: Time = 0.1}
-  ->{mass: Mass, glucose: Glucose}
+# Monod-limited, mass-balanced metabolism: glucose → biomass, bounded by the
+# AVAILABLE pool so a shared pool can never be drawn negative (under the BSP
+# snapshot every cell reads the same pre-tick glucose).
+process Grow[mu_max :: Float = 0.3, k_half :: Float = 50.0]
+  ~{mass :: Float, glucose :: Float, interval :: Float = 1.0}
+  ->{mass :: Mass, glucose :: Glucose}
 (
-  mu       = mu_max * glucose / (k_half + glucose) |   # 1/s · (fmol/fmol) = 1/s
-  grew     = mu * mass * interval |                    # (1/s)·pg·s = pg
-  consumed = grew / yield |                            # pg / (pg/fmol) = fmol
-  {mass: grew, glucose: -consumed}                     # +biomass here; −glucose upstream
+  mu  = mu_max * glucose / (k_half + glucose) |   # 1/s · (fmol/fmol) = 1/s
+  raw = mu * mass * interval |                    # (1/s)·pg·s = pg
+  u   = if raw > glucose then glucose else raw |  # never overdraw the pool
+  {mass: u, glucose: -u}                          # +biomass here; −glucose on the pool
 )
 
 
-composite Cell[
-  id:     String,
-  mass:   Mass    = 1.0,
-  mu_max: Rate    = 0.2,
-  k_half: HalfSat = 50.0,
-  yield:  Yield   = 0.5
-]
-  ~{glucose: Glucose}                  # reads the shared pool
-  ->{mass: Mass, glucose: Glucose}     # exposes biomass and its glucose draw
+# A cell exposes its `mass` on its OWN node (`%.mass`) so the parent BRS can
+# match it, and reads/writes the shared glucose pool BY NAME (`~glucose`).
+composite Cell[mass0 :: Mass = 1.0]
+  ~{glucose :: Float @ glucose = 0.0}
+  ->{mass :: Mass @ mass, glucose :: Glucose @ glucose}
 (
-  mass: mass |
-  Grow[mu_max: mu_max, k_half: k_half, yield: yield]
-    ~{mass: mass, glucose: glucose}    # grow sees own mass + shared glucose
-    ->{mass: mass, glucose: glucose}   # biomass → own field; uptake delta → shared port
+  mass: mass0 |
+  glucose: glucose |
+  grow: Grow[] ~{mass: mass, glucose: glucose} ->{mass: mass, glucose: glucose}
 )
 
 
-# Identical to the unbounded model: mass (extensive) splits between the
-# daughters; the Monod params (intensive) copy unchanged.
-reaction Divide[threshold: Mass = 2.0] (
-  ?c :: Cell[mass: ?m] where ?m > threshold
-  =>
-  ?c.divide()
+# When a cell's biomass crosses the threshold it is replaced by two daughters
+# (mass halved by the schema; the pool attachment inherited from the spec).
+reaction Divide[threshold :: Mass = 2.0] (
+  ?c :: Cell[mass: ?m] where ?m > threshold => ?c.divide()
 )
 
 
-composite Environment[
-  cells:     Map[Cell],
-  glucose:   Glucose = 1000.0,   # finite shared pool — the growth limiter
-  threshold: Mass    = 2.0
-]
-  ~{}
-  ->{cells, glucose}
+composite Environment[glucose0 :: Float = 1000.0, threshold :: Mass = 2.0]
+  ->{glucose :: Float @ glucose, cells :: map[Cell] @ cells}
 (
-  glucose: glucose |             # the one shared pool; cells deplete it
-  cells: cells |
-  BRS[rules: [Divide[threshold: threshold]]]
-    ~{state: cells} ->{state: cells}
+  link glucose :: Glucose = glucose0 |          # the one shared pool (hyperedge)
+  cells: {
+    '0': Cell[mass0: 1.2] ~{glucose: ~glucose} ->{mass: %.mass, glucose: ~glucose}
+  } |
+  rxn: BRS[rules: [Divide[threshold: threshold]]] ~{state: cells} ->{state: cells}
 )
 
 
-# The entry — `chrysalis run grow-divide-glucose.ys --time 300` runs the
-# environment long enough to deplete the pool and reach the asymptote.
-# (Not yet running end-to-end: the `?c :: Cell ... ?c.divide()` reactum is
-# tier-1 stretch — homoiconic division as a parent-installed reaction calling
-# the cell's `.divide()` method. See docs/chrysalis-design.md. The Cell + Grow
-# pieces are runnable today via the internal-division form — see
-# grow-divide-unbounded.ys + cell.ys.)
-Environment[
-  glucose: 1000.0,
-  cells: {'0': Cell[id: '0', mass: 1.2]}
-]
+# The entry — `chrysalis run grow-divide-glucose.ys --time 200` runs the
+# environment long enough to deplete the pool and reach the biomass asymptote.
+Environment[]

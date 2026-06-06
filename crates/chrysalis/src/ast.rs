@@ -1229,6 +1229,17 @@ pub enum Expr {
     /// `~name` — link variable.
     LinkVar(Name),
 
+    /// `link name :: T = default` — declare a named value-bearing **hyperedge**
+    /// (the bigraph link graph, first-class). Lives in a composite body; lowers
+    /// to a shared pool slot `name: default` PLUS a `_links` marker on the scope,
+    /// so the engine resolves every `~name` attachment up the place graph to that
+    /// one slot (depth-independent). The optional `schema` types the slot.
+    LinkDecl {
+        name: Name,
+        schema: Option<SchemaExpr>,
+        default: Box<Expr>,
+    },
+
     // ── Reaction bodies ──
     /// `redex => reactum` — only legal inside a `reaction` body. The
     /// surrounding [`ReactionDef`] supplies the guard and rate, so
@@ -1689,6 +1700,19 @@ impl Expr {
             }
             Expr::Unbound => tag("Unbound", &[]),
             Expr::LinkVar(n) => tag("LinkVar", &[("name", Value::String(n.clone()))]),
+            Expr::LinkDecl { name, schema, default } => {
+                let mut fields: Vec<(&str, Value)> = vec![
+                    ("name", Value::String(name.clone())),
+                    ("default", default.to_value()),
+                ];
+                if let Some(s) = schema {
+                    fields.push((
+                        "schema",
+                        Value::String(crate::unparse::unparse_schema(s)),
+                    ));
+                }
+                tag("LinkDecl", &fields)
+            }
             Expr::Rule { redex, reactum } => tag(
                 "Rule",
                 &[("redex", redex.to_value()), ("reactum", reactum.to_value())],
@@ -2115,6 +2139,20 @@ impl Expr {
             }
             "Unbound" => Ok(Expr::Unbound),
             "LinkVar" => Ok(Expr::LinkVar(field_str(map, "name")?)),
+            "LinkDecl" => {
+                let name = field_str(map, "name")?;
+                let default = Box::new(Expr::from_value(
+                    field_of(map, "default").ok_or_else(|| err("LinkDecl.default missing"))?,
+                )?);
+                let schema = match map.get("schema").and_then(|v| v.as_str()) {
+                    Some(s) => Some(
+                        crate::parse::parse_schema_expr(s)
+                            .map_err(|e| err(&format!("LinkDecl.schema: {e:?}")))?,
+                    ),
+                    None => None,
+                };
+                Ok(Expr::LinkDecl { name, schema, default })
+            }
             // Pattern-only / rare variants — left for a follow-up slice so the
             // gap is visible rather than silently mis-handled.
             other => Err(err(&format!(

@@ -946,12 +946,36 @@ impl Schema {
                         Value::Struct { layout: layout.clone(), values: new_values }
                     }
                     // Map current + Map update — unified through `apply_map_with`.
-                    (Value::Map(cur), Value::Map(upd)) => Value::Map(apply_map_with(
-                        reg,
-                        cur,
-                        upd,
-                        |k| branches.get(k).unwrap_or(&Schema::Any),
-                    )),
+                    (Value::Map(cur), Value::Map(upd)) => {
+                        // `_divide` on a Tree-schema'd container (e.g. a
+                        // `map[Cell]` inferred per-key by `infer`): split the
+                        // named mother by ITS branch schema — the SAME late-bound
+                        // mechanism the `Map` branch uses. Without this a `_divide`
+                        // over a brand-inferred map (the BRS-reaction firing path)
+                        // would be dropped; fire-application must enact `_divide`
+                        // exactly as the engine's schema-aware apply does.
+                        if let Some(r) = reg {
+                            if upd.contains_key("_divide") {
+                                let val_schema = upd
+                                    .get("_divide")
+                                    .and_then(|d| d.get_field("mother"))
+                                    .and_then(|m| m.as_str())
+                                    .and_then(|m| branches.get(m))
+                                    .unwrap_or(&Schema::Any);
+                                let mut rest = upd.clone();
+                                rest.shift_remove("_divide");
+                                let base = if rest.is_empty() {
+                                    current.clone()
+                                } else {
+                                    self.apply_with_reg(Some(r), current, &Value::Map(rest))
+                                };
+                                return apply_divide_sentinel(val_schema, r, &base, upd);
+                            }
+                        }
+                        Value::Map(apply_map_with(reg, cur, upd, |k| {
+                            branches.get(k).unwrap_or(&Schema::Any)
+                        }))
+                    }
                     _ => update.clone(),
                 }
             }
@@ -1870,11 +1894,15 @@ pub(crate) fn apply_map_with<'a>(
             }
         }
     }
-    // _add: realize each new entry through its element schema.
+    // _add: realize each new entry through its element schema, REGISTRY-AWARE
+    // (so a `Custom` element resolves to its representation, and an UNregistered
+    // brand passes through structurally instead of being dropped to a default —
+    // the registry-free `realize` would lose it). Threads the same `reg` the
+    // surrounding apply has.
     if let Some(Value::Map(adds)) = update_map.get("_add") {
         for (k, v) in adds {
             let s = schema_for(k);
-            result.insert(k.clone(), s.realize(v));
+            result.insert(k.clone(), s.realize_with_reg(reg, v));
         }
     }
     // Regular keys: apply update through the per-key schema, basing on the

@@ -146,7 +146,23 @@ pub fn parse_type_expression(expr: &str) -> Schema {
                         return tree;
                     }
                 }
-                Schema::Any // truly unknown type
+                // A bare CAPITALIZED name is a nominal (custom) type — a brand
+                // (`Cell`, `Signal`, a molecule sort). Recover it as `Custom{name}`
+                // so the `TypeRegistry` resolves it to its real schema at use, and
+                // `infer` over a `_type`-branded value is brand-aware rather than
+                // lossy. An UNregistered `Custom` falls back to defaults (the same
+                // safety the old `Any` gave), but a REGISTERED brand now resolves
+                // (e.g. `Cell → CompositeLink`, so `divide` SPLITS instead of
+                // sharing). The structural-typing-with-branding model: the value
+                // carries its type, the registry resolves it.
+                if expr.chars().next().is_some_and(|c| c.is_ascii_uppercase()) {
+                    Schema::Custom {
+                        name: expr.to_string(),
+                        parameters: IndexMap::new(),
+                    }
+                } else {
+                    Schema::Any // truly unknown type
+                }
             }
         }
     }

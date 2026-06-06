@@ -312,7 +312,7 @@ fn build_rule_trace(rules: &[ReactionRule], initial: &Value, max_steps: usize) -
             if let Some(m) = matches.first() {
                 if let Some(upd) = fire_rule_at(rule, m) {
                     let before = state.clone();
-                    let after = apply_fire(&state, &upd);
+                    let after = apply_fire(&state, &upd, None);
                     captured.push(RuleTraceEntry {
                         label: rule.label.clone(),
                         before,
@@ -337,7 +337,7 @@ fn build_rule_trace(rules: &[ReactionRule], initial: &Value, max_steps: usize) -
             let matches = find_matches(&state, &rule.redex, None);
             if let Some(m) = matches.first() {
                 if let Some(upd) = fire_rule_at(rule, m) {
-                    state = apply_fire(&state, &upd);
+                    state = apply_fire(&state, &upd, None);
                     advanced = true;
                     break;
                 }

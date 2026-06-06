@@ -429,10 +429,17 @@ impl TypeRegistry {
                 return methods.apply(self, &entry.schema, state, update);
             }
         }
-        self.types
-            .get(name)
-            .map(|e| e.schema.apply_update(state, update))
-            .unwrap_or_else(|| update.clone())
+        match self.types.get(name) {
+            Some(e) => e.schema.apply_update(state, update),
+            // An UNREGISTERED Custom is a type in its own right, defined
+            // STRUCTURALLY by its values (its shape is the aggregate of what it
+            // carries — a bare molecule sort like `ERK`, an ad-hoc record). Apply
+            // by that structure (`Any`: maps merge with `_add`/`_remove`, numerics
+            // add) rather than blindly REPLACING with the update — so a delta on
+            // an unregistered-typed node rewrites it in place and DATA IS
+            // PRESERVED. (A registered name resolved to its representation above.)
+            None => crate::algebra::apply_with(Some(self), &Schema::Any, state, update),
+        }
     }
 
     /// Divide a state value into daughters via the type's methods.
@@ -1035,7 +1042,9 @@ impl TypeMethods for BigraphTypeMethods {
             if f.type_name == FOREIGN_REACTION {
                 if let Some(rule) = f.downcast_ref::<ReactionRule>() {
                     return match fire_rule(state, rule, None) {
-                        Some(fire) => apply_fire(state, &fire),
+                        // Thread the threaded registry so a registry-driven fire
+                        // (e.g. a `_divide`) enacts schema-aware.
+                        Some(fire) => apply_fire(state, &fire, Some(_registry)),
                         None => state.clone(),
                     };
                 }

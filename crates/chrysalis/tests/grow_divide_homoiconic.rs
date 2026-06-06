@@ -1,54 +1,43 @@
-//! Type-relative, schema-driven `.divide()` on a composite cell.
+//! `.divide()` on a composite cell emits a binary `_divide` DIRECTIVE.
 //!
-//! `.divide()` is the cell's OWN schema-driven split: it divides the cell by its
-//! `CompositeLink` representation (mass = extensive → halves; intensive fields +
-//! the spec are shared), returning the division PRODUCTS as a list — it invents
-//! no keys, the container owns them. This is the SAME `divide_by_schema(
-//! CompositeLink)` the Form-3 `_divide`/Divider path uses, so the two division
-//! paths are ONE mechanism.
+//! `?c.divide()` does NOT split the snapshot itself — it returns
+//! `{_divide: [{}, {}]}` (split into two, no per-daughter overrides). The actual
+//! schema-driven split (`divide_by_schema(CompositeLink)`: extensive `mass`
+//! halves, intensive + the spec shared) happens LATE, at apply time, via the
+//! `_divide` sentinel — the SAME path the Form-3 `Divider` uses. So the two
+//! division paths are ONE mechanism, and the apply splits the LIVE node
+//! (including this tick's growth), conserving mass across a divide.
 //!
-//! The end-to-end reaction-driven form — `?c :: Cell[mass:?m] => ?c.divide()` in
-//! a parent BRS, the firing consuming the mother + keying daughters + conserving
-//! mass + terminating — is proven in `reaction_divide.rs`. Form-3 / streamed
-//! division is proven in `grow_divide_stream.rs` and
-//! `prism-bigraph/tests/cells_division.rs`.
+//! The split itself is proven in `prism-bigraph/tests/cells_division.rs`; the
+//! end-to-end reaction form (matching, firing, keying, CONSERVATION across the
+//! dividing tick, termination) in `reaction_divide.rs` + `grow_divide_glucose.rs`.
 
 use prism_schema::Value;
 
 use chrysalis::fixtures::grow_divide_homoiconic as gd;
 
 #[test]
-fn divide_method_is_type_relative_and_schema_driven() {
-    // `.divide()` dispatched on the cell's brand (`_type: Cell`), divides by the
-    // cell's REAL `CompositeLink` representation (mass = extensive → Delta), and
-    // runs the schema-driven split: mass halves, the rest shared. No literal
-    // `mass / 2`, no sentinel — divide is type-relative. The method SPLITS,
-    // returning the PRODUCTS as a list; it invents no keys — the container
-    // (the firing reaction) owns the daughters' keys.
+fn divide_method_emits_a_binary_divide_directive() {
     let program = gd::program();
     let result = chrysalis::compile::compile(&program).expect("compile");
 
+    // The cell's brand (`_type: Cell`) dispatches its `divide` method.
     let cell = Value::tree([
         ("_type", Value::String("Cell".to_string())),
         ("mass", Value::float(2.0)),
         ("body", Value::map()),
     ]);
-    let daughters = result
+    let directive = result
         .methods
         .dispatch(&cell, "divide", &[])
         .expect("divide dispatch");
-    let ds = daughters.as_list().expect("daughters are a list of products");
-    assert_eq!(ds.len(), 2, "two daughters");
-    for d in ds {
-        assert_eq!(
-            d.get_field("mass").and_then(|v| v.as_f64()),
-            Some(1.0),
-            "extensive mass halved by the schema"
-        );
-        assert_eq!(
-            d.get_field("_type").and_then(|v| v.as_str()),
-            Some("Cell"),
-            "_type (the brand) shared"
-        );
-    }
+    let parts = directive
+        .get_field("_divide")
+        .and_then(|v| v.as_list())
+        .expect("divide emits a `{_divide: [...]}` directive");
+    assert_eq!(parts.len(), 2, "binary divide: two daughters, no overrides");
+    assert!(
+        parts.iter().all(|p| p.as_map().is_some_and(|m| m.is_empty())),
+        "no per-daughter overrides — the apply does the schema-driven split"
+    );
 }

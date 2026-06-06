@@ -430,6 +430,18 @@ pub fn unparse_expr_at(e: &Expr, indent: usize) -> String {
         },
         Expr::Unbound => "!".into(),
         Expr::LinkVar(n) => format!("~{n}"),
+        Expr::LinkDecl {
+            name,
+            schema,
+            default,
+        } => match schema {
+            Some(s) => format!(
+                "link {name} :: {} = {}",
+                unparse_schema(s),
+                unparse_expr_at(default, indent)
+            ),
+            None => format!("link {name} = {}", unparse_expr_at(default, indent)),
+        },
         Expr::Rule { redex, reactum } => fmt_rule(redex, reactum, indent),
         Expr::Let { bindings, body } => {
             let bs: Vec<String> = bindings

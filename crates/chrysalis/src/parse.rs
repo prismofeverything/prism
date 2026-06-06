@@ -872,6 +872,8 @@ fn collect_refs(e: &Expr, out: &mut std::collections::HashSet<String>) {
             collect_refs(inner, out);
             collect_refs(predicate, out);
         }
+        // A `link name = default` may reference a control in its default value.
+        Expr::LinkDecl { default, .. } => collect_refs(default, out),
         // Literals + place/link forms reference no other def.
         Expr::Unit
         | Expr::Bool(_)
@@ -2130,12 +2132,30 @@ impl Parser {
         enum Item {
             Entry(String, Expr),
             Bind(String, Expr),
+            Link(String, Option<SchemaExpr>, Expr),
             Value(Expr),
         }
         let mut items = Vec::new();
         if !self.check(&Tok::RParen) {
             loop {
-                let item = if matches!(self.peek(), Tok::Ident(_)) && *self.peek2() == Tok::Colon {
+                // `link <name> [:: T] = <default>` — a first-class link
+                // declaration (the bigraph link graph hyperedge). `link` is
+                // CONTEXTUAL (still usable as a field name `link:` or a def
+                // `def link`): only `link` immediately FOLLOWED BY a name is the
+                // declaration; `link:` / `link =` stay an entry/bind.
+                let is_link_decl = matches!(self.peek(), Tok::Ident(s) if s == "link")
+                    && matches!(self.peek2(), Tok::Ident(_));
+                let item = if is_link_decl {
+                    self.bump(); // consume `link`
+                    let name = self.ident()?;
+                    let schema = if self.accept_type_sep() {
+                        Some(self.parse_schema()?)
+                    } else {
+                        None
+                    };
+                    self.expect(&Tok::Eq)?;
+                    Item::Link(name, schema, self.parse_expr()?)
+                } else if matches!(self.peek(), Tok::Ident(_)) && *self.peek2() == Tok::Colon {
                     let name = self.ident()?;
                     self.expect(&Tok::Colon)?;
                     Item::Entry(name, self.parse_expr()?)
@@ -2154,8 +2174,17 @@ impl Parser {
         }
         self.expect(&Tok::RParen)?;
 
+        // A `link` declaration desugars to an `Expr::LinkDecl` body element.
+        let link_decl = |name: String, schema: Option<SchemaExpr>, default: Expr| Expr::LinkDecl {
+            name,
+            schema,
+            default: Box::new(default),
+        };
         let has_bind = items.iter().any(|i| matches!(i, Item::Bind(..)));
-        let has_entry = items.iter().any(|i| matches!(i, Item::Entry(..)));
+        // A `link` makes the body map-building (a Parallel), like an entry.
+        let has_entry = items
+            .iter()
+            .any(|i| matches!(i, Item::Entry(..) | Item::Link(..)));
         if has_bind {
             // Block: bindings then a final value.
             let mut bindings = Vec::new();
@@ -2164,15 +2193,17 @@ impl Parser {
                 match item {
                     Item::Bind(n, e) => bindings.push((n, e)),
                     Item::Value(e) | Item::Entry(_, e) => value = e,
+                    Item::Link(n, s, e) => value = link_decl(n, s, e),
                 }
             }
             Ok(Expr::Block(crate::ast::Block::from_parts(bindings, value)))
         } else if has_entry {
-            // Parallel of entries (+ any bare values kept as-is).
+            // Parallel of entries / link decls (+ any bare values kept as-is).
             let elems = items
                 .into_iter()
                 .map(|i| match i {
                     Item::Entry(n, e) => Expr::entry(n, e),
+                    Item::Link(n, s, e) => link_decl(n, s, e),
                     Item::Value(e) => e,
                     Item::Bind(_, e) => e,
                 })
@@ -2181,6 +2212,7 @@ impl Parser {
         } else if items.len() == 1 {
             Ok(match items.pop().unwrap() {
                 Item::Value(e) | Item::Entry(_, e) | Item::Bind(_, e) => e,
+                Item::Link(n, s, e) => link_decl(n, s, e),
             })
         } else {
             Ok(Expr::parallel(
@@ -2188,6 +2220,7 @@ impl Parser {
                     .into_iter()
                     .map(|i| match i {
                         Item::Value(e) | Item::Entry(_, e) | Item::Bind(_, e) => e,
+                        Item::Link(n, s, e) => link_decl(n, s, e),
                     })
                     .collect(),
             ))

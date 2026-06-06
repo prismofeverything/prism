@@ -366,6 +366,14 @@ impl Evaluator {
                 message: "bare KeyedEntry outside a parallel/map context".into(),
             }),
 
+            // A `link name :: T = default` only makes sense inside a composite
+            // body (a Parallel) — `eval_parallel_value` turns it into the shared
+            // pool slot + the `_links` scope marker. Bare, it has no scope.
+            Expr::LinkDecl { .. } => Err(EvalError::InvalidForm {
+                context: "value".into(),
+                message: "a `link` declaration is only valid inside a composite body".into(),
+            }),
+
             Expr::Map(entries) => self.eval_map_value(entries, env),
             Expr::Record(fields) => self.eval_record_value(fields, env),
             Expr::List(items) => {
@@ -512,17 +520,36 @@ impl Evaluator {
         elems: &[Expr],
         env: &IndexMap<Name, Value>,
     ) -> Result<Value, EvalError> {
-        // Classify: all keyed? all anonymous? mixed?
-        let all_keyed =
-            !elems.is_empty() && elems.iter().all(|e| matches!(e, Expr::KeyedEntry { .. }));
+        // Classify: a composite body is map-building if every element is a
+        // KeyedEntry (`name: value`) or a `link` declaration. A `link name = v`
+        // contributes the shared pool slot `name: v` PLUS marks the scope in
+        // `_links` so the engine resolves `~name` attachments here (the bigraph
+        // link graph; see engine `resolve_link`).
+        let all_keyed = !elems.is_empty()
+            && elems
+                .iter()
+                .all(|e| matches!(e, Expr::KeyedEntry { .. } | Expr::LinkDecl { .. }));
         if all_keyed {
             let mut map: IndexMap<Key, Value> = IndexMap::new();
+            let mut links: IndexMap<Key, Value> = IndexMap::new();
             for e in elems {
-                if let Expr::KeyedEntry { key, value } = e {
-                    let key_str = self.eval_string_to_str(key, env)?;
-                    let v = self.eval_value(value, env)?;
-                    map.insert(Key::from(key_str.as_str()), v);
+                match e {
+                    Expr::KeyedEntry { key, value } => {
+                        let key_str = self.eval_string_to_str(key, env)?;
+                        let v = self.eval_value(value, env)?;
+                        map.insert(Key::from(key_str.as_str()), v);
+                    }
+                    Expr::LinkDecl { name, default, .. } => {
+                        let v = self.eval_value(default, env)?;
+                        map.insert(Key::from(name.as_str()), v);
+                        links.insert(Key::from(name.as_str()), Value::Bool(true));
+                    }
+                    _ => unreachable!("all_keyed guarantees KeyedEntry | LinkDecl"),
                 }
+            }
+            if !links.is_empty() {
+                // The scope marker the engine walks up to: `_links: {name: …}`.
+                map.insert(Key::from("_links"), Value::Map(links));
             }
             return Ok(Value::Map(map));
         }
@@ -1644,6 +1671,15 @@ fn substitute_vars(expr: &Expr, subs: &IndexMap<Name, Expr>) -> Expr {
         Where { inner, predicate } => Where {
             inner: Box::new(substitute_vars(inner, subs)),
             predicate: Box::new(substitute_vars(predicate, subs)),
+        },
+        LinkDecl {
+            name,
+            schema,
+            default,
+        } => LinkDecl {
+            name: name.clone(),
+            schema: schema.clone(),
+            default: Box::new(substitute_vars(default, subs)),
         },
         Unit | Bool(_) | Int(_) | Float(_) | Str(_) | Path(_) | Unbound | LinkVar(_) => {
             expr.clone()

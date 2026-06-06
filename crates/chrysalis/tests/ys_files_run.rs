@@ -15,12 +15,6 @@ use std::process::Command;
 /// tracked against an open task. As blockers land, files move off this list.
 const SKIP: &[(&str, &str)] = &[
     (
-        "grow-divide-glucose.ys",
-        "tier-1 stretch (#30 slice 3): the reaction's `?c.divide()` reactum is a \
-         homoiconic method call on a sited cell — needs `?c :: Cell` + \
-         `divide()` as a first-class entity method. Runs once that lands.",
-    ),
-    (
         "agreement-engines.ys",
         "integration: drives COPASI/Tellurium over rest — needs a running \
          process-server (process-server/serve.sh 8765). Run via the \
