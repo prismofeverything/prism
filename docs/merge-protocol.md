@@ -258,9 +258,18 @@ principle)
      composites a redex names (today the caller passes the paths);
      engine-level BRS process that consumes the mechanism each tick.
 
-7. **Sibling-addressing in reaction syntax** — small parser slice so
-   `alice~{state: a} | bob~{state: b}` can express the cross-composite
-   pattern in source. (Task #40.)
+7. **Sibling-addressing in reaction syntax** (resolved: use map
+   literals — task #40, 2026-06-06). The sketch
+   `alice~{state: a} | bob~{state: b}` was rejected as it conflates the
+   port-interface form `K~{}` (used for sorts/controls) with a
+   sibling-key form, requiring case-based heuristics that decay for
+   mixed-case chemistry sorts (`pERK`/`mLys`). The principled syntax is
+   the **map literal** `{ alice: { state: ?a }, bob: { state: ?b } }`
+   — unambiguously keyed by literal name, already supported by the
+   existing parser + `Pattern` lowering. See
+   `crates/chrysalis/tests/cross_composite_redex_via_map_literal.rs`
+   and `docs/chrysalis-design.md` §"Cross-composite redexes use map
+   literals".
 
 8. **Distributed merge** — slices 1-7 working when source composites
    are stream children on remote machines. Test that "merge produces

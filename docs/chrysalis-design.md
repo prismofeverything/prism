@@ -928,6 +928,36 @@ From tight to loose:
 `replace id with { 'key1': val1, 'key2': val2 }` desugars to
 `{ _remove: [id], _add: { key1: val1, key2: val2 } }`.
 
+### Cross-composite redexes use map literals (resolved #40)
+
+A redex that spans multiple **named peers** (rather than matching by
+sort) uses **map literal syntax**:
+
+```
+reaction Swap (
+  { alice: { state: ?a }, bob: { state: ?b } }
+  =>
+  { alice: { state: ?b }, bob: { state: ?a } }
+)
+```
+
+The map literal `{ k: v }` is unambiguously **keyed by literal name** —
+contrast with the sort/term form `K[args]~{ports}` which matches a node
+by `_type`. Both forms are needed; conflating them via case heuristics
+(e.g. "lowercase first letter = sibling") decays for mixed-case
+chemistry sorts like `pERK` / `mLys` that are sorts by intent.
+
+The discarded alternative `alice~{state: ?a} | bob~{state: ?b}` (sketched in
+`docs/merge-protocol.md`) was rejected because the `K~{}` notation is
+already meaningful for control-with-port-interface and re-interpreting
+it as sibling-key would require unreliable case-based disambiguation.
+Map literals — already supported by the parser + `Pattern` lowering —
+are the principled path.
+
+For the orchestration that runs such a redex (unfurl two composites,
+match against the flat union, fold back), see `prism_schema::fire_across_composites`
+(S2 / merge-protocol slice 6).
+
 ### Body convention
 
 Process/step/composite/pattern bodies are a parallel composition of
