@@ -49,6 +49,14 @@ pub enum BindingSource {
     /// `bindings.sites[prism_key]`. Yields the captured value
     /// (or a `{state_key: value}` map in surplus mode).
     Site(Key),
+    /// The variable names the matched NODE itself — a top-level `?c :: Cell`
+    /// redex. It binds the whole matched node as a VALUE (so `?c.divide()` /
+    /// `?c.mass` work, from `bindings.sites[prism_key]`) AND marks the entry
+    /// CONSUMED: on fire the matched key (`bindings.key_map[prism_key]`) is
+    /// removed and replaced by the reactum's products. The unification of the
+    /// two homoiconic-division needs — "name the node" + "the container owns
+    /// the key" — into one binding (vs the old key-var/value-var split).
+    Node(Key),
     /// The variable names a captured wire path — look it up in
     /// `bindings.edges[prism_key]`. Yields a `Value::List` of path
     /// segments.
@@ -118,7 +126,7 @@ pub fn bind_environment(
                 .get(redex_key)
                 .map(|k| prism_schema::Value::String(k.to_string()))
                 .unwrap_or(prism_schema::Value::None),
-            BindingSource::Site(prism_key) => bindings
+            BindingSource::Site(prism_key) | BindingSource::Node(prism_key) => bindings
                 .sites
                 .get(prism_key)
                 .cloned()
@@ -270,10 +278,13 @@ fn reaction_delta(
         return Value::Map(delta);
     }
 
+    // The consumed (removed-and-replaced) key(s): a top-level `?c :: Cell` binds
+    // the matched NODE (`Node`), and the classic key-var form binds the key
+    // (`OuterKey`). Both name the entry the reaction REPLACES.
     let matched_keys: Vec<Value> = rule_bindings
         .values()
         .filter_map(|src| match src {
-            BindingSource::OuterKey(redex_key) => bindings
+            BindingSource::OuterKey(redex_key) | BindingSource::Node(redex_key) => bindings
                 .key_map
                 .get(redex_key)
                 .map(|k| Value::String(k.to_string())),
@@ -283,9 +294,28 @@ fn reaction_delta(
 
     let mut delta: StateMap = StateMap::new();
     if !matched_keys.is_empty() {
-        delta.insert(Key::from("_remove"), Value::List(matched_keys));
+        delta.insert(Key::from("_remove"), Value::List(matched_keys.clone()));
     }
     match reactum_val {
+        // Division products: `?c.divide()` returns the schema-driven split as a
+        // LIST of daughters (the method splits; it does NOT invent keys). The
+        // CONTAINER — this firing — owns the keys: name each daughter by the
+        // consumed mother key + index (`<mother>_0`, `<mother>_1`, …), matching
+        // the Form-3 Divider convention. Mother keys are unique, so daughters
+        // never collide even when several cells divide in one tick. With no
+        // consumed key (anonymous match), fall back to a fresh id.
+        Value::List(products) => {
+            let base = matched_keys
+                .first()
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(fresh_id);
+            let mut add: StateMap = StateMap::new();
+            for (i, d) in products.into_iter().enumerate() {
+                add.insert(Key::from(format!("{base}_{i}").as_str()), d);
+            }
+            delta.insert(Key::from("_add"), Value::Map(add));
+        }
         // Explicit delta from the reactum — pass its sentinels through.
         Value::Map(mut m) if m.contains_key("_add") || m.contains_key("_remove") => {
             if let Some(rem) = m.shift_remove("_remove") {

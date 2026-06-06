@@ -4,8 +4,8 @@
 //! bigraph-schema reference implementation. Tests are organized by
 //! operation (check, default, apply, serialize, realize).
 //!
-//! Tests marked `#[ignore]` require features not yet implemented
-//! (e.g., Schema::Link, full dispatch system).
+//! All ported cases run — the features they once waited on (`Schema::Link`, the
+//! full dispatch system) are implemented, so nothing here is `#[ignore]`d.
 
 use indexmap::IndexMap;
 use prism_schema::{Key, Schema, Value, parse_type_expression};

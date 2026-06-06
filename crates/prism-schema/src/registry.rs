@@ -209,6 +209,39 @@ impl TypeRegistry {
             Some(Arc::new(GraphTypeMethods) as Arc<dyn TypeMethods>),
             Vec::new(),
         );
+        // ── Node-kind brands: the roots of the brand subtype lattice ──
+        // A value carries its MOST-SPECIFIC type as a brand (`_type`); the
+        // KIND — is this a process / step / composite / link node? — is
+        // recovered structurally via `is_a(brand, kind)`, never a string
+        // compare. A user `composite Cell` registers `Cell` with
+        // `inherits: ["composite"]`, so both `is_a("Cell", "composite")` and
+        // `is_a("Cell", "link")` hold. `process`/`step`/`composite` are each a
+        // kind of `link` (a wired node), so `is_a(brand, "link")` recognises
+        // ANY instantiable node. This is Cardelli F₁<: branding — structural
+        // typing with the name carried IN the value — the right base for
+        // bigraphs that serialize across protocol (stream/rest) boundaries.
+        self.register("link", Schema::link(IndexMap::new(), IndexMap::new()), None);
+        self.register_full(
+            "process",
+            Schema::process_link(IndexMap::new(), IndexMap::new()),
+            None,
+            None,
+            vec!["link".into()],
+        );
+        self.register_full(
+            "step",
+            Schema::step_link(IndexMap::new(), IndexMap::new()),
+            None,
+            None,
+            vec!["link".into()],
+        );
+        self.register_full(
+            "composite",
+            Schema::composite_link(IndexMap::new(), IndexMap::new(), Schema::Any),
+            None,
+            None,
+            vec!["link".into()],
+        );
     }
 
     /// Register an alias from a new name to an existing registered
@@ -303,6 +336,41 @@ impl TypeRegistry {
     pub fn set_inherits(&mut self, name: &str, inherits: Vec<String>) {
         if let Some(entry) = self.types.get_mut(name) {
             entry.inherits = inherits;
+        }
+    }
+
+    /// Subtype query: is `sub` a subtype of `sup` (`sub <: sup`)? The formal
+    /// **subsumption** relation (Cardelli F₁<:): a value branded `sub` is
+    /// usable wherever `sup` is expected. Reflexive (`is_a(x, x)`) and
+    /// transitive over the `inherits` chain, walked DFS with a cycle guard.
+    ///
+    /// This is the ONE relation that matching, method dispatch, and node-kind
+    /// discovery consult — replacing string-equality on `_type` brands
+    /// (`_type == "composite"`) and the structural "has-a-field" heuristic.
+    /// An unregistered `sub` is only a subtype of itself (so a bare molecule
+    /// brand like `ERK`, registered or not, still satisfies `is_a("ERK", "ERK")`).
+    pub fn is_a(&self, sub: &str, sup: &str) -> bool {
+        self.is_a_with_visited(sub, sup, &mut std::collections::HashSet::new())
+    }
+
+    fn is_a_with_visited(
+        &self,
+        sub: &str,
+        sup: &str,
+        visited: &mut std::collections::HashSet<String>,
+    ) -> bool {
+        if sub == sup {
+            return true; // reflexive
+        }
+        if !visited.insert(sub.to_string()) {
+            return false; // cycle guard
+        }
+        match self.types.get(sub) {
+            Some(entry) => entry
+                .inherits
+                .iter()
+                .any(|parent| self.is_a_with_visited(parent, sup, visited)),
+            None => false,
         }
     }
 
@@ -1758,6 +1826,35 @@ mod tests {
             v1.as_foreign().unwrap().downcast_ref::<Counter>().unwrap().value,
             7
         );
+    }
+
+    #[test]
+    fn is_a_subtype_relation_over_brand_lattice() {
+        let mut reg = TypeRegistry::new();
+        // The node-kind root brands form a lattice under `link`.
+        assert!(reg.is_a("composite", "link"), "composite <: link");
+        assert!(reg.is_a("process", "link"), "process <: link");
+        assert!(reg.is_a("step", "link"), "step <: link");
+        assert!(reg.is_a("link", "link"), "reflexive");
+        assert!(!reg.is_a("composite", "process"), "composite is not a process");
+        assert!(!reg.is_a("link", "composite"), "supertype is not a subtype");
+
+        // A user `composite Cell` (modeled here) inherits from `composite`:
+        // a Cell is-a composite is-a link — transitively.
+        reg.register_full("Cell", Schema::Any, None, None, vec!["composite".into()]);
+        assert!(reg.is_a("Cell", "Cell"), "reflexive on a user brand");
+        assert!(reg.is_a("Cell", "composite"), "Cell <: composite");
+        assert!(reg.is_a("Cell", "link"), "Cell <: link transitively");
+        assert!(!reg.is_a("Cell", "process"), "Cell is not a process");
+
+        // A subtype of a subtype: StemCell <: Cell <: composite.
+        reg.register_full("StemCell", Schema::Any, None, None, vec!["Cell".into()]);
+        assert!(reg.is_a("StemCell", "Cell"), "StemCell <: Cell");
+        assert!(reg.is_a("StemCell", "composite"), "StemCell <: composite (2 hops)");
+
+        // An unregistered brand (a bare molecule sort) is only itself.
+        assert!(reg.is_a("ERK", "ERK"), "unregistered brand is reflexive");
+        assert!(!reg.is_a("ERK", "link"), "unregistered brand has no supertypes");
     }
 
     // ── Schema-as-state tests (RT.3) ──────────────────────────────

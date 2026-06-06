@@ -1,46 +1,30 @@
-//! End-to-end: homoiconic grow/divide (tier-1 #2, Step 2a).
+//! Type-relative, schema-driven `.divide()` on a composite cell.
 //!
-//! Division is driven by a FIRST-CLASS external `Divide` reaction installed
-//! in a parent `BRS` — not an internal step. Each cell is a container
-//! `{_type: Cell, mass: <exported>, body: <subengine>}`; the BRS matches
-//! the exported mass and replaces the matched cell with two half-mass
-//! daughters. Observed by the cell COUNT in `cells`.
+//! `.divide()` is the cell's OWN schema-driven split: it divides the cell by its
+//! `CompositeLink` representation (mass = extensive → halves; intensive fields +
+//! the spec are shared), returning the division PRODUCTS as a list — it invents
+//! no keys, the container owns them. This is the SAME `divide_by_schema(
+//! CompositeLink)` the Form-3 `_divide`/Divider path uses, so the two division
+//! paths are ONE mechanism.
+//!
+//! The end-to-end reaction-driven form — `?c :: Cell[mass:?m] => ?c.divide()` in
+//! a parent BRS, the firing consuming the mother + keying daughters + conserving
+//! mass + terminating — is proven in `reaction_divide.rs`. Form-3 / streamed
+//! division is proven in `grow_divide_stream.rs` and
+//! `prism-bigraph/tests/cells_division.rs`.
 
-use std::sync::Arc;
-
-use prism_bigraph::Engine;
 use prism_schema::Value;
 
 use chrysalis::fixtures::grow_divide_homoiconic as gd;
 
-fn count_cells(state: &Value) -> usize {
-    state
-        .as_map()
-        .and_then(|m| m.get("cells"))
-        .and_then(|v| v.as_map())
-        .map(|m| {
-            m.iter()
-                .filter(|(k, v)| !k.starts_with('_') && v.as_map().is_some())
-                .count()
-        })
-        .unwrap_or(0)
-}
-
-fn cells_keys(state: &Value) -> Vec<String> {
-    state
-        .as_map()
-        .and_then(|m| m.get("cells"))
-        .and_then(|v| v.as_map())
-        .map(|m| m.keys().map(|k| k.to_string()).collect())
-        .unwrap_or_default()
-}
-
 #[test]
 fn divide_method_is_type_relative_and_schema_driven() {
-    // `.divide()` dispatched on the cell's TYPE (`_type: Cell`), derives the
-    // cell's instance schema from the program (mass = extensive → Delta),
-    // and runs the schema-driven split: mass halves, id reissued, the rest
-    // shared. No literal `mass / 2`, no sentinel — divide is type-relative.
+    // `.divide()` dispatched on the cell's brand (`_type: Cell`), divides by the
+    // cell's REAL `CompositeLink` representation (mass = extensive → Delta), and
+    // runs the schema-driven split: mass halves, the rest shared. No literal
+    // `mass / 2`, no sentinel — divide is type-relative. The method SPLITS,
+    // returning the PRODUCTS as a list; it invents no keys — the container
+    // (the firing reaction) owns the daughters' keys.
     let program = gd::program();
     let result = chrysalis::compile::compile(&program).expect("compile");
 
@@ -49,68 +33,22 @@ fn divide_method_is_type_relative_and_schema_driven() {
         ("mass", Value::float(2.0)),
         ("body", Value::map()),
     ]);
-    // `?cell.divide(?cid)` — the id is passed in (here "0"); the cell stores none.
     let daughters = result
         .methods
-        .dispatch(&cell, "divide", &[Value::String("0".to_string())])
+        .dispatch(&cell, "divide", &[])
         .expect("divide dispatch");
-    let m = daughters.as_map().expect("daughters are a map");
-    assert_eq!(m.len(), 2, "two daughters");
-    for k in ["0_0", "0_1"] {
-        let d = m.get(k).unwrap_or_else(|| panic!("daughter {k} present"));
+    let ds = daughters.as_list().expect("daughters are a list of products");
+    assert_eq!(ds.len(), 2, "two daughters");
+    for d in ds {
         assert_eq!(
             d.get_field("mass").and_then(|v| v.as_f64()),
             Some(1.0),
-            "{k}: extensive mass halved by the schema"
+            "extensive mass halved by the schema"
         );
         assert_eq!(
             d.get_field("_type").and_then(|v| v.as_str()),
             Some("Cell"),
-            "{k}: _type shared"
+            "_type (the brand) shared"
         );
     }
-}
-
-#[ignore = "Form-1 container cells {_type,mass,body} are superseded by Form-3 \
-            addressed cells: with `map[Cell] → Map{CompositeLink}` (protocols-as-types \
-            3b) a cell is discovered by its `address`, but this fixture's containers \
-            have none. Re-enable after migrating the fixture to addressed cells with a \
-            `mass` face (needs the face/`%` surface wire — 3c; cells-and-division #9 \
-            step 5). The reaction `.divide()` itself stays covered by \
-            `divide_method_is_type_relative_and_schema_driven` above; Form-3 division \
-            is proven by prism-bigraph/tests/cells_division.rs + \
-            chrysalis/tests/grow_divide_stream.rs."]
-#[test]
-fn homoiconic_grow_divide_runs() {
-    let program = gd::program();
-    let result = chrysalis::compile::compile(&program).expect("compile");
-
-    let mut engine = Engine::from_state(
-        result.topology.state_schema.clone(),
-        result.initial_state.clone(),
-        Arc::clone(&result.registry),
-    )
-    .expect("engine init");
-    engine.discover_all_processes();
-
-    // mass 1.2, rate 0.02 → crosses threshold 2.0 around tick 26.
-    engine.run(50.0);
-
-    let final_state = engine.state();
-    let n = count_cells(final_state);
-    let keys = cells_keys(final_state);
-    // Real division: the mother `0` is gone, replaced by daughters — not
-    // budding (which would leave `0` alongside new cells).
-    assert!(
-        n >= 2,
-        "expected the external `?cell.divide(?cid)` reaction to split the cell; got {n} (keys {keys:?})"
-    );
-    assert!(
-        !keys.iter().any(|k| k == "0"),
-        "mother `0` should be replaced by its daughters (true division), got keys {keys:?}"
-    );
-    assert!(
-        keys.iter().all(|k| k.starts_with("0_")),
-        "all surviving cells should descend from `0` (keys {keys:?})"
-    );
 }

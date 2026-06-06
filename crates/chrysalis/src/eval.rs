@@ -846,6 +846,16 @@ impl Evaluator {
         )?;
         if let Value::Map(m) = &mut spec {
             m.insert(Key::from("config"), config);
+            // BRAND the node with its MOST-SPECIFIC type — the composite's own
+            // name (`_type: "Cell"`), not the kind word `"composite"`. The matcher
+            // (`?c :: Cell`) and method dispatch (`?c.divide()` via
+            // `value_type_name`) recover "Cell" from here; the KIND (composite) is
+            // recovered via `is_a("Cell", "composite")` against the registry's brand
+            // lattice. This makes a composite node carry its name EXACTLY as a
+            // molecule node already does (`_type: "ERK"`) — one uniform branding.
+            // The `address` stays `local:Composite` (the generic composite factory);
+            // the brand is for recognition, the address for instantiation.
+            m.insert(Key::from("_type"), Value::String(def.name.clone()));
         }
         // Seed the EXPORTED FACE: each output port wired to `%.field` (the own
         // node) gets its initial value placed ON the node, so `cells.N.field`
@@ -1202,11 +1212,32 @@ impl Evaluator {
                 name,
                 sort: Some(sort),
             } => {
-                let pat = self.eval_pattern(sort, env, bindings)?;
-                bindings.insert(
-                    name.clone(),
-                    BindingSource::OuterKey(Key::from(name.as_str())),
-                );
+                // A top-level typed site `?c :: Cell[…]` binds the matched NODE as
+                // a VALUE (so the reactum's `?c.divide()` / `?c.mass` dispatch on
+                // the cell, and the guard reads its fields) AND consumes the matched
+                // entry on fire — the reaction REPLACES the node with the reactum's
+                // products, the container owning the new keys. The value is captured
+                // by an as-pattern `Bind`; the binding source `Node` carries both the
+                // value (from `sites`) and the consumed key (from `key_map`). One
+                // binding unifies "name the node" + "the container owns the key".
+                let inner_pat = self.eval_pattern(sort, env, bindings)?;
+                let pat = if matches!(sort.as_ref(), Expr::Site { .. }) {
+                    // Legacy key/value SPLIT `?cid : ?cell::Cell` (sort is itself a
+                    // site): `?cid` keeps the OuterKey (the matched KEY); the inner
+                    // site already captured the value.
+                    bindings.insert(
+                        name.clone(),
+                        BindingSource::OuterKey(Key::from(name.as_str())),
+                    );
+                    inner_pat
+                } else {
+                    bindings
+                        .insert(name.clone(), BindingSource::Node(Key::from(name.as_str())));
+                    Pattern::Bind {
+                        name: Key::from(name.as_str()),
+                        inner: Box::new(inner_pat),
+                    }
+                };
                 let mut map: IndexMap<Key, Pattern> = IndexMap::new();
                 map.insert(Key::from(name.as_str()), pat);
                 map.insert(Key::from("_rest"), Pattern::Site);

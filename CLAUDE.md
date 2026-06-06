@@ -44,6 +44,15 @@ application domain.
   (nothing manipulates schema/state outside these ops). Read before any
   schema/engine/composite work. The faithful ports live in
   `bigraph_schema/methods/` (cloned at `../bigraph-schema`).
+- **`docs/generative-core.md`** — the design **philosophy + the theory
+  behind it**: maximize emergent capability from a minimal basis ("one way
+  to do each thing") while staying free to add needed tools. Maps the wish
+  to real theory — generating bases / clones (completeness = closure under
+  composition), confluence + normal forms (the "auto-merge duplications"
+  engine), Felleisen macro-expressibility + conservative extensions, and the
+  *one-door build-failing invariant* as the automatable, non-straitjacket
+  form (Rice makes full dup-detection undecidable). The standard for the
+  unification work; companion to the schema algebra and the wei-qi memory.
 - **`docs/chrysalis-design.md`** — design for **chrysalis**, the
   surface PL compiling to this runtime. Homoiconicity goal, the
   bigraph atoms to canonize, the implied-assembly decision (trees

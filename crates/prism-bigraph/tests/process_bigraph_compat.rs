@@ -4,7 +4,7 @@
 //! step dependency resolution, and composite behavior match the
 //! Python process-bigraph reference implementation.
 //!
-//! Tests marked `#[ignore]` require features not yet implemented.
+//! All ported cases run — nothing here is `#[ignore]`d.
 
 use std::any::Any;
 use std::collections::HashMap;

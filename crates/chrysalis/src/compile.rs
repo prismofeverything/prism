@@ -33,7 +33,7 @@ use prism_schema::algebra;
 use prism_schema::registry::TypeMethods;
 use prism_schema::units::Context;
 use prism_schema::{
-    DivideContext, Key, MethodError, MethodRegistry, Schema, StateMap, TypeRegistry, Value,
+    DivideContext, MethodError, MethodRegistry, Schema, TypeRegistry, Value,
     divide_by_schema,
 };
 
@@ -348,13 +348,15 @@ pub fn compile_with_modules(
     let unit_env = UnitEnv::from_program(program).ok();
     let program = lower_program(program, unit_env.as_ref());
     let program_arc = Arc::new(program.clone());
-    register_divide_methods(&mut methods, &program);
+    // ONE program-aware type registry (builtins + user `type`s + std `Qubits`),
+    // threaded into the divide methods (a cell divides through the REAL registry,
+    // so a `Custom`-typed face dispatches), the Evaluator (realize-at-binding),
+    // AND the Core below — a single registry per compile context, never an
+    // ad-hoc default.
+    let type_registry = build_type_registry(&program_arc);
+    register_divide_methods(&mut methods, &program, &type_registry);
     register_user_type_methods(&mut methods, &program_arc);
     let methods = Arc::new(methods);
-    // ONE program-aware type registry (builtins + user `type`s + std `Qubits`),
-    // threaded into BOTH the Evaluator (realize-at-binding) AND the Core below —
-    // a single registry per compile context, never an ad-hoc default.
-    let type_registry = build_type_registry(&program_arc);
 
     let evaluator = Arc::new(Evaluator::with_native_imports(
         Arc::clone(&program_arc),
@@ -728,7 +730,13 @@ fn register_user_types(types: &mut TypeRegistry, program: &Arc<Program>) {
                     repr,
                     None,
                     Some(Arc::new(RepresentationType)),
-                    Vec::new(),
+                    // A composite IS-A `composite` (Cardelli record width-subtyping:
+                    // `Cell` is the composite-node shape PLUS its declared face, a
+                    // longer record). So `is_a("Cell", "composite")` and, via the
+                    // brand lattice, `is_a("Cell", "link")` — the node-kind discovery,
+                    // matcher subsumption, and method-inheritance all consult this one
+                    // edge instead of a `_type == "composite"` string compare.
+                    vec!["composite".into()],
                 );
             }
             _ => {}
@@ -773,32 +781,35 @@ impl TypeMethods for RepresentationType {
     }
 }
 
-fn register_divide_methods(methods: &mut MethodRegistry, program: &Program) {
-    // Instance schemas carry no `Custom` nodes, so an empty registry suffices.
-    let empty = Arc::new(TypeRegistry::new());
+fn register_divide_methods(
+    methods: &mut MethodRegistry,
+    program: &Program,
+    types: &Arc<TypeRegistry>,
+) {
     for def in &program.defs {
         let Def::Composite(c) = def else { continue };
-        let schema = crate::schema::composite_instance_schema(c);
-        // Skip composites with no divisible (extensive) data field.
-        if matches!(&schema, Schema::Tree { branches } if branches.is_empty()) {
+        // Divide the cell by its REAL representation — the `CompositeLink` (the
+        // SAME schema the Form-3 `_divide`/Divider path uses). This unifies the
+        // two division paths onto ONE mechanism, `divide_by_schema(CompositeLink)`:
+        // the extensive face (`mass: Delta`) splits, intensive (`glucose: Float`)
+        // is shared, the spec (`address`/`config`) is shared so each daughter
+        // re-realizes as a live cell, and a `Custom`-typed face dispatches through
+        // the registry.
+        let schema = crate::schema::def_schema(def, program);
+        // Skip composites with no divisible self-exported face (nothing to split).
+        if schema.node_data_branches().is_empty() {
             continue;
         }
-        let reg = Arc::clone(&empty);
-        methods.register(c.name.clone(), "divide", move |recv, args| {
-            // The id is PASSED IN (`?cell.divide(?cid)`), so the cell stores
-            // no id — the map key IS the id. Daughters key as `<id>_0`/`_1`.
-            let id = args
-                .first()
-                .and_then(|v| v.as_str())
-                .unwrap_or("c")
-                .to_string();
+        let reg = Arc::clone(types);
+        methods.register(c.name.clone(), "divide", move |recv, _args| {
+            // `divide()` SPLITS — it returns the division PRODUCTS as a list. It
+            // invents no keys: the CONTAINER (the firing reaction's
+            // `reaction_delta`, or a Divider step) owns the daughters' keys, so a
+            // cell stays position-agnostic — it never names its own key (see
+            // environment.ys). The reaction firing keys them `<mother>_0/_1`.
             let ctx = DivideContext::binary();
             let daughters = divide_by_schema(&schema, recv, &ctx, &reg);
-            let mut out = StateMap::new();
-            for (i, d) in daughters.into_iter().enumerate() {
-                out.insert(Key::from(format!("{id}_{i}").as_str()), d);
-            }
-            Ok(Value::Map(out))
+            Ok(Value::List(daughters))
         });
     }
 }

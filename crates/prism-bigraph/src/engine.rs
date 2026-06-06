@@ -1546,11 +1546,14 @@ impl Engine {
                 // many non-process values can also carry an `address` field
                 // (a contact card, a webhook config, a remote-resource handle).
                 let is_link = self.schema.schema_at_path(&child_path).is_link_kind();
+                // The `_type` brand recognises a node-to-instantiate when the schema
+                // is `Any`. A brand is a node kind iff it is-a `link` in the registry's
+                // brand lattice — so the bare kind words (`process`/`step`/`composite`/
+                // `link`, the root brands) AND a name-branded composite (`Cell`, which
+                // is-a `composite` is-a `link`) are both recognised by ONE subtype
+                // query, not a hardcoded string set.
                 let type_hint = child_map.get("_type").and_then(|v| v.as_str());
-                let has_type_hint = matches!(
-                    type_hint,
-                    Some("process" | "step" | "link" | "composite")
-                );
+                let has_type_hint = type_hint.is_some_and(|t| self.core.types.is_a(t, "link"));
                 if !is_link && !has_type_hint {
                     // Not a process node — recurse to find nested links.
                     self.scan_for_processes(child_map, &child_path, registry, results);

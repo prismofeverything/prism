@@ -119,9 +119,65 @@
 - ⏳ #49 promote sidecar wrappers to full process-bigraph Processes — duck-typed today (inputs/outputs/update). The Process base unlocks `reconfigure` (loaded-model reuse — the ActorPool/Session pattern; COPASI/roadrunner cold-start), python-side composites (`Composite(Process)`), `config_schema`/`initial_state`, the type registry (where a shared `sbml` custom type lives + `/type-packages`), and `discover_packages` auto-discovery.
 - ✅ #50 unify the import forms — ONE form: `from <dotted.path> import <Name, …>`. `Def::Import` (the `import N from 'path'` whole-file dump) is GONE — variant + parser arm (now a pointed migration error) + `load_file` whole-file merge + all match sites removed. File-module resolution is unified in `parse.rs` (`parse_file`/`parse_file_with_natives`/`parse_program_in` → `load_file`/`resolve_file_modules`/`merge_named`), **importer-relative + memoized + cycle-guarded**, doing **explicit named selection**: only the named value-defs (+ their transitive value-deps — incl. a protocol's wrapped control, via `collect_def_refs`'s new `Def::Protocol` arm) + the file's type/contract/unit/context/`use` vocabulary are pulled; nothing else. Resolution is **std-module-first**: a single-segment name that is a known native module (threaded via `ModuleRegistry::module_names()`) wins over a same-named sibling `.ys` — this is why `from diffusion import …` binds the native and never recurses into the `diffusion.ys` demo (the cycle that exposed the need). cli/`sf` bin pass `modules.module_names()`; the rewrite-to-absolute test hack is retired (`integrator_comparison`/`export_import` now use `parse_program_in` against the real `ys/`). Migrated 7 `.ys` (agreement/integrator-comparison/cme-gillespie/agreement-engines/schlogl-engines + lib/external + spatio-flux/culture) + the tests (`contract_query` now asserts the narrower named-selection reality: cme-gillespie imports only `SsaEnsemble`/`DistCompare`, so only `SsaEnsemble` answers `fulfillers(ExactCME)`). Full chrysalis + spatio-flux suites green; end-to-end smokes via both bins (dotted spatio-flux section import + native diffusion; dotted chrysalis lib import). The surface-syntax slice of the #46 unity (user: "explicit selection; one form; dotted not string"; "dump is lossy — selective is the only coherent way").
 
+- ✅ #51 executable primer + doctest net (2026-06-06) — `docs/chrysalis-primer.md` pinned by `tests/primer_doctest.rs` (parses/runs every ```ys block → a NEVER-STALE fluency reference; the onboarding-for-future-Claude doc the user asked for). Caught a real doc error on first run. The chrysalis-surface half of direction 2.
+- ✅ #52 rate-as-expression (2026-06-06) — `reaction … ) rate ( expr )`; the parser was the ONLY gap (eval already threaded `def.rate`; runtime `to_prism_rule`→`RateFn` was wired). Contextual `rate` (still usable as a param name). `tests/reaction_rate.rs`; live in mapk.ys/mr.ys.
+- ✅ #53 `pattern` definer + MAPK de-dup (2026-06-06) — reusable redex FRAGMENTS; a use `Name[args]` substitutes by name + splices (a parallel arg flattens by `|` associativity — NO unquote sigil; the wei-qi quote/unquote resolution). `eval_pattern_term` expansion + `substitute_vars`. `tests/pattern_def.rs`. **MAPK de-duplicated**: 5 patterns (`Catalysis`/`CytoOuter`/`CytoInner`/`NucCyto`/`NucInner`) replace 14 inlined `Compartment` blocks (`fixtures/mapk.rs` → regenerated `ys/mapk.ys`). **Fixture↔.ys sync ENFORCED** (closes the gap nothing guarded): `tests/fixture_sync.rs` = a consistency check + an `--ignored` regenerator for mapk.ys/mr.ys.
+- ✅ #54 subtractions (2026-06-06) — (a) **reactum classified by STRUCTURE** (`reactum_is_structural`), not by a try/catch on lowering → a malformed structural reactum now errors instead of mis-routing to a broken computed one; (b) **records/maps unified** — static keys = record (bare OR quoted), only an INTERPOLATED key = map (kills the quote-flips trap); unparse renders a key bare iff it's a non-keyword identifier (`unparse_field_key`; `parse::is_keyword` exposed). `Expr::Record`/`Map` both eval to `Value::Map`; the struct↔map distinction stays in `SchemaExpr` (load-bearing for heterogeneous declared-typed literals). BRS un-magic → folded into #30 (one defensible arm; proper un-magic = BRS-as-built-in-ENTITY = #30).
+
 A side-quest doc captured the broader landscape: `docs/exploring-the-computational-unknown.md` — survey of reflective towers, meta-circular interpreters, macros, Futamura projections, staging, algebraic effects, probabilistic / differentiable / reversible / quantum / unconventional computing, and the axes that compose into the space of methods.
 
 ---
+
+## ⏯️ NEXT-SESSION PROMPT (2026-06-06b — wei-qi program: primer + dir-1/2 subtractions; NEXT = link-graph SURFACE)
+
+> chrysalis suite GREEN (69 binaries, 211 tests, 0 fail). This session ran a
+> deliberate **wei-qi program** (memories [[project_chrysalis_evolution]] +
+> [[feedback_chrysalis_wei_qi]]: grow the language by emergence/composition, not
+> a rule per feature; the Felleisen test gates new primitives). It is the
+> CHRYSALIS-SURFACE complement to the same-day PRISM-side foundations in the
+> prompt just below (#39 tensor, #42 Bigraph-port, #43/S2 `fire_across_composites`,
+> S1 fold/unfurl). **Together: the link-graph / cross-composite MECHANISMS now
+> exist in prism; what remains for direction 3 is the chrysalis `link` SURFACE on
+> top of them.**
+>
+> LANDED this session (see #51–#54): executable primer + doctest net;
+> rate-as-expression; `pattern` (no-sigil splice) + MAPK de-dup (5 patterns) +
+> fixture↔.ys sync; reactum-by-structure; records/maps unified. Memories added:
+> wei-qi philosophy, the program, cross-composite=link-graph (#40), clean-test-check.
+>
+> **PROCESS LESSON** ([[feedback_clean_test_check]]): detect cargo-test failures
+> with `grep -vE '0 failed;'` (empty = pass), NEVER `grep -iE 'FAILED'` — it
+> matches "0 failed" on every passing line and HID two real regressions in the
+> records/maps refactor before the clean check surfaced them. A background
+> `… | grep` also exits 0 (grep's status); that is NOT a pass signal.
+>
+> **NEXT — direction 3: the link-graph SURFACE.** A `link` = a named
+> value-bearing hyperedge any node attaches to; an update from any is seen by
+> all. The prism mechanisms exist (fold/unfurl S1, `fire_across_composites` #43,
+> tensor #39, Bigraph-port #42). Build the chrysalis surface + engine consumer:
+> (1) **glucose pool** — fix `grow-divide-glucose.ys`: a shared parent field
+> wired to ALL children (a hyperedge), additive uptake — the smallest real
+> exercise; (2) **`link name :: T = default`** surface + `~{port: ~name}`
+> attachment; (3) **cross-composite redex** `?x ~{p: ~e}` (the #40 resolution:
+> two grammar restrictions removed) wired to #43's `fire_across_composites`
+> (needs an engine-level BRS-over-composites + auto-detect of which composites a
+> redex names); (4) entanglement + halo consumers (same primitive). Prereqs
+> (`pattern`, reactum-as-expression for `?x.balance(~e)`) are IN PLACE.
+>
+> **Also: #30 as prep.** Unified entity registry — foundation
+> (EntityView/EntityDef, slices 1A–2b) DONE; remaining: slice 3 (`?c::Cell` binds
+> the matched cell as a typed value → method dispatch `?c.divide()`; partly
+> unblocked now by reactum-as-expression), slice 4 (`control Foo` declarative
+> form), BRS-as-built-in-entity. Makes dir-3's new constructs (`link`, `control`)
+> slot cleanly into the unified model.
+>
+> **NOTE:** the prompt just below titles #40 "resolved via map literals" — that
+> is STALE; #40 is RESOLVED as a LINK-GRAPH match (`?x ~{p: ~e}`), per its task
+> entry, `docs/chrysalis-design.md`, and [[feedback_no_case_heuristics]].
+>
+> **UNCOMMITTED at break:** parse.rs, eval.rs, unparse.rs, fixtures/mapk.rs,
+> ys/mapk.ys, ys/mr.ys, docs/chrysalis-primer.md, tests/{reaction_rate,
+> pattern_def, fixture_sync}.rs.
 
 ## ⏯️ NEXT-SESSION PROMPT (2026-06-06 — BATWD fold/unfurl complete; S2 BRS-by-unfurl shipped; #40 resolved via map literals)
 

@@ -5,8 +5,6 @@
 //! Environment). This pins down whether a direct composite-valued slot
 //! (`leaf: Leaf[...]`) runs the same way.
 
-use std::sync::Arc;
-
 use indexmap::IndexMap;
 use prism_bigraph::Engine;
 
@@ -51,10 +49,15 @@ fn push_base(p: &mut Program) {
 
 fn run_and_read(p: &Program, path: &[&str]) -> Option<f64> {
     let result = chrysalis::compile::compile(p).expect("compile");
+    // Pass the full `core` (not just the ProcessRegistry): a composite node now
+    // carries its NAME as its `_type` brand (`_type: "Leaf"`), so the engine
+    // recognises it as an instantiable node via `is_a("Leaf", "link")` against the
+    // TypeRegistry — which lives in the Core. (The real runner already wires
+    // `result.core`; this lower-level test predates the registry dependency.)
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();
