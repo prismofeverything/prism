@@ -62,9 +62,12 @@ fn address_class(parsed: &crate::protocol::ParsedAddress) -> Option<String> {
 ///
 /// If the wire path starts with "..", resolve relative to the process's location
 /// (each ".." pops one level). Otherwise, treat as absolute from the state root.
-fn resolve_wires_from_process(wires: &Value, process_path: &[Key]) -> IndexMap<String, Vec<Key>> {
-    // A wire resolves against a BASE. Two bases, distinguished by a leading
-    // marker:
+fn resolve_wires_from_process(
+    wires: &Value,
+    process_path: &[Key],
+    state: &Value,
+) -> IndexMap<String, Vec<Key>> {
+    // A wire resolves against a BASE. Three forms:
     //   - default → the process's CONTAINER (`parent`). A bare segment `["x"]`
     //     is a sibling slot; `[]` is the container itself; `[".."]` pops up.
     //     This is the place-graph-relative wiring composites have always used.
@@ -74,6 +77,10 @@ fn resolve_wires_from_process(wires: &Value, process_path: &[Key]) -> IndexMap<S
     //     WITHOUT knowing the dynamic key `N`. The engine supplies the path; the
     //     process never hard-codes its own key (deployment-agnostic). This is the
     //     self-node wire — the seam division's exposed face + intent ride on.
+    //   - a `{_link: name}` map → a LINK-GRAPH attachment (`~name`): resolved by
+    //     NAME up the place graph to the nearest scope declaring `link name`, not
+    //     by a fixed path. This is depth-independent (the bigraph link graph) —
+    //     see `resolve_link`.
     let parent: Vec<Key> = if !process_path.is_empty() {
         process_path[..process_path.len() - 1].to_vec()
     } else {
@@ -109,16 +116,60 @@ fn resolve_wires_from_process(wires: &Value, process_path: &[Key]) -> IndexMap<S
         resolved
     }
 
+    // A LINK attachment (`~name`, the bigraph link graph): walk UP the place
+    // graph from the node's container to the nearest scope that DECLARES `link
+    // name` (a `_links` entry in that scope's state), and point at that scope's
+    // shared slot `<scope>.name`. Depth-independent — a node at ANY nesting
+    // attaches by name, and a daughter that inherits this wire resolves wherever
+    // it lands. Every port wired `~name` reads/writes the ONE slot, so an output
+    // delta from any attached port accumulates on it (Delta = additive pool
+    // depletion / hyperedge). Returns `None` if no enclosing scope declares the
+    // link (the port stays unbound → a clear missing-input downstream).
+    fn resolve_link(name: &str, own: &[Key], state: &Value) -> Option<Vec<Key>> {
+        let mut scope: Vec<Key> = if own.is_empty() {
+            vec![]
+        } else {
+            own[..own.len() - 1].to_vec()
+        };
+        loop {
+            let declares = state
+                .get_path(&scope)
+                .and_then(|v| v.get_field("_links"))
+                .and_then(|l| l.get_field(name))
+                .is_some();
+            if declares {
+                let mut slot = scope.clone();
+                slot.push(Key::from(name));
+                return Some(slot);
+            }
+            if scope.is_empty() {
+                return None;
+            }
+            scope.pop();
+        }
+    }
+
     fn flatten_nested(
         prefix: &str,
         target: &Value,
         parent: &[Key],
         own: &[Key],
+        state: &Value,
         result: &mut IndexMap<String, Vec<Key>>,
     ) {
         match target {
             Value::List(list) => {
                 result.insert(prefix.to_string(), resolve_one(list, parent, own));
+            }
+            // A `{_link: name}` target is a link-graph attachment, NOT a nested
+            // wire map — resolve it by name up the place graph.
+            Value::Map(map)
+                if map.get("_link").and_then(|v| v.as_str()).is_some() =>
+            {
+                let name = map.get("_link").and_then(|v| v.as_str()).unwrap();
+                if let Some(resolved) = resolve_link(name, own, state) {
+                    result.insert(prefix.to_string(), resolved);
+                }
             }
             Value::Map(map) => {
                 // Nested wires: {"substrates": {"glucose": ["fields","glucose",5,5]}}
@@ -129,7 +180,7 @@ fn resolve_wires_from_process(wires: &Value, process_path: &[Key]) -> IndexMap<S
                     } else {
                         format!("{prefix}.{key}")
                     };
-                    flatten_nested(&sub_prefix, sub_target, parent, own, result);
+                    flatten_nested(&sub_prefix, sub_target, parent, own, state, result);
                 }
             }
             _ => {}
@@ -139,7 +190,7 @@ fn resolve_wires_from_process(wires: &Value, process_path: &[Key]) -> IndexMap<S
     let mut result = IndexMap::new();
     if let Some(map) = wires.as_map() {
         for (port, target) in map {
-            flatten_nested(port, target, &parent, &own, &mut result);
+            flatten_nested(port, target, &parent, &own, state, &mut result);
         }
     }
     result
@@ -1592,8 +1643,8 @@ impl Engine {
 
                 // Resolve wires: ".." navigates up from the process's own
                 // location; plain paths are absolute from root.
-                let inputs = resolve_wires_from_process(&inputs_val, &child_path);
-                let outputs = resolve_wires_from_process(&outputs_val, &child_path);
+                let inputs = resolve_wires_from_process(&inputs_val, &child_path, &self.state);
+                let outputs = resolve_wires_from_process(&outputs_val, &child_path, &self.state);
 
                 let interval = match &node {
                     ProcessNode::Process(p) => {
@@ -1758,7 +1809,7 @@ mod tests {
                 Value::List(vec![Value::String("..".into()), Value::String("glucose".into())]),
             ),
         ]));
-        let resolved = resolve_wires_from_process(&wires, &process_path);
+        let resolved = resolve_wires_from_process(&wires, &process_path, &Value::map());
         assert_eq!(
             resolved.get("face"),
             Some(&vec![Key::from("cells"), Key::from("c0"), Key::from("mass")]),
@@ -1784,6 +1835,63 @@ mod tests {
             Some(&vec![Key::from("glucose")]),
             "`..` pops from the container to root, then `glucose` — unchanged"
         );
+    }
+
+    #[test]
+    fn link_wires_resolve_to_one_shared_slot_depth_independently() {
+        // A scope declaring `link glucose` carries a `_links: {glucose: …}`
+        // marker plus the shared slot `glucose`. A `{_link: "glucose"}` wire from
+        // ANY descendant resolves to that ONE slot — the value-bearing hyperedge
+        // (the bigraph link graph), depth-independent.
+        let state = Value::tree([
+            ("_links", Value::tree([("glucose", Value::Bool(true))])),
+            ("glucose", Value::float(1000.0)),
+            ("cells", Value::tree([("c0", Value::map()), ("c1", Value::map())])),
+        ]);
+        let link_wire = || {
+            Value::tree([(
+                "glucose",
+                Value::tree([("_link", Value::String("glucose".into()))]),
+            )])
+        };
+        let pool = vec![Key::from("glucose")];
+
+        // Two sibling cells both resolve `~glucose` to the SAME pool slot.
+        let r0 = resolve_wires_from_process(
+            &link_wire(),
+            &[Key::from("cells"), Key::from("c0")],
+            &state,
+        );
+        let r1 = resolve_wires_from_process(
+            &link_wire(),
+            &[Key::from("cells"), Key::from("c1")],
+            &state,
+        );
+        assert_eq!(r0.get("glucose"), Some(&pool), "c0 ~glucose → the one pool slot");
+        assert_eq!(r1.get("glucose"), r0.get("glucose"), "c1 attaches to the SAME slot (hyperedge)");
+
+        // Depth-independent: a node nested deeper attaches by NAME, not depth —
+        // it walks up to the link's declaration regardless of how deep it sits.
+        let deep = resolve_wires_from_process(
+            &link_wire(),
+            &[
+                Key::from("cells"),
+                Key::from("c0"),
+                Key::from("inner"),
+                Key::from("p"),
+            ],
+            &state,
+        );
+        assert_eq!(deep.get("glucose"), Some(&pool), "a deeper node attaches by name, not by path-depth");
+
+        // No enclosing `link glucose` declaration → no wire (port left unbound,
+        // surfaced as a clear missing-input downstream rather than mis-wired).
+        let orphan = resolve_wires_from_process(
+            &link_wire(),
+            &[Key::from("cells"), Key::from("c0")],
+            &Value::map(),
+        );
+        assert!(orphan.get("glucose").is_none(), "no declaring scope → no wire");
     }
 
     #[test]

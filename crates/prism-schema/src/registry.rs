@@ -350,26 +350,26 @@ impl TypeRegistry {
     /// An unregistered `sub` is only a subtype of itself (so a bare molecule
     /// brand like `ERK`, registered or not, still satisfies `is_a("ERK", "ERK")`).
     pub fn is_a(&self, sub: &str, sup: &str) -> bool {
-        self.is_a_with_visited(sub, sup, &mut std::collections::HashSet::new())
+        self.is_a_depth(sub, sup, 0)
     }
 
-    fn is_a_with_visited(
-        &self,
-        sub: &str,
-        sup: &str,
-        visited: &mut std::collections::HashSet<String>,
-    ) -> bool {
+    /// Walk the `inherits` chain with a DEPTH bound rather than a visited-set —
+    /// the brand lattice is shallow (`Cell <: composite <: link`) and acyclic, so
+    /// a bound is strictly cheaper (no per-call allocation; this runs in the
+    /// discovery path) and still terminates on a pathological cyclic `inherits`
+    /// (it bottoms out at the cap and returns false instead of looping).
+    fn is_a_depth(&self, sub: &str, sup: &str, depth: usize) -> bool {
         if sub == sup {
             return true; // reflexive
         }
-        if !visited.insert(sub.to_string()) {
-            return false; // cycle guard
+        if depth > 64 {
+            return false; // cycle / pathology guard
         }
         match self.types.get(sub) {
             Some(entry) => entry
                 .inherits
                 .iter()
-                .any(|parent| self.is_a_with_visited(parent, sup, visited)),
+                .any(|parent| self.is_a_depth(parent, sup, depth + 1)),
             None => false,
         }
     }

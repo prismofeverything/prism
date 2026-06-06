@@ -955,27 +955,23 @@ impl Evaluator {
         interface: &crate::ast::Interface,
         env: &IndexMap<Name, Value>,
     ) -> Result<Value, EvalError> {
+        let default_wire =
+            |p: &str| Value::List(vec![Value::String(p.to_string())]);
         let mut inputs_map: IndexMap<Key, Value> = IndexMap::new();
         for port_name in interface.inputs.keys() {
-            let wire_segments = match ports.inputs.get(port_name) {
-                Some(target) => lower_target_to_segments(target, self, env)?,
-                None => vec![port_name.clone()],
+            let wire = match ports.inputs.get(port_name) {
+                Some(target) => lower_target_to_wire(target, self, env)?,
+                None => default_wire(port_name),
             };
-            inputs_map.insert(
-                Key::from(port_name.as_str()),
-                Value::List(wire_segments.into_iter().map(Value::String).collect()),
-            );
+            inputs_map.insert(Key::from(port_name.as_str()), wire);
         }
         let mut outputs_map: IndexMap<Key, Value> = IndexMap::new();
         for port_name in interface.outputs.keys() {
-            let wire_segments = match ports.outputs.get(port_name) {
-                Some(target) => lower_target_to_segments(target, self, env)?,
-                None => vec![port_name.clone()],
+            let wire = match ports.outputs.get(port_name) {
+                Some(target) => lower_target_to_wire(target, self, env)?,
+                None => default_wire(port_name),
             };
-            outputs_map.insert(
-                Key::from(port_name.as_str()),
-                Value::List(wire_segments.into_iter().map(Value::String).collect()),
-            );
+            outputs_map.insert(Key::from(port_name.as_str()), wire);
         }
 
         let config_map: IndexMap<Key, Value> = resolved_config
@@ -1930,6 +1926,28 @@ fn lower_port_bindings(
         );
     }
     Ok(out)
+}
+
+/// Lower a port-wiring target to its WIRE value. A `~name` link var becomes a
+/// link-graph attachment `{_link: name}` — the engine resolves it by name up the
+/// place graph to the nearest `link name` declaration (the shared slot), so it is
+/// depth-independent and every port wired `~name` shares the one slot (the
+/// value-bearing hyperedge). Every other target is a place-graph PATH wire (a
+/// `List` of segments). This is where the surface `~{port: ~name}` joins the
+/// engine's link graph.
+fn lower_target_to_wire(
+    target: &Expr,
+    evaluator: &Evaluator,
+    env: &IndexMap<Name, Value>,
+) -> Result<Value, EvalError> {
+    if let Expr::LinkVar(name) = target {
+        return Ok(Value::Map(IndexMap::from([(
+            Key::from("_link"),
+            Value::String(name.clone()),
+        )])));
+    }
+    let segs = lower_target_to_segments(target, evaluator, env)?;
+    Ok(Value::List(segs.into_iter().map(Value::String).collect()))
 }
 
 fn lower_target_to_segments(
