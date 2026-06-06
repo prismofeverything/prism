@@ -18,7 +18,8 @@
 use prism_schema::Value;
 
 use crate::ast::{
-    CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, ReactionDef, SchemaExpr,
+    CompositeDef, Def, Expr, Interface, Param, PatternDef, PortDecl, Program, ReactionDef,
+    SchemaExpr,
 };
 
 // ── pattern-context ion helpers ──────────────────────────────────────
@@ -95,6 +96,99 @@ fn rxn(name: &str, redex: Expr, reactum: Expr, rate: f64) -> ReactionDef {
     }
 }
 
+// ── shared redex/reactum FRAGMENTS as `pattern`s (the dedup) ──────────
+// Five named fragments factor the seven rules' compartment shapes, so each
+// shape is written ONCE and referenced, not inlined per reaction:
+//   Catalysis  — a flat compartment: enzyme | substrate | bystanders
+//   CytoOuter  — substrate in the cytoplasm, a plain (kindless) inner comp
+//   CytoInner  — substrate in a plain (kindless) inner compartment
+//   NucCyto    — substrate in the cytoplasm, a Nucleus inner compartment
+//   NucInner   — substrate in the Nucleus
+// Pattern expansion (`eval_pattern_term`) substitutes the args + splices.
+
+fn pat(name: &str, params: &[&str], body: Expr) -> Def {
+    Def::Pattern(PatternDef {
+        name: name.into(),
+        params: params
+            .iter()
+            .map(|p| Param::required(*p, SchemaExpr::Any))
+            .collect(),
+        body,
+    })
+}
+
+/// A pattern reference `Name[param: arg, …]` (named args bind by param name).
+fn use_pat(name: &str, args: Vec<(&str, Expr)>) -> Expr {
+    let mut tb = Expr::term(name);
+    for (k, v) in args {
+        tb = tb.arg_named(k, v);
+    }
+    tb.build()
+}
+
+/// The five shared fragments, pushed into the program ahead of the rules.
+fn patterns() -> Vec<Def> {
+    let inner_rest = || ("inner_rest", Expr::site("?inner_rest"));
+    let outer_rest = || ("outer_rest", Expr::site("?outer_rest"));
+    let cyto = || ("kind", plain("Cytoplasm"));
+    let nuc = || ("kind", plain("Nucleus"));
+    vec![
+        pat(
+            "Catalysis",
+            &["enzyme", "substrate"],
+            comp(vec![
+                ("enzyme", Expr::var("enzyme")),
+                ("substrate", Expr::var("substrate")),
+                ("bystanders", Expr::site("?rest")),
+            ]),
+        ),
+        pat(
+            "CytoOuter",
+            &["substrate"],
+            comp(vec![
+                cyto(),
+                ("substrate", Expr::var("substrate")),
+                ("inner", comp(vec![inner_rest()])),
+                outer_rest(),
+            ]),
+        ),
+        pat(
+            "CytoInner",
+            &["substrate"],
+            comp(vec![
+                cyto(),
+                (
+                    "inner",
+                    comp(vec![("substrate", Expr::var("substrate")), inner_rest()]),
+                ),
+                outer_rest(),
+            ]),
+        ),
+        pat(
+            "NucCyto",
+            &["substrate"],
+            comp(vec![
+                cyto(),
+                ("substrate", Expr::var("substrate")),
+                ("inner", comp(vec![nuc(), inner_rest()])),
+                outer_rest(),
+            ]),
+        ),
+        pat(
+            "NucInner",
+            &["substrate"],
+            comp(vec![
+                cyto(),
+                (
+                    "inner",
+                    comp(vec![nuc(), ("substrate", Expr::var("substrate")), inner_rest()]),
+                ),
+                outer_rest(),
+            ]),
+        ),
+    ]
+}
+
 // ── the seven rules (mirroring prism-mapk/src/rules.rs) ───────────────
 
 /// Free MEK + free ERK in a compartment form the MEK·pERK complex (a
@@ -104,19 +198,17 @@ fn phosphorylate() -> ReactionDef {
         "phosphorylate",
         wrap(
             "compartment",
-            comp(vec![
-                ("enzyme", free("MEK")),
-                ("substrate", free_named("ERK")),
-                ("bystanders", Expr::site("?rest")),
-            ]),
+            use_pat(
+                "Catalysis",
+                vec![("enzyme", free("MEK")), ("substrate", free_named("ERK"))],
+            ),
         ),
         wrap(
             "compartment",
-            comp(vec![
-                ("enzyme", bonded("MEK")),
-                ("substrate", bonded_named("pERK")),
-                ("bystanders", Expr::site("?rest")),
-            ]),
+            use_pat(
+                "Catalysis",
+                vec![("enzyme", bonded("MEK")), ("substrate", bonded_named("pERK"))],
+            ),
         ),
         2.0,
     )
@@ -128,19 +220,17 @@ fn dissociate() -> ReactionDef {
         "dissociate",
         wrap(
             "compartment",
-            comp(vec![
-                ("enzyme", bonded("MEK")),
-                ("substrate", bonded_named("pERK")),
-                ("bystanders", Expr::site("?rest")),
-            ]),
+            use_pat(
+                "Catalysis",
+                vec![("enzyme", bonded("MEK")), ("substrate", bonded_named("pERK"))],
+            ),
         ),
         wrap(
             "compartment",
-            comp(vec![
-                ("enzyme", plain("MEK")),
-                ("substrate", named("pERK")),
-                ("bystanders", Expr::site("?rest")),
-            ]),
+            use_pat(
+                "Catalysis",
+                vec![("enzyme", plain("MEK")), ("substrate", named("pERK"))],
+            ),
         ),
         0.5,
     )
@@ -150,36 +240,8 @@ fn dissociate() -> ReactionDef {
 fn dephosphorylate() -> ReactionDef {
     rxn(
         "dephosphorylate",
-        wrap(
-            "outer",
-            comp(vec![
-                ("kind", plain("Cytoplasm")),
-                (
-                    "inner",
-                    comp(vec![
-                        ("kind", plain("Nucleus")),
-                        ("substrate", free_named("pERK")),
-                        ("inner_rest", Expr::site("?inner_rest")),
-                    ]),
-                ),
-                ("outer_rest", Expr::site("?outer_rest")),
-            ]),
-        ),
-        wrap(
-            "outer",
-            comp(vec![
-                ("kind", plain("Cytoplasm")),
-                (
-                    "inner",
-                    comp(vec![
-                        ("kind", plain("Nucleus")),
-                        ("substrate", named("ERK")),
-                        ("inner_rest", Expr::site("?inner_rest")),
-                    ]),
-                ),
-                ("outer_rest", Expr::site("?outer_rest")),
-            ]),
-        ),
+        wrap("outer", use_pat("NucInner", vec![("substrate", free_named("pERK"))])),
+        wrap("outer", use_pat("NucInner", vec![("substrate", named("ERK"))])),
         0.4,
     )
 }
@@ -188,32 +250,8 @@ fn dephosphorylate() -> ReactionDef {
 fn translocate_erk_in() -> ReactionDef {
     rxn(
         "translocate_erk_in",
-        wrap(
-            "outer",
-            comp(vec![
-                ("kind", plain("Cytoplasm")),
-                ("substrate", named("ERK")),
-                (
-                    "inner",
-                    comp(vec![("inner_rest", Expr::site("?inner_rest"))]),
-                ),
-                ("outer_rest", Expr::site("?outer_rest")),
-            ]),
-        ),
-        wrap(
-            "outer",
-            comp(vec![
-                ("kind", plain("Cytoplasm")),
-                (
-                    "inner",
-                    comp(vec![
-                        ("inner_rest", Expr::site("?inner_rest")),
-                        ("substrate", named("ERK")),
-                    ]),
-                ),
-                ("outer_rest", Expr::site("?outer_rest")),
-            ]),
-        ),
+        wrap("outer", use_pat("CytoOuter", vec![("substrate", named("ERK"))])),
+        wrap("outer", use_pat("CytoInner", vec![("substrate", named("ERK"))])),
         1.0,
     )
 }
@@ -222,32 +260,8 @@ fn translocate_erk_in() -> ReactionDef {
 fn translocate_erk_out() -> ReactionDef {
     rxn(
         "translocate_erk_out",
-        wrap(
-            "outer",
-            comp(vec![
-                ("kind", plain("Cytoplasm")),
-                (
-                    "inner",
-                    comp(vec![
-                        ("substrate", named("ERK")),
-                        ("inner_rest", Expr::site("?inner_rest")),
-                    ]),
-                ),
-                ("outer_rest", Expr::site("?outer_rest")),
-            ]),
-        ),
-        wrap(
-            "outer",
-            comp(vec![
-                ("kind", plain("Cytoplasm")),
-                (
-                    "inner",
-                    comp(vec![("inner_rest", Expr::site("?inner_rest"))]),
-                ),
-                ("substrate", named("ERK")),
-                ("outer_rest", Expr::site("?outer_rest")),
-            ]),
-        ),
+        wrap("outer", use_pat("CytoInner", vec![("substrate", named("ERK"))])),
+        wrap("outer", use_pat("CytoOuter", vec![("substrate", named("ERK"))])),
         1.0,
     )
 }
@@ -256,36 +270,8 @@ fn translocate_erk_out() -> ReactionDef {
 fn translocate_perk_in() -> ReactionDef {
     rxn(
         "translocate_perk_in",
-        wrap(
-            "outer",
-            comp(vec![
-                ("kind", plain("Cytoplasm")),
-                ("substrate", free_named("pERK")),
-                (
-                    "inner",
-                    comp(vec![
-                        ("kind", plain("Nucleus")),
-                        ("inner_rest", Expr::site("?inner_rest")),
-                    ]),
-                ),
-                ("outer_rest", Expr::site("?outer_rest")),
-            ]),
-        ),
-        wrap(
-            "outer",
-            comp(vec![
-                ("kind", plain("Cytoplasm")),
-                (
-                    "inner",
-                    comp(vec![
-                        ("kind", plain("Nucleus")),
-                        ("inner_rest", Expr::site("?inner_rest")),
-                        ("substrate", named("pERK")),
-                    ]),
-                ),
-                ("outer_rest", Expr::site("?outer_rest")),
-            ]),
-        ),
+        wrap("outer", use_pat("NucCyto", vec![("substrate", free_named("pERK"))])),
+        wrap("outer", use_pat("NucInner", vec![("substrate", named("pERK"))])),
         2.0,
     )
 }
@@ -294,36 +280,8 @@ fn translocate_perk_in() -> ReactionDef {
 fn translocate_perk_out() -> ReactionDef {
     rxn(
         "translocate_perk_out",
-        wrap(
-            "outer",
-            comp(vec![
-                ("kind", plain("Cytoplasm")),
-                (
-                    "inner",
-                    comp(vec![
-                        ("kind", plain("Nucleus")),
-                        ("substrate", free_named("pERK")),
-                        ("inner_rest", Expr::site("?inner_rest")),
-                    ]),
-                ),
-                ("outer_rest", Expr::site("?outer_rest")),
-            ]),
-        ),
-        wrap(
-            "outer",
-            comp(vec![
-                ("kind", plain("Cytoplasm")),
-                (
-                    "inner",
-                    comp(vec![
-                        ("kind", plain("Nucleus")),
-                        ("inner_rest", Expr::site("?inner_rest")),
-                    ]),
-                ),
-                ("substrate", named("pERK")),
-                ("outer_rest", Expr::site("?outer_rest")),
-            ]),
-        ),
+        wrap("outer", use_pat("NucInner", vec![("substrate", free_named("pERK"))])),
+        wrap("outer", use_pat("NucCyto", vec![("substrate", named("pERK"))])),
         0.1,
     )
 }
@@ -478,6 +436,9 @@ fn main_expr() -> Expr {
 /// Build the complete MAPK chrysalis program (reactions + composite + main).
 pub fn program() -> Program {
     let mut p = Program::new();
+    for d in patterns() {
+        p.push(d);
+    }
     for r in all_reactions() {
         p.push(Def::Reaction(r));
     }

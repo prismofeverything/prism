@@ -2,116 +2,80 @@
 # (chrysalis::unparse). Round-trip-verified: parse(this) re-unparses
 # identically. Edit the fixture, not this file.
 
+pattern Catalysis[enzyme, substrate] (
+  Compartment (enzyme: enzyme | substrate: substrate | bystanders: ?rest)
+)
+
+pattern CytoOuter[substrate] (
+  Compartment (
+    kind: Cytoplasm |
+    substrate: substrate |
+    inner: Compartment (inner_rest: ?inner_rest) |
+    outer_rest: ?outer_rest
+  )
+)
+
+pattern CytoInner[substrate] (
+  Compartment (
+    kind: Cytoplasm |
+    inner: Compartment (substrate: substrate | inner_rest: ?inner_rest) |
+    outer_rest: ?outer_rest
+  )
+)
+
+pattern NucCyto[substrate] (
+  Compartment (
+    kind: Cytoplasm |
+    substrate: substrate |
+    inner: Compartment (kind: Nucleus | inner_rest: ?inner_rest) |
+    outer_rest: ?outer_rest
+  )
+)
+
+pattern NucInner[substrate] (
+  Compartment (
+    kind: Cytoplasm |
+    inner: Compartment (kind: Nucleus | substrate: substrate | inner_rest: ?inner_rest) |
+    outer_rest: ?outer_rest
+  )
+)
+
 reaction phosphorylate (
-  (
-    compartment: Compartment (enzyme: MEK ~{out: !} | substrate: ERK[name: ?n] ~{out: !} | bystanders: ?rest)
-  )
+  (compartment: Catalysis[enzyme: MEK ~{out: !}, substrate: ERK[name: ?n] ~{out: !}])
   =>
-  (
-    compartment: Compartment (enzyme: MEK ~{out: ~bond} | substrate: pERK[name: ?n] ~{out: ~bond} | bystanders: ?rest)
-  )
+  (compartment: Catalysis[enzyme: MEK ~{out: ~bond}, substrate: pERK[name: ?n] ~{out: ~bond}])
 ) rate ( 2.0 )
 
 reaction dissociate (
-  (
-    compartment: Compartment (enzyme: MEK ~{out: ~bond} | substrate: pERK[name: ?n] ~{out: ~bond} | bystanders: ?rest)
-  )
+  (compartment: Catalysis[enzyme: MEK ~{out: ~bond}, substrate: pERK[name: ?n] ~{out: ~bond}])
   =>
-  (compartment: Compartment (enzyme: MEK | substrate: pERK[name: ?n] | bystanders: ?rest))
+  (compartment: Catalysis[enzyme: MEK, substrate: pERK[name: ?n]])
 ) rate ( 0.5 )
 
 reaction dephosphorylate (
-  (
-    outer: Compartment (
-      kind: Cytoplasm |
-      inner: Compartment (kind: Nucleus | substrate: pERK[name: ?n] ~{out: !} | inner_rest: ?inner_rest) |
-      outer_rest: ?outer_rest
-    )
-  )
+  (outer: NucInner[substrate: pERK[name: ?n] ~{out: !}])
   =>
-  (
-    outer: Compartment (
-      kind: Cytoplasm |
-      inner: Compartment (kind: Nucleus | substrate: ERK[name: ?n] | inner_rest: ?inner_rest) |
-      outer_rest: ?outer_rest
-    )
-  )
+  (outer: NucInner[substrate: ERK[name: ?n]])
 ) rate ( 0.4 )
 
 reaction translocate_erk_in (
-  (
-    outer: Compartment (
-      kind: Cytoplasm |
-      substrate: ERK[name: ?n] |
-      inner: Compartment (inner_rest: ?inner_rest) |
-      outer_rest: ?outer_rest
-    )
-  )
-  =>
-  (
-    outer: Compartment (
-      kind: Cytoplasm |
-      inner: Compartment (inner_rest: ?inner_rest | substrate: ERK[name: ?n]) |
-      outer_rest: ?outer_rest
-    )
-  )
+  (outer: CytoOuter[substrate: ERK[name: ?n]]) => (outer: CytoInner[substrate: ERK[name: ?n]])
 ) rate ( 1.0 )
 
 reaction translocate_erk_out (
-  (
-    outer: Compartment (
-      kind: Cytoplasm |
-      inner: Compartment (substrate: ERK[name: ?n] | inner_rest: ?inner_rest) |
-      outer_rest: ?outer_rest
-    )
-  )
-  =>
-  (
-    outer: Compartment (
-      kind: Cytoplasm |
-      inner: Compartment (inner_rest: ?inner_rest) |
-      substrate: ERK[name: ?n] |
-      outer_rest: ?outer_rest
-    )
-  )
+  (outer: CytoInner[substrate: ERK[name: ?n]]) => (outer: CytoOuter[substrate: ERK[name: ?n]])
 ) rate ( 1.0 )
 
 reaction translocate_perk_in (
-  (
-    outer: Compartment (
-      kind: Cytoplasm |
-      substrate: pERK[name: ?n] ~{out: !} |
-      inner: Compartment (kind: Nucleus | inner_rest: ?inner_rest) |
-      outer_rest: ?outer_rest
-    )
-  )
+  (outer: NucCyto[substrate: pERK[name: ?n] ~{out: !}])
   =>
-  (
-    outer: Compartment (
-      kind: Cytoplasm |
-      inner: Compartment (kind: Nucleus | inner_rest: ?inner_rest | substrate: pERK[name: ?n]) |
-      outer_rest: ?outer_rest
-    )
-  )
+  (outer: NucInner[substrate: pERK[name: ?n]])
 ) rate ( 2.0 )
 
 reaction translocate_perk_out (
-  (
-    outer: Compartment (
-      kind: Cytoplasm |
-      inner: Compartment (kind: Nucleus | substrate: pERK[name: ?n] ~{out: !} | inner_rest: ?inner_rest) |
-      outer_rest: ?outer_rest
-    )
-  )
+  (outer: NucInner[substrate: pERK[name: ?n] ~{out: !}])
   =>
-  (
-    outer: Compartment (
-      kind: Cytoplasm |
-      inner: Compartment (kind: Nucleus | inner_rest: ?inner_rest) |
-      substrate: pERK[name: ?n] |
-      outer_rest: ?outer_rest
-    )
-  )
+  (outer: NucCyto[substrate: pERK[name: ?n]])
 ) rate ( 0.1 )
 
 composite Mapk[cell: map[any]] ->{cell :: map[any]} (
