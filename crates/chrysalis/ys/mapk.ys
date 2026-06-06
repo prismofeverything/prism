@@ -10,7 +10,7 @@ reaction phosphorylate (
   (
     compartment: Compartment (enzyme: MEK ~{out: ~bond} | substrate: pERK[name: ?n] ~{out: ~bond} | bystanders: ?rest)
   )
-)
+) rate ( 2.0 )
 
 reaction dissociate (
   (
@@ -18,7 +18,7 @@ reaction dissociate (
   )
   =>
   (compartment: Compartment (enzyme: MEK | substrate: pERK[name: ?n] | bystanders: ?rest))
-)
+) rate ( 0.5 )
 
 reaction dephosphorylate (
   (
@@ -36,7 +36,7 @@ reaction dephosphorylate (
       outer_rest: ?outer_rest
     )
   )
-)
+) rate ( 0.4 )
 
 reaction translocate_erk_in (
   (
@@ -55,7 +55,7 @@ reaction translocate_erk_in (
       outer_rest: ?outer_rest
     )
   )
-)
+) rate ( 1.0 )
 
 reaction translocate_erk_out (
   (
@@ -74,7 +74,7 @@ reaction translocate_erk_out (
       outer_rest: ?outer_rest
     )
   )
-)
+) rate ( 1.0 )
 
 reaction translocate_perk_in (
   (
@@ -93,7 +93,7 @@ reaction translocate_perk_in (
       outer_rest: ?outer_rest
     )
   )
-)
+) rate ( 2.0 )
 
 reaction translocate_perk_out (
   (
@@ -112,7 +112,7 @@ reaction translocate_perk_out (
       outer_rest: ?outer_rest
     )
   )
-)
+) rate ( 0.1 )
 
 composite Mapk[cell: map[any]] ->{cell :: map[any]} (
   cell: cell |

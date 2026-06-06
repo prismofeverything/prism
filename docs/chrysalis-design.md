@@ -1062,7 +1062,7 @@ run environment.ys` runs parallel `stream:cell.ys` children that grow, divide, a
 | `process P[cfg] ~{in} ->{out} (body)` | `ProcessRegistry` entry; factory creates a `Process` whose update runs the interpreted body |
 | `step S[cfg] ~{in} ->{out} (body)` | `ProcessRegistry` entry; factory creates a `Step` |
 | `composite C[cfg] ~{in} ->{out} (body)` | `ProcessRegistry` entry; factory produces a state subtree (with `_type: "C"` markers + sub-component wires) realize-eligible for `discover_processes` |
-| `pattern P[args] (body)` | function returning `Pattern` value |
+| `pattern P[args] (body)` *(planned — gated on splice semantics)* | a named redex fragment, substituted + spliced into a redex |
 | `reaction R[cfg] (redex => reactum)` | function returning `ReactionRule` value |
 | `expr { … }` block (tier 2) | `Value` with `_type: "Expr"` + inferred return-schema field; constructors live in `MethodRegistry`. `ProcessDef.from_expr(e, schema)` lifts to an installable process if `e.schema` matches |
 | `~{port: target}` | `Interface.inputs` IndexMap (domain of the morphism) |
@@ -1526,11 +1526,20 @@ is the full target.
 
 ## Open design decisions
 
-- **Quoting / unquoting** for pattern and expr literals. Likely:
-  `pattern X[…] (body)` and `expr (body)` bodies are implicitly
-  quoted; `$expr` inside unquotes. Settle the unquote sigil.
-- **Rate expressions, not constants.** `rate: |MEK| * |ERK| * k_on / V`
-  — rate becomes an expression closing over matched bindings.
+- **Quoting / unquoting** for pattern and expr literals. `pattern X[…] (body)`
+  and `expr (body)` bodies are implicitly quoted; params substitute by bare name.
+  **Proposed (wei-qi, no new sigil):** there is NO `$` / `,@` unquote sigil — a
+  param bound to a parallel that appears in a parallel context *splices*
+  (flattens) by the monoidal associativity law `(a | (b | c)) ≡ (a | b | c)` the
+  algebra already commits to. So unquote = name substitution, unquote-splicing =
+  associativity normalization in `eval_pattern`. Gates the `pattern` row above.
+- **Rate expressions, not constants** — ✅ RESOLVED (implemented 2026-06-06). A
+  reaction carries an optional `rate ( expr )` clause after its body; the
+  expression closes over config params AND matched bindings, evaluated per match
+  at fire time (parser: contextual `rate (`; eval threads `ReactionDef.rate`;
+  runtime `to_prism_rule` → `RateFn`; unparser round-trips it).
+  `tests/reaction_rate.rs`; live in `mapk.ys` / `mr.ys`. Match-derived terms like
+  `count(MEK)` await `pattern` + those query builtins.
 - **Pattern variable kinds.** Two binding regimes: name-vars `?n`
   (atomic) vs site-vars `?rest` (subtree). Distinguished by context
   (subtree position vs atomic position), but worth confirming in the

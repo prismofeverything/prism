@@ -91,8 +91,13 @@ fn unparse_def(def: &Def) -> String {
             } else {
                 rule_inline
             };
+            // A `rate ( expr )` clause rides after the body (mirrors the parser).
+            let rate = match &r.rate {
+                Some(expr) => format!(" rate ( {} )", unparse_expr(expr)),
+                None => String::new(),
+            };
             format!(
-                "reaction {}{} (\n  {rule}\n)",
+                "reaction {}{} (\n  {rule}\n){rate}",
                 r.name,
                 unparse_bracket_params(&r.params),
             )

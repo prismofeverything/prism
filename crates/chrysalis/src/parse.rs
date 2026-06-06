@@ -2048,13 +2048,31 @@ impl Parser {
         self.expect(&Tok::FatArrow)?;
         let reactum = self.parse_expr()?;
         self.expect(&Tok::RParen)?;
+        // Optional `rate ( expr )` clause AFTER the body — the reaction's
+        // propensity expression. It closes over config params AND matched
+        // bindings, evaluated per match at fire time (`runtime/rule.rs`
+        // `to_prism_rule` → `RateFn`; the eval-side already threads it).
+        // `rate` is CONTEXTUAL — still an ordinary ident as a config-param
+        // name (`Grow[rate :: Rate]`); it's a rate clause only as `rate (`
+        // immediately after the reaction body.
+        let rate = if matches!(self.peek(), Tok::Ident(s) if s == "rate")
+            && *self.peek2() == Tok::LParen
+        {
+            self.bump(); // consume `rate`
+            self.expect(&Tok::LParen)?;
+            let expr = self.parse_expr()?;
+            self.expect(&Tok::RParen)?;
+            Some(expr)
+        } else {
+            None
+        };
         Ok(Def::Reaction(ReactionDef {
             name,
             params,
             redex,
             reactum,
             guard,
-            rate: None,
+            rate,
         }))
     }
 

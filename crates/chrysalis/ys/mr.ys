@@ -4,16 +4,16 @@
 
 reaction MakeB (
   (?f :: F | ?a :: A) => (F[blueprint: ?f.blueprint] | B[blueprint: ?f.blueprint, source: ?a])
-)
+) rate ( 1.0 )
 
 reaction MakePhi (
   (?f :: F | ?b :: B) where (?f.blueprint == ?b.blueprint)
   =>
   (F[blueprint: ?f.blueprint] | Phi[blueprint: ?f.blueprint])
-)
+) rate ( 0.3 )
 
 reaction MakeF (
   (?p :: Phi | ?b :: B) where (?p.blueprint == ?b.blueprint) => F[blueprint: ?p.blueprint]
-)
+) rate ( 0.4 )
 
 {}
