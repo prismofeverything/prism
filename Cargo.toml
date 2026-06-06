@@ -11,6 +11,7 @@ members = [
     "crates/spatio-flux",
     "crates/chrysalis",
     "crates/coda",
+    "crates/prism-audio",
     "examples",
 ]
 
@@ -31,6 +32,7 @@ prism-trace = { path = "crates/prism-trace" }
 spatio-flux = { path = "crates/spatio-flux" }
 chrysalis = { path = "crates/chrysalis" }
 coda = { path = "crates/coda" }
+prism-audio = { path = "crates/prism-audio" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

@@ -1,0 +1,12 @@
+[package]
+name = "prism-audio"
+description = "prism's audio / modular-synthesis layer — Signal blocks, modules, offline render (A1). See docs/synthesis-bigraphs.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+prism-schema = { workspace = true }
+prism-bigraph = { workspace = true }
+indexmap = { workspace = true }

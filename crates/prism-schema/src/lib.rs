@@ -1,6 +1,7 @@
 pub mod algebra;
 pub mod assembly;
 pub mod diff;
+pub mod fold;
 pub mod merge;
 pub mod method;
 pub mod reaction;
@@ -23,6 +24,7 @@ pub use reaction::{
     ReactionRule, ReactumFn, apply_fire, find_matches, fire_rule, fire_rule_at,
     instantiate, is_active,
 };
+pub use fold::{fold, unfurl, COMPOSITE_TYPE, UNFURLED_TYPE};
 pub use reconcile::reconcile;
 pub use registry::{
     divide_by_schema, tensor_by_schema, BigraphTypeMethods, DivideContext, TypeRegistry,

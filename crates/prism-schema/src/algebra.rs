@@ -57,6 +57,13 @@ pub use crate::reconcile::{reconcile, reconcile_with};
 pub use crate::diff::{diff, diff_with};
 pub use crate::merge::merge;
 
+// ── Composite-level fold / unfurl ───────────────────────────────────────
+//
+// The BATWD §IV maneuver: `unfurl` opens a composite spec into a flat
+// envelope; `fold` reseals it. Law: `fold ∘ unfurl ≡ id`. The
+// composite-level lift of the value-level divide↔tensor duality.
+pub use crate::fold::{fold, unfurl};
+
 // ── Value/update ops ───────────────────────────────────────────────────
 
 /// `apply(s, v, u)` — act update `u` on value `v` under sort `s` (the action
