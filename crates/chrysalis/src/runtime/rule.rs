@@ -17,7 +17,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use indexmap::IndexMap;
 
 use prism_schema::reaction::{GuardFn, RateFn, ReactumFn};
-use prism_schema::{Bindings, Key, Pattern, ReactionRule, StateMap, Value};
+use prism_schema::value::Foreign;
+use prism_schema::{Bindings, Key, Pattern, ReactionRule, StateMap, Value, FOREIGN_REACTION};
 
 use crate::ast::{Expr, Name};
 use crate::eval::Evaluator;
@@ -305,4 +306,56 @@ fn reaction_delta(
         }
     }
     Value::Map(delta)
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Closure-free conversion — chrysalis Rule → prism ReactionRule (#42)
+// ════════════════════════════════════════════════════════════════════
+
+/// Convert a chrysalis [`Rule`] into a `prism_schema::ReactionRule`
+/// WITHOUT an evaluator. Succeeds only for **structural** reactions
+/// with no chrysalis-[`Expr`] guard or rate — the closed-form case
+/// where the rule's behaviour is fully captured by its redex /
+/// reactum patterns + label + instantiation map.
+///
+/// Returns `None` for reactions whose behaviour depends on chrysalis
+/// `Expr` evaluation at fire time (`Reactum::Computed`, or a guard /
+/// rate `Expr` requiring an evaluator). For those, use the full
+/// [`to_prism_rule`] with an evaluator.
+///
+/// This is the closure-free converter that lets a chrysalis reaction
+/// VALUE travel across a `:: bigraph` port (#42 / merge-protocol
+/// slice 5): once Foreign-wrapped, the prism `ReactionRule` carries
+/// itself + fires at the receiver — no evaluator needed at apply
+/// time.
+pub fn to_structural_rule(rule: &Rule) -> Option<ReactionRule> {
+    let Reactum::Structural {
+        reactum,
+        instantiation,
+    } = &rule.reactum
+    else {
+        return None;
+    };
+    if rule.guard.is_some() || rule.rate.is_some() {
+        return None;
+    }
+    let mut pr =
+        ReactionRule::new(rule.redex.clone(), reactum.clone()).with_label(rule.label.clone());
+    pr.instantiation = instantiation.clone();
+    Some(pr)
+}
+
+/// Wrap a chrysalis [`Rule`] as the [`FOREIGN_REACTION`]-tagged Value
+/// the `:: bigraph` port type's `apply` accepts (#42). Returns `None`
+/// for reactions that can't be made closure-free (see
+/// [`to_structural_rule`]).
+///
+/// With this in hand, a chrysalis-built reaction flows across a
+/// `:: bigraph` input port as a typed update; the receiver's
+/// `algebra::apply_with(Custom{"bigraph"}, current, value)` dispatches
+/// to `BigraphTypeMethods::apply`, fires the reaction against `current`,
+/// and returns the post-fire state — locally identical to a `stream:`
+/// or `rest:` transport (merge-protocol slice 5).
+pub fn to_bigraph_value(rule: &Rule) -> Option<Value> {
+    to_structural_rule(rule).map(|pr| Value::Foreign(Foreign::new(FOREIGN_REACTION, pr)))
 }

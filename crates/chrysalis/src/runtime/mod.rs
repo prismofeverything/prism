@@ -24,4 +24,6 @@ pub mod rule;
 
 pub use expr_process::ExprProcess;
 pub use expr_step::ExprStep;
-pub use rule::{BindingSource, FOREIGN_RULE, Rule, RuleBindings};
+pub use rule::{
+    to_bigraph_value, to_structural_rule, BindingSource, Rule, RuleBindings, FOREIGN_RULE,
+};
