@@ -130,7 +130,20 @@ fn unparse_def(def: &Def) -> String {
                 rules
             )
         }
-        Def::Pattern(p) => format!("# pattern {} (unparse: TODO)", p.name),
+        Def::Pattern(p) => {
+            let params = if p.params.is_empty() {
+                String::new()
+            } else {
+                let names: Vec<String> = p.params.iter().map(|x| x.name.clone()).collect();
+                format!("[{}]", names.join(", "))
+            };
+            format!(
+                "pattern {}{} (\n  {}\n)",
+                p.name,
+                params,
+                unparse_expr_at(&p.body, 2)
+            )
+        }
         Def::Contract(c) => {
             if c.axes.len() > 1 {
                 let axes = c

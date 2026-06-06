@@ -230,6 +230,16 @@ reaction Convert[k :: float = 0.5] (
 ) rate ( k )
 ```
 
+A `pattern` names a reusable redex FRAGMENT — write a shared shape once instead
+of inlining it in every reaction. A use `Name[args]` substitutes the args and
+splices the body in (a parallel arg flattens by `|` associativity — no sigil):
+
+```ys
+pattern InCompartment[kind, contents] (
+  Compartment[kind: kind] (contents | bystanders: ?rest)
+)
+```
+
 **Two graphs, two pattern kinds** (this distinction matters):
 
 - **Place-graph patterns** (nesting `( )`, map literals `{ k: … }`) match *within
@@ -264,14 +274,9 @@ These don't run yet. They're the active evolution directions (memory
 `project_chrysalis_evolution`); shown so you know what's coming and don't mistake
 them for live syntax.
 
-**Direction 1 (subtract) — `pattern`: abstract a reusable redex fragment** so
-MAPK's compartment is written once instead of inlined 14×:
-
-```ys ignore
-pattern InCompartment[kind, contents] (
-  Compartment[kind: kind] (contents | ?rest)
-)
-```
+**Direction 1 — `pattern`** ✅ *live* (see §8): a reusable redex fragment, so a
+shared shape is written once instead of inlined per reaction. Remaining: apply it
+to `mapk.ys` itself (a fixture/regeneration step) to kill its 14× duplication.
 
 **Direction 1+4 — `pattern` + match-derived rate.** Rate expressions are *live*
 now (§8); what remains is abstracting the shared redex with `pattern` and

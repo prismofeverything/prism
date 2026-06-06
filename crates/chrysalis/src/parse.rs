@@ -31,6 +31,7 @@ pub enum Tok {
     Step,
     Composite,
     Reaction,
+    Pattern,
     Unit,
     Context,
     Using,
@@ -111,6 +112,7 @@ fn keyword(word: &str) -> Option<Tok> {
         "step" => Tok::Step,
         "composite" => Tok::Composite,
         "reaction" => Tok::Reaction,
+        "pattern" => Tok::Pattern,
         "unit" => Tok::Unit,
         "context" => Tok::Context,
         "using" => Tok::Using,
@@ -892,6 +894,7 @@ impl Parser {
             Tok::Step => self.parse_process_def(true),
             Tok::Composite => self.parse_composite_def(),
             Tok::Reaction => self.parse_reaction_def(),
+            Tok::Pattern => self.parse_pattern_def(),
             Tok::Unit => self.parse_unit_def(),
             Tok::Context => self.parse_context_def(),
             Tok::Contract => self.parse_contract_def(),
@@ -2074,6 +2077,34 @@ impl Parser {
             guard,
             rate,
         }))
+    }
+
+    /// `pattern Name[a, b] (body)` — a named redex FRAGMENT. Params are bare,
+    /// untyped fragment binders; a use `Name[arg, …]` in pattern position
+    /// substitutes the args for the params and splices the body in (eval side:
+    /// `eval_pattern_term`). The mechanism of pattern reuse — e.g. MAPK's
+    /// shared `InCompartment`, written once instead of inlined per reaction.
+    fn parse_pattern_def(&mut self) -> Result<Def, ParseError> {
+        self.expect(&Tok::Pattern)?;
+        let name = self.ident()?;
+        // Bare, untyped fragment binders: `[kind, contents]` (unlike definer
+        // config params, which are typed via `parse_bracket_params`).
+        let mut params = Vec::new();
+        if self.accept(&Tok::LBrack) {
+            while !self.check(&Tok::RBrack) {
+                let pname = self.ident()?;
+                params.push(crate::ast::Param::required(
+                    pname,
+                    crate::ast::SchemaExpr::Any,
+                ));
+                if !self.accept(&Tok::Comma) {
+                    break;
+                }
+            }
+            self.expect(&Tok::RBrack)?;
+        }
+        let body = self.parse_body()?;
+        Ok(Def::Pattern(crate::ast::PatternDef { name, params, body }))
     }
 
     /// A body `( item ("|" item)* )`. An item is a keyed entry (`name: expr`),

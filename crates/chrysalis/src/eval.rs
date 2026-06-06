@@ -1276,12 +1276,17 @@ impl Evaluator {
             } => self.eval_pattern_term(control, args, ports, body.as_deref(), env, bindings),
 
             Expr::Parallel(elems) => {
-                // All KeyedEntry → Pattern::Map; otherwise List.
+                // Associativity normalization: a nested Parallel (e.g. a spliced
+                // `pattern` param) flattens into its parent —
+                // `(a | (b | c)) ≡ (a | b | c)`. This is how unquote-SPLICING
+                // falls out with no sigil. Then: all KeyedEntry → Map, else List.
+                let mut flat: Vec<&Expr> = Vec::new();
+                flatten_parallel(elems, &mut flat);
                 let all_keyed =
-                    !elems.is_empty() && elems.iter().all(|e| matches!(e, Expr::KeyedEntry { .. }));
+                    !flat.is_empty() && flat.iter().all(|e| matches!(e, Expr::KeyedEntry { .. }));
                 if all_keyed {
                     let mut map: IndexMap<Key, Pattern> = IndexMap::new();
-                    for e in elems {
+                    for e in &flat {
                         if let Expr::KeyedEntry { key, value } = e {
                             let key_str = self.eval_string_to_str(key, env)?;
                             let p = self.eval_pattern(value, env, bindings)?;
@@ -1291,7 +1296,7 @@ impl Evaluator {
                     Ok(Pattern::Map(map))
                 } else {
                     let mut items: Vec<Pattern> = Vec::new();
-                    for e in elems {
+                    for e in &flat {
                         items.push(self.eval_pattern(e, env, bindings)?);
                     }
                     Ok(Pattern::List(items))
@@ -1348,6 +1353,16 @@ impl Evaluator {
         env: &IndexMap<Name, Value>,
         bindings: &mut RuleBindings,
     ) -> Result<Pattern, EvalError> {
+        // A `pattern Name[params] (body)` reference EXPANDS here: substitute the
+        // call's args for the params in the pattern body, then lower the result.
+        // Splicing a parallel arg into a parallel context falls out of the
+        // associativity normalization in the `Parallel` arm — no unquote sigil.
+        if let Some(pdef) = self.program.entity(control).and_then(|v| v.pattern) {
+            let subs = pattern_substitution(pdef, args)?;
+            let expanded = substitute_vars(&pdef.body, &subs);
+            return self.eval_pattern(&expanded, env, bindings);
+        }
+
         // `K[args](body)` in pattern context → `Pattern::sort(K, …)`.
         // Args become attributes (name → pattern). The optional body
         // (a Parallel/Map) becomes child entries; ports become an
@@ -1442,6 +1457,193 @@ impl Evaluator {
 // ===============================================================
 // Helpers
 // ===============================================================
+
+/// Build the param→arg substitution for a `pattern` call. Positional args fill
+/// the params left-to-right; named args bind by param name (so both
+/// `InCompartment[?k, …]` and `InCompartment[kind: ?k, …]` work).
+fn pattern_substitution(
+    pdef: &crate::ast::PatternDef,
+    args: &[TermArg],
+) -> Result<IndexMap<Name, Expr>, EvalError> {
+    let mut subs: IndexMap<Name, Expr> = IndexMap::new();
+    let mut pos = 0usize;
+    for arg in args {
+        match arg {
+            TermArg::Positional(e) => {
+                let param = pdef.params.get(pos).ok_or_else(|| EvalError::Arity {
+                    control: pdef.name.clone(),
+                    expected: format!("{} pattern arg(s)", pdef.params.len()),
+                    got: format!("extra positional arg #{}", pos + 1),
+                })?;
+                subs.insert(param.name.clone(), e.clone());
+                pos += 1;
+            }
+            TermArg::Named { name, value } => {
+                subs.insert(name.clone(), value.clone());
+            }
+        }
+    }
+    Ok(subs)
+}
+
+/// Flatten nested `Parallel`s by the `|` associativity law `(a | (b | c)) ≡
+/// (a | b | c)` — how unquote-SPLICING of a pattern param falls out with no
+/// sigil.
+fn flatten_parallel<'e>(elems: &'e [Expr], out: &mut Vec<&'e Expr>) {
+    for e in elems {
+        match e {
+            Expr::Parallel(inner) => flatten_parallel(inner, out),
+            other => out.push(other),
+        }
+    }
+}
+
+/// Capture-free substitution of `Var(name)` → its bound `Expr`, recursing
+/// through every `Expr` variant. The engine of `pattern` expansion: substitute
+/// the call's args for the params in the pattern body, then lower the result
+/// with `eval_pattern`. (Patterns are structural fragments; string-interpolation
+/// keys are not themselves rewritten beyond their sub-exprs.)
+fn substitute_vars(expr: &Expr, subs: &IndexMap<Name, Expr>) -> Expr {
+    use Expr::*;
+    match expr {
+        Var(n) => subs.get(n).cloned().unwrap_or_else(|| Var(n.clone())),
+        Term {
+            control,
+            args,
+            ports,
+            body,
+        } => Term {
+            control: control.clone(),
+            args: args.iter().map(|a| subst_term_arg(a, subs)).collect(),
+            ports: subst_ports(ports, subs),
+            body: body.as_ref().map(|b| Box::new(substitute_vars(b, subs))),
+        },
+        Parallel(es) => Parallel(es.iter().map(|e| substitute_vars(e, subs)).collect()),
+        KeyedEntry { key, value } => KeyedEntry {
+            key: key.clone(),
+            value: Box::new(substitute_vars(value, subs)),
+        },
+        Map(entries) => Map(entries
+            .iter()
+            .map(|(k, v)| (k.clone(), substitute_vars(v, subs)))
+            .collect()),
+        Record(fields) => Record(
+            fields
+                .iter()
+                .map(|(k, v)| (k.clone(), substitute_vars(v, subs)))
+                .collect(),
+        ),
+        List(items) => List(items.iter().map(|e| substitute_vars(e, subs)).collect()),
+        Site { name, sort } => Site {
+            name: name.clone(),
+            sort: sort.as_ref().map(|s| Box::new(substitute_vars(s, subs))),
+        },
+        Rule { redex, reactum } => Rule {
+            redex: Box::new(substitute_vars(redex, subs)),
+            reactum: Box::new(substitute_vars(reactum, subs)),
+        },
+        Let { bindings, body } => Let {
+            bindings: bindings
+                .iter()
+                .map(|(n, e)| (n.clone(), substitute_vars(e, subs)))
+                .collect(),
+            body: Box::new(substitute_vars(body, subs)),
+        },
+        Block(b) => Block(crate::ast::Block {
+            bindings: b
+                .bindings
+                .iter()
+                .map(|(n, e)| (n.clone(), substitute_vars(e, subs)))
+                .collect(),
+            value: Box::new(substitute_vars(&b.value, subs)),
+        }),
+        If { cond, then_, else_ } => If {
+            cond: Box::new(substitute_vars(cond, subs)),
+            then_: Box::new(substitute_vars(then_, subs)),
+            else_: else_.as_ref().map(|e| Box::new(substitute_vars(e, subs))),
+        },
+        BinOp { op, lhs, rhs } => BinOp {
+            op: op.clone(),
+            lhs: Box::new(substitute_vars(lhs, subs)),
+            rhs: Box::new(substitute_vars(rhs, subs)),
+        },
+        UnaryOp { op, operand } => UnaryOp {
+            op: op.clone(),
+            operand: Box::new(substitute_vars(operand, subs)),
+        },
+        Method {
+            receiver,
+            method,
+            args,
+        } => Method {
+            receiver: Box::new(substitute_vars(receiver, subs)),
+            method: method.clone(),
+            args: args.iter().map(|e| substitute_vars(e, subs)).collect(),
+        },
+        Field { base, name } => Field {
+            base: Box::new(substitute_vars(base, subs)),
+            name: name.clone(),
+        },
+        Call { func, args } => Call {
+            func: Box::new(substitute_vars(func, subs)),
+            args: args.iter().map(|e| substitute_vars(e, subs)).collect(),
+        },
+        Comprehension {
+            key_var,
+            var,
+            source,
+            filter,
+            body,
+            key,
+        } => Comprehension {
+            key_var: key_var.clone(),
+            var: var.clone(),
+            source: Box::new(substitute_vars(source, subs)),
+            filter: filter.as_ref().map(|f| Box::new(substitute_vars(f, subs))),
+            body: Box::new(substitute_vars(body, subs)),
+            key: key.as_ref().map(|k| Box::new(substitute_vars(k, subs))),
+        },
+        ReplaceWith { id, with } => ReplaceWith {
+            id: Box::new(substitute_vars(id, subs)),
+            with: Box::new(substitute_vars(with, subs)),
+        },
+        Where { inner, predicate } => Where {
+            inner: Box::new(substitute_vars(inner, subs)),
+            predicate: Box::new(substitute_vars(predicate, subs)),
+        },
+        Unit | Bool(_) | Int(_) | Float(_) | Str(_) | Path(_) | Unbound | LinkVar(_) => {
+            expr.clone()
+        }
+    }
+}
+
+fn subst_term_arg(arg: &TermArg, subs: &IndexMap<Name, Expr>) -> TermArg {
+    match arg {
+        TermArg::Positional(e) => TermArg::Positional(substitute_vars(e, subs)),
+        TermArg::Named { name, value } => TermArg::Named {
+            name: name.clone(),
+            value: substitute_vars(value, subs),
+        },
+    }
+}
+
+fn subst_ports(
+    ports: &crate::ast::PortBindings,
+    subs: &IndexMap<Name, Expr>,
+) -> crate::ast::PortBindings {
+    crate::ast::PortBindings {
+        inputs: ports
+            .inputs
+            .iter()
+            .map(|(k, v)| (k.clone(), substitute_vars(v, subs)))
+            .collect(),
+        outputs: ports
+            .outputs
+            .iter()
+            .map(|(k, v)| (k.clone(), substitute_vars(v, subs)))
+            .collect(),
+    }
+}
 
 /// A first-class function value: `{_type: "Function", _name: <name>}` — a
 /// by-name reference to a `def`ined function, so it can be passed to / returned
