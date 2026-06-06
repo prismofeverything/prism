@@ -43,6 +43,21 @@ impl Oscillator {
         self.amplitude = amplitude;
         self
     }
+
+    /// Build from a patch node's `config` map (the homoiconic / discovery path).
+    pub fn from_config(config: &Value) -> Self {
+        Self {
+            wave: config
+                .get_field("wave")
+                .and_then(|v| v.as_str())
+                .map(Wave::parse)
+                .unwrap_or(Wave::Sine),
+            freq_hz: config.get_field("freq").and_then(|v| v.as_f64()).unwrap_or(440.0),
+            sample_rate: config.get_field("sample_rate").and_then(|v| v.as_f64()).unwrap_or(48_000.0),
+            block_size: config.get_field("block").and_then(|v| v.as_i64()).unwrap_or(512) as usize,
+            amplitude: config.get_field("amplitude").and_then(|v| v.as_f64()).unwrap_or(1.0),
+        }
+    }
 }
 
 impl Process for Oscillator {

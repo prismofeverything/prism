@@ -23,6 +23,14 @@ impl Vca {
             block_size,
         }
     }
+
+    /// Build from a patch node's `config` map.
+    pub fn from_config(config: &Value) -> Self {
+        Self {
+            sample_rate: config.get_field("sample_rate").and_then(|v| v.as_f64()).unwrap_or(48_000.0),
+            block_size: config.get_field("block").and_then(|v| v.as_i64()).unwrap_or(512) as usize,
+        }
+    }
 }
 
 impl Process for Vca {

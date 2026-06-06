@@ -15,6 +15,16 @@ pub enum Wave {
 }
 
 impl Wave {
+    /// Parse a waveform name (anything unrecognized defaults to `Sine`).
+    pub fn parse(name: &str) -> Wave {
+        match name {
+            "Saw" | "saw" => Wave::Saw,
+            "Square" | "square" => Wave::Square,
+            "Triangle" | "triangle" => Wave::Triangle,
+            _ => Wave::Sine,
+        }
+    }
+
     /// Sample the waveform at `phase` cycles (any real; the integer part is
     /// ignored, so phase may run unwrapped within a block). Returns `[-1, 1]`.
     pub fn sample(self, phase: f64) -> f64 {
