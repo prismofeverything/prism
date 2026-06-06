@@ -26,6 +26,14 @@ Corollaries:
 
 ## Survey: the current incoherence
 
+> **RESOLVED (#47, 2026-06-05):** chrysalis `build_composite_outer` no longer
+> emits `{_type, <data slots>, _process: {spec}}`. The composite spec is
+> FLAT — `{_type: "composite", address: "local:Composite", config: {state,
+> bridge, schema}, inputs, outputs, <slot>: <inner>, …}` — the same
+> envelope as a leaf process/step spec. The dead `_process` fallback in
+> `Simulate::from_config` / `RunProcess::from_config` is gone. The survey
+> below captures the historical asymmetry that motivated #47.
+
 ### A. Four representations of "a node in state"
 
 | Site | Process | Composite |

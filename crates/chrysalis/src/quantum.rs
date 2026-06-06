@@ -250,6 +250,18 @@ impl TypeMethods for QubitsTypeMethods {
         // separable register may truly divide.
         vec![stamp(state); ctx.n_daughters.max(1)]
     }
+    fn tensor(&self, _r: &TypeRegistry, _s: &Schema, a: &Value, b: &Value) -> Value {
+        // Quantum tensor: cross-product over basis bitstrings, amplitudes
+        // multiplied. The dual of divide for `Qubits` — slice 2 of the merge
+        // protocol made type-specific (#39 + #36 Q3). The default
+        // schema-driven tensor would per-key share intensive floats; the
+        // quantum tensor combines two SEPARATE registers into ONE joint
+        // register over the cartesian product of basis states.
+        match crate::prelude::tensor(&bare(a), &bare(b)) {
+            Ok(joint) => stamp(&joint),
+            Err(_) => stamp(a),
+        }
+    }
     fn serialize(&self, _r: &TypeRegistry, _s: &Schema, state: &Value) -> Value {
         state.clone()
     }

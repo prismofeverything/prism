@@ -37,11 +37,13 @@ impl RunProcess {
     /// Config: `{ process: <spec>, runtime, timestep }`, where `<spec>` is a
     /// process term value `{address, config, …}` (e.g. `Rk4[network: …]`).
     pub fn from_config(config: &Value) -> Self {
+        // A spec — whether for a leaf process/step or a composite — carries
+        // `{address, config, inputs, outputs}` at the TOP LEVEL: the node
+        // envelope is uniform (#47). A composite's `config` happens to contain
+        // `{state, bridge, schema}` instead of plain params; leaf / composite
+        // distinction lives inside config, not in the envelope.
         let spec = config.get_field("proc");
-        // A process spec carries `address`/`config` at the top level; a COMPOSITE
-        // spec (e.g. a rest-addressed CopasiCvode) carries them under `_process`.
-        let inner = spec.and_then(|s| s.get_field("_process")).or(spec);
-        let address = inner
+        let address = spec
             .and_then(|s| s.get_field("address"))
             .cloned()
             .unwrap_or(Value::None);
@@ -56,7 +58,7 @@ impl RunProcess {
                 .unwrap_or_default(),
             _ => String::new(),
         };
-        let process_config = inner
+        let process_config = spec
             .and_then(|s| s.get_field("config"))
             .cloned()
             .unwrap_or_else(Value::map);

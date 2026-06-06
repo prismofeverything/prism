@@ -88,6 +88,23 @@ pub trait TypeMethods: Send + Sync {
     fn check(&self, _registry: &TypeRegistry, _schema: &Schema, _state: &Value) -> bool {
         true
     }
+
+    /// Combine two values of this type into one — the **inverse of
+    /// `divide`** (the merge / `fold` direction). Default impl is the
+    /// schema-driven `tensor_by_schema` over the type's registered
+    /// schema (`Float` shares, `Delta`/`Integer` sum, containers
+    /// recurse per field). Rich types override for type-specific
+    /// composition — e.g. `Qubits.tensor` is the quantum cross-product
+    /// over basis bitstrings.
+    fn tensor(
+        &self,
+        registry: &TypeRegistry,
+        schema: &Schema,
+        a: &Value,
+        b: &Value,
+    ) -> Value {
+        tensor_by_schema(schema, a, b, registry)
+    }
 }
 
 /// A registered type: its schema, optional default value, optional
@@ -345,6 +362,23 @@ impl TypeRegistry {
         }
         // Unknown type — share.
         vec![state.clone(); ctx.n_daughters.max(2)]
+    }
+
+    /// Combine two state values via the type's `tensor` method (the
+    /// merge / `fold` direction; inverse of `divide`). Same fallback
+    /// shape: `TypeMethods.tensor` if registered, else schema-driven
+    /// `tensor_by_schema` on the type's registered schema, else share.
+    pub fn type_tensor(&self, name: &str, a: &Value, b: &Value) -> Value {
+        if let Some(methods) = self.methods(name) {
+            if let Some(entry) = self.types.get(name) {
+                return methods.tensor(self, &entry.schema, a, b);
+            }
+        }
+        if let Some(entry) = self.types.get(name) {
+            return tensor_by_schema(&entry.schema, a, b, self);
+        }
+        // Unknown type — share the left.
+        a.clone()
     }
 
     /// Serialize a state value via the type's methods (or pass-through
@@ -627,6 +661,244 @@ fn divide_tuple(
         }
     }
     daughters.into_iter().map(Value::List).collect()
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Schema-driven tensor — the dual of divide (the `fold` / merge direction)
+// ════════════════════════════════════════════════════════════════════
+
+/// Combine two values into one, driven entirely by their shared **schema**
+/// — the **dual of `divide_by_schema`** (the `fold` direction of the
+/// `fold`/`unfurl` pair from `docs/bigraphs-all-the-way-down.md`; the
+/// merge of `docs/merge-protocol.md`).
+///
+/// Extensivity is encoded by the schema TYPE, mirroring `divide`:
+/// - `Delta` / `Integer` are **extensive** → tensor SUMS the two values
+///   (so `tensor(divide(state).0, divide(state).1) ≈ state`).
+/// - `Float` / `Bool` / `String` / `Enum` / names / interfaces are
+///   **intensive / opaque** → share the left (the caller is responsible
+///   for consistency; intensive `tensor(x, x) = x` is idempotent).
+/// - `Tree` / `Map` / `RecursiveTree` / `Array` / `List` / `Tuple` recurse,
+///   tensoring each branch / element by its schema. For named branches and
+///   maps, keys present in only one side are copied through (no
+///   discarding).
+/// - `Link` / `ProcessLink` / `StepLink` / `CompositeLink` tensor the
+///   self-exported data face (the mirror of divide's split-face-share-spec
+///   pattern), so two composites of the same shape merge their FACE while
+///   the spec stays shared.
+/// - `Custom` dispatches through the registry's `TypeMethods::tensor`
+///   (rich types — `Qubits` cross-products amplitudes).
+///
+/// This is the schema-driven default; rich types override per-type in
+/// their `TypeMethods` impl.
+pub fn tensor_by_schema(
+    schema: &Schema,
+    a: &Value,
+    b: &Value,
+    registry: &TypeRegistry,
+) -> Value {
+    match schema {
+        // ── Extensive scalars: sum ──
+        Schema::Delta { .. } => sum_floats(a, b),
+        Schema::Integer { .. } => sum_ints(a, b),
+
+        // ── Intensive / opaque scalars: share the left ──
+        Schema::Float { .. }
+        | Schema::Bool { .. }
+        | Schema::String { .. }
+        | Schema::Enum { .. }
+        | Schema::Any
+        | Schema::Site { .. }
+        | Schema::InnerName { .. }
+        | Schema::OuterName { .. }
+        | Schema::Interface { .. }
+        | Schema::Bridge { .. }
+        | Schema::Const { .. }
+        | Schema::Quote { .. } => a.clone(),
+
+        // ── Wrappers: delegate to inner ──
+        Schema::Maybe { inner } | Schema::Overwrite { inner } => {
+            tensor_by_schema(inner, a, b, registry)
+        }
+
+        // ── Containers: recurse per field, each by its own schema ──
+        Schema::Tree { branches } => tensor_named(branches, a, b, registry),
+        Schema::Map { value } => tensor_uniform(value, a, b, registry),
+        Schema::RecursiveTree { leaf } => tensor_recursive(leaf, a, b, registry),
+        Schema::List { element } | Schema::Array { element, .. } => {
+            tensor_seq(element, a, b, registry)
+        }
+        Schema::Tuple { elements } => tensor_tuple(elements, a, b, registry),
+
+        // ── Any Link-kind NODE: tensor its self-exported data face (the
+        //    mirror of divide's `node_data_branches` split), and share the
+        //    spec (`address`/`config`/wiring stays one description, two
+        //    sub-bigraphs merge by *state*, not by spec rewrite).
+        Schema::Link { .. }
+        | Schema::ProcessLink { .. }
+        | Schema::StepLink { .. }
+        | Schema::CompositeLink { .. } => {
+            tensor_named(&schema.node_data_branches(), a, b, registry)
+        }
+
+        // ── Rich type: dispatch through the registry ──
+        Schema::Custom { name, .. } => registry.type_tensor(name, a, b),
+    }
+}
+
+/// Extensive float tensor: `a + b` (so `tensor(divide(x, 2).0, divide(x, 2).1) = x`).
+fn sum_floats(a: &Value, b: &Value) -> Value {
+    match (a.as_f64(), b.as_f64()) {
+        (Some(x), Some(y)) => Value::float(x + y),
+        _ => a.clone(),
+    }
+}
+
+/// Extensive integer tensor: `a + b` (so divide's `Σ daughters = total` inverts).
+fn sum_ints(a: &Value, b: &Value) -> Value {
+    match (a.as_i64(), b.as_i64()) {
+        (Some(x), Some(y)) => Value::Int(x + y),
+        _ => a.clone(),
+    }
+}
+
+/// `Tree`: tensor each named branch by its own schema. Keys present in
+/// only one side carry through unchanged (no discarding — composites
+/// growing a slot one tick before the other shouldn't lose it).
+fn tensor_named(
+    branches: &IndexMap<Key, Schema>,
+    a: &Value,
+    b: &Value,
+    registry: &TypeRegistry,
+) -> Value {
+    let (Some(ma), Some(mb)) = (a.as_map(), b.as_map()) else {
+        return a.clone();
+    };
+    let mut out: StateMap = StateMap::new();
+    // First pass: keys present in `a` get tensored with `b`'s value (or
+    // copied through if absent in `b`).
+    for (k, va) in ma {
+        let new_val = match mb.get(k) {
+            Some(vb) => match branches.get(k) {
+                Some(sub) => tensor_by_schema(sub, va, vb, registry),
+                None => va.clone(), // untyped key → share left
+            },
+            None => va.clone(),
+        };
+        out.insert(k.clone(), new_val);
+    }
+    // Second pass: keys only in `b` get copied through.
+    for (k, vb) in mb {
+        if !ma.contains_key(k) {
+            out.insert(k.clone(), vb.clone());
+        }
+    }
+    Value::Map(out)
+}
+
+/// `Map`: every entry tensored by the single value schema (key union).
+fn tensor_uniform(
+    value: &Schema,
+    a: &Value,
+    b: &Value,
+    registry: &TypeRegistry,
+) -> Value {
+    let (Some(ma), Some(mb)) = (a.as_map(), b.as_map()) else {
+        return a.clone();
+    };
+    let mut out: StateMap = StateMap::new();
+    for (k, va) in ma {
+        let new_val = match mb.get(k) {
+            Some(vb) => tensor_by_schema(value, va, vb, registry),
+            None => va.clone(),
+        };
+        out.insert(k.clone(), new_val);
+    }
+    for (k, vb) in mb {
+        if !ma.contains_key(k) {
+            out.insert(k.clone(), vb.clone());
+        }
+    }
+    Value::Map(out)
+}
+
+/// `RecursiveTree`: nested maps with `leaf`-typed leaves. Recurse on
+/// shared keys; pass through one-sided keys.
+fn tensor_recursive(
+    leaf: &Schema,
+    a: &Value,
+    b: &Value,
+    registry: &TypeRegistry,
+) -> Value {
+    match (a.as_map(), b.as_map()) {
+        (Some(ma), Some(mb)) => {
+            let mut out: StateMap = StateMap::new();
+            for (k, va) in ma {
+                let new_val = match mb.get(k) {
+                    Some(vb) => tensor_recursive(leaf, va, vb, registry),
+                    None => va.clone(),
+                };
+                out.insert(k.clone(), new_val);
+            }
+            for (k, vb) in mb {
+                if !ma.contains_key(k) {
+                    out.insert(k.clone(), vb.clone());
+                }
+            }
+            Value::Map(out)
+        }
+        // One or both sides are leaves: tensor by the leaf schema.
+        _ => tensor_by_schema(leaf, a, b, registry),
+    }
+}
+
+/// `Array` / `List`: element-wise tensor (mirrors `divide_seq`, which
+/// distributes element-wise across daughters). Mismatched lengths fall
+/// back to the longer side, padding with element-wise tensor where
+/// indices align.
+fn tensor_seq(
+    element: &Schema,
+    a: &Value,
+    b: &Value,
+    registry: &TypeRegistry,
+) -> Value {
+    let (Some(la), Some(lb)) = (a.as_list(), b.as_list()) else {
+        return a.clone();
+    };
+    let len = la.len().max(lb.len());
+    let mut out: Vec<Value> = Vec::with_capacity(len);
+    for i in 0..len {
+        match (la.get(i), lb.get(i)) {
+            (Some(va), Some(vb)) => out.push(tensor_by_schema(element, va, vb, registry)),
+            (Some(va), None) => out.push(va.clone()),
+            (None, Some(vb)) => out.push(vb.clone()),
+            (None, None) => out.push(Value::None),
+        }
+    }
+    Value::List(out)
+}
+
+/// `Tuple`: positional, each element tensored by its own schema. Length
+/// mismatch with the tuple's declared elements falls back to sharing.
+fn tensor_tuple(
+    elements: &[Schema],
+    a: &Value,
+    b: &Value,
+    registry: &TypeRegistry,
+) -> Value {
+    let (Some(la), Some(lb)) = (a.as_list(), b.as_list()) else {
+        return a.clone();
+    };
+    if la.len() != elements.len() || lb.len() != elements.len() {
+        return a.clone();
+    }
+    let out: Vec<Value> = la
+        .iter()
+        .zip(lb.iter())
+        .zip(elements.iter())
+        .map(|((va, vb), sub)| tensor_by_schema(sub, va, vb, registry))
+        .collect();
+    Value::List(out)
 }
 
 // ════════════════════════════════════════════════════════════════════

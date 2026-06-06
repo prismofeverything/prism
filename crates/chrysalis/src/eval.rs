@@ -762,22 +762,27 @@ impl Evaluator {
         Ok(Value::Map(m))
     }
 
-    /// Build an outer-map for a composite call site.
+    /// Build the spec for a composite call site.
     ///
-    /// Shape:
+    /// Shape — the SAME envelope as a leaf process/step spec (#47), with the
+    /// leaf-vs-composite distinction living entirely inside `config`:
     /// ```text
     /// {
-    ///   _type:    "<Control>",
-    ///   <slot>:    <data slot value>,    // one per output port
-    ///   <slot>:    <data slot value>,    // one per input port
-    ///   _process: { address, config, inputs, outputs }
+    ///   _type:    "composite",
+    ///   address:  "local:Composite",
+    ///   config:   { state, bridge, schema },   // inner body + bridge wiring
+    ///   inputs:   { port: wire, … },
+    ///   outputs:  { port: wire, … },
+    ///   <slot>:   <inner state value>,         // seed_self_face — one per
+    ///   …                                      //   output port wired to `%.field`
     /// }
     /// ```
     ///
     /// The composite's bridge connects its inner state to these outer
     /// data slots: each output port's internal value flows out to the
     /// sibling slot, where the surrounding pattern matcher / BRS can
-    /// observe it.
+    /// observe it. Instantiated through `Composite::from_config` (the
+    /// upstream-aligned shape — `from_config_composite.rs`).
     fn build_composite_outer(
         &self,
         def: &crate::ast::CompositeDef,

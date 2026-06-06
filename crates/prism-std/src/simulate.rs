@@ -43,10 +43,12 @@ impl Simulate {
     /// [`RunProcess`](crate::process_runner::RunProcess), where `<process-spec>`
     /// is a term value `{address, config}` (e.g. `Kinetics[network: …]`).
     pub fn from_config(config: &Value) -> Self {
+        // Uniform node envelope (#47): a process or composite spec carries
+        // `{address, config, inputs, outputs}` at the top level. The
+        // leaf-vs-composite distinction lives in WHAT config holds (params vs
+        // `{state, bridge, schema}`), not in the envelope.
         let spec = config.get_field("proc");
-        // process spec → top-level address/config; composite spec → under `_process`.
-        let inner = spec.and_then(|s| s.get_field("_process")).or(spec);
-        let address = inner.and_then(|s| s.get_field("address")).cloned().unwrap_or(Value::None);
+        let address = spec.and_then(|s| s.get_field("address")).cloned().unwrap_or(Value::None);
         let name = match &address {
             Value::String(s) => s.trim_start_matches("local:").to_string(),
             Value::Map(m) => m
@@ -58,7 +60,7 @@ impl Simulate {
             _ => String::new(),
         };
         let process_config =
-            inner.and_then(|s| s.get_field("config")).cloned().unwrap_or_else(Value::map);
+            spec.and_then(|s| s.get_field("config")).cloned().unwrap_or_else(Value::map);
         Simulate {
             address,
             name,

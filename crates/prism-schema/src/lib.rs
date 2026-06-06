@@ -24,7 +24,7 @@ pub use reaction::{
     instantiate, is_active,
 };
 pub use reconcile::reconcile;
-pub use registry::{divide_by_schema, DivideContext, TypeRegistry};
+pub use registry::{divide_by_schema, tensor_by_schema, DivideContext, TypeRegistry};
 pub use schema::Schema;
 pub use schema_codec::{schema_to_value, value_to_schema};
 pub use type_parser::{parse_type_expression, parse_tree_expression};
