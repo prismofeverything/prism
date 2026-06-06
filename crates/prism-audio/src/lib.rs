@@ -12,14 +12,23 @@
 //! ring, A3) and the distributed `net:` protocol (A8); the *patch* is
 //! unchanged — only the sink differs.
 
+pub mod envelope;
+pub mod lowpass;
 pub mod oscillator;
 pub mod render;
 pub mod signal;
+pub mod vca;
 pub mod wav;
 pub mod wave;
 
+pub use envelope::Envelope;
+pub use lowpass::LowPass;
 pub use oscillator::Oscillator;
-pub use render::{render, render_kernel, render_oscillator};
-pub use signal::{signal_from_slice, signal_schema, signal_to_vec, silence};
+pub use render::{render, render_kernel, render_mix, render_oscillator, render_voice};
+pub use signal::{
+    register_signal, signal_from_slice, signal_registry, signal_schema, signal_to_vec, signal_type,
+    silence, SIGNAL,
+};
+pub use vca::Vca;
 pub use wav::write_wav_i16;
 pub use wave::Wave;

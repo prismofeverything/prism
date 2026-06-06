@@ -12,7 +12,7 @@ use std::any::Any;
 use indexmap::IndexMap;
 use prism_bigraph::{Process, Schema, Update, Value};
 
-use crate::signal::{signal_from_slice, signal_schema};
+use crate::signal::{signal_from_slice, signal_type};
 use crate::wave::Wave;
 
 /// A waveform oscillator. `freq_hz`, `sample_rate`, and `block_size` are
@@ -53,10 +53,7 @@ impl Process for Oscillator {
     fn outputs(&self) -> IndexMap<String, Schema> {
         IndexMap::from([
             ("phase".to_string(), Schema::overwrite(Schema::float())),
-            (
-                "out".to_string(),
-                Schema::overwrite(signal_schema(self.block_size)),
-            ),
+            ("out".to_string(), signal_type()),
         ])
     }
 

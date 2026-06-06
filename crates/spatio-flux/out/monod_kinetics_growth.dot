@@ -14,8 +14,8 @@ digraph {
     proc_kinetics [shape=box, style=filled, fillcolor="#D9A4A6", color="#D9A4A6", penwidth=0, label="kinetics", fontsize=12];
 
     // Wiring
-    state_biomass -> proc_kinetics [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
     state_substrates -> proc_kinetics [style=dashed, penwidth=1, dir=both, label="substrates", fontsize=10];
+    state_biomass -> proc_kinetics [style=dashed, penwidth=1, dir=both, label="biomass", fontsize=10];
 
     // Hierarchy
     state_substrates -> state_substrates__acetate [arrowhead=none, penwidth=2];

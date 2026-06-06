@@ -21,35 +21,32 @@
 //!   fold(unfurl(spec)) ≡ spec                  // round-trip identity
 //! ```
 //!
-//! The richer parent-context form (`unfurl_into(parent, path)` that
-//! actually inlines a composite *into* its parent and rewrites the
-//! bridge wires to relative paths) is the next slice — see
-//! `docs/bigraphs-all-the-way-down.md` §IV. This slice gives the
-//! algebra the two named ops and the inverse law; the parent-context
-//! lift then uses the same pair on the sub-bigraph at a specific path.
+//! The parent-context lift — [`unfurl_into`] / [`fold_at`] — operates
+//! on a composite at a path in a parent place graph: inlines the spec
+//! into its slot and reseals from a boundary descriptor. Round-trip
+//! identity: `fold_at(unfurl_into(parent, p)?.parent, p, &…boundary) ≡
+//! parent`.
 //!
-//! Sketch of the next slice (recorded for continuity):
-//! ```text
-//! unfurl_into(parent, composite_path) →
-//!   replace parent[composite_path] with the composite's inner state
-//!   (its `config.state`), then for each bridge entry mapping a port
-//!   to an internal path, take the composite's outer wire for that
-//!   port (its `inputs[port]` or `outputs[port]`) and connect it to
-//!   the now-exposed internal path.
-//!
-//! fold_at(parent, region_path, boundary) →
-//!   move the subtree at `region_path` into a fresh composite's
-//!   `config.state`; for each wire in `boundary`, generate a face name
-//!   (the cut-link → port identification) and record the bridge
-//!   entry; the parent's slot at `region_path` becomes the composite
-//!   spec.
-//! ```
+//! The link-graph closure — [`refuse_links`] — completes BATWD §IV's
+//! "re-fuse the cut links" claim: after `unfurl_into` hoists inner
+//! state to the slot, `refuse_links` walks the inlined state and
+//! rewrites every inner process's wire whose path matched a bridge
+//! entry, replacing the prefix with `[".."] + outer_wire + suffix`.
+//! The leading `..` shifts the reference frame from the inner
+//! process's new container (one level deeper after inline) back to
+//! the composite's former container, so the outer wire resolves
+//! correctly. Together, `unfurl_into` + `refuse_links` produce a flat
+//! parent that runs the SAME computation as the original composite-
+//! containing parent — the place graph AND the link graph are
+//! continuous across the dissolved boundary.
 //!
 //! These are the **composite-level lift** of the value-level
 //! divide↔tensor duality (see `divide_by_schema` / `tensor_by_schema`):
 //! divide splits a value into independent parts, unfurl opens a
 //! composite; tensor combines two values, fold seals a sub-region. One
 //! rung up the bigraph ladder; same algebraic shape.
+
+use indexmap::IndexMap;
 
 use crate::value::{Key, StateMap, Value};
 
@@ -288,4 +285,175 @@ pub fn fold(unfurled: &Value) -> Option<Value> {
         }
     }
     Some(Value::Map(spec))
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Wire re-fusion (S1 part C — BATWD §IV "re-fuse the cut links")
+// ════════════════════════════════════════════════════════════════════
+
+/// After [`unfurl_into`] has hoisted a composite's inner state up to
+/// `composite_path`, **re-fuse the cut links**: rewrite each inner
+/// process's wire whose path matched a bridge entry's internal path
+/// so it points directly to the composite's former outer endpoint.
+///
+/// The substitution per wire:
+///
+/// ```text
+///   if wire_path starts with bridge.{inputs,outputs}[port] = internal_path:
+///     wire_path  →  [".."] + boundary.{inputs,outputs}[port] + suffix
+/// ```
+///
+/// The leading `".."` shifts the reference frame from the inner
+/// process's container (one level deeper after inline) back to the
+/// composite's former container — so the outer wire (which was
+/// relative TO THE COMPOSITE'S CONTAINER) resolves correctly from the
+/// inner process's NEW container.
+///
+/// Pre-conditions: `composite_path` is non-empty (a root-level inline
+/// has no `..` to shift); `boundary` is the [`UnfurlAt::boundary`]
+/// produced by `unfurl_into` (`_type:"unfurled"`). Returns `None`
+/// otherwise.
+///
+/// Process specs are recognised by `_type ∈ {"process", "step",
+/// "link", "composite"}`. Wires are walked recursively — nested process
+/// specs anywhere in the inlined state get their wires rewritten too.
+///
+/// This is the link-graph half of BATWD §IV: after `unfurl_into` does
+/// the place-graph half (inline inner state into the slot),
+/// `refuse_links` makes the link graph continuous across the dissolved
+/// boundary. Together: the flat parent runs the same computation as
+/// the original composite-containing parent.
+pub fn refuse_links(parent: &Value, composite_path: &[Key], boundary: &Value) -> Option<Value> {
+    if composite_path.is_empty() {
+        return None;
+    }
+    let b_map = boundary.as_map()?;
+    if b_map.get("_type").and_then(|v| v.as_str()) != Some(UNFURLED_TYPE) {
+        return None;
+    }
+
+    let bridge = b_map.get("bridge").and_then(|v| v.as_map());
+    let bridge_inputs = bridge
+        .and_then(|m| m.get("inputs"))
+        .and_then(|v| v.as_map())
+        .cloned()
+        .unwrap_or_default();
+    let bridge_outputs = bridge
+        .and_then(|m| m.get("outputs"))
+        .and_then(|v| v.as_map())
+        .cloned()
+        .unwrap_or_default();
+    let outer_inputs = b_map
+        .get("inputs")
+        .and_then(|v| v.as_map())
+        .cloned()
+        .unwrap_or_default();
+    let outer_outputs = b_map
+        .get("outputs")
+        .and_then(|v| v.as_map())
+        .cloned()
+        .unwrap_or_default();
+
+    let mut new_parent = parent.clone();
+    let inlined = new_parent.get_path_mut(composite_path)?;
+    rewire_process_specs(
+        inlined,
+        &bridge_inputs,
+        &outer_inputs,
+        &bridge_outputs,
+        &outer_outputs,
+    );
+    Some(new_parent)
+}
+
+/// Recurse over `value` and rewrite every process-spec's wires.
+fn rewire_process_specs(
+    value: &mut Value,
+    bridge_inputs: &IndexMap<Key, Value>,
+    outer_inputs: &IndexMap<Key, Value>,
+    bridge_outputs: &IndexMap<Key, Value>,
+    outer_outputs: &IndexMap<Key, Value>,
+) {
+    let Some(map) = value.as_map_mut() else {
+        return;
+    };
+    let is_spec = matches!(
+        map.get("_type").and_then(|v| v.as_str()),
+        Some("process" | "step" | "link" | "composite")
+    );
+    if is_spec {
+        if let Some(Value::Map(inputs)) = map.get_mut("inputs") {
+            rewire_wires(inputs, bridge_inputs, outer_inputs);
+        }
+        if let Some(Value::Map(outputs)) = map.get_mut("outputs") {
+            rewire_wires(outputs, bridge_outputs, outer_outputs);
+        }
+    }
+    // Recurse — process specs can be nested (composites containing
+    // composites), and non-spec containers can still carry specs below.
+    for v in map.values_mut() {
+        rewire_process_specs(v, bridge_inputs, outer_inputs, bridge_outputs, outer_outputs);
+    }
+}
+
+fn rewire_wires(
+    wires: &mut IndexMap<Key, Value>,
+    bridge_entries: &IndexMap<Key, Value>,
+    outer_wires: &IndexMap<Key, Value>,
+) {
+    for wire in wires.values_mut() {
+        if let Some(rewired) = rewire_one(wire, bridge_entries, outer_wires) {
+            *wire = rewired;
+        }
+    }
+}
+
+/// If `wire`'s path starts with any `bridge_entries[port]`'s internal
+/// path, replace the prefix with `[".."] + outer_wires[port]`. Returns
+/// `None` if no entry matched (caller leaves the wire unchanged).
+fn rewire_one(
+    wire: &Value,
+    bridge_entries: &IndexMap<Key, Value>,
+    outer_wires: &IndexMap<Key, Value>,
+) -> Option<Value> {
+    let wire_list = wire.as_list()?;
+    let wire_strs: Vec<&str> = wire_list.iter().filter_map(|v| v.as_str()).collect();
+    if wire_strs.len() != wire_list.len() {
+        return None;
+    }
+
+    // Longest-prefix match wins — a bridge entry [a, b] is more
+    // specific than [a]; we want the more specific to take precedence.
+    let mut best: Option<(usize, &Key)> = None;
+    for (port, internal) in bridge_entries {
+        let internal_list = match internal.as_list() {
+            Some(l) => l,
+            None => continue,
+        };
+        let internal_strs: Vec<&str> = internal_list.iter().filter_map(|v| v.as_str()).collect();
+        if internal_strs.len() != internal_list.len() {
+            continue;
+        }
+        if wire_strs.len() < internal_strs.len() {
+            continue;
+        }
+        if wire_strs[..internal_strs.len()] != internal_strs[..] {
+            continue;
+        }
+        match best {
+            None => best = Some((internal_strs.len(), port)),
+            Some((len, _)) if internal_strs.len() > len => best = Some((internal_strs.len(), port)),
+            _ => {}
+        }
+    }
+
+    let (prefix_len, port) = best?;
+    let outer_wire = outer_wires.get(port)?.as_list()?;
+    let suffix: Vec<Value> = wire_list[prefix_len..].to_vec();
+
+    let mut new_path: Vec<Value> = Vec::with_capacity(1 + outer_wire.len() + suffix.len());
+    new_path.push(Value::String("..".to_string()));
+    new_path.extend(outer_wire.iter().cloned());
+    new_path.extend(suffix);
+    Some(Value::List(new_path))
 }

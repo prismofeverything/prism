@@ -11,7 +11,8 @@
 
 use indexmap::IndexMap;
 use prism_schema::{
-    algebra, fold, fold_at, unfurl, unfurl_into, Key, Value, COMPOSITE_TYPE, UNFURLED_TYPE,
+    algebra, fold, fold_at, refuse_links, unfurl, unfurl_into, Key, Value, COMPOSITE_TYPE,
+    UNFURLED_TYPE,
 };
 
 fn val_str(s: &str) -> Value {
@@ -304,6 +305,314 @@ fn parent_context_round_trip_via_algebra_module() {
     let result = algebra::unfurl_into(&parent, &path).unwrap();
     let resealed = algebra::fold_at(&result.parent, &path, &result.boundary).unwrap();
     assert_eq!(resealed, parent);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Wire re-fusion (S1 part C — BATWD §IV "re-fuse the cut links")
+// ════════════════════════════════════════════════════════════════════
+
+/// Build a parent place graph where the inner Grow process's wires
+/// match a bridge entry — so wire re-fusion has something to rewrite.
+///
+/// Composite at cells.alice exposes the `glucose` input port (bridged
+/// to internal `mass`) and the `mass` output port (bridged to internal
+/// `mass`). Inner Grow reads + writes `[mass]` — both wires will be
+/// re-fused after `refuse_links`.
+fn parent_with_bridged_alice() -> Value {
+    let inner_grow = Value::tree([
+        ("_type", val_str("process")),
+        ("address", val_str("local:Grow")),
+        ("config", Value::tree([("rate", Value::float(0.5))])),
+        ("inputs", Value::tree([("mass", wire_to("mass"))])),
+        ("outputs", Value::tree([("mass", wire_to("mass"))])),
+    ]);
+    let inner_state = Value::tree([
+        ("mass", Value::float(5.0)),
+        ("grow", inner_grow),
+    ]);
+    let bridge = Value::tree([
+        ("inputs", Value::tree([("glucose", wire_to("mass"))])),
+        ("outputs", Value::tree([("mass", wire_to("mass"))])),
+    ]);
+    let config = Value::tree([
+        ("state", inner_state),
+        ("bridge", bridge),
+        ("schema", val_str("encoded-schema")),
+    ]);
+    let composite_spec = Value::tree([
+        ("_type", val_str(COMPOSITE_TYPE)),
+        ("address", val_str("local:Composite")),
+        ("config", config),
+        // The composite's outer wires — these are the destinations that
+        // refuse_links rewires inner processes to point to.
+        ("inputs", Value::tree([("glucose", wire_to("glucose_pool"))])),
+        ("outputs", Value::tree([("mass", wire_to("alice_mass_slot"))])),
+    ]);
+    Value::tree([
+        ("glucose_pool", Value::float(100.0)),
+        ("alice_mass_slot", Value::float(0.0)),
+        ("cells", Value::tree([("alice", composite_spec)])),
+    ])
+}
+
+#[test]
+fn refuse_links_rewrites_inner_process_wires() {
+    // The defining behaviour of #53: after refuse_links, the inner Grow
+    // process's wires point DIRECTLY to the composite's former outer
+    // endpoints (prefixed by `..` to shift the reference frame).
+    let parent = parent_with_bridged_alice();
+    let path = [Key::from("cells"), Key::from("alice")];
+    let unfurled = unfurl_into(&parent, &path).expect("unfurl_into");
+    let refused = refuse_links(&unfurled.parent, &path, &unfurled.boundary)
+        .expect("refuse_links");
+
+    // The inner Grow now sits at cells.alice.grow with its wires
+    // rewritten.
+    let grow = refused
+        .get_path(&[Key::from("cells"), Key::from("alice"), Key::from("grow")])
+        .expect("grow at cells.alice.grow");
+
+    // Inputs.mass was `[mass]` (matched the bridge's inputs.glucose →
+    // internal `[mass]`); composite's outer input wire for glucose was
+    // `[glucose_pool]`. After re-fusion: `[..", glucose_pool]`.
+    let input_mass = grow
+        .get_field("inputs")
+        .and_then(|v| v.get_field("mass"))
+        .and_then(|v| v.as_list())
+        .expect("inputs.mass is a list");
+    let input_strs: Vec<&str> = input_mass.iter().filter_map(|v| v.as_str()).collect();
+    assert_eq!(
+        input_strs,
+        vec!["..", "glucose_pool"],
+        "inner Grow's mass-input rewritten through the bridge to glucose_pool"
+    );
+
+    // Outputs.mass was `[mass]` (matched bridge's outputs.mass →
+    // internal `[mass]`); composite's outer output wire for mass was
+    // `[alice_mass_slot]`. After re-fusion: `[".. ", alice_mass_slot]`.
+    let output_mass = grow
+        .get_field("outputs")
+        .and_then(|v| v.get_field("mass"))
+        .and_then(|v| v.as_list())
+        .expect("outputs.mass is a list");
+    let output_strs: Vec<&str> = output_mass.iter().filter_map(|v| v.as_str()).collect();
+    assert_eq!(
+        output_strs,
+        vec!["..", "alice_mass_slot"],
+        "inner Grow's mass-output rewritten through the bridge to alice_mass_slot"
+    );
+}
+
+#[test]
+fn refuse_links_with_no_bridge_match_leaves_wires_unchanged() {
+    // A wire that DOESN'T match any bridge entry stays as-is. Setup: a
+    // process reading from `[internal_only]` — a slot the composite
+    // doesn't expose via the bridge.
+    let inner_proc = Value::tree([
+        ("_type", val_str("process")),
+        ("address", val_str("local:NoOp")),
+        ("inputs", Value::tree([("v", wire_to("internal_only"))])),
+        ("outputs", Value::map()),
+    ]);
+    let inner_state = Value::tree([
+        ("internal_only", Value::float(0.0)),
+        ("proc", inner_proc),
+    ]);
+    let composite_spec = Value::tree([
+        ("_type", val_str(COMPOSITE_TYPE)),
+        ("address", val_str("local:Composite")),
+        (
+            "config",
+            Value::tree([
+                ("state", inner_state),
+                ("bridge", Value::tree([
+                    ("inputs", Value::map()),  // No bridge entries at all
+                    ("outputs", Value::map()),
+                ])),
+                ("schema", Value::None),
+            ]),
+        ),
+        ("inputs", Value::map()),
+        ("outputs", Value::map()),
+    ]);
+    let parent = Value::tree([("alice", composite_spec)]);
+
+    let path = [Key::from("alice")];
+    let unfurled = unfurl_into(&parent, &path).unwrap();
+    let refused = refuse_links(&unfurled.parent, &path, &unfurled.boundary).unwrap();
+
+    let proc = refused
+        .get_path(&[Key::from("alice"), Key::from("proc")])
+        .unwrap();
+    let v_wire = proc
+        .get_field("inputs")
+        .and_then(|v| v.get_field("v"))
+        .and_then(|v| v.as_list())
+        .unwrap();
+    let strs: Vec<&str> = v_wire.iter().filter_map(|v| v.as_str()).collect();
+    assert_eq!(
+        strs,
+        vec!["internal_only"],
+        "non-bridge wire unchanged after refuse_links"
+    );
+}
+
+#[test]
+fn refuse_links_rejects_root_level_composite() {
+    // No `..` to add for a root-level inline — refuse_links returns
+    // None (the caller should keep the structural-inline form for
+    // root-level cases, where there's no outer to point at).
+    let spec = cell_composite_spec();
+    let empty_path: [Key; 0] = [];
+    let unfurled = unfurl_into(&spec, &empty_path).unwrap();
+    let refused = refuse_links(&unfurled.parent, &empty_path, &unfurled.boundary);
+    assert!(refused.is_none(), "root-level refuse_links refuses");
+}
+
+#[test]
+fn refuse_links_walks_into_nested_specs() {
+    // A process spec inside another process spec — both should have
+    // their wires rewritten. Setup: a parent composite contains a sub-
+    // process whose `_type` is "step" with its OWN wires that match
+    // the parent composite's bridge.
+    let nested_step = Value::tree([
+        ("_type", val_str("step")),
+        ("address", val_str("local:NestedStep")),
+        ("inputs", Value::tree([("x", wire_to("mass"))])),
+        ("outputs", Value::map()),
+    ]);
+    let inner_state = Value::tree([
+        ("mass", Value::float(1.0)),
+        ("nested", nested_step),
+    ]);
+    let composite_spec = Value::tree([
+        ("_type", val_str(COMPOSITE_TYPE)),
+        ("address", val_str("local:Composite")),
+        (
+            "config",
+            Value::tree([
+                ("state", inner_state),
+                (
+                    "bridge",
+                    Value::tree([
+                        ("inputs", Value::tree([("upstream", wire_to("mass"))])),
+                        ("outputs", Value::map()),
+                    ]),
+                ),
+                ("schema", Value::None),
+            ]),
+        ),
+        (
+            "inputs",
+            Value::tree([("upstream", wire_to("source_pool"))]),
+        ),
+        ("outputs", Value::map()),
+    ]);
+    let parent = Value::tree([("alice", composite_spec)]);
+
+    let path = [Key::from("alice")];
+    let unfurled = unfurl_into(&parent, &path).unwrap();
+    let refused = refuse_links(&unfurled.parent, &path, &unfurled.boundary).unwrap();
+
+    let step = refused
+        .get_path(&[Key::from("alice"), Key::from("nested")])
+        .unwrap();
+    let x_wire = step
+        .get_field("inputs")
+        .and_then(|v| v.get_field("x"))
+        .and_then(|v| v.as_list())
+        .unwrap();
+    let strs: Vec<&str> = x_wire.iter().filter_map(|v| v.as_str()).collect();
+    assert_eq!(
+        strs,
+        vec!["..", "source_pool"],
+        "nested step's wire rewritten through the bridge"
+    );
+}
+
+#[test]
+fn refuse_links_handles_suffix_paths() {
+    // A wire `[mass, sub]` where the bridge maps to internal `[mass]`
+    // — the `[sub]` suffix should ride along after the outer wire.
+    let inner_proc = Value::tree([
+        ("_type", val_str("process")),
+        ("address", val_str("local:Reader")),
+        (
+            "inputs",
+            Value::tree([(
+                "v",
+                Value::List(vec![val_str("mass"), val_str("sub")]),
+            )]),
+        ),
+        ("outputs", Value::map()),
+    ]);
+    let inner_state = Value::tree([
+        ("mass", Value::tree([("sub", Value::float(7.0))])),
+        ("proc", inner_proc),
+    ]);
+    let composite_spec = Value::tree([
+        ("_type", val_str(COMPOSITE_TYPE)),
+        ("address", val_str("local:Composite")),
+        (
+            "config",
+            Value::tree([
+                ("state", inner_state),
+                (
+                    "bridge",
+                    Value::tree([
+                        ("inputs", Value::tree([("glucose", wire_to("mass"))])),
+                        ("outputs", Value::map()),
+                    ]),
+                ),
+                ("schema", Value::None),
+            ]),
+        ),
+        ("inputs", Value::tree([("glucose", wire_to("source"))])),
+        ("outputs", Value::map()),
+    ]);
+    let parent = Value::tree([("alice", composite_spec)]);
+
+    let path = [Key::from("alice")];
+    let unfurled = unfurl_into(&parent, &path).unwrap();
+    let refused = refuse_links(&unfurled.parent, &path, &unfurled.boundary).unwrap();
+
+    let proc = refused
+        .get_path(&[Key::from("alice"), Key::from("proc")])
+        .unwrap();
+    let v_wire = proc
+        .get_field("inputs")
+        .and_then(|v| v.get_field("v"))
+        .and_then(|v| v.as_list())
+        .unwrap();
+    let strs: Vec<&str> = v_wire.iter().filter_map(|v| v.as_str()).collect();
+    assert_eq!(
+        strs,
+        vec!["..", "source", "sub"],
+        "bridge-prefix replaced with outer wire; the [sub] suffix rides along"
+    );
+}
+
+#[test]
+fn refuse_links_reachable_through_algebra_module() {
+    // Closure-of-the-algebra check: refuse_links is exported from
+    // `prism_schema::algebra` alongside fold/unfurl/fold_at/unfurl_into.
+    let parent = parent_with_bridged_alice();
+    let path = [Key::from("cells"), Key::from("alice")];
+    let unfurled = algebra::unfurl_into(&parent, &path).unwrap();
+    let refused = algebra::refuse_links(&unfurled.parent, &path, &unfurled.boundary).unwrap();
+    // Sanity: refused parent has the bridge-rewritten Grow.
+    let grow = refused
+        .get_path(&[Key::from("cells"), Key::from("alice"), Key::from("grow")])
+        .unwrap();
+    let input_strs: Vec<&str> = grow
+        .get_field("inputs")
+        .and_then(|v| v.get_field("mass"))
+        .and_then(|v| v.as_list())
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    assert_eq!(input_strs, vec!["..", "glucose_pool"]);
 }
 
 #[test]
