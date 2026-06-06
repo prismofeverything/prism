@@ -103,6 +103,12 @@ pub struct ParseError {
     pub line: usize,
 }
 
+/// Whether `word` is a reserved keyword (lexes to a non-identifier token) — so
+/// the unparser knows it can't be emitted as a bare field key (`then`, `in`, …).
+pub fn is_keyword(word: &str) -> bool {
+    keyword(word).is_some()
+}
+
 fn keyword(word: &str) -> Option<Tok> {
     Some(match word {
         "type" => Tok::Type,
@@ -1614,24 +1620,33 @@ impl Parser {
         }
     }
 
-    // `{ key: expr, … }` — Record (all bare-ident keys) or Map (any string
-    // key, which may be interpolated, e.g. `'{id}_0'`). Both evaluate to a
-    // `Value::Map`; the Map form exists so keys can be computed.
+    // `{ key: expr, … }` — a Record (static keys) or a Map (any INTERPOLATED
+    // key, e.g. `'{id}_0'`). Both evaluate to a `Value::Map`; the Map form
+    // exists so keys can be COMPUTED at runtime. A static key is a record field
+    // whether bare (`a`) or quoted (`'a'`) — quoting NEVER flips representation
+    // (only interpolation does). The struct-vs-map distinction is real (it's a
+    // schema distinction: a fixed field-set vs a homogeneous keyset) and is
+    // recovered here from whether any key is computed, not from quote style.
     fn parse_braces(&mut self) -> Result<Expr, ParseError> {
         self.expect(&Tok::LBrace)?;
         enum K {
             Id(String),
-            S(String),
+            S(StringLit),
         }
         let mut entries: Vec<(K, Expr)> = Vec::new();
-        let mut any_str = false;
+        let mut any_computed = false;
         let mut first_entry = true;
         while !self.check(&Tok::RBrace) {
             let key = match self.bump() {
                 Tok::Ident(k) => K::Id(k),
                 Tok::Str(s) => {
-                    any_str = true;
-                    K::S(s)
+                    let lit = self.parse_string_lit(&s)?;
+                    // Only an INTERPOLATED key makes this a computed-key Map; a
+                    // static quoted key is a record field, same as a bare ident.
+                    if lit.as_plain().is_none() {
+                        any_computed = true;
+                    }
+                    K::S(lit)
                 }
                 other => return Err(self.err(&format!("expected a field key, found {other:?}"))),
             };
@@ -1643,7 +1658,7 @@ impl Parser {
             if first_entry && self.accept(&Tok::For) {
                 let key_expr = match key {
                     K::Id(s) => Expr::Str(StringLit::plain(s)),
-                    K::S(s) => Expr::Str(self.parse_string_lit(&s)?),
+                    K::S(lit) => Expr::Str(lit),
                 };
                 let comp = self.parse_comprehension_tail(Some(key_expr), value)?;
                 self.expect(&Tok::RBrace)?;
@@ -1656,24 +1671,23 @@ impl Parser {
             }
         }
         self.expect(&Tok::RBrace)?;
-        if any_str {
-            // Map: keys are StringLits (string keys interpolated).
-            let mut map = Vec::new();
-            for (k, v) in entries {
-                let key = match k {
-                    K::Id(s) => StringLit::plain(s),
-                    K::S(s) => self.parse_string_lit(&s)?,
-                };
-                map.push((key, v));
-            }
+        if any_computed {
+            // Map: at least one key is interpolated (computed at runtime).
+            let map = entries
+                .into_iter()
+                .map(|(k, v)| match k {
+                    K::Id(s) => (StringLit::plain(s), v),
+                    K::S(lit) => (lit, v),
+                })
+                .collect();
             Ok(Expr::Map(map))
         } else {
-            // Record: bare-ident keys.
+            // Record: every key is static (bare or quoted) → record fields.
             let rec: IndexMap<String, Expr> = entries
                 .into_iter()
                 .map(|(k, v)| match k {
                     K::Id(s) => (s, v),
-                    K::S(_) => unreachable!(),
+                    K::S(lit) => (lit.as_plain().expect("static key has a plain form"), v),
                 })
                 .collect();
             Ok(Expr::Record(rec))

@@ -395,14 +395,26 @@ pub fn unparse_expr_at(e: &Expr, indent: usize) -> String {
         Expr::Map(entries) => {
             let parts: Vec<String> = entries
                 .iter()
-                .map(|(k, v)| format!("{}: {}", unparse_string(k), unparse_expr_at(v, indent + 2)))
+                .map(|(k, v)| {
+                    // A static key renders bare (or quoted if not an identifier),
+                    // converging with Record; only an INTERPOLATED key stays a
+                    // quoted template — so quoting a static key never flips the
+                    // round-trip representation.
+                    let key = match k.as_plain() {
+                        Some(s) => unparse_field_key(&s),
+                        None => unparse_string(k),
+                    };
+                    format!("{key}: {}", unparse_expr_at(v, indent + 2))
+                })
                 .collect();
             fmt_braced("{", "}", &parts, indent, indent)
         }
         Expr::Record(fields) => {
             let parts: Vec<String> = fields
                 .iter()
-                .map(|(k, v)| format!("{k}: {}", unparse_expr_at(v, indent + 2)))
+                .map(|(k, v)| {
+                    format!("{}: {}", unparse_field_key(k), unparse_expr_at(v, indent + 2))
+                })
                 .collect();
             fmt_braced("{", "}", &parts, indent, indent)
         }
@@ -652,6 +664,26 @@ fn unparse_key(k: &StringLit) -> String {
         Some(plain) if is_ident(&plain) => plain,
         _ => unparse_string(k),
     }
+}
+
+/// Render a record/map key: a bare identifier when it is one, else a quoted
+/// string. Bare and static-quoted keys converge to one form, so a static key is
+/// a record field whether written bare or quoted, and round-trips stably.
+fn unparse_field_key(name: &str) -> String {
+    if is_bare_ident(name) {
+        name.to_string()
+    } else {
+        format!("'{name}'")
+    }
+}
+
+fn is_bare_ident(s: &str) -> bool {
+    let mut chars = s.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        // A keyword (`then`, `else`, `in`, …) is char-wise an identifier but
+        // can't be a BARE field key — it must stay quoted to re-parse.
+        && !crate::parse::is_keyword(s)
 }
 
 fn unparse_string(s: &StringLit) -> String {
