@@ -928,35 +928,60 @@ From tight to loose:
 `replace id with { 'key1': val1, 'key2': val2 }` desugars to
 `{ _remove: [id], _add: { key1: val1, key2: val2 } }`.
 
-### Cross-composite redexes use map literals (resolved #40)
+### Cross-composite redexes are LINK-GRAPH matches (resolved #40)
 
-A redex that spans multiple **named peers** (rather than matching by
-sort) uses **map literal syntax**:
+A cross-composite redex matches **sealed composites by their published
+ports on a shared link** — never by descending into inner structure.
+This is MAPK's `~bond` mechanism (link-graph matching of molecules)
+**lifted to composites**: the principled form uses `?`-prefixed site
+binders for the composite heads and a shared link var `~e` for the
+coupling:
 
 ```
-reaction Swap (
-  { alice: { state: ?a }, bob: { state: ?b } }
-  =>
-  { alice: { state: ?b }, bob: { state: ?a } }
+reaction Diffuse (
+  ?west ~{edge: ~e} | ?east ~{edge: ~e}
+  => ?west.balance(~e) | ?east.balance(~e)
 )
 ```
 
-The map literal `{ k: v }` is unambiguously **keyed by literal name** —
-contrast with the sort/term form `K[args]~{ports}` which matches a node
-by `_type`. Both forms are needed; conflating them via case heuristics
-(e.g. "lowercase first letter = sibling") decays for mixed-case
-chemistry sorts like `pERK` / `mLys` that are sorts by intent.
+- **`?west` / `?east`** — `?`-prefixed SITE BINDERS (the existing site
+  sigil). The `?` does the disambiguation — no case rule needed.
+- **`~{edge: ~e}`** — `~{}` keeps its ONE meaning (ports↔links); `~e`
+  is the shared LINK VAR that COUPLES the two composites.
+- Two grammar *restrictions removed* (not rules added) make this
+  possible: (1) a redex head may be `?x` (not only a control `K[args]`);
+  (2) a port target may bind a value `?v` (not only `!` / `~link`).
 
-The discarded alternative `alice~{state: ?a} | bob~{state: ?b}` (sketched in
-`docs/merge-protocol.md`) was rejected because the `K~{}` notation is
-already meaningful for control-with-port-interface and re-interpreting
-it as sibling-key would require unreliable case-based disambiguation.
-Map literals — already supported by the parser + `Pattern` lowering —
-are the principled path.
+This **expresses the coupling** — `~e` IS the connection. It
+generalizes over which composites (any two coupled by `e`, never
+hardcoded keys). It is encapsulation-clean by construction (we never
+read inner structure). And it unifies the two scales: ONE BRS matches
+links at the molecule level AND at the composite level — the "one BRS
+rewrites both levels" thesis as syntax.
 
-For the orchestration that runs such a redex (unfurl two composites,
-match against the flat union, fold back), see `prism_schema::fire_across_composites`
-(S2 / merge-protocol slice 6).
+**Place-graph vs link-graph patterns — distinguish them.**
+
+- **Place-graph patterns** (nesting `( )`, map literals
+  `{ alice: { state: ?a } }`) match WITHIN AN OPEN REGION you own and
+  can see into. They describe *location* — "the child named alice has
+  state". Use them when you're INSIDE a composite, matching its body.
+- **Link-graph patterns** (`?site ~{port: ~link}`) match ACROSS
+  SEALED BOUNDARIES via published ports. They describe *coupling* —
+  "two things sharing link e". Use them BETWEEN composites.
+
+The earlier sketches `alice~{state: ?a} | bob~{state: ?b}` (raw
+control-name as peer name) and `{ alice: { state: ?a }, bob: ... }`
+(map literal descent across the boundary) conflate these two graphs:
+they use place-graph machinery for what is really a link-graph
+operation. Use the link-graph form for cross-composite, the
+place-graph forms only WITHIN a region you own.
+
+The orchestration that runs a cross-composite redex
+(`prism_schema::fire_across_composites`, S2 / merge-protocol slice 6)
+operates on the FLAT bigraph after unfurl: it sees the link graph
+spanning the unfurled composites. The site binders + shared link var
+syntax is what lets the redex name peers on that link without
+piercing the still-sealed composites.
 
 ### Body convention
 

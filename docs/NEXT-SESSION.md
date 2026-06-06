@@ -102,8 +102,19 @@
   - ✅ **Schlögl bistable showcase** (`ys/schlogl-engines.ys`): reduced bistable Schlögl (X→1 / X→3 from two ICs); COPASI shows the two basins, COPASI ≈ native RK4 per basin; `Compare` reports gap ≫ engine-disagreement — bistability + engine-agreement in one demo.
   - ⏳ **REMAINING**: auto-fan-out — a comprehension over `fulfillers(C)` that GENERATES the `RunProcess` children ("run every fulfiller of C", the original combinatorial idea) + the dt-refinement sweep (= #9, shows the deterministic MSE → 0). Then #33 KISAO/SED-ML/OMEX export (the deliberate, deferred standards-interop layer).
 - ✅ #45 unify process instantiation through the protocol-aware Core (2026-05-29) — ONE address→process path: `Core::instantiate(address, config)` (`ParsedAddress` + `protocols.instantiate`). A `set_core` trait hook (injected at engine.rs alongside `set_registry`) hands composing nodes the WHOLE Core; **RunProcess AND Simulate** route through it, carrying the full address Value (no pre-trim to `local:`). Rest-addressing now works for a leaf PROCESS too (`build_protocol_outer` + `fulfillers` handle `Def::Process`/`Step`, not just composites), and every chrysalis Core carries `rest`. So local/rest/parallel/stream drive identically everywhere — `RunProcess[proc: CopasiCvode[…]]` works exactly like `RunProcess[proc: Rk4[…]]`. REMAINING (cosmetic): remove the now-dead `set_registry` trait method (no overrides) + the engine's redundant injection call.
-- 🧩 #46 audit for unification opportunities — one path per decisively-defined feature. First pass (2026-05-29): the "no bypasses" discipline largely holds — `infer_and_merge`/`overlay_apply_types` are compile-enforced gone (`closure_guard`), `ChrysalisBrs` removed. Live multiplicities found → #45 (instantiation, done) + #47 (node-spec). REMAINING: verify schema↔string (`render`/`parse_type_expression`), `trace_of`, `divide_by_schema`, `MethodRegistry`; the meta-task spins off a task per confirmed multiplicity.
-- 🧩 #47 unify chrysalis node-spec construction — `build_pure_spec` (process/step → flat) vs `build_composite_outer` (composite → `_process`-wrapped) vs `build_native_spec` produce kind-dependent node shapes (why RunProcess had to learn "`_process` or top-level"). Unify the node ENVELOPE so "a composite IS a process" holds at the node level; KEEP the leaf-vs-composite distinction (principled). The structural root of the asymmetry.
+- 🧩 #46 audit for unification opportunities — one path per decisively-defined feature. First pass (2026-05-29): the "no bypasses" discipline largely holds — `infer_and_merge`/`overlay_apply_types` are compile-enforced gone (`closure_guard`), `ChrysalisBrs` removed. Live multiplicities found → #45 (instantiation, done) + #47 (node-spec, DONE 2026-06-06). REMAINING: verify schema↔string (`render`/`parse_type_expression`), `trace_of`, `divide_by_schema`, `MethodRegistry`; the meta-task spins off a task per confirmed multiplicity.
+- ✅ #47 unify chrysalis node-spec construction — DONE 2026-06-06. Wire format was already unified by an earlier `unify` commit (build_composite_outer emits a FLAT envelope — same shape as build_pure_spec / build_native_spec). This pass removed the dead `_process` defensive fallback in `Simulate::from_config` + `RunProcess::from_config`, refreshed the stale `build_composite_outer` doc comment, and added a RESOLVED callout to `docs/state-schema-unification.md` §A. Leaf-vs-composite distinction preserved INSIDE config (composite holds state+bridge+schema; leaf holds params).
+- ✅ #39 `tensor_by_schema` — DONE 2026-06-06. Schema-driven dual of `divide_by_schema` (`prism_schema::tensor_by_schema`): Delta/Integer SUM, Float/Bool/etc. share-left, containers recurse per-field with key-union, Maybe/Overwrite delegate, link-kinds tensor `node_data_branches`, Custom dispatches to `TypeMethods::tensor` (new trait method). `Qubits` overrides with the quantum cross-product. Law `tensor(divide(state, 2).0, divide(state, 2).1) = state` proven for Delta/Integer + mixed-extensivity Tree. 12 tests in `prism-schema/tests/tensor_by_schema.rs` + 1 chrysalis dispatch test.
+- ✅ #42 Bigraph port type — DONE 2026-06-06. `prism_schema::BigraphTypeMethods` registered as `bigraph` builtin: `apply` reads `Value::Foreign(FOREIGN_REACTION, ReactionRule)` and fires via `fire_rule` + `apply_fire`; no-match no-op; plain Overwrite. Chrysalis-side converter `chrysalis::runtime::rule::{to_structural_rule, to_bigraph_value}` — closure-free chrysalis Rule → prism ReactionRule for structural reactions. With #41's symmetric input bridge, any `~{port :: bigraph}` composite input now accepts reactions as typed updates and fires them inside — algebra-layer property. 4 + 3 tests prove the end-to-end. Reactions-cross-bridges as data is the algebra's job, not a bridge special-case.
+- ✅ #40 cross-composite redex syntax — RESOLVED 2026-06-06 as a LINK-GRAPH operation. Both the original sketch `alice~{state: a} | bob~{state: b}` (raw control as peer) and the interim map-literal answer `{ alice: { state: ?a }, bob: … }` (place-graph descent) conflated place graph with link graph. Cross-composite is fundamentally a LINK operation: match sealed composites by published ports on a shared link, never by descent. The principled form lifts MAPK's `~bond` to composites: `?west ~{edge: ~e} | ?east ~{edge: ~e}` — `?`-prefixed site binders + shared link var `~e`. Two grammar restrictions REMOVED enable this: (1) redex head may be `?x` not only `K[args]`; (2) port target may bind `?v` not only `!`/`~link`. Expresses the COUPLING (any two composites on `e`), encapsulation-clean by construction, unifies molecule-level and composite-level BRS with identical syntax. Documented in `docs/chrysalis-design.md` §"Cross-composite redexes are LINK-GRAPH matches" + `docs/merge-protocol.md` slice 7 + memory `feedback_no_case_heuristics` (supersedes the map-literal entry). Implementation = matcher side of #43.
+- 🧩 #43 cross-composite reactor — PARTIAL 2026-06-06. Foundational mechanism: `prism_schema::fire_across_composites(parent, rule, composite_paths) → CrossFireResult { parent, fired }` enacts the BATWD §V unfurl-fire-fold maneuver. 4 tests in `prism-schema/tests/fire_across_composites.rs` incl. the load-bearing demonstration (redex CANNOT match composite-form parent but matches the flat union after unfurl). REMAINING: (a) auto-detection of which composites a redex names (today caller supplies); (b) engine-level BRS process that runs the mechanism per-tick (today one-shot function); (c) distributed form using #42's Bigraph-typed updates to send reactions across stream/rest bridges.
+- ✅ **S1 BATWD §IV — fold/unfurl as schema-algebra ops** — DONE 2026-06-06 (4 sub-slices). `prism_schema::fold` module + algebra re-exports.
+  - ✅ **A — `unfurl(spec) ↔ fold(envelope)`** — spec-level inverse pair. Round-trip identity `fold(unfurl(spec)) ≡ spec`. 7 tests.
+  - ✅ **B — `unfurl_into(parent, path) ↔ fold_at(parent, path, boundary)`** — parent-context lift hoists `config.state` to the slot; reseals from boundary descriptor (`UnfurlAt`). Round-trip identity. 7 more tests (14 total in `fold_unfurl.rs`).
+  - ✅ **C — `refuse_links(parent, path, boundary)`** — link-graph re-fusion: walks inlined state, finds process specs by `_type`, rewrites each wire whose path matched a bridge entry → `[".."] + outer_wire + suffix`. The leading `..` shifts reference frame to the composite's former container. 6 more tests (20 total).
+  - ✅ **D — engine-driven consumer** — `prism-bigraph/tests/fold_unfurl_consumer.rs`: 2 tests — Counter (basic equivalence) + sharp Adder (input depends on input). Both forms run through Engine, yield identical state. The BATWD §IV "flat parent runs identically" claim proven end-to-end.
+- ✅ **S2 BRS-by-unfurl (= #43 foundation)** — DONE 2026-06-06. `prism_schema::fire_across_composites` enacts unfurl-fire-fold. 4 tests prove necessity (redex matches flat union but not composite-form), correctness (state changes survive re-fold), and edge cases. The user-facing payoff of S1; the algebra layer of #43.
+
 - ⏳ #48 conformance suite (TCK) for "process-bigraph server" — one suite, driven by prism's `RestProcess`, run against every backend (prism `rest_server`, our python sidecar, upstream FastAPI). All green ⇒ same protocol ⇒ the Python↔Rust unification proof. Checks: routes/lifecycle + status codes, typed-port round-trip (not `"any"`), cross-boundary apply/reconcile (delta sums / overwrite overwrites), concurrency, and (when the `sbml` custom type lands) the `/type-packages` handshake for a type registry SHARED both ends.
 - ⏳ #49 promote sidecar wrappers to full process-bigraph Processes — duck-typed today (inputs/outputs/update). The Process base unlocks `reconfigure` (loaded-model reuse — the ActorPool/Session pattern; COPASI/roadrunner cold-start), python-side composites (`Composite(Process)`), `config_schema`/`initial_state`, the type registry (where a shared `sbml` custom type lives + `/type-packages`), and `discover_packages` auto-discovery.
 - ✅ #50 unify the import forms — ONE form: `from <dotted.path> import <Name, …>`. `Def::Import` (the `import N from 'path'` whole-file dump) is GONE — variant + parser arm (now a pointed migration error) + `load_file` whole-file merge + all match sites removed. File-module resolution is unified in `parse.rs` (`parse_file`/`parse_file_with_natives`/`parse_program_in` → `load_file`/`resolve_file_modules`/`merge_named`), **importer-relative + memoized + cycle-guarded**, doing **explicit named selection**: only the named value-defs (+ their transitive value-deps — incl. a protocol's wrapped control, via `collect_def_refs`'s new `Def::Protocol` arm) + the file's type/contract/unit/context/`use` vocabulary are pulled; nothing else. Resolution is **std-module-first**: a single-segment name that is a known native module (threaded via `ModuleRegistry::module_names()`) wins over a same-named sibling `.ys` — this is why `from diffusion import …` binds the native and never recurses into the `diffusion.ys` demo (the cycle that exposed the need). cli/`sf` bin pass `modules.module_names()`; the rewrite-to-absolute test hack is retired (`integrator_comparison`/`export_import` now use `parse_program_in` against the real `ys/`). Migrated 7 `.ys` (agreement/integrator-comparison/cme-gillespie/agreement-engines/schlogl-engines + lib/external + spatio-flux/culture) + the tests (`contract_query` now asserts the narrower named-selection reality: cme-gillespie imports only `SsaEnsemble`/`DistCompare`, so only `SsaEnsemble` answers `fulfillers(ExactCME)`). Full chrysalis + spatio-flux suites green; end-to-end smokes via both bins (dotted spatio-flux section import + native diffusion; dotted chrysalis lib import). The surface-syntax slice of the #46 unity (user: "explicit selection; one form; dotted not string"; "dump is lossy — selective is the only coherent way").
@@ -111,6 +122,181 @@
 A side-quest doc captured the broader landscape: `docs/exploring-the-computational-unknown.md` — survey of reflective towers, meta-circular interpreters, macros, Futamura projections, staging, algebraic effects, probabilistic / differentiable / reversible / quantum / unconventional computing, and the axes that compose into the space of methods.
 
 ---
+
+## ⏯️ NEXT-SESSION PROMPT (2026-06-06 — BATWD fold/unfurl complete; S2 BRS-by-unfurl shipped; #40 resolved via map literals)
+
+> Workspace GREEN (modulo the known `law_reconcile_coherence` flake tracked under
+> #5). This session closed FIVE substantial chunks of the BATWD §IV/§V work plus
+> the principled #40 resolution. Commits the user already took: `tensor` (#47 +
+> #39); the rest is uncommitted at break — large clean diff, well-tested.
+>
+> **#47 — unify chrysalis node-spec construction.** Wire format was already
+> unified by an earlier `unify` commit (build_composite_outer emits a FLAT
+> envelope — same as build_pure_spec / build_native_spec). This pass killed the
+> dead `_process` defensive fallback in `Simulate::from_config` + `RunProcess::
+> from_config`, refreshed the stale doc comment on `build_composite_outer`, and
+> added a RESOLVED callout to `docs/state-schema-unification.md` §A. The
+> leaf-vs-composite distinction is preserved INSIDE config (composite holds
+> state+bridge+schema; leaf holds params).
+>
+> **#39 — `tensor_by_schema`** (schema-driven dual of `divide_by_schema`).
+> Lives at `prism_schema::tensor_by_schema` next to `divide_by_schema`: per
+> kind, Delta/Integer SUM (extensive), Float/Bool/String/etc. share-left
+> (intensive), Tree/Map/RecursiveTree/List/Array/Tuple recurse per-field with
+> key-union, Maybe/Overwrite delegate, link-kinds tensor `node_data_branches`,
+> Custom dispatches to `TypeMethods::tensor` (new trait method with
+> schema-driven default). `Qubits` overrides with the quantum cross-product.
+> Defining law `tensor(divide(state, 2).0, divide(state, 2).1) = state` proven
+> for Delta/Integer + mixed-extensivity Tree. 12 tests in
+> `prism-schema/tests/tensor_by_schema.rs` + 1 chrysalis dispatch test.
+>
+> **#42 — Bigraph port type (substrate + chrysalis converter).**
+> `prism_schema::BigraphTypeMethods` registered as the `bigraph` builtin:
+> `apply` reads `Value::Foreign(FOREIGN_REACTION, ReactionRule)` and fires via
+> `fire_rule` + `apply_fire`; no-match is a no-op; plain updates Overwrite.
+> Then `chrysalis::runtime::rule::{to_structural_rule, to_bigraph_value}` —
+> the closure-free chrysalis Rule → prism ReactionRule converter for
+> structural reactions. 4 + 3 tests prove the end-to-end: chrysalis Rule →
+> Foreign wrap → `algebra::apply_with(Custom{bigraph}, …)` → fire → state
+> updated. Combined with #41's symmetric input bridge: ANY `~{port :: bigraph}`
+> chrysalis composite input now accepts reactions as typed updates and fires
+> them inside — algebra-layer property, not a bridge special-case.
+>
+> **S1 fold/unfurl complete (parts A-D).** The BATWD §IV maneuver, schema-
+> algebra ops:
+>
+>   - **Part A** `unfurl(spec) ↔ fold(envelope)` — spec-level inverse pair,
+>     round-trip identity `fold(unfurl(spec)) ≡ spec`.
+>   - **Part B** `unfurl_into(parent, path) ↔ fold_at(parent, path, boundary)`
+>     — parent-context lift: hoists `config.state` to the slot, reseals from
+>     boundary descriptor (`UnfurlAt`). Round-trip identity proven.
+>   - **Part C** `refuse_links(parent, path, boundary)` — link-graph re-fusion:
+>     walks inlined state, finds every process spec by `_type`, rewrites each
+>     wire whose path matched a bridge entry's internal path → `[".."] +
+>     outer_wire + suffix`. The leading `..` shifts reference frame one level
+>     deeper (inner process's new container) back to composite's former
+>     container.
+>   - **Part D** engine-driven consumer (`prism-bigraph/tests/
+>     fold_unfurl_consumer.rs`): TWO tests — Counter (basic equivalence) +
+>     sharp Adder (input depends on input — proves input-wire rewiring works).
+>     Both forms run through Engine, yield identical state.
+>
+>   26 tests across `prism-schema/tests/fold_unfurl.rs` (20) + the consumer (2)
+>   prove signatures + laws + property tests + bridge-wire rewriting + the
+>   consumer that proves it — the full §IV slice plan from BATWD §IX.
+>
+> **S2 — BRS-by-unfurl** (`fire_across_composites`). The orchestrator: given
+> parent + ReactionRule + composite_paths, unfurl_into each composite, run
+> `find_matches` against the now-flat union, fire_rule_at + apply_fire the
+> first match, fold_at each composite back. 4 tests in
+> `prism-schema/tests/fire_across_composites.rs`:
+>
+>   1. No-match round-trip identity (S1's defining law lifted).
+>   2. Cross-composite match where the redex CANNOT match the composite-form
+>      parent (both cells are spec-wrapped) but matches the flat union after
+>      unfurl — proves the maneuver's necessity end-to-end.
+>   3. Bogus paths rejected.
+>   4. Single-composite (n=1) degenerate case.
+>
+> Resolves **#43 cross-composite reactor** as PARTIAL — foundational
+> mechanism done. Remaining for full #43: auto-detection of which composites
+> a redex names (today the caller passes them); engine-level BRS process that
+> runs the mechanism per-tick; distributed form (use #42's Bigraph-typed
+> updates to send reactions across stream/rest bridges).
+>
+> **#40 — cross-composite redex syntax** RESOLVED 2026-06-06 as a
+> LINK-GRAPH operation (not place-graph descent). The flow: I first tried
+> case heuristics (lowercase + has-ports = sibling) for the original sketch
+> `alice~{state: ?a} | bob~{state: ?b}` — broke `pERK`/`mLys` chemistry
+> sorts; user flagged the contortion. I then proposed map literals
+> `{ alice: { state: ?a }, bob: ... }` — committed to docs + a test. User
+> then refined: **both attempts conflated place graph with link graph**.
+> Cross-composite redexes match SEALED COMPOSITES by their published ports
+> on a SHARED LINK, never by descent into inner structure. The principled
+> form lifts MAPK's `~bond` to composites:
+>
+> ```
+> reaction Diffuse (
+>   ?west ~{edge: ~e} | ?east ~{edge: ~e}
+>   => ?west.balance(~e) | ?east.balance(~e)
+> )
+> ```
+>
+> Two grammar *restrictions removed* enable it: (1) a redex head may be
+> `?x` (not only a control `K[args]`); (2) a port target may bind `?v`
+> (not only `!`/`~link`). The pattern expresses the COUPLING (any two
+> composites on `e`), is encapsulation-clean by construction, and unifies
+> molecule-level and composite-level BRS — one BRS rewrites BOTH levels
+> with identical syntax. Reverted the eval.rs heuristic; rewrote
+> `docs/chrysalis-design.md` §"Cross-composite redexes are LINK-GRAPH
+> matches" and `docs/merge-protocol.md` slice 7. Memory
+> `feedback_no_case_heuristics` updated to the link-graph resolution
+> (superseding the map-literal entry). The test file
+> `chrysalis/tests/cross_composite_redex_via_map_literal.rs` stays as a
+> valid PLACE-GRAPH demo (the right tool for keyed match WITHIN a region
+> you own) but is not the answer to #40 — that's the matcher side of #43.
+>
+> **The algebra view — the BATWD §IV table fully populated**:
+>
+> ```
+> state level:     divide  ↔  tensor                 (#39)
+> composite level: unfurl  ↔  fold                   (S1A)
+>                  unfurl_into ↔ fold_at             (S1B)
+> link graph:      refuse_links                      (S1C)
+>                  behavioral equivalence proven     (S1D)
+> orchestrator:    fire_across_composites            (S2)
+> ```
+>
+> **Uncommitted at break**: a single big-but-clean diff
+> (`prism-schema/src/{fold,registry,lib,algebra}.rs`,
+> `prism-schema/tests/{fold_unfurl,tensor_by_schema,bigraph_type,
+> fire_across_composites}.rs`, `prism-std/src/{simulate,process_runner}.rs`,
+> `chrysalis/src/{eval,quantum,runtime/{mod,rule}}.rs`,
+> `chrysalis/tests/{qubits_tensor_through_algebra,bigraph_rule_through_algebra,
+> bigraph_type,cross_composite_redex_via_map_literal,fold_unfurl_consumer}.rs`,
+> `prism-bigraph/tests/fold_unfurl_consumer.rs`, plus
+> `docs/{merge-protocol,state-schema-unification,chrysalis-design}.md`).
+> Plus the usual spatio-flux/out drift. Suggested commit messages: *"node
+> envelope"*, *"tensor"*, *"bigraph type"*, *"converter"*, *"fold unfurl"*,
+> *"refuse links"*, *"consumer"*, *"BRS by unfurl"*, *"map literals"*.
+>
+> **NEXT (open work, in suggested order):**
+> 1. **#40 implementation — link-graph cross-composite syntax** (matcher
+>    side of #43). Two grammar restrictions to remove (no new rules
+>    added): (a) parser/AST allow `?x` as a redex HEAD (not only
+>    `K[args]`); (b) parser allow `?v` as a PORT TARGET value-binder
+>    (not only `!`/`~link`). Pattern lowering: `?x ~{port: ~e}` becomes
+>    a site-bound link pattern that the matcher unifies on the shared
+>    `~e` link var. Tests: a `Diffuse`-style reaction that fires across
+>    two stream/rest composites sharing an `edge` port wired to the same
+>    link. See `docs/chrysalis-design.md` §"Cross-composite redexes are
+>    LINK-GRAPH matches" + memory `feedback_no_case_heuristics`.
+> 2. **S3 part A — connected-component discovery.** A walk over the link
+>    graph of a flat parent state to identify which composites a redex
+>    names — closes the auto-detection layer of #43 / merge-protocol slice
+>    6. With #40's link-graph form in hand, this becomes: given a redex
+>    using `~e`, find all composites that publish a port wired to `e`,
+>    `unfurl_into` those, fire, fold. Today `fire_across_composites`
+>    takes explicit paths; this slice makes it user-facing.
+> 3. **S3 part B — real hyperedges.** Today only 2-ended LinkVars are
+>    drawn; n-ended hyperedges (a name shared by 3+ ports) would let a
+>    redex name an entire entanglement group at once. Pattern + matcher
+>    extension in `prism_schema::reaction`.
+> 4. **S4 — topology reactions.** Redex/reactum at the composite LEVEL
+>    (add/remove composite nodes, add/remove outer links). The same BRS
+>    rewrites the mesh — auto-merge on a coupling link, auto-split on
+>    factorization. The end-state of the BATWD plan.
+> 5. **Engine-level BRS process** that runs `fire_across_composites` per
+>    tick (today it's a one-shot function). Closes the user-facing path:
+>    a chrysalis `reaction R = ...` with a link-graph cross-composite
+>    redex fires automatically each tick.
+> 6. **Distributed cross-composite reactions** — use #42's Bigraph-typed
+>    updates to send a reaction across a stream/rest bridge for the
+>    receiver to fire. Combines S1's substrate + #42's payload + the
+>    merge-protocol's transport claim.
+> 7. **Other tracks ready**: #6 conduits, #9 dt-sweep, #5 laws (the flake
+>    is real), #25-29 distributed phases, #15+#30 schema-as-state +
+>    entity registry slices 3-4.
 
 ## ⏯️ NEXT-SESSION PROMPT (2026-05-28 — symmetric bridge apply + lifecycle on real composites + schema-algebra unification)
 

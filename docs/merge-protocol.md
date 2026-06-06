@@ -258,18 +258,34 @@ principle)
      composites a redex names (today the caller passes the paths);
      engine-level BRS process that consumes the mechanism each tick.
 
-7. **Sibling-addressing in reaction syntax** (resolved: use map
-   literals — task #40, 2026-06-06). The sketch
-   `alice~{state: a} | bob~{state: b}` was rejected as it conflates the
-   port-interface form `K~{}` (used for sorts/controls) with a
-   sibling-key form, requiring case-based heuristics that decay for
-   mixed-case chemistry sorts (`pERK`/`mLys`). The principled syntax is
-   the **map literal** `{ alice: { state: ?a }, bob: { state: ?b } }`
-   — unambiguously keyed by literal name, already supported by the
-   existing parser + `Pattern` lowering. See
-   `crates/chrysalis/tests/cross_composite_redex_via_map_literal.rs`
-   and `docs/chrysalis-design.md` §"Cross-composite redexes use map
-   literals".
+7. **Sibling-addressing in reaction syntax** — RESOLVED 2026-06-06 as
+   a LINK-GRAPH operation (task #40). The original sketch
+   `alice~{state: a} | bob~{state: b}` (raw control as peer name) and
+   the interim map-literal answer `{ alice: { state: ?a }, bob: … }`
+   (place-graph descent) BOTH conflated place graph with link graph.
+   Cross-composite matching is fundamentally a LINK operation: match
+   sealed composites by their published ports on a shared link, never
+   by descent into inner structure. The principled form (MAPK's
+   `~bond` lifted to composites):
+
+   ```
+   reaction Diffuse (
+     ?west ~{edge: ~e} | ?east ~{edge: ~e}
+     => ?west.balance(~e) | ?east.balance(~e)
+   )
+   ```
+
+   `?west`/`?east` are site binders (the `?` disambiguates, no case
+   rule); `~e` is the shared link var that COUPLES the composites.
+   Two grammar *restrictions removed* enable this: (1) redex head may
+   be `?x` not only `K[args]`; (2) port target may bind `?v` not only
+   `!`/`~link`. The pattern expresses the COUPLING (any two composites
+   on `e`), is encapsulation-clean by construction, and unifies the
+   two scales — ONE BRS rewrites molecule-level AND composite-level
+   link patterns with identical syntax. Documented in
+   `docs/chrysalis-design.md` §"Cross-composite redexes are LINK-GRAPH
+   matches"; memory `feedback_no_case_heuristics` (superseding entry).
+   Implementation: matcher side of #43 (cross-composite reactor).
 
 8. **Distributed merge** — slices 1-7 working when source composites
    are stream children on remote machines. Test that "merge produces
