@@ -211,7 +211,7 @@ on input + a few schema-algebra operations.
 | Bridge OUTPUT — update via tap + forward | `composite.rs:240-273` (`bridge_out_deltas`) | ✅ already update-based |
 | Bridge INPUT — currently SET (overwrite-implicit) | `composite.rs:204-208` | ⚠ needs symmetric apply |
 | `tensor_by_schema` (dual of `divide_by_schema`) | `prism_schema::tensor_by_schema` + `TypeMethods::tensor` (#39) | ✅ |
-| Reaction-as-update schema (`:: Bigraph` apply) | — | ⏳ |
+| Reaction-as-update schema (`:: bigraph` apply) | `prism_schema::BigraphTypeMethods` + `FOREIGN_REACTION` (#42) | ✅ |
 
 ## Slices (in dependency order, refreshed under the symmetric-bridge
 principle)

@@ -16,8 +16,17 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
+use crate::reaction::{apply_fire, fire_rule, ReactionRule};
 use crate::schema::{json_to_value, value_to_json, Schema};
 use crate::value::{Foreign, Key, StateMap, Value};
+
+/// `Value::Foreign` type tag for a [`ReactionRule`] traveling as data —
+/// the payload at a `:: bigraph` port (#42). When an update at a
+/// `bigraph`-typed slot is `Value::Foreign(FOREIGN_REACTION, rule)`,
+/// `BigraphTypeMethods::apply` fires the rule against the slot's current
+/// state. Plain (non-Foreign) updates fall through to overwrite — the
+/// matchable region is replaced as a whole.
+pub const FOREIGN_REACTION: &str = "reaction";
 
 /// Context for `TypeMethods::divide` — informs partitioning strategy.
 /// Different types interpret it differently: mesh types read a
@@ -168,6 +177,21 @@ impl TypeRegistry {
             Schema::Any,
             None,
             Some(Arc::new(SchemaTypeMethods) as Arc<dyn TypeMethods>),
+            Vec::new(),
+        );
+        // RT.5: the `bigraph` type — a sub-bigraph value whose `apply` is
+        // **reaction-fire** (#42). An update carrying a
+        // `Value::Foreign(FOREIGN_REACTION, ReactionRule)` fires the rule on
+        // the current state and returns the resulting state; any other
+        // update is treated as `Overwrite` (replacing the whole sub-bigraph).
+        // This is the schema-level home for reactions-as-typed-updates
+        // (`docs/merge-protocol.md` slice 5; `docs/bigraphs-all-the-way-down.md`
+        // §V — one BRS, the same firing across composite boundaries).
+        self.register_full(
+            "bigraph",
+            Schema::Any,
+            None,
+            Some(Arc::new(BigraphTypeMethods) as Arc<dyn TypeMethods>),
             Vec::new(),
         );
         // RT.4: generic catalog types.
@@ -899,6 +923,80 @@ fn tensor_tuple(
         .map(|((va, vb), sub)| tensor_by_schema(sub, va, vb, registry))
         .collect();
     Value::List(out)
+}
+
+// ════════════════════════════════════════════════════════════════════
+// `bigraph` — sub-bigraph value whose apply IS reaction-fire (#42)
+// ════════════════════════════════════════════════════════════════════
+
+/// `bigraph` — a matchable sub-bigraph stored as plain state. Its `apply`
+/// reads the update: if it carries a [`ReactionRule`] (wrapped as
+/// `Value::Foreign(FOREIGN_REACTION, …)`), the rule is fired against the
+/// current state and the post-fire value is returned. Any other update
+/// shape is interpreted as an `Overwrite` — the matchable region is
+/// replaced wholesale.
+///
+/// This is the schema-level home for **reactions-as-typed-updates**: an
+/// input port typed `:: bigraph` accepts reactions as values that cross
+/// the bridge and fire inside the receiver — the foundation merge-
+/// protocol slice 5 (and `docs/bigraphs-all-the-way-down.md` §V) call for.
+///
+/// `divide` shares the state to each daughter — true fold/unfurl-driven
+/// division belongs in S1 of BATWD (the schema-algebra ops); here the
+/// type just carries data + the firing apply.
+#[derive(Debug)]
+pub struct BigraphTypeMethods;
+
+impl TypeMethods for BigraphTypeMethods {
+    fn default(&self, _registry: &TypeRegistry, _schema: &Schema) -> Value {
+        Value::map()
+    }
+
+    fn apply(
+        &self,
+        _registry: &TypeRegistry,
+        _schema: &Schema,
+        state: &Value,
+        update: &Value,
+    ) -> Value {
+        // Reaction-fire path: an update wrapped as a Foreign-tagged
+        // ReactionRule fires against state. If no match exists, the rule
+        // is a no-op (state unchanged), preserving "an update should not
+        // silently lose information."
+        if let Value::Foreign(f) = update {
+            if f.type_name == FOREIGN_REACTION {
+                if let Some(rule) = f.downcast_ref::<ReactionRule>() {
+                    return match fire_rule(state, rule, None) {
+                        Some(fire) => apply_fire(state, &fire),
+                        None => state.clone(),
+                    };
+                }
+            }
+        }
+        // Overwrite path: any other update replaces the sub-bigraph
+        // wholesale. (A future structural-update form — `_add`/`_remove`
+        // sentinels — can layer here once we want patch semantics
+        // without a full reaction.)
+        update.clone()
+    }
+
+    fn divide(
+        &self,
+        _registry: &TypeRegistry,
+        _schema: &Schema,
+        state: &Value,
+        ctx: &DivideContext,
+    ) -> Vec<Value> {
+        vec![state.clone(); ctx.n_daughters.max(2)]
+    }
+
+    fn serialize(&self, _registry: &TypeRegistry, _schema: &Schema, state: &Value) -> Value {
+        state.clone()
+    }
+
+    fn realize(&self, _registry: &TypeRegistry, _schema: &Schema, encoded: &Value) -> Value {
+        encoded.clone()
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════
