@@ -18,10 +18,11 @@ Fence tags:
 Every fenced `ys` block is a *complete program* (some defs and/or a trailing
 term). Sub-expression fragments appear as inline `code`.
 
-> **Status:** slice 1 (the verified core that works today). `pattern`,
-> rate-expressions, and first-class `link` are fenced `ys ignore` until their
-> directions land (see `docs/NEXT-SESSION.md` and the memory
-> `project_chrysalis_evolution`).
+> **Status:** the verified core **plus the link surface**. `pattern`, rate
+> expressions, first-class **`link`** (§9), and reaction-driven **division**
+> (`?c.divide()`, §8) are all live — and `ys run`-tested below. Only two forms
+> stay `ys ignore` (match-derived rate, cross-composite redex), shown honestly in
+> §11. See `docs/NEXT-SESSION.md` + memory `project_chrysalis_evolution`.
 
 ---
 
@@ -208,8 +209,10 @@ composite System[soup :: map[any]] ->{soup :: map[any]} (
 
 Reactions are **first-class values** — `rules: [Bind]` references one by name; a
 process body can construct and install new ones. The reactum may compute with a
-bound site (`?c.divide()` — division dispatched on the cell's type), which is how
-the same `Divide` rule works for any extensive field:
+bound site: `?c :: Cell` binds the matched cell as a typed value, and
+`?c.divide()` dispatches division on the cell's **type** — the engine splits it
+by its schema (extensive fields halve, the rest is shared and inherited), so one
+`Divide` rule works for any cell and **mass is conserved**:
 
 ```ys
 reaction Divide[threshold :: float = 2.0] (
@@ -218,6 +221,8 @@ reaction Divide[threshold :: float = 2.0] (
   ?c.divide()
 )
 ```
+
+This runs end-to-end — §9 puts it on a shared resource pool (the full grow/divide).
 
 A reaction's **rate** is an expression — its propensity — closing over config
 params and matched bindings, so stochastic kinetics are real, not nominal:
@@ -250,7 +255,39 @@ pattern InCompartment[kind, contents] (
 
 ---
 
-## 9. Gotchas (read these once)
+## 9. Links — the value-bearing hyperedge
+
+§8's `~e` is a *bond* a reaction matches. A **`link`** lifts that to a
+first-class, **value-bearing hyperedge**: declare it once, and any node attaches
+a port to it **by name** (`~{port: ~name}`). Every attached port reads the same
+value, and updates from all of them accumulate on the one slot. The engine
+resolves `~name` up the place graph to the nearest `link`, so it is
+**depth-independent** — a daughter cell attaches wherever it lands.
+
+```ys run
+process Eat[k :: float = 0.1] ~{glucose :: float} ->{glucose :: float} (
+  { glucose: -(k * glucose) }              # draw down the shared pool
+)
+
+composite Dish ->{glucose :: float @ glucose} (
+  link glucose :: float = 100.0 |          # ONE shared pool — a hyperedge
+  a: Eat ~{glucose: ~glucose} ->{glucose: ~glucose} |
+  b: Eat ~{glucose: ~glucose} ->{glucose: ~glucose}   # both attach by NAME
+)
+```
+
+Both eaters draw on the *same* 100 — after one tick it's 80, not 90. This is the
+link graph made first-class, and the *same* primitive is a resource pool, a
+quantum-entanglement edge, or a diffusion halo.
+
+Combine it with §8's `?c.divide()` and you get the whole story —
+`crates/chrysalis/ys/grow-divide-glucose.ys`: cells grow on a shared glucose
+pool, divide when big enough (daughters inherit the pool attachment), and
+`glucose + Σ mass` stays constant every tick.
+
+---
+
+## 10. Gotchas (read these once)
 
 - **Subprocesses are auto-keyed by lowercased control name.** `Tick ~{…}` inside a
   composite body becomes `tick: Tick ~{…}`. If you need two of the same control,
@@ -268,19 +305,14 @@ pattern InCompartment[kind, contents] (
 
 ---
 
-## 10. Planned — the roadmap, shown honestly (`ys ignore`)
+## 11. Planned — shown honestly (`ys ignore`)
 
-These don't run yet. They're the active evolution directions (memory
-`project_chrysalis_evolution`); shown so you know what's coming and don't mistake
-them for live syntax.
+Two forms aren't live yet (the active directions; memory
+`project_chrysalis_evolution`). Shown so you don't mistake them for live syntax.
 
-**Direction 1 — `pattern`** ✅ *live* (see §8): a reusable redex fragment, so a
-shared shape is written once instead of inlined per reaction. Remaining: apply it
-to `mapk.ys` itself (a fixture/regeneration step) to kill its 14× duplication.
-
-**Direction 1+4 — `pattern` + match-derived rate.** Rate expressions are *live*
-now (§8); what remains is abstracting the shared redex with `pattern` and
-match-derived rate terms like `count(MEK)` — the full MAPK propensity:
+**Match-derived rate** — a propensity term that *counts matched ions*, for the
+full MAPK kinetics. (Rate expressions themselves are live, §8; what's missing is
+`count(…)` over the match.)
 
 ```ys ignore
 reaction Phosphorylate[k :: float = 2.0] (
@@ -289,19 +321,11 @@ reaction Phosphorylate[k :: float = 2.0] (
 ) rate ( k * count(MEK) * count(ERK) )
 ```
 
-**Direction 3 — first-class `link` (a shared hyperedge).** The *same* primitive
-does resource pools, quantum entanglement, and diffusion halos:
-
-```ys ignore
-composite Environment[cells :: map[any]] (
-  link glucose :: float = 1000.0       # one shared pool over all cells
-  cells ~{glucose: ~glucose}
-)
-```
-
-**Direction 3 — cross-composite redex = link-graph match** (site binders + a
-shared link var; *not* place-graph descent — see §8 and memory
-`feedback_no_case_heuristics`):
+**Cross-composite redex** — a reaction matching across SEALED composites by their
+published ports on a shared link (the link-graph form of §9, *not* place-graph
+descent — see §8 and memory `feedback_no_case_heuristics`). The mechanism
+(`fire_across_composites`) exists; wiring the surface matcher to it is the
+remaining slice.
 
 ```ys ignore
 reaction Diffuse (
@@ -312,7 +336,7 @@ reaction Diffuse (
 
 ---
 
-## 11. The two laws for working *in* this codebase
+## 12. The two laws for working *in* this codebase
 
 1. **chrysalis is a THIN layer — never reimplement prism.** Matching, firing,
    BRS, scheduling, structural diff, the schema algebra all live in prism

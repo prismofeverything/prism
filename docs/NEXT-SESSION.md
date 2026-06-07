@@ -124,7 +124,90 @@
 - ✅ #53 `pattern` definer + MAPK de-dup (2026-06-06) — reusable redex FRAGMENTS; a use `Name[args]` substitutes by name + splices (a parallel arg flattens by `|` associativity — NO unquote sigil; the wei-qi quote/unquote resolution). `eval_pattern_term` expansion + `substitute_vars`. `tests/pattern_def.rs`. **MAPK de-duplicated**: 5 patterns (`Catalysis`/`CytoOuter`/`CytoInner`/`NucCyto`/`NucInner`) replace 14 inlined `Compartment` blocks (`fixtures/mapk.rs` → regenerated `ys/mapk.ys`). **Fixture↔.ys sync ENFORCED** (closes the gap nothing guarded): `tests/fixture_sync.rs` = a consistency check + an `--ignored` regenerator for mapk.ys/mr.ys.
 - ✅ #54 subtractions (2026-06-06) — (a) **reactum classified by STRUCTURE** (`reactum_is_structural`), not by a try/catch on lowering → a malformed structural reactum now errors instead of mis-routing to a broken computed one; (b) **records/maps unified** — static keys = record (bare OR quoted), only an INTERPOLATED key = map (kills the quote-flips trap); unparse renders a key bare iff it's a non-keyword identifier (`unparse_field_key`; `parse::is_keyword` exposed). `Expr::Record`/`Map` both eval to `Value::Map`; the struct↔map distinction stays in `SchemaExpr` (load-bearing for heterogeneous declared-typed literals). BRS un-magic → folded into #30 (one defensible arm; proper un-magic = BRS-as-built-in-ENTITY = #30).
 
+- ✅ #55 brand/subtype type system — Cardelli F₁&lt;: (structural records + branding + subsumption). A `composite`/alias **IS** a registered type; a value carries its most-specific type NAME as a `_type` brand; KIND is recovered via `TypeRegistry::is_a` over the `inherits` chain; root brands `link`/`process`/`step`/`composite`. The principled replacement for "structural matching" heuristics. `docs/generative-core.md`, memory [[brand_subtype_type_system]].
+- ✅ #56 link surface (first-class `link`, direction 3 core) (2026-06-06) — `link name :: T = default` (a `_links` scope marker + pool slot) + `~{port: ~name}` attachment + engine `resolve_link` (walks the place graph to the nearest scope → ONE shared slot, **depth-independent**). The value-bearing hyperedge = resource pool / entanglement edge / diffusion halo, ONE primitive. `tests/link_pool.rs`, primer §9. DEFERRED (L4, no consumer): n-ended hyperedges in the matcher, cross-composite redex wiring (→ #43).
+- ✅ #57 reaction-driven division, CONSERVING (2026-06-06) — `?c :: Cell[mass: ?m] where … => ?c.divide()`: the redex binds the matched cell as a typed value; `?c.divide()` emits a binary `_divide` directive; the engine enacts the schema-split LATE (`divide_by_schema(CompositeLink)`), so it splits the LIVE (this-tick-grown) node and **mass is conserved across the dividing tick** — the Form-3 property, now for reactions. `grow-divide-glucose.ys` OFF SKIP + conserving; `reaction_divide.rs`.
+- ✅ #58 apply_fire unified onto the algebra (2026-06-06) — fire-application is now ONE schema-aware path (`algebra::apply_with`), not a schemaless mutator; the BRS RETURNS reconciled fire deltas and the ENGINE applies them; the Core is threaded so `Custom` types resolve (mapk: `set_core` + `result.core`, not a registry subset); an unregistered/registryless `Custom` degrades to STRUCTURAL (the value defines the type), not blind-replace. The bug was one thing wearing three masks — three spots that lacked the Core.
+- 🧩 #59 the generative-core unification PROGRAM (`docs/generative-core.md`) — reduce to the essential core, ONE way to do each thing. Facets (keep concrete, point the same way): thread Core consistently (not registry subsets); survey duplicate paths across prism+chrysalis; one-door BUILD-FAILING guards (make non-duplication an automatable invariant); confluence / normal-forms (the algebra as canonicalizer); core + desugaring / Felleisen conservative-extensions; unify method definition (composites get a `with { methods }` block too); the BASIS question (#60).
+- 🧩 #60 reactions vs `_add`/`_remove` — which is PRIMARY? (the arrow direction). Today reactions PRODUCE sentinels; in bigraph theory the REACTION (match+rewrite) is the generator and `_add`/`_remove`/`_divide` are reaction-shapes. Decide the minimal basis; relates to AlChemy + division characterization. Likely a duality (a delta is a degenerate reaction).
+- 🧩 #61 AlChemy demo — a `.ys` BRS whose reactions GENERATE new reactions (reactions as first-class transmittable values; closure-under-composition / self-catalysis; Fontana's AlChemy). The closing of the reaction loop (memory [[project_chrysalis_evolution]] direction 4).
+
 A side-quest doc captured the broader landscape: `docs/exploring-the-computational-unknown.md` — survey of reflective towers, meta-circular interpreters, macros, Futamura projections, staging, algebraic effects, probabilistic / differentiable / reversible / quantum / unconventional computing, and the axes that compose into the space of methods.
+
+---
+
+## ⏯️ NEXT-SESSION PROMPT (2026-06-06c — link surface + conserving division + algebra unification; NEXT = #5/#60 then BATWD endgame)
+
+> Suite GREEN (full workspace, 0 fail). This session built the **type substrate +
+> the link surface + the unified apply**, and gave the primer real love.
+>
+> **Landed (#55–#58):**
+> - **Brand/subtype type system** (Cardelli F₁&lt;:) — a `composite`/alias IS a
+>   registered type; values carry a `_type` brand; KIND via `is_a` over `inherits`.
+>   The principled end of "structural matching" heuristics.
+> - **First-class `link`** — the value-bearing hyperedge: `link name :: T = d` +
+>   `~{port: ~name}` + depth-independent `resolve_link`. Resource pool / entanglement
+>   edge / diffusion halo = ONE primitive. (primer §9, `link_pool.rs`)
+> - **Conserving reaction-division** — `?c :: Cell => ?c.divide()` splits the LIVE
+>   node LATE via the `_divide` sentinel; mass conserved across the dividing tick.
+>   `grow-divide-glucose.ys` is OFF SKIP and conserves `glucose + Σmass`.
+> - **`apply_fire` unified onto the algebra** — one schema-aware apply; the BRS
+>   RETURNS deltas, the engine APPLIES; the Core is threaded everywhere (no registry
+>   subsets); unregistered `Custom` = structural. One bug wore three masks, each a
+>   spot that lacked the Core.
+> - **Primer** (`docs/chrysalis-primer.md`) refreshed — `link` + division now live
+>   `ys run` blocks (§9, §8); only match-derived rate + cross-composite redex remain
+>   `ys ignore`. Doctest green.
+>
+> **NEXT — in order (user-directed):**
+> 1. **#5 / #59 — thread the Core consistently.** Sweep for the `result.registry`
+>    (not `result.core`) drift we fixed in `nested_composite` + `mapk`; standalone
+>    process/BRS constructions that skip `set_core`; consider a Core-aware BRS
+>    constructor so `set_core` isn't forgettable. Kill the dead `set_registry`.
+> 2. **#60 — the basis question:** reactions vs `_add`/`_remove`. Establish the
+>    reaction (match+rewrite) as the generator; sentinels as reaction-shapes. This
+>    is the doorway to AlChemy (#61) and the topology reactions BATWD needs.
+> 3. **BATWD endgame** (see below).
+>
+> ---
+>
+> ### 🌋 BATWD endgame — the ultimate demo ("biological quantum synthesizers")
+>
+> The vision (`docs/bigraphs-all-the-way-down.md`): ONE self-similar bigraph
+> (state-tree inside a composite; composites within composites), ONE BRS that
+> rewrites BOTH levels, the LINK graph (now first-class) as the unifying fabric —
+> so distributed / quantum / streaming / audio / reactions-making-reactions /
+> dynamic-mesh are all the SAME machine. **Yes, we can build it** — it's
+> composition of pieces that mostly exist, not a research gamble.
+>
+> **The substrate is ~70% there:**
+> - ✅ fold/unfurl (the composite boundary IS a fold) — `fold.rs`
+> - ✅ `fire_across_composites` (a BRS rewriting across the boundary) — partial, #43
+> - ✅ first-class `link` (the link graph, value-bearing) — #56
+> - ✅ one schema-aware apply + Core threaded — #58
+> - ✅ protocols (local/parallel/stream/rest/ray) — the one execution seam
+> - ✅ quantum suite + reactions-as-values + the `bigraph` port type (#42, reaction-as-update)
+>
+> **The remaining slices (each scoped, ordered):**
+> 1. **Cross-composite link-graph redex** — wire the surface `?x ~{p: ~e}` (match
+>    across SEALED composites by published ports on a shared link) to
+>    `fire_across_composites` (#43/#40). The link work did the value half; this is
+>    the matching half. **The keystone** — it unlocks 2–4.
+> 2. **Outer links / n-ended hyperedges across the mesh** — the link graph as the
+>    distribution fabric (the "outer links" — entanglement + halos + pools spanning
+>    composites/peers).
+> 3. **Topology reactions (S4)** — reactions that add/remove composites and rewire
+>    outer links = the **dynamic mesh network** (and division/fusion at the composite
+>    level: the same `_divide` we just built, one level up).
+> 4. **AlChemy (#61)** — reactions generating reactions (closure under composition).
+> 5. **Synthesizer / audio twin** (`docs/synthesis-bigraphs.md`, memory
+>    [[synthesizer_project]]) — the audio domain through the same engine (block-rate
+>    ring boundary); the "synthesizer" half of the demo.
+> 6. **Integration** = cells (bio) + entanglement edges (link/quantum) + audio
+>    synthesis (stream) + dynamic mesh (topology reactions) + self-modifying rules
+>    (AlChemy). The **biological quantum synthesizer**.
+>
+> Slice 1 is the keystone and the natural follow-on to #56. After #5/#60, go there.
 
 ---
 
