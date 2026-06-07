@@ -512,6 +512,14 @@ impl Evaluator {
                 classes.sort();
                 return Ok(Value::List(classes.into_iter().map(Value::String).collect()));
             }
+            // 1d. `compile_reaction(r)` — reify a reaction (a `reaction` reference
+            // OR a hand-assembled `{_type:"Rule",…}` data value) into the runnable,
+            // transmittable `Foreign(FOREIGN_REACTION, …)` form. The eval-for-
+            // reactions: a reactum that INSTALLS a rule writes `compile_reaction(R)`,
+            // and the BRS reads the result as an active rule (rules-as-state / #61).
+            if name == "compile_reaction" && arg_vals.len() == 1 {
+                return self.compile_reaction_value(&arg_vals[0], env);
+            }
         }
         // 2. Indirect: `func` evaluates to a first-class function value — a
         // function passed as an argument, returned, or stored. Resolve it to its
@@ -1213,6 +1221,23 @@ impl Evaluator {
         data: &Value,
         env: &IndexMap<Name, Value>,
     ) -> Result<Value, EvalError> {
+        // A reaction REFERENCE (`Grow` → `Foreign(FOREIGN_RULE, chrysalis Rule)`)
+        // reifies directly via `to_bigraph_value` — the same op the `Reaction`
+        // type's realize does, but reachable explicitly in a reactum that
+        // installs a rule. An already-transmittable value passes through.
+        if let Value::Foreign(f) = data {
+            if f.type_name == FOREIGN_RULE {
+                if let Some(reified) = f
+                    .downcast_ref::<Rule>()
+                    .and_then(crate::runtime::rule::to_bigraph_value)
+                {
+                    return Ok(reified);
+                }
+            }
+            if f.type_name == prism_schema::FOREIGN_REACTION {
+                return Ok(data.clone());
+            }
+        }
         let expr = Expr::from_value(data).map_err(|e| EvalError::InvalidForm {
             context: "compile_reaction".into(),
             message: e.to_string(),

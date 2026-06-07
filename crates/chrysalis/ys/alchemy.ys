@@ -1,0 +1,33 @@
+# AlChemy (#61) — a reaction that INSTALLS a reaction that then fires.
+#
+# This is the reaction loop closing at the surface: rules are STATE (the BRS reads
+# its active ruleset from `_rules` each tick — rules-as-state, #60), and a reaction
+# is a first-class VALUE, so a reactum can put a new reaction into `_rules` and the
+# BRS picks it up on a later tick. `compile_reaction(R)` reifies a reaction into
+# the runnable, transmittable form (the same value that crosses a stream/rest
+# bridge — the substrate for distributed AlChemy).
+#
+#   Bootstrap : consume a Trigger, INSTALL `Grow` into the rules pool.
+#   Grow      : Seed -> Sprout — exists nowhere as a seed rule; it only becomes
+#               active after Bootstrap creates it.
+#
+# A `Sprout` appearing is proof a reaction created a reaction that then fired.
+
+reaction Grow ( ?s :: Seed => Sprout )
+
+reaction Bootstrap (
+  ?t :: Trigger
+  =>
+  { '_add': {}, '_rules': { 'grow': compile_reaction(Grow) } }
+)
+
+composite Lab ->{ brew :: any @ brew } (
+  brew: {
+    trigger: Trigger[],
+    seed: Seed[],
+    _rules: {}
+  } |
+  rxn: BRS[rules: [Bootstrap]] ~{state: brew} ->{state: brew}
+)
+
+Lab[]

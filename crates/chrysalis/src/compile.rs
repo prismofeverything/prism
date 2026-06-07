@@ -700,13 +700,15 @@ pub(crate) fn build_type_registry(program: &Arc<Program>) -> Arc<TypeRegistry> {
     let mut types = TypeRegistry::new();
     register_user_types(&mut types, program);
     crate::quantum::register_quantum_type(&mut types);
-    // The `reaction` type — a reaction at rest as transmittable DATA (AlChemy).
-    // A `:: reaction` / `:: map[reaction]` slot AUTO-reifies a chrysalis Rule to
+    // The `Reaction` type — a reaction at rest as transmittable DATA (AlChemy).
+    // A `:: Reaction` / `:: map[Reaction]` slot AUTO-reifies a chrysalis Rule to
     // the closure-free `Foreign(FOREIGN_REACTION, …)` form the BRS reads as a
     // rule (rules-as-state) and that crosses `:: bigraph` bridges (#42) — one
     // value for store / link-share / send. See `runtime::rule::ReactionType`.
+    // (Capitalised because the lowercase `reaction` is a definer keyword — it
+    // can't appear in schema position like `map[reaction]`.)
     types.register_full(
-        "reaction",
+        "Reaction",
         Schema::Any,
         None,
         Some(Arc::new(crate::runtime::rule::ReactionType)),
