@@ -157,7 +157,7 @@ fn bind_arg(
     // Realize at the DECLARED type (registry-threaded) — a `:: Qubits` config
     // param / input port promotes a bare literal to a full tagged instance,
     // the same single typed-construction path as inner params + typed defs.
-    let val = algebra::realize_with(Some(ev.types.as_ref()), &schema, &raw);
+    let val = algebra::realize_with(Some(ev.types()), &schema, &raw);
     env.insert(name.to_string(), val);
     Ok(())
 }

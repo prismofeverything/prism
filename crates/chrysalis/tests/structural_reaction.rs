@@ -8,7 +8,6 @@
 //! prism's `BigraphicalReactiveSystem`. This is the capability MAPK (#2)
 //! needs, isolated from link-var lowering. There is no chrysalis-side BRS.
 
-use std::sync::Arc;
 
 use prism_bigraph::Engine;
 use prism_schema::Value;
@@ -126,7 +125,7 @@ fn structural_reaction_phosphorylates_through_prism_brs() {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();
@@ -266,7 +265,7 @@ fn link_bond_forms_through_prism_brs() {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();

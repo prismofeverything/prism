@@ -6,7 +6,6 @@
 //! `discover_all_processes`, so this pins that the dependency-ordered firing
 //! runs on discovery, not only at construction.
 
-use std::sync::Arc;
 
 use prism_bigraph::Engine;
 
@@ -33,7 +32,7 @@ fn one_shot_step_dag_fires_in_dependency_order() {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();

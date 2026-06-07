@@ -9,6 +9,37 @@
 //! silently lost types, methods, and protocols, and a `Custom`-typed,
 //! method-using, or `rest:`-addressed process could not live inside a composite.
 //! Threading one `Core` fixes that class of bug at the root.
+//!
+//! ## The threading rule (the invariant)
+//!
+//! There is **one `Core` per runtime context**, `Arc`-shared (every field is an
+//! `Arc`, so sharing is free). It is assembled once — by `chrysalis::compile`, or
+//! by a host — and reaches everything that needs it by exactly two mechanisms,
+//! chosen by *lifecycle*, never by local convenience:
+//!
+//! - **Push** — [`Engine::set_core`](crate::Engine::set_core) /
+//!   [`Composite::from_config`](crate::Composite::from_config) — for things the
+//!   engine creates at runtime: the engine, every node (`set_core` during
+//!   discovery), every subengine. The creator hands down the Core it holds. The
+//!   [`BigraphicalReactiveSystem`](crate::BigraphicalReactiveSystem) is a node, so
+//!   it captures the WHOLE Core here (its `apply` reads `core.types`; a reactum
+//!   evaluated against it can introspect the rest).
+//! - **Pull** — a late-bound `Arc<OnceLock<Core>>` handle — for the one
+//!   compile-time artifact that necessarily *predates* the Core: the chrysalis
+//!   `Evaluator`. It predates the Core because of an intrinsic cycle — the
+//!   `ProcessRegistry`'s factories capture the evaluator, and the Core *contains*
+//!   the registry. This is the SAME `OnceLock` cycle-breaker the `Composite`
+//!   factory uses; the evaluator reads `types`/`methods`/`processes`/`protocols`
+//!   from the one shared Core via this handle.
+//!
+//! **Invariant:** no component stores a registry *subset*. A consumer that needs
+//! only (say) the type registry still receives the whole Core and reads the part
+//! it uses — so adding a new need (a reactum that instantiates a process, or
+//! introspects available types) requires no re-threading. New Core-holders MUST
+//! pick push or pull by lifecycle; they MUST NOT take an `Arc<ProcessRegistry>`
+//! (or any single registry) as a stand-in for the Core. (The
+//! `From<Arc<ProcessRegistry>>` impl below is only for genuinely registry-only
+//! callers — low-level tests with no types/methods/protocols to lose.)
 
 use std::sync::Arc;
 

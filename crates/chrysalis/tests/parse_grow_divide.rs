@@ -4,7 +4,6 @@
 //! calls — then compile and RUN it: a cell grows past threshold and the inner
 //! Divide step writes two daughters up to the parent `cells` map.
 
-use std::sync::Arc;
 
 use chrysalis::compile::compile;
 use chrysalis::parse::parse_program;
@@ -31,7 +30,7 @@ fn parses_grow_divide_ys_and_divides() {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();

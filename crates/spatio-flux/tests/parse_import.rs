@@ -7,7 +7,6 @@
 //! (the `extern` replacement).
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use indexmap::IndexMap;
 use prism_bigraph::{Engine, ProcessNode, ProcessRegistry};
@@ -92,7 +91,7 @@ fn import_resolves_and_runs_across_files() {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();

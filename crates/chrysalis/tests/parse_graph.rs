@@ -26,8 +26,8 @@ fn graph_schema() -> Schema {
 fn parses_graph_ys_and_runs() {
     let program = parse_program(GRAPH_YS).expect("parse ys/graph.ys");
     let result = compile(&program).expect("compile the parsed graph type");
-    let m = &result.methods;
-    let types = &*result.type_registry;
+    let m = &result.core.methods;
+    let types = &*result.core.types;
     let graph_t = graph_schema();
 
     // A write method parsed from the file returns the delta.

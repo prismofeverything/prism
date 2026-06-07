@@ -3,7 +3,6 @@
 //! parallel-of-entries, and `[params]` — then compile and RUN it on the
 //! engine, observing the composite's bridged output evolve.
 
-use std::sync::Arc;
 
 use chrysalis::compile::compile;
 use chrysalis::parse::parse_program;
@@ -34,7 +33,7 @@ fn parses_process_and_composite_from_ys_and_runs() {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();

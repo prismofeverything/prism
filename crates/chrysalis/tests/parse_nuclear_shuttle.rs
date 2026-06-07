@@ -8,7 +8,6 @@
 //! its output port onto a `Cell` slot (`cyt_tf` / `nuc_tf`), and we observe
 //! THOSE bridged slots — never compartment internals.
 
-use std::sync::Arc;
 
 use chrysalis::ast::Def;
 use chrysalis::compile::compile;
@@ -60,7 +59,7 @@ fn nuclear_shuttle_runs_and_exposes_tf_via_bridge() {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();

@@ -32,8 +32,8 @@ fn graph_schema() -> Schema {
 #[test]
 fn graph_type_defined_in_chrysalis_is_first_class() {
     let result = compile(&g::program()).expect("compile a type-only program (no main)");
-    let m = &result.methods;
-    let types = &*result.type_registry;
+    let m = &result.core.methods;
+    let types = &*result.core.types;
     let graph_t = graph_schema();
 
     // A write method is PURE: it returns the *delta*, not a new graph.
@@ -96,8 +96,8 @@ fn act(
     method: &str,
     args: &[Value],
 ) -> Value {
-    let delta = result.methods.dispatch(graph, method, args).unwrap();
-    algebra::apply_with(Some(&result.type_registry), &graph_schema(), graph, &delta)
+    let delta = result.core.methods.dispatch(graph, method, args).unwrap();
+    algebra::apply_with(Some(&result.core.types), &graph_schema(), graph, &delta)
 }
 
 #[test]
@@ -120,6 +120,7 @@ fn arbitrary_operations_land_in_the_complete_delta_basis() {
     // remove_edge(a,b): a `_remove` delta on the edge set (by value).
     graph = act(&result, &graph, "remove_edge", &[s("a"), s("b")]);
     let nbrs_a = result
+        .core
         .methods
         .dispatch(&graph, "neighbors", &[s("a")])
         .unwrap();
@@ -169,6 +170,7 @@ fn arbitrary_operations_land_in_the_complete_delta_basis() {
         "union adds d (b already present, not duplicated)"
     );
     let nbrs_b = result
+        .core
         .methods
         .dispatch(&graph, "neighbors", &[s("b")])
         .unwrap();
@@ -181,8 +183,8 @@ fn add_node_deltas_compose_like_add() {
     // (just like `_add`) instead of clobbering. `reconcile` unions them at the
     // representation; applying the combined delta adds both nodes.
     let result = compile(&g::program()).unwrap();
-    let m = &result.methods;
-    let types = &*result.type_registry;
+    let m = &result.core.methods;
+    let types = &*result.core.types;
     let repr = types.get("Graph").expect("Graph registered").schema.clone();
 
     let d_a = m

@@ -13,7 +13,7 @@ use prism_bigraph::composite::{Bridge, Composite};
 use prism_bigraph::process::ProcessNode;
 use prism_bigraph::topology::{ProcessSpec, Topology};
 use prism_bigraph::vivarium::VivariumDocument;
-use prism_bigraph::{Engine, Key, ProcessRegistry, Schema, Value};
+use prism_bigraph::{Core, Engine, Key, ProcessRegistry, Schema, Value};
 
 /// Load a vivarium JSON document and construct a running Engine.
 ///
@@ -168,7 +168,7 @@ pub fn instantiate_vivarium(
             state_schema: topology.state_schema.clone(), // inherit parent schema
         };
         let mut inner_engine = Engine::new(inner_topology, HashMap::new());
-        inner_engine.set_registry(Arc::clone(&registry));
+        inner_engine.set_core(Core::from(Arc::clone(&registry)));
 
         // Discover all process specs in the inner state
         inner_engine.discover_all_processes();
@@ -208,8 +208,9 @@ pub fn instantiate_vivarium(
     }
 
     let mut engine = Engine::new(topology.clone(), instances);
-    // Enable dynamic process discovery for runtime composition
-    engine.set_registry(Arc::clone(&registry));
+    // Enable dynamic process discovery: hand the engine its Core (registry-only
+    // here — vivarium has no custom types/methods/protocols to thread).
+    engine.set_core(Core::from(Arc::clone(&registry)));
     Ok((engine, topology))
 }
 

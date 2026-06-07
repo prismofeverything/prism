@@ -5,20 +5,21 @@
 //! ```text
 //! CompileResult {
 //!     topology:      prism_bigraph::Topology,
-//!     registry:      Arc<prism_bigraph::ProcessRegistry>,
 //!     initial_state: prism_schema::Value,
 //!     evaluator:     Arc<Evaluator>,
+//!     core:          prism_bigraph::Core,   // the ONE shared Core
 //! }
 //! ```
 //!
-//! Caller wires the result into an [`Engine`]:
+//! Caller wires the result into an [`Engine`] with the WHOLE `core` (never a
+//! registry subset — see the threading rule on `prism_bigraph::core`):
 //!
 //! ```ignore
 //! let result = chrysalis::compile::compile(&program)?;
 //! let engine = prism_bigraph::Engine::from_state(
 //!     result.topology.state_schema.clone(),
 //!     result.initial_state.clone(),
-//!     Arc::clone(&result.registry),
+//!     result.core.clone(),
 //! )?;
 //! ```
 
@@ -47,15 +48,17 @@ use crate::runtime::rule::{extract_rules, to_prism_rule};
 use crate::units::UnitEnv;
 
 /// Output of compiling a chrysalis [`Program`].
+///
+/// Carries the one shared [`Core`] — never its individual registries. Earlier
+/// `registry` / `methods` / `type_registry` fields were SUBSETS of `core`
+/// (`core.processes` / `core.methods` / `core.types`); exposing them invited the
+/// registry-subset drift the threading rule forbids (a caller passing
+/// `result.registry` to `Engine::from_state` got a process-only Core, silently
+/// dropping types/methods/protocols). Read what you need off `core`.
 pub struct CompileResult {
     pub topology: Topology,
-    pub registry: Arc<ProcessRegistry>,
     pub initial_state: Value,
     pub evaluator: Arc<Evaluator>,
-    pub methods: Arc<MethodRegistry>,
-    /// Registry of user-declared `type`s (`Custom` dispatch delegates to each
-    /// type's representation).
-    pub type_registry: Arc<TypeRegistry>,
     /// The unified runtime [`Core`] (types + processes + methods + protocols).
     /// Pass to [`prism_bigraph::Engine::from_state`] so the engine and every
     /// subengine it builds share it.
@@ -358,20 +361,22 @@ pub fn compile_with_modules(
     register_user_type_methods(&mut methods, &program_arc);
     let methods = Arc::new(methods);
 
+    // The ONE late-bound Core handle. The Core can't exist yet — its process
+    // registry holds factories that capture the evaluator (the factory↔evaluator
+    // cycle), and the Composite factory needs the WHOLE Core to build subengines.
+    // So construct the evaluator + factories against this empty handle, build the
+    // Core, then `set` it once (line below). The Core-threading rule: the engine,
+    // every node (`set_core`), every subengine (`from_config`), AND the evaluator
+    // all share THIS handle's Core — no component holds a registry subset.
+    let core_handle: Arc<OnceLock<Core>> = Arc::new(OnceLock::new());
+
     let evaluator = Arc::new(Evaluator::with_native_imports(
         Arc::clone(&program_arc),
-        Arc::clone(&methods),
-        Arc::clone(&type_registry),
         imports,
         imported_processes,
         imported_functions,
+        Arc::clone(&core_handle),
     ));
-
-    // The Composite factory needs the WHOLE Core to build subengines (so a
-    // subengine inherits types/methods/protocols). The Core contains the process
-    // registry, which contains this factory — a cycle resolved by late-binding
-    // through a OnceLock set once everything is built.
-    let core_handle: Arc<OnceLock<Core>> = Arc::new(OnceLock::new());
 
     // `registry` arrives with any native factories the caller supplied;
     // chrysalis registers its own on top.
@@ -516,11 +521,8 @@ pub fn compile_with_modules(
 
     Ok(CompileResult {
         topology,
-        registry,
         initial_state,
         evaluator,
-        methods,
-        type_registry,
         core,
     })
 }
@@ -547,7 +549,7 @@ pub(crate) fn collect_top_level_bindings(
             let v = match schema {
                 Some(s) => {
                     let sch = crate::schema::lower_schema_in_program(s, &evaluator.program);
-                    prism_schema::algebra::realize_with(Some(evaluator.types.as_ref()), &sch, &v)
+                    prism_schema::algebra::realize_with(Some(evaluator.types()), &sch, &v)
                 }
                 None => v,
             };

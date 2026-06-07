@@ -16,11 +16,12 @@
 //! `prism_schema::MethodRegistry`.
 
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use indexmap::IndexMap;
 use thiserror::Error;
 
+use prism_bigraph::Core;
 use prism_schema::registry::TypeRegistry;
 use prism_schema::{Key, MethodError, MethodRegistry, Pattern, Value, value_type_name};
 
@@ -60,11 +61,22 @@ pub enum EvalError {
 
 /// The chrysalis interpreter.
 ///
-/// Holds shared references to the program and method registry. Cheap
+/// Holds shared references to the program and the one shared [`Core`]. Cheap
 /// to clone via the contained `Arc`s.
 pub struct Evaluator {
     pub program: Arc<Program>,
-    pub methods: Arc<MethodRegistry>,
+    /// The ONE shared [`Core`] (types + methods + processes + protocols), held by
+    /// a late-bound handle. This is the canonical resolution of the
+    /// factory↔evaluator init cycle (the registry's factories capture the
+    /// evaluator, and the Core *contains* the registry) — the SAME `OnceLock`
+    /// pattern the `Composite` factory uses (see `compile`). The evaluator reads
+    /// `types`/`methods`/`processes`/`protocols` from HERE, never a subset Arc:
+    /// `compile` shares this one handle with the engine + every node, so reactum /
+    /// process-body / method eval is informed by exactly the Core the runtime
+    /// holds (the Core-threading rule). [`Evaluator::new`] self-builds a minimal
+    /// Core (program types + given methods); the compile path shares the full Core
+    /// (set just after construction, before any eval).
+    core: Arc<OnceLock<Core>>,
     /// Imported native OBJECTS (`from integrators import rk4`) — bound as values
     /// resolvable by name in any body, so `rk4.integrate(...)` dispatches like
     /// any value method. The replacement for `extern` value handles.
@@ -78,65 +90,97 @@ pub struct Evaluator {
     /// dispatched as `name(args)`. The host functions take `&[Value]` and
     /// return `Value`. Pairs with the `Expr::Call` resolution path.
     pub imported_functions: IndexMap<Name, crate::compile::HostFn>,
-    /// The type registry (builtins + this program's `type`s + the std `Qubits`
-    /// vocabulary). The Evaluator is schema-registry-aware so it can REALIZE a
-    /// value at its declared type at construction — a `:: Qubits` param/def/slot
-    /// turns a bare literal into a full tagged instance via `realize_with`. One
-    /// program-aware registry, threaded; never a bare default.
-    pub types: Arc<TypeRegistry>,
 }
 
 impl Evaluator {
     pub fn new(program: Arc<Program>, methods: Arc<MethodRegistry>) -> Self {
         let types = crate::compile::build_type_registry(&program);
-        Self {
-            program,
-            methods,
-            imports: IndexMap::new(),
-            imported_processes: HashSet::new(),
-            imported_functions: IndexMap::new(),
-            types,
-        }
+        Self::with_core(program, Core::new().with_methods(methods).with_types(types))
     }
 
-    /// As [`Evaluator::new`] but with a pre-built (shared) type registry — the
-    /// compile path builds ONE and threads the same `Arc` into both the
-    /// Evaluator and the [`Core`](prism_bigraph::Core), so there is a single
-    /// registry per compile context.
+    /// As [`Evaluator::new`] but with a pre-built (shared) type registry. Folds
+    /// `methods` + `types` into a self-contained minimal [`Core`] (no
+    /// processes/protocols) — the standalone form for hosts/tests that drive eval
+    /// outside the compile pipeline.
     pub fn with_types(
         program: Arc<Program>,
         methods: Arc<MethodRegistry>,
         types: Arc<TypeRegistry>,
     ) -> Self {
-        Self {
-            program,
-            methods,
-            imports: IndexMap::new(),
-            imported_processes: HashSet::new(),
-            imported_functions: IndexMap::new(),
-            types,
-        }
+        Self::with_core(program, Core::new().with_methods(methods).with_types(types))
     }
 
-    /// Like [`Evaluator::new`], but seeded with native host imports resolved
-    /// from a `ModuleRegistry` (objects bound by name, process names recognised
-    /// as wholesale native controls, functions dispatchable as bare calls).
+    /// Build an evaluator over `program` bound to a self-contained `core`, set
+    /// into a fresh late-bound handle immediately. The standalone constructor;
+    /// the compile pipeline instead shares its one handle via
+    /// [`with_native_imports`](Self::with_native_imports).
+    pub fn with_core(program: Arc<Program>, core: Core) -> Self {
+        let handle = Arc::new(OnceLock::new());
+        let _ = handle.set(core);
+        Self::from_handle(
+            program,
+            handle,
+            IndexMap::new(),
+            HashSet::new(),
+            IndexMap::new(),
+        )
+    }
+
+    /// Like [`Evaluator::new`], but seeded with native host imports resolved from
+    /// a `ModuleRegistry` (objects bound by name, process names recognised as
+    /// wholesale native controls, functions dispatchable as bare calls) AND
+    /// sharing the compile pipeline's one [`Core`] handle. The handle is set by
+    /// `compile` just after construction (the factory↔evaluator cycle forces
+    /// construct-then-set); no eval runs in that window. `types`/`methods`/
+    /// `processes`/`protocols` are read from the shared Core — never a subset.
     pub fn with_native_imports(
         program: Arc<Program>,
-        methods: Arc<MethodRegistry>,
-        types: Arc<TypeRegistry>,
+        imports: IndexMap<Name, Value>,
+        imported_processes: HashSet<Name>,
+        imported_functions: IndexMap<Name, crate::compile::HostFn>,
+        core: Arc<OnceLock<Core>>,
+    ) -> Self {
+        Self::from_handle(program, core, imports, imported_processes, imported_functions)
+    }
+
+    fn from_handle(
+        program: Arc<Program>,
+        core: Arc<OnceLock<Core>>,
         imports: IndexMap<Name, Value>,
         imported_processes: HashSet<Name>,
         imported_functions: IndexMap<Name, crate::compile::HostFn>,
     ) -> Self {
         Self {
             program,
-            methods,
+            core,
             imports,
             imported_processes,
             imported_functions,
-            types,
         }
+    }
+
+    /// The one shared [`Core`], once bound. `None` only in the narrow window
+    /// between construction and `compile` setting the shared handle — no eval
+    /// runs there. Reactum / process-body / method eval reads the runtime Core
+    /// from here (the Core-threading rule).
+    pub fn core(&self) -> Option<&Core> {
+        self.core.get()
+    }
+
+    fn core_ref(&self) -> &Core {
+        self.core
+            .get()
+            .expect("evaluator Core handle not set before eval (compile sets it post-construction)")
+    }
+
+    /// The Core's type registry (builtins + this program's `type`s + std vocab).
+    pub fn types(&self) -> &TypeRegistry {
+        self.core_ref().types.as_ref()
+    }
+
+    /// The Core's value-method registry.
+    pub fn methods(&self) -> &MethodRegistry {
+        self.core_ref().methods.as_ref()
     }
 
     // ===============================================================
@@ -251,7 +295,7 @@ impl Evaluator {
                     .iter()
                     .map(|a| self.eval_value(a, env))
                     .collect::<Result<_, _>>()?;
-                Ok(self.methods.dispatch(&recv, method, &arg_vals)?)
+                Ok(self.methods().dispatch(&recv, method, &arg_vals)?)
             }
 
             // Value field access: read `name` off the evaluated base (`None` if
@@ -451,6 +495,22 @@ impl Evaluator {
             // (`load("file.ys")`, …). Dispatched against the host function map.
             if let Some(host) = self.imported_functions.get(name) {
                 return host(&arg_vals).map_err(EvalError::Method);
+            }
+            // 1c. Core-reflection builtin. Eval (a reactum / body) is informed by
+            // the ONE shared Core (the same the engine + nodes hold, per the
+            // Core-threading rule). `core_processes()` lists the process CLASSES
+            // the runtime can instantiate — natives + `Composite`/`Brs` + the
+            // program's processes — so a *reflective* reactum can introspect what
+            // it may build and emit specs the engine then instantiates. Reads the
+            // Core via the shared handle; a user `def core_processes` (checked
+            // above) would shadow it, so this never clobbers a program name.
+            if name == "core_processes" && arg_vals.is_empty() {
+                let mut classes: Vec<String> = self
+                    .core()
+                    .map(|c| c.processes.type_names().iter().map(|s| s.to_string()).collect())
+                    .unwrap_or_default();
+                classes.sort();
+                return Ok(Value::List(classes.into_iter().map(Value::String).collect()));
             }
         }
         // 2. Indirect: `func` evaluates to a first-class function value — a
@@ -1049,7 +1109,7 @@ impl Evaluator {
             // hand-written `_type:` is needed at the call site.
             let schema = crate::schema::lower_schema_in_program(&param.schema, &self.program);
             let value =
-                prism_schema::algebra::realize_with(Some(self.types.as_ref()), &schema, &value);
+                prism_schema::algebra::realize_with(Some(self.types()), &schema, &value);
             resolved.insert(param.name.clone(), value);
         }
         Ok(resolved)

@@ -28,6 +28,7 @@ fn divide_method_emits_a_binary_divide_directive() {
         ("body", Value::map()),
     ]);
     let directive = result
+        .core
         .methods
         .dispatch(&cell, "divide", &[])
         .expect("divide dispatch");

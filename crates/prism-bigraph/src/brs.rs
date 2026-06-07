@@ -26,18 +26,18 @@
 //! Gillespie stays cheap on large states.
 
 use std::any::Any;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use indexmap::IndexMap;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-use prism_schema::TypeRegistry;
 use prism_schema::reaction::{
     ControlStatus, FireUpdate, Match, ReactionRule, apply_fire, find_matches, fire_rule_at,
 };
 use prism_schema::{Key, Schema, StateMap, Value};
 
+use crate::Core;
 use crate::ports::PortSchema;
 use crate::process::Process;
 use crate::update::Update;
@@ -77,12 +77,17 @@ pub struct BigraphicalReactiveSystem {
     pub interval: f64,
     rng: Mutex<StdRng>,
     fired_log: Mutex<Vec<FiredEvent>>,
-    /// The Core's type registry, captured via `set_core`. Threaded into
-    /// `apply_fire` so a registry-driven fire (e.g. a `_divide` over branded
-    /// `_type: Cell` nodes) enacts SCHEMA-AWARE — splitting via the same
-    /// `divide_by_schema(CompositeLink)` the engine/Divider use, conserving mass.
-    /// `None` until `set_core` runs (purely structural fires need no registry).
-    types: Option<Arc<TypeRegistry>>,
+    /// The WHOLE shared [`Core`], captured via `set_core` (not a `TypeRegistry`
+    /// subset). `apply_fire` reads `core.types` so a registry-driven fire (e.g. a
+    /// `_divide` over branded `_type: Cell` nodes) enacts SCHEMA-AWARE — splitting
+    /// via the same `divide_by_schema(CompositeLink)` the engine/Divider use,
+    /// conserving mass. Holding the full Core (types + processes + methods +
+    /// protocols, all `Arc`s) keeps a *reaction* informed by the same shared Core
+    /// as the engine: a reactum evaluated against it can introspect the available
+    /// processes/types and emit specs the engine then instantiates — the
+    /// generative / reflective direction (#59/#60). `None` until `set_core` runs
+    /// (purely structural fires over plain controls need no Core).
+    core: Option<Core>,
 }
 
 impl std::fmt::Debug for BigraphicalReactiveSystem {
@@ -122,8 +127,18 @@ impl BigraphicalReactiveSystem {
             interval,
             rng: Mutex::new(StdRng::seed_from_u64(seed)),
             fired_log: Mutex::new(Vec::new()),
-            types: None,
+            core: None,
         }
+    }
+
+    /// Builder form of [`set_core`](Process::set_core) — attach the shared
+    /// [`Core`] at construction so a standalone BRS (one built outside the
+    /// engine's discovery, e.g. in a test or a host that drives `update`
+    /// directly) fires through the SAME Core, not a registry-less fallback.
+    /// Chains: `BigraphicalReactiveSystem::with_config(..).with_core(core)`.
+    pub fn with_core(mut self, core: Core) -> Self {
+        self.core = Some(core);
+        self
     }
 
     /// Build a BRS from a `Value` config (mode, seed, interval, max_per_tick).
@@ -214,7 +229,7 @@ impl BigraphicalReactiveSystem {
                     if let Some(m) = matches.into_iter().find(|m| rule.passes_guard(&m.bindings)) {
                         let upd = fire_rule_at(rule, &m)?;
                         let nested = nest_fire_delta(&upd);
-                        let new_subtree = apply_fire(subtree, &upd, self.types.as_deref());
+                        let new_subtree = apply_fire(subtree, &upd, self.core.as_ref().map(|c| c.types.as_ref()));
                         return Some((
                             new_subtree,
                             nested,
@@ -234,7 +249,7 @@ impl BigraphicalReactiveSystem {
                 let rule = &self.rules[rule_idx];
                 let upd = fire_rule_at(rule, &m)?;
                 let nested = nest_fire_delta(&upd);
-                let new_subtree = apply_fire(subtree, &upd, self.types.as_deref());
+                let new_subtree = apply_fire(subtree, &upd, self.core.as_ref().map(|c| c.types.as_ref()));
                 Some((
                     new_subtree,
                     nested,
@@ -283,7 +298,7 @@ impl BigraphicalReactiveSystem {
                 Some(u) => u,
                 None => break,
             };
-            subtree = apply_fire(&subtree, &upd, self.types.as_deref());
+            subtree = apply_fire(&subtree, &upd, self.core.as_ref().map(|c| c.types.as_ref()));
             self.fired_log.lock().unwrap().push(FiredEvent {
                 sim_time: t,
                 rule_label: rule.label.clone(),
@@ -303,7 +318,7 @@ impl Process for BigraphicalReactiveSystem {
     /// `divide_by_schema(CompositeLink)` and conserving mass. (The engine calls
     /// `set_core` on every discovered process node.)
     fn set_core(&mut self, core: crate::Core) {
-        self.types = Some(core.types);
+        self.core = Some(core);
     }
 
     fn inputs(&self) -> PortSchema {
@@ -362,7 +377,7 @@ impl Process for BigraphicalReactiveSystem {
                     return Update::Noop;
                 }
                 prism_schema::reconcile::reconcile_with(
-                    self.types.as_deref(),
+                    self.core.as_ref().map(|c| c.types.as_ref()),
                     &Schema::Any,
                     &deltas,
                 )

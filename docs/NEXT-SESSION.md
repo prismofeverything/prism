@@ -128,11 +128,63 @@
 - ✅ #56 link surface (first-class `link`, direction 3 core) (2026-06-06) — `link name :: T = default` (a `_links` scope marker + pool slot) + `~{port: ~name}` attachment + engine `resolve_link` (walks the place graph to the nearest scope → ONE shared slot, **depth-independent**). The value-bearing hyperedge = resource pool / entanglement edge / diffusion halo, ONE primitive. `tests/link_pool.rs`, primer §9. DEFERRED (L4, no consumer): n-ended hyperedges in the matcher, cross-composite redex wiring (→ #43).
 - ✅ #57 reaction-driven division, CONSERVING (2026-06-06) — `?c :: Cell[mass: ?m] where … => ?c.divide()`: the redex binds the matched cell as a typed value; `?c.divide()` emits a binary `_divide` directive; the engine enacts the schema-split LATE (`divide_by_schema(CompositeLink)`), so it splits the LIVE (this-tick-grown) node and **mass is conserved across the dividing tick** — the Form-3 property, now for reactions. `grow-divide-glucose.ys` OFF SKIP + conserving; `reaction_divide.rs`.
 - ✅ #58 apply_fire unified onto the algebra (2026-06-06) — fire-application is now ONE schema-aware path (`algebra::apply_with`), not a schemaless mutator; the BRS RETURNS reconciled fire deltas and the ENGINE applies them; the Core is threaded so `Custom` types resolve (mapk: `set_core` + `result.core`, not a registry subset); an unregistered/registryless `Custom` degrades to STRUCTURAL (the value defines the type), not blind-replace. The bug was one thing wearing three masks — three spots that lacked the Core.
-- 🧩 #59 the generative-core unification PROGRAM (`docs/generative-core.md`) — reduce to the essential core, ONE way to do each thing. Facets (keep concrete, point the same way): thread Core consistently (not registry subsets); survey duplicate paths across prism+chrysalis; one-door BUILD-FAILING guards (make non-duplication an automatable invariant); confluence / normal-forms (the algebra as canonicalizer); core + desugaring / Felleisen conservative-extensions; unify method definition (composites get a `with { methods }` block too); the BASIS question (#60).
+- 🧩 #59 the generative-core unification PROGRAM (`docs/generative-core.md`) — reduce to the essential core, ONE way to do each thing. Facets (keep concrete, point the same way): ✅ **thread Core consistently (not registry subsets) — RULE formalized + applied 2026-06-06** (push/pull, no subset fields; BRS holds Core; evaluator collapsed onto Core; `set_registry` + `CompileResult` subset fields deleted; reflective-reaction consumer; see prompt 2026-06-06d, `prism_bigraph::core` doc, [[feedback_thread_the_core]]); survey duplicate paths across prism+chrysalis; one-door BUILD-FAILING guards (make non-duplication an automatable invariant); confluence / normal-forms (the algebra as canonicalizer); core + desugaring / Felleisen conservative-extensions; unify method definition (composites get a `with { methods }` block too); the BASIS question (#60).
 - 🧩 #60 reactions vs `_add`/`_remove` — which is PRIMARY? (the arrow direction). Today reactions PRODUCE sentinels; in bigraph theory the REACTION (match+rewrite) is the generator and `_add`/`_remove`/`_divide` are reaction-shapes. Decide the minimal basis; relates to AlChemy + division characterization. Likely a duality (a delta is a degenerate reaction).
 - 🧩 #61 AlChemy demo — a `.ys` BRS whose reactions GENERATE new reactions (reactions as first-class transmittable values; closure-under-composition / self-catalysis; Fontana's AlChemy). The closing of the reaction loop (memory [[project_chrysalis_evolution]] direction 4).
 
 A side-quest doc captured the broader landscape: `docs/exploring-the-computational-unknown.md` — survey of reflective towers, meta-circular interpreters, macros, Futamura projections, staging, algebraic effects, probabilistic / differentiable / reversible / quantum / unconventional computing, and the axes that compose into the space of methods.
+
+---
+
+## ⏯️ NEXT-SESSION PROMPT (2026-06-06d — Core-threading RULE formalized + applied; NEXT = #60 then BATWD slice 1)
+
+> Full workspace GREEN (708 tests, 0 fail; +3 new). This session did the #59
+> "thread the Core consistently" facet **as a rule, not per-site patches** (user:
+> "choose the most parsimonious place to introduce core… decide how it should be
+> handled in general, then apply that insight").
+>
+> **The Core-threading RULE (now documented on `prism_bigraph::core` + in
+> `docs/generative-core.md`; memory [[feedback_thread_the_core]]):** ONE `Core`
+> per runtime context, `Arc`-shared, reaching consumers by two lifecycle-chosen
+> channels — **PUSH** (`set_core` / `from_config`) to engine-created things
+> (engine, nodes, subengines, BRS); **PULL** (a late-bound `Arc<OnceLock<Core>>`
+> handle, the SAME factory-cycle breaker the `Composite` factory uses) for the one
+> compile-time artifact that predates the Core (the chrysalis `Evaluator`).
+> **Invariant: no component stores a registry SUBSET.**
+>
+> **Landed:**
+> - **Architecture verified first** (`prism-bigraph/tests/reaction_creates_process.rs`):
+>   "BRS produces deltas → engine applies + `discover_processes` instantiates via
+>   the engine's full Core." A reaction CAN create a live process AND a live
+>   composite (subengine); generation routes through the ENGINE's Core, so the
+>   delta-producing BRS loses **no expressivity**. The full Core matters in the
+>   *reactum's eval context* only for REFLECTIVE/self-modifying reactions (→ #60/#61).
+> - **BRS holds the whole Core** (was a `types` subset); `with_core` builder for
+>   standalone construction.
+> - **Evaluator collapsed onto the one Core** — dropped its `methods`/`types`
+>   subset fields, reads them off the shared Core via the handle (`compile` shares
+>   the one handle with the engine). 3 read-sites migrated.
+> - **`core_processes()` reflection builtin** + load-bearing consumer
+>   `chrysalis/tests/reflective_reaction.rs`: a reactum reads the LIVE Core (sees
+>   `Composite`/`Brs` — Core-registered, NOT program defs).
+> - **Deleted the subset paths:** `set_registry` (trait method + `Engine` method +
+>   engine injection); `CompileResult`'s `registry`/`methods`/`type_registry`
+>   fields (read off `.core`). vivarium migrated to `set_core(Core::from(reg))`.
+>   `From<Arc<ProcessRegistry>> for Core` kept ONLY for registry-only callers.
+>
+> **NEXT — in order:**
+> 1. **#60 — the basis question:** reactions vs `_add`/`_remove`. Establish the
+>    reaction (match+rewrite) as the generator, sentinels as reaction-shapes. With
+>    the Core now in the reactum eval context, this is the doorway to reflective
+>    reactions (#61 AlChemy) and the topology reactions BATWD needs. *(Note: the
+>    reactum-Core threading we just built is the substrate a self-modifying / "spawn
+>    one of each fulfiller" reaction will consume.)*
+> 2. **BATWD slice 1 — cross-composite link-graph redex** (the keystone): wire the
+>    surface `?x ~{p: ~e}` to `fire_across_composites` (#40/#43). Unlocks topology
+>    reactions, outer links, AlChemy. See the BATWD endgame block below.
+> 3. Pre-existing unused-import warnings (simulate.rs, fba.rs, report.rs,
+>    growth_division.rs, process_bigraph_compat.rs, examples) are untouched-by-me;
+>    fold into a cleanup pass if desired.
 
 ---
 

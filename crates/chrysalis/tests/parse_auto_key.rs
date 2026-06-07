@@ -2,7 +2,6 @@
 //! (`Bump ~{…}`) is auto-keyed by its control name (`bump: Bump ~{…}`) so it's
 //! registered and RUNS — instead of silently never instantiating.
 
-use std::sync::Arc;
 
 use chrysalis::ast::{Def, Expr};
 use chrysalis::compile::compile;
@@ -59,7 +58,7 @@ fn bare_subprocess_is_auto_keyed_and_runs() {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();

@@ -569,12 +569,10 @@ impl Engine {
         self.trigger_steps(changed_paths);
     }
 
-    pub fn set_registry(&mut self, registry: Arc<ProcessRegistry>) {
-        self.core.processes = registry;
-    }
-
     /// Replace the whole runtime [`Core`] (types + processes + methods +
-    /// protocols). A subengine built from a parent's core inherits all of them.
+    /// protocols) — the ONE way to (re)bind an engine's Core. A subengine built
+    /// from a parent's core inherits all of them. (There is no registry-subset
+    /// setter; a registry-only caller passes `Core::from(registry)`.)
     pub fn set_core(&mut self, core: Core) {
         self.core = core;
     }
@@ -1311,21 +1309,13 @@ impl Engine {
         }
 
         self.specs.insert(name.clone(), spec);
-        // Hand the engine's registry to nodes that compose other processes
-        // (e.g. `RunProcess` instantiates the process it wraps). The engine
-        // owns the registry; every node it builds shares it.
-        {
-            let registry = &self.core.processes;
-            match &mut node {
-                ProcessNode::Process(p) => {
-                    p.set_registry(Arc::clone(registry));
-                    p.set_core(self.core.clone());
-                }
-                ProcessNode::Step(s) => {
-                    s.set_registry(Arc::clone(registry));
-                    s.set_core(self.core.clone());
-                }
-            }
+        // Hand the WHOLE Core down to every node (the threading rule's "push"):
+        // a node that composes other processes (`RunProcess`, `Composite`, `BRS`)
+        // overrides `set_core` to capture it; the rest ignore it. One channel, no
+        // registry-subset hand-down.
+        match &mut node {
+            ProcessNode::Process(p) => p.set_core(self.core.clone()),
+            ProcessNode::Step(s) => s.set_core(self.core.clone()),
         }
         // Thread the instance's real Link into the state schema: at a process
         // node reached through `Tree`s, replace the inferred spec-`Tree` (or fill

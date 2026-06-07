@@ -135,6 +135,19 @@ the alternate paths churn introduces. (Brooks, *No Silver Bullet*: eliminate
   for both `?c.divide()` (reaction) and the Form-3 Divider. *Find the
   generator, delete the special cases.* See [`composite-is-a-type`] and the
   brand lattice in `prism-schema/src/registry.rs` (`is_a`).
+- **The Core-threading rule (2026-06-06, #59):** there is ONE `Core` per runtime
+  context, `Arc`-shared. It reaches consumers by exactly two lifecycle-chosen
+  channels — **push** (`set_core` / `from_config`) to engine-created things
+  (engine, nodes, subengines, the BRS), **pull** (a late-bound `Arc<OnceLock<Core>>`
+  handle) for the one compile-time artifact that predates it (the chrysalis
+  evaluator, via the same cycle-breaker the `Composite` factory uses). **No
+  component stores a registry subset** — the evaluator was collapsed off its
+  `methods`/`types` fields onto the one Core, and `CompileResult`'s
+  `registry`/`methods`/`type_registry` subset fields were deleted. The generator
+  here is "Core-by-reference"; the special cases deleted are every ad-hoc
+  registry hand-down (`set_registry` and the subset fields). Consumer:
+  `chrysalis/tests/reflective_reaction.rs` — a reactum reads the live Core via
+  `core_processes()`. Rule documented on `prism_bigraph::core`.
 - **Existing one-door guards:** `closure_guard` (schema algebra), #45 (process
   instantiation).
 - **The recurring smell:** when a surface decision seems to need a

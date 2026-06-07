@@ -200,7 +200,7 @@ fn culture_imports_nests_and_runs_dish() {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();
@@ -286,7 +286,7 @@ impl Step for RunCultureStep {
         let mut engine = Engine::from_state(
             result.topology.state_schema.clone(),
             result.initial_state.clone(),
-            Arc::clone(&result.registry),
+            result.core.clone(),
         )
         .expect("Culture engine");
         engine.discover_all_processes();

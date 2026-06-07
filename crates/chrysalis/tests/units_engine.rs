@@ -12,7 +12,6 @@
 //! Without the coercion it would be 40 - 0.5 = +39.5. Sign separates the
 //! two regardless of how many ticks accumulate.
 
-use std::sync::Arc;
 
 use indexmap::IndexMap;
 use prism_bigraph::Engine;
@@ -143,7 +142,7 @@ fn run_excess(n0: f64, vol_slot: &str) -> f64 {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();
@@ -267,7 +266,7 @@ fn run_tissue_excess(n0: f64) -> f64 {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();

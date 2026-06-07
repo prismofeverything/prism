@@ -2,7 +2,6 @@
 //! calls it (the body evaluates with params bound — the same mechanism as a
 //! process/step body, minus the bigraph interface).
 
-use std::sync::Arc;
 
 use chrysalis::compile::compile;
 use chrysalis::parse::parse_program;
@@ -30,7 +29,7 @@ fn function_def_and_call_runs() {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();
@@ -70,7 +69,7 @@ fn functions_are_first_class_arguments() {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();

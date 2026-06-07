@@ -3,10 +3,10 @@
 //! process-bigraph's `RunProcess(Step)` (parameter_scan.py): the integrators are
 //! plain Processes; `RunProcess` turns one into a one-shot Step.
 //!
-//! It needs the `ProcessRegistry` to instantiate the wrapped process — injected
-//! by the engine via `Step::set_registry` (the engine owns the registry and
-//! hands it to nodes that compose other processes). The output `timeseries` is a
-//! plain ys Value (`{_type:"TimeSeries", times, columns}`), no Foreign.
+//! It needs the `Core` to instantiate the wrapped process — injected by the
+//! engine via `Step::set_core` (the threading rule's "push": the engine hands the
+//! whole Core to nodes that compose other processes). The output `timeseries` is
+//! a plain ys Value (`{_type:"TimeSeries", times, columns}`), no Foreign.
 
 use std::any::Any;
 

@@ -2,7 +2,6 @@
 //! map. The engine already resolves star paths (`get_star_path`); this checks
 //! the parser emits them, they round-trip, and the fan-out reaches a process.
 
-use std::sync::Arc;
 
 use chrysalis::compile::compile;
 use chrysalis::parse::parse_program;
@@ -42,7 +41,7 @@ fn star_wire_parses_roundtrips_and_fans_out() {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();

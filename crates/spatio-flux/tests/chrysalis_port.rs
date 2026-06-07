@@ -7,7 +7,6 @@
 //! is to flush out gotchas before porting the whole suite — chrysalis is the
 //! composition layer; the numerics stay in prism/spatio-flux.
 
-use std::sync::Arc;
 
 use prism_bigraph::{Engine, ProcessNode, ProcessRegistry};
 
@@ -102,7 +101,7 @@ fn monod_kinetics_composed_from_chrysalis() {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();
@@ -240,7 +239,7 @@ fn diffusion_composed_from_chrysalis() {
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();
