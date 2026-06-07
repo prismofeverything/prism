@@ -1145,7 +1145,13 @@ impl Schema {
             // falls back to replace.
             Self::Custom { name, .. } => match reg {
                 Some(r) => r.type_apply(name, current, update),
-                None => update.clone(),
+                // No registry to resolve the representation: fall back to a
+                // STRUCTURAL apply (treat the value by its own shape, `Any`)
+                // rather than a blind REPLACE — so a structural delta
+                // (`_remove`/`_add`) rewrites the node and data is preserved
+                // instead of the node becoming the raw delta map. (The unknown
+                // type is handled by its values — the structural-typing fallback.)
+                None => Schema::Any.apply_with_reg(None, current, update),
             },
 
             // Any: infer behavior from the value types

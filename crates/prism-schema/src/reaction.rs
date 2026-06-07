@@ -1107,36 +1107,9 @@ pub fn apply_fire(
     // late alongside the same-tick growth. A purely structural delta
     // (`_remove`/`_add` of opaque children) applies directly — the proven path
     // that never re-infers a child's type, so it can't degrade an opaque node.
-    let has_schema_sentinel = update
-        .delta
-        .as_map()
-        .is_some_and(|m| m.contains_key("_divide"));
-    if has_schema_sentinel {
-        let cur = slot.clone();
-        let schema = crate::algebra::infer(&cur);
-        *slot = crate::algebra::apply_with(registry, &schema, &cur, &update.delta);
-    } else if let Some(map) = slot.as_map_mut() {
-        if let Some(delta) = update.delta.as_map() {
-            if let Some(Value::List(keys)) = delta.get("_remove") {
-                for k in keys {
-                    if let Some(s) = k.as_str() {
-                        map.shift_remove(s);
-                    }
-                }
-            }
-            if let Some(Value::Map(adds)) = delta.get("_add") {
-                for (k, v) in adds {
-                    map.insert(k.clone(), v.clone());
-                }
-            }
-            // Any leftover non-sentinel keys merge in as plain entries.
-            for (k, v) in delta {
-                if k != "_add" && k != "_remove" {
-                    map.insert(k.clone(), v.clone());
-                }
-            }
-        }
-    }
+    let cur = slot.clone();
+    let schema = crate::algebra::infer(&cur);
+    *slot = crate::algebra::apply_with(registry, &schema, &cur, &update.delta);
     next
 }
 

@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use prism_bigraph::{BigraphicalReactiveSystem, BrsMode, Engine, Process, Update};
+use prism_bigraph::{BigraphicalReactiveSystem, BrsMode, Core, Engine, Process, Update};
 use prism_schema::{Key, ReactionRule, StateMap, Value};
 
 use chrysalis::ast::Expr;
@@ -90,12 +90,15 @@ fn apply_delta(initial: &Value, delta: &Value) -> Value {
 }
 
 /// Lower the chrysalis MAPK reactions to prism `ReactionRule`s, reusing the
-/// compiler's own evaluator (the exact path `compile` takes).
-fn prism_rules() -> Vec<ReactionRule> {
+/// compiler's own evaluator (the exact path `compile` takes). Returns the
+/// compile `Core` too, so a standalone BRS can be given the SAME registry the
+/// engine threads — fire-application resolves `Custom` types through it, never
+/// the registry-less fallback.
+fn prism_rules() -> (Vec<ReactionRule>, Core) {
     let program = mapk::program();
     let result = chrysalis::compile::compile(&program).expect("compile");
     let env: IndexMap<String, Value> = IndexMap::new();
-    mapk::rule_names()
+    let rules = mapk::rule_names()
         .iter()
         .map(|name| {
             let v = result
@@ -110,7 +113,8 @@ fn prism_rules() -> Vec<ReactionRule> {
                 .unwrap_or_else(|| panic!("reaction {name} carrier is not a chrysalis Rule"));
             to_prism_rule(rule, Arc::clone(&result.evaluator))
         })
-        .collect()
+        .collect();
+    (rules, result.core.clone())
 }
 
 #[test]
@@ -119,14 +123,19 @@ fn chrysalis_mapk_conserves_erk_and_cycles_through_prism_brs() {
     assert_eq!(total_erk_perk(&initial), 4, "3 ERK + 1 pERK initially");
 
     // Gillespie, seed 7 — same configuration as prism-mapk's reference test.
-    let brs = BigraphicalReactiveSystem::with_config(
-        prism_rules(),
+    let (rules, core) = prism_rules();
+    let mut brs = BigraphicalReactiveSystem::with_config(
+        rules,
         BrsMode::Gillespie,
         None,
         7,
         Some(10_000),
         1.0,
     );
+    // Thread the Core (the engine does this via `set_core` on discovery) so the
+    // standalone BRS fires through the SAME type registry — one core, not a
+    // registry-less fallback.
+    brs.set_core(core);
 
     let mut state = initial.clone();
     for _ in 0..50 {
@@ -169,10 +178,13 @@ fn chrysalis_mapk_runs_through_the_engine() {
     let program = mapk::program();
     let result = chrysalis::compile::compile(&program).expect("compile");
 
+    // Pass the full `core` (not just the ProcessRegistry) so the engine — and the
+    // BRS it discovers + `set_core`s — fire through the program's REAL type
+    // registry (one core threaded everywhere), not a default.
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
-        Arc::clone(&result.registry),
+        result.core.clone(),
     )
     .expect("engine init");
     engine.discover_all_processes();
