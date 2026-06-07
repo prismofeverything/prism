@@ -330,12 +330,17 @@ impl Process for BigraphicalReactiveSystem {
     fn inputs(&self) -> PortSchema {
         let mut p = IndexMap::new();
         p.insert("state".to_string(), Schema::Any);
+        // Optional `rules` port — wire it to a shared `link reactions` (the rules
+        // pool) and the BRS reads its active ruleset from there too (rules-as-
+        // state over a link); unwired, the BRS behaves exactly as before.
+        p.insert("rules".to_string(), Schema::Any);
         p
     }
 
     fn outputs(&self) -> PortSchema {
         let mut p = IndexMap::new();
         p.insert("state".to_string(), Schema::Any);
+        p.insert("rules".to_string(), Schema::Any);
         p
     }
 
@@ -347,17 +352,19 @@ impl Process for BigraphicalReactiveSystem {
         // Pull the wired subtree off the "state" input port.
         let subtree = state.get_field("state").cloned().unwrap_or(Value::None);
 
-        // rules-as-state: the ACTIVE ruleset is the seed rules (`self.rules`,
-        // from config) UNION the reaction-values living in the state subtree
-        // (under `_rules`). So a reactum can `_add` a reaction-value and have it
-        // fire on a later tick — the duality "a delta is a degenerate reaction"
-        // made load-bearing, and the reaction loop (#61 AlChemy) closed. A
-        // seed-only state (no `_rules`) reduces to exactly the prior behavior.
+        // rules-as-state: the ACTIVE ruleset is the seed rules (`self.rules`, from
+        // config) UNION the reaction-values living in (a) the state subtree (the
+        // rules-in-soup `_rules` form) and (b) the `rules` input port (a shared
+        // `link reactions` — the pool form). So a reactum can produce a reaction-
+        // value and have it fire on a later tick — the reaction loop (#61 AlChemy),
+        // local OR shared across reactors on a link. A seed-only, no-`rules`-port
+        // state reduces to exactly the prior behavior.
         let active: Vec<ReactionRule> = self
             .rules
             .iter()
             .cloned()
-            .chain(collect_state_rules(&subtree))
+            .chain(collect_reactions(&subtree))
+            .chain(state.get_field("rules").map(collect_reactions).unwrap_or_default())
             .collect();
 
         let delta = match self.mode {
@@ -408,7 +415,26 @@ impl Process for BigraphicalReactiveSystem {
             return Update::Noop;
         }
         let mut out = StateMap::new();
-        out.insert(Key::from("state"), delta);
+        // Shared-link form: when a `rules` port is wired, route a reactum's
+        // rule-additions (the `_rules` component of the fire delta) to it — the
+        // shared reaction pool / `link reactions`, so a reaction born here is read
+        // by every reactor on the link. Otherwise keep `_rules` in the soup (the
+        // local rules-as-state form). (Lifts a top-level `_rules`, i.e. a
+        // soup-root match — the common AlChemy case; deeper matches keep it in
+        // `state`.)
+        let state_delta = if state.get_field("rules").is_some() {
+            if let Value::Map(mut m) = delta {
+                if let Some(rules_delta) = m.shift_remove("_rules") {
+                    out.insert(Key::from("rules"), rules_delta);
+                }
+                Value::Map(m)
+            } else {
+                delta
+            }
+        } else {
+            delta
+        };
+        out.insert(Key::from("state"), state_delta);
         Update::Value(Value::Map(out))
     }
 
@@ -420,33 +446,44 @@ impl Process for BigraphicalReactiveSystem {
     }
 }
 
-/// Reaction-values living in the state subtree become ACTIVE rules — rules-as-
-/// state, the load-bearing form of "a rule IS state" (#60). A rule-value is a
-/// `Value::Foreign(FOREIGN_REACTION, ReactionRule)` — the SAME wire form #42 uses
-/// to send reactions across bridges. Convention: keep them under a `_rules`
-/// meta-slot (a Map `{name: rule}`, a List, or a single value), so a reactum can
-/// `_add` a rule there and it fires on the NEXT tick. This closes the reaction
-/// loop (#61 AlChemy): a reaction's reactum produces a reaction-value, the BRS
-/// picks it up. `_rules` is a reserved meta-key (like `_type`); molecular redexes
-/// never match it (a `Foreign` isn't a control-tagged Map).
-fn collect_state_rules(subtree: &Value) -> Vec<ReactionRule> {
-    let Some(slot) = subtree.get_field("_rules") else {
-        return Vec::new();
-    };
-    let candidates: Vec<&Value> = match slot {
-        Value::Map(m) => m.values().collect(),
-        Value::List(xs) => xs.iter().collect(),
-        single => vec![single],
-    };
-    candidates
-        .into_iter()
-        .filter_map(|v| match v {
-            Value::Foreign(f) if f.type_name == FOREIGN_REACTION => {
-                f.downcast_ref::<ReactionRule>().cloned()
+/// A reaction-value as data: `Value::Foreign(FOREIGN_REACTION, ReactionRule)` —
+/// the SAME wire form #42 uses across bridges. Pushes the cloned rule if `v` is
+/// one.
+fn push_reaction(v: &Value, out: &mut Vec<ReactionRule>) {
+    if let Value::Foreign(f) = v {
+        if f.type_name == FOREIGN_REACTION {
+            if let Some(r) = f.downcast_ref::<ReactionRule>() {
+                out.push(r.clone());
             }
-            _ => None,
-        })
-        .collect()
+        }
+    }
+}
+
+/// Reaction-values living in a wired value become ACTIVE rules — rules-as-state,
+/// the load-bearing form of "a rule IS state" (#60). Two shapes, both read:
+///   - reaction-values **directly under** the map — the *pool / link* form (a
+///     `rules` port wired to a shared `link reactions :: map[Reaction]`, so a
+///     reaction born in one reactor is read by every reactor on the link);
+///   - reaction-values under a **`_rules`** meta-slot — the *rules-in-soup* form
+///     (a reactum `_add`s into `_rules` within the state it rewrites).
+/// So a reactum can produce a reaction-value and the BRS picks it up next tick —
+/// the reaction loop (#61 AlChemy), local OR shared. `_rules` is a reserved
+/// meta-key (like `_type`); molecular redexes never match it / a `Foreign`.
+fn collect_reactions(value: &Value) -> Vec<ReactionRule> {
+    let mut out = Vec::new();
+    let Some(m) = value.as_map() else {
+        return out;
+    };
+    for v in m.values() {
+        push_reaction(v, &mut out);
+    }
+    match m.get("_rules") {
+        Some(Value::Map(rm)) => rm.values().for_each(|v| push_reaction(v, &mut out)),
+        Some(Value::List(xs)) => xs.iter().for_each(|v| push_reaction(v, &mut out)),
+        Some(single) => push_reaction(single, &mut out),
+        None => {}
+    }
+    out
 }
 
 /// Nest a fire's localized delta under its match path, so per-fire deltas can be

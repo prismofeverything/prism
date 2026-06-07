@@ -2097,11 +2097,11 @@ fn lower_port_bindings(
 ) -> Result<IndexMap<Key, Value>, EvalError> {
     let mut out: IndexMap<Key, Value> = IndexMap::new();
     for (port, target) in bindings {
-        let segments = lower_target_to_segments(target, evaluator, env)?;
-        out.insert(
-            Key::from(port.as_str()),
-            Value::List(segments.into_iter().map(Value::String).collect()),
-        );
+        // `lower_target_to_wire` (not `…_to_segments`) so a `~link` attachment
+        // (`rules: ~reactions`) lowers to `{_link: name}` here too — the BRS and
+        // every other ported value join the link graph by the SAME rule, not a
+        // place-path-only subset.
+        out.insert(Key::from(port.as_str()), lower_target_to_wire(target, evaluator, env)?);
     }
     Ok(out)
 }
