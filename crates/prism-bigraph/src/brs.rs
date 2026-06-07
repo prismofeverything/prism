@@ -35,7 +35,7 @@ use rand::{Rng, SeedableRng};
 use prism_schema::reaction::{
     ControlStatus, FireUpdate, Match, ReactionRule, apply_fire, find_matches, fire_rule_at,
 };
-use prism_schema::{Key, Schema, StateMap, Value};
+use prism_schema::{FOREIGN_REACTION, Key, Schema, StateMap, Value};
 
 use crate::Core;
 use crate::ports::PortSchema;
@@ -172,11 +172,12 @@ impl BigraphicalReactiveSystem {
     }
 
     /// Enumerate every candidate (rule_index, match, rate) over the
-    /// current subtree. Rates default to 1.0 if `rule.rate` is None.
-    fn enumerate_candidates(&self, subtree: &Value) -> Vec<(usize, Match, f64)> {
+    /// current subtree, against the ACTIVE ruleset `rules` (seed rules ∪
+    /// rules-as-state). Rates default to 1.0 if `rule.rate` is None.
+    fn enumerate_candidates(&self, rules: &[ReactionRule], subtree: &Value) -> Vec<(usize, Match, f64)> {
         let mut out = Vec::new();
         let status = self.control_status.as_ref();
-        for (i, rule) in self.rules.iter().enumerate() {
+        for (i, rule) in rules.iter().enumerate() {
             for m in find_matches(subtree, &rule.redex, status) {
                 // A rule's guard (if any) gates which matches are candidates.
                 if !rule.passes_guard(&m.bindings) {
@@ -218,11 +219,16 @@ impl BigraphicalReactiveSystem {
     /// multi-fire iteration), the fire's localized DELTA nested under its match
     /// path (emitted for the engine to apply schema-aware), and the fired event —
     /// or None if nothing fires.
-    fn fire_one(&self, subtree: &Value, sim_time: f64) -> Option<(Value, Value, FiredEvent)> {
+    fn fire_one(
+        &self,
+        rules: &[ReactionRule],
+        subtree: &Value,
+        sim_time: f64,
+    ) -> Option<(Value, Value, FiredEvent)> {
         match self.mode {
             BrsMode::Deterministic => {
                 let status = self.control_status.as_ref();
-                for rule in &self.rules {
+                for rule in rules {
                     let matches = find_matches(subtree, &rule.redex, status);
                     // First match whose guard passes (a guard can reject the
                     // structurally-first match).
@@ -244,9 +250,9 @@ impl BigraphicalReactiveSystem {
                 None
             }
             BrsMode::Stochastic | BrsMode::Gillespie => {
-                let candidates = self.enumerate_candidates(subtree);
+                let candidates = self.enumerate_candidates(rules, subtree);
                 let (rule_idx, m, _rate) = self.pick_candidate(&candidates)?.clone();
-                let rule = &self.rules[rule_idx];
+                let rule = &rules[rule_idx];
                 let upd = fire_rule_at(rule, &m)?;
                 let nested = nest_fire_delta(&upd);
                 let new_subtree = apply_fire(subtree, &upd, self.core.as_ref().map(|c| c.types.as_ref()));
@@ -266,14 +272,14 @@ impl BigraphicalReactiveSystem {
     /// Proper Gillespie SSA τ-leap: sample exponential waits with
     /// parameter `λ = total propensity` until time would exceed
     /// `interval`. Each step picks a candidate by per-match weight.
-    fn gillespie_step(&self, subtree: Value, interval: f64) -> (Value, bool) {
+    fn gillespie_step(&self, rules: &[ReactionRule], subtree: Value, interval: f64) -> (Value, bool) {
         let mut subtree = subtree;
         let mut t = 0.0;
         let mut fired_any = false;
         let mut steps = 0usize;
 
         while t < interval && steps < self.max_per_tick {
-            let candidates = self.enumerate_candidates(&subtree);
+            let candidates = self.enumerate_candidates(rules, &subtree);
             if candidates.is_empty() {
                 break;
             }
@@ -293,7 +299,7 @@ impl BigraphicalReactiveSystem {
                 None => break,
             };
             let (rule_idx, m, _rate) = picked;
-            let rule = &self.rules[rule_idx];
+            let rule = &rules[rule_idx];
             let upd = match fire_rule_at(rule, &m) {
                 Some(u) => u,
                 None => break,
@@ -341,12 +347,25 @@ impl Process for BigraphicalReactiveSystem {
         // Pull the wired subtree off the "state" input port.
         let subtree = state.get_field("state").cloned().unwrap_or(Value::None);
 
+        // rules-as-state: the ACTIVE ruleset is the seed rules (`self.rules`,
+        // from config) UNION the reaction-values living in the state subtree
+        // (under `_rules`). So a reactum can `_add` a reaction-value and have it
+        // fire on a later tick — the duality "a delta is a degenerate reaction"
+        // made load-bearing, and the reaction loop (#61 AlChemy) closed. A
+        // seed-only state (no `_rules`) reduces to exactly the prior behavior.
+        let active: Vec<ReactionRule> = self
+            .rules
+            .iter()
+            .cloned()
+            .chain(collect_state_rules(&subtree))
+            .collect();
+
         let delta = match self.mode {
             // Gillespie τ-leap: many firings collapse into the net structural
             // change (chemical kinetics — no `_divide`), so a diff is apt.
             BrsMode::Gillespie => {
                 let initial = subtree.clone();
-                let (s, fired) = self.gillespie_step(subtree, interval);
+                let (s, fired) = self.gillespie_step(&active, subtree, interval);
                 if !fired {
                     return Update::Noop;
                 }
@@ -364,7 +383,7 @@ impl Process for BigraphicalReactiveSystem {
                 let mut current = subtree;
                 let mut deltas: Vec<Value> = Vec::new();
                 for _ in 0..self.max_per_tick {
-                    match self.fire_one(&current, interval) {
+                    match self.fire_one(&active, &current, interval) {
                         Some((next, nested_delta, ev)) => {
                             self.fired_log.lock().unwrap().push(ev);
                             current = next;
@@ -399,6 +418,35 @@ impl Process for BigraphicalReactiveSystem {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
+}
+
+/// Reaction-values living in the state subtree become ACTIVE rules — rules-as-
+/// state, the load-bearing form of "a rule IS state" (#60). A rule-value is a
+/// `Value::Foreign(FOREIGN_REACTION, ReactionRule)` — the SAME wire form #42 uses
+/// to send reactions across bridges. Convention: keep them under a `_rules`
+/// meta-slot (a Map `{name: rule}`, a List, or a single value), so a reactum can
+/// `_add` a rule there and it fires on the NEXT tick. This closes the reaction
+/// loop (#61 AlChemy): a reaction's reactum produces a reaction-value, the BRS
+/// picks it up. `_rules` is a reserved meta-key (like `_type`); molecular redexes
+/// never match it (a `Foreign` isn't a control-tagged Map).
+fn collect_state_rules(subtree: &Value) -> Vec<ReactionRule> {
+    let Some(slot) = subtree.get_field("_rules") else {
+        return Vec::new();
+    };
+    let candidates: Vec<&Value> = match slot {
+        Value::Map(m) => m.values().collect(),
+        Value::List(xs) => xs.iter().collect(),
+        single => vec![single],
+    };
+    candidates
+        .into_iter()
+        .filter_map(|v| match v {
+            Value::Foreign(f) if f.type_name == FOREIGN_REACTION => {
+                f.downcast_ref::<ReactionRule>().cloned()
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// Nest a fire's localized delta under its match path, so per-fire deltas can be

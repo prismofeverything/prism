@@ -129,10 +129,56 @@
 - ✅ #57 reaction-driven division, CONSERVING (2026-06-06) — `?c :: Cell[mass: ?m] where … => ?c.divide()`: the redex binds the matched cell as a typed value; `?c.divide()` emits a binary `_divide` directive; the engine enacts the schema-split LATE (`divide_by_schema(CompositeLink)`), so it splits the LIVE (this-tick-grown) node and **mass is conserved across the dividing tick** — the Form-3 property, now for reactions. `grow-divide-glucose.ys` OFF SKIP + conserving; `reaction_divide.rs`.
 - ✅ #58 apply_fire unified onto the algebra (2026-06-06) — fire-application is now ONE schema-aware path (`algebra::apply_with`), not a schemaless mutator; the BRS RETURNS reconciled fire deltas and the ENGINE applies them; the Core is threaded so `Custom` types resolve (mapk: `set_core` + `result.core`, not a registry subset); an unregistered/registryless `Custom` degrades to STRUCTURAL (the value defines the type), not blind-replace. The bug was one thing wearing three masks — three spots that lacked the Core.
 - 🧩 #59 the generative-core unification PROGRAM (`docs/generative-core.md`) — reduce to the essential core, ONE way to do each thing. Facets (keep concrete, point the same way): ✅ **thread Core consistently (not registry subsets) — RULE formalized + applied 2026-06-06** (push/pull, no subset fields; BRS holds Core; evaluator collapsed onto Core; `set_registry` + `CompileResult` subset fields deleted; reflective-reaction consumer; see prompt 2026-06-06d, `prism_bigraph::core` doc, [[feedback_thread_the_core]]); survey duplicate paths across prism+chrysalis; one-door BUILD-FAILING guards (make non-duplication an automatable invariant); confluence / normal-forms (the algebra as canonicalizer); core + desugaring / Felleisen conservative-extensions; unify method definition (composites get a `with { methods }` block too); the BASIS question (#60).
-- 🧩 #60 reactions vs `_add`/`_remove` — which is PRIMARY? (the arrow direction). Today reactions PRODUCE sentinels; in bigraph theory the REACTION (match+rewrite) is the generator and `_add`/`_remove`/`_divide` are reaction-shapes. Decide the minimal basis; relates to AlChemy + division characterization. Likely a duality (a delta is a degenerate reaction).
+- ✅ #60 reactions vs `_add`/`_remove` — RESOLVED 2026-06-07. The sentinels are the schema algebra's **delta vocabulary** (produced by `diff`/methods/reaction-fire; consumed by `apply`; irreducible — `apply ∘ diff = id` needs them), NOT subreactions. Reactions are the **dynamical generator**; the bridge is the **duality** *delta = degenerate reaction; reaction = guarded delta*. Made load-bearing by **rules-as-state** (BRS reads its ruleset from state; a reactum `_add`s a reaction-value `Foreign(FOREIGN_REACTION, …)` and it fires later). Proven: `rules_as_state.rs` (a reaction installs a reaction that fires — the loop closed). Doc: `schema-algebra.md` §"Deltas and reactions". The substrate for #61 AlChemy (one move — `_add` of a spec — is uniform for process/composite/reaction).
 - 🧩 #61 AlChemy demo — a `.ys` BRS whose reactions GENERATE new reactions (reactions as first-class transmittable values; closure-under-composition / self-catalysis; Fontana's AlChemy). The closing of the reaction loop (memory [[project_chrysalis_evolution]] direction 4).
 
 A side-quest doc captured the broader landscape: `docs/exploring-the-computational-unknown.md` — survey of reflective towers, meta-circular interpreters, macros, Futamura projections, staging, algebraic effects, probabilistic / differentiable / reversible / quantum / unconventional computing, and the axes that compose into the space of methods.
+
+---
+
+## ⏯️ NEXT-SESSION PROMPT (2026-06-07 — #60 resolved: reaction/delta basis + rules-as-state; NEXT = BATWD slice 1)
+
+> Full workspace GREEN (709 tests, 0 fail; +1). #60 — the basis question
+> ("reactions vs `_add`/`_remove`; shouldn't reactions be primary?") — RESOLVED,
+> and made load-bearing.
+>
+> **The basis (documented in `docs/schema-algebra.md` §"Deltas and reactions"):**
+> `_add`/`_remove`/`_divide` are the schema algebra's **delta vocabulary** —
+> produced by `diff` (no reaction!), value-methods, AND reaction-fire; consumed by
+> `apply`. They're irreducible (the `apply ∘ diff = id` adjunction needs them), NOT
+> "subreactions." A **reaction** is the *dynamical generator* on top: it produces a
+> delta, like `diff` does. The bridge is a **duality** — *a delta is a degenerate
+> reaction (empty redex); a reaction is a guarded, match-parameterized delta.* So
+> reactions ARE primary for dynamics; a bare delta is the precondition-free case.
+> Neither subsumes the other ("reactions all the way down" can't remove the
+> type-directed `apply` — sum-vs-overwrite comes from the sort).
+>
+> **Made load-bearing — RULES-AS-STATE** (`prism-bigraph/src/brs.rs`): a reaction
+> is a first-class value (`Foreign(FOREIGN_REACTION, ReactionRule)`), so a rule IS
+> state. `BRS::update` computes the active ruleset = seed `self.rules` ∪
+> `collect_state_rules(subtree)` (reaction-values under the `_rules` meta-slot);
+> `fire_one`/`enumerate_candidates`/`gillespie_step` take `&[ReactionRule]`. A
+> reactum can `_add` a reaction-value and it fires on a later tick. Proven by
+> `prism-bigraph/tests/rules_as_state.rs` — **a reaction installs a reaction that
+> then fires** (the reaction loop closed). Seed-only states reduce to prior behavior.
+>
+> **This is the substrate for #61 AlChemy** — the one move (`_add` of a spec) is
+> uniform across adding a process, a composite, OR a reaction (topology + AlChemy
+> are the same shape).
+>
+> **NEXT — in order:**
+> 1. **BATWD slice 1 — cross-composite link-graph redex** (the keystone): wire the
+>    surface `?x ~{p: ~e}` to `fire_across_composites` (#40/#43). Two grammar
+>    restrictions to remove (redex head `?x`; port target `?v`); pattern lowering
+>    to a shared-link match; an engine-level BRS-over-composites + auto-detect of
+>    which composites a redex names. Unlocks topology reactions, outer links, mesh.
+> 2. **#61 AlChemy `.ys` surface** — now that rules-as-state works in prism, lift it
+>    to chrysalis: a `.ys` reaction whose reactum produces a reaction-value into
+>    `_rules`. Needs chrysalis to evaluate a reaction reference to
+>    `Foreign(FOREIGN_REACTION, prism::ReactionRule)` (today it's the chrysalis
+>    `Rule` form) + a `_rules` wiring convention. The full self-catalysis demo.
+> 3. (defer) `_divide`'s late-timing is the one sentinel that's more than a plain
+>    delta (the engine applies it on the live grown node); fine as-is, noted.
 
 ---
 

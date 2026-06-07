@@ -72,6 +72,46 @@ walks only the sparse update's keys and substitutes the library's typed
 node there (set **restriction**). Per-tick `apply` uses `promote`; merging
 two declarations uses `resolve`.
 
+## Deltas and reactions — the basis (#60)
+
+The `u` (update) in `apply` / `diff` / `reconcile` is a **delta**: a value built
+from the algebra's delta vocabulary — typed scalar deltas (extensive *sum* /
+intensive *overwrite*, chosen by the sort) plus the structural sentinels `_add` /
+`_remove` / `_divide`. This vocabulary belongs to the **algebra**, not to
+reactions: `diff(a, b)` *produces* `_add`/`_remove` with no reaction involved
+(`diff.rs`); value-methods (`graph.add_node`) produce them; `apply` is the sole
+consumer. They are **irreducible** — without `_add`/`_remove`, `diff` cannot say "a
+key appeared/vanished," so the `apply ∘ diff = id` adjunction requires them.
+
+A **reaction** is the *dynamical generator* layered on top: `redex => reactum`,
+fired by `find_matches` + `fire_rule_at`. Firing matches a redex and *produces a
+delta* (its localized effect) that `apply` enacts — exactly as `diff` produces a
+delta. So reactions do not sit *under* the sentinels and are not *defined by*
+them; they are one **producer** of deltas, beside `diff` and methods.
+
+The bridge is a **duality**:
+
+> A bare **delta is a degenerate reaction** — the effect of a reaction whose redex
+> is trivially satisfied (apply it here, unconditionally). A **reaction is a
+> guarded, match-parameterized delta** — a delta plus a precondition (the redex)
+> and its bindings.
+
+So for *dynamics*, reactions are primary and a delta is the precondition-free
+case; for the *substrate*, the typed delta algebra is primary and reactions
+produce its deltas. They compose; neither subsumes the other — "reactions all the
+way down" can't eliminate the type-directed `apply` (sum-vs-overwrite comes from
+the *sort*, not a rule).
+
+**Made load-bearing — rules-as-state.** A reaction is a first-class value
+(`Value::Foreign(FOREIGN_REACTION, ReactionRule)`), so a *rule is state*: the BRS
+reads its active ruleset from the state subtree each tick (seed rules ∪
+reaction-values under the `_rules` meta-slot). A reactum can therefore `_add` a
+reaction-value and have it fire on a later tick — the duality turned into the
+**reaction loop**: reactions producing reactions (#61 AlChemy). Proven by
+`prism-bigraph/tests/rules_as_state.rs`. The one move — `_add` of a spec — is
+uniform across adding a process, a composite, or a reaction (topology + AlChemy
+are the same shape).
+
 ## Laws (the axioms)
 
 Written as `≡` (must hold for all typed values of the sort). These become

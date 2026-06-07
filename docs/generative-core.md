@@ -148,6 +148,15 @@ the alternate paths churn introduces. (Brooks, *No Silver Bullet*: eliminate
   registry hand-down (`set_registry` and the subset fields). Consumer:
   `chrysalis/tests/reflective_reaction.rs` — a reactum reads the live Core via
   `core_processes()`. Rule documented on `prism_bigraph::core`.
+- **The reaction/delta basis (2026-06-06, #60):** `_add`/`_remove`/`_divide` are
+  the schema algebra's **delta vocabulary** (produced by `diff`, value-methods, AND
+  reaction-fire; consumed by `apply`) — irreducible, not "subreactions." Reactions
+  are the **dynamical generator** on top; the bridge is a duality — *a delta is a
+  degenerate reaction; a reaction is a guarded delta*. Made load-bearing by
+  **rules-as-state**: a reaction is a first-class value, the BRS reads its ruleset
+  from state, so a reactum can `_add` a reaction and close the loop (#61 AlChemy).
+  The generator is the reaction; the special case it subsumes is the unconditional
+  delta. See `docs/schema-algebra.md` §"Deltas and reactions" + `rules_as_state.rs`.
 - **Existing one-door guards:** `closure_guard` (schema algebra), #45 (process
   instantiation).
 - **The recurring smell:** when a surface decision seems to need a
