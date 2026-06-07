@@ -17,8 +17,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use indexmap::IndexMap;
 
 use prism_schema::reaction::{GuardFn, RateFn, ReactumFn};
+use prism_schema::registry::{TypeMethods, TypeRegistry};
 use prism_schema::value::Foreign;
-use prism_schema::{Bindings, Key, Pattern, ReactionRule, StateMap, Value, FOREIGN_REACTION};
+use prism_schema::{
+    Bindings, DivideContext, FOREIGN_REACTION, Key, Pattern, ReactionRule, Schema, StateMap, Value,
+};
 
 use crate::ast::{Expr, Name};
 use crate::eval::Evaluator;
@@ -394,4 +397,66 @@ pub fn to_structural_rule(rule: &Rule) -> Option<ReactionRule> {
 /// or `rest:` transport (merge-protocol slice 5).
 pub fn to_bigraph_value(rule: &Rule) -> Option<Value> {
     to_structural_rule(rule).map(|pr| Value::Foreign(Foreign::new(FOREIGN_REACTION, pr)))
+}
+
+/// The `reaction` TYPE — a reaction *at rest*, as transmittable / storable DATA.
+///
+/// Its `realize` REIFIES a chrysalis [`Rule`] value (`FOREIGN_RULE`) into the
+/// closure-free `Foreign(FOREIGN_REACTION, ReactionRule)` form (the #42 wire
+/// form). So a `:: reaction` / `:: map[reaction]` slot — a rules pool, a shared
+/// `link` — AUTO-converts on store: the `.ys` author writes `=> Grow`, no
+/// reification verb. That SAME form is what `BigraphicalReactiveSystem`'s
+/// `collect_state_rules` reads (rules-as-state) AND what fires across a
+/// `:: bigraph` bridge (#42) — ONE value for store / link-share / send, which is
+/// why AlChemy is the BATWD demo: reactions are ordinary transmittable state.
+///
+/// Unlike the `bigraph` type (whose `apply` FIRES the reaction), `reaction`'s
+/// `apply` STORES (overwrite by the reified value). Only STRUCTURAL reactions
+/// reify here (closure-free, no evaluator needed); a computed reaction (guard /
+/// rate / computed reactum) passes through unconverted — a host that wants it as
+/// a live rule must reify with an evaluator (`to_prism_rule`).
+#[derive(Debug)]
+pub struct ReactionType;
+
+impl TypeMethods for ReactionType {
+    fn default(&self, _r: &TypeRegistry, _s: &Schema) -> Value {
+        Value::None
+    }
+
+    fn apply(&self, r: &TypeRegistry, s: &Schema, _state: &Value, update: &Value) -> Value {
+        // A reaction slot is overwrite-by-the-REIFIED-update: STORE the reaction
+        // (don't fire it — that's `bigraph`). Realizing the update is the reify.
+        self.realize(r, s, update)
+    }
+
+    fn divide(&self, _r: &TypeRegistry, _s: &Schema, state: &Value, ctx: &DivideContext) -> Vec<Value> {
+        // A reaction is intensive — each daughter inherits a copy of the rule.
+        vec![state.clone(); ctx.n_daughters.max(2)]
+    }
+
+    fn serialize(&self, _r: &TypeRegistry, _s: &Schema, state: &Value) -> Value {
+        // TODO (distributed transport, AlChemy milestone 3): a structural
+        // serialize (redex/reactum patterns) so a reaction crosses a JSON
+        // boundary. In-process (local / shared-link) needs no codec.
+        state.clone()
+    }
+
+    fn realize(&self, _r: &TypeRegistry, _s: &Schema, encoded: &Value) -> Value {
+        match encoded {
+            // The reify: chrysalis Rule → closure-free transmittable form.
+            Value::Foreign(f) if f.type_name == FOREIGN_RULE => f
+                .downcast_ref::<Rule>()
+                .and_then(to_bigraph_value)
+                .unwrap_or_else(|| encoded.clone()),
+            // Already transmittable, or not a reaction value — pass through.
+            _ => encoded.clone(),
+        }
+    }
+
+    fn check(&self, _r: &TypeRegistry, _s: &Schema, state: &Value) -> bool {
+        matches!(
+            state,
+            Value::Foreign(f) if f.type_name == FOREIGN_REACTION || f.type_name == FOREIGN_RULE
+        )
+    }
 }

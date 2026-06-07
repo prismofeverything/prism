@@ -2153,8 +2153,48 @@ impl Expr {
                 };
                 Ok(Expr::LinkDecl { name, schema, default })
             }
-            // Pattern-only / rare variants — left for a follow-up slice so the
-            // gap is visible rather than silently mis-handled.
+            // Pattern / reaction-defining variants — `?c` sites, the `=>` rule
+            // split, the guard. Closing these is what makes a REACTION fully
+            // assemblable as data: `{_type:"Rule", redex:{…}, reactum:{…}}` round-
+            // trips to an `Expr::Rule`, which compiles (`eval_pattern` →
+            // `ReactionRule`) and runs. The reaction analog of hand-built-cell.
+            "Site" => {
+                let name = field_str(map, "name")?;
+                let sort = match field_of(map, "sort") {
+                    Some(s) => Some(Box::new(Expr::from_value(s)?)),
+                    None => None,
+                };
+                Ok(Expr::Site { name, sort })
+            }
+            "Rule" => {
+                let redex = Box::new(Expr::from_value(
+                    field_of(map, "redex").ok_or_else(|| err("Rule.redex missing"))?,
+                )?);
+                let reactum = Box::new(Expr::from_value(
+                    field_of(map, "reactum").ok_or_else(|| err("Rule.reactum missing"))?,
+                )?);
+                Ok(Expr::Rule { redex, reactum })
+            }
+            "ReplaceWith" => {
+                let id = Box::new(Expr::from_value(
+                    field_of(map, "id").ok_or_else(|| err("ReplaceWith.id missing"))?,
+                )?);
+                let with = Box::new(Expr::from_value(
+                    field_of(map, "with").ok_or_else(|| err("ReplaceWith.with missing"))?,
+                )?);
+                Ok(Expr::ReplaceWith { id, with })
+            }
+            "Where" => {
+                let inner = Box::new(Expr::from_value(
+                    field_of(map, "inner").ok_or_else(|| err("Where.inner missing"))?,
+                )?);
+                let predicate = Box::new(Expr::from_value(
+                    field_of(map, "predicate").ok_or_else(|| err("Where.predicate missing"))?,
+                )?);
+                Ok(Expr::Where { inner, predicate })
+            }
+            // Comprehension is the one remaining rare variant (list/map iteration);
+            // not reaction-defining, left until a consumer needs it.
             other => Err(err(&format!(
                 "variant `{other}` not yet supported via Expr::from_value"
             ))),

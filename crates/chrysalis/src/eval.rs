@@ -1194,6 +1194,63 @@ impl Evaluator {
         )))
     }
 
+    /// Compile a REACTION assembled as DATA into the runnable, transmittable
+    /// form — the "eval for reactions" (the reaction analog of `eval(ast)`).
+    ///
+    /// A reaction is a pair of bigraphs sharing a site-set: `{_type:"Rule",
+    /// redex:{…}, reactum:{…}}`. `Expr::from_value` round-trips that data to an
+    /// `Expr::Rule` (the `?c` sites / `=>` split / guard now round-trip, #61);
+    /// this lowers the redex (`eval_pattern_top`) and reactum, builds the chrysalis
+    /// `Rule`, and reifies it via `to_bigraph_value` to `Foreign(FOREIGN_REACTION,
+    /// ReactionRule)` — the exact value the BRS reads as a rule (rules-as-state)
+    /// and that crosses a `:: bigraph` bridge. So a reaction can be ASSEMBLED from
+    /// map literals, inspected, serialized, and run — the reaction analog of the
+    /// hand-built cell. A structural reaction reifies closure-free; a computed
+    /// reactum (its closures need *this* evaluator at fire time) is kept as the
+    /// chrysalis `Rule` form.
+    pub fn compile_reaction_value(
+        &self,
+        data: &Value,
+        env: &IndexMap<Name, Value>,
+    ) -> Result<Value, EvalError> {
+        let expr = Expr::from_value(data).map_err(|e| EvalError::InvalidForm {
+            context: "compile_reaction".into(),
+            message: e.to_string(),
+        })?;
+        let Expr::Rule { redex, reactum } = expr else {
+            return Err(EvalError::InvalidForm {
+                context: "compile_reaction".into(),
+                message: "expected a reaction `{_type: \"Rule\", redex, reactum}`".into(),
+            });
+        };
+        let mut bindings = RuleBindings::new();
+        let redex_pat = self.eval_pattern_top(&redex, env, &mut bindings)?;
+        let reactum_form = if reactum_is_structural(&reactum) {
+            let mut rb = RuleBindings::new();
+            let pat = self.eval_pattern(&reactum, env, &mut rb)?;
+            Reactum::Structural {
+                reactum: pat,
+                instantiation: IndexMap::new(),
+            }
+        } else {
+            Reactum::Computed((*reactum).clone())
+        };
+        let rule = Rule {
+            label: "assembled".to_string(),
+            redex: redex_pat,
+            reactum: reactum_form,
+            guard: None,
+            rate: None,
+            bindings,
+            closure: Arc::new(IndexMap::new()),
+        };
+        // Reify to the transmittable form when structural (closure-free);
+        // otherwise keep the chrysalis `Rule` (computed reactum needs this
+        // evaluator at fire time — a host reifies it with `to_prism_rule`).
+        Ok(crate::runtime::rule::to_bigraph_value(&rule)
+            .unwrap_or_else(|| Value::Foreign(prism_schema::value::Foreign::new(FOREIGN_RULE, rule))))
+    }
+
     /// Build a BRS process spec from the surface form
     /// `BRS[rules: [...]] ~{state: ...} ->{state: ...}`.
     fn build_brs_value(
