@@ -138,6 +138,59 @@ A side-quest doc captured the broader landscape: `docs/exploring-the-computation
 
 ---
 
+## ⏯️ NEXT-SESSION PROMPT (2026-06-08 — Core threaded through the protocol layer + the all-four-registries conformance test + method matrix made consistent; NEXT = rest delta-in #5)
+
+> Full workspace GREEN (728 tests, 0 fail; +4 this arc). The 2026-06-07d NEXT steps
+> 0+1 are DONE, and the conformance test the user demanded became a DIAGNOSTIC that
+> surfaced (and fixed) three real "we don't apply our own system consistently" gaps.
+>
+> **Core threaded through the protocol layer (the #59 rule, finished here).**
+> `Protocol::instantiate(&self, data, config, core: &Core)` — the trait + all four
+> impls (local/rest/parallel/stream) read `core.processes`; `ProtocolRegistry::
+> instantiate(&core)` + `Core::instantiate(self)` pass it; engine.rs passes
+> `&self.core`; `RestProcessServer::start(core: Core)`; `RestProcess`/`StreamProcess`
+> hold the WHOLE Core (never a `core.types` subset); the rest codec flips
+> `reg None → Some(core.types())`. ~14 call sites fixed (`Core::from(registry)` for
+> registry-only tests). **The original #61b payoff: a `Custom`/`Foreign` value now
+> crosses a real rest bridge by its schema instead of nulling.**
+>
+> **THE CONFORMANCE TEST — `prism-bigraph/tests/core_threading_conformance.rs`.**
+> User-sharpened: it must cross a boundary using NON-DEFAULT entries from EVERY Core
+> registry, so a subset-stand-in can't satisfy it. ONE node (`BoxedDescribe`) crosses
+> local/rest/parallel exercising all four — TYPE (`Boxed`, a `Foreign`, JSON-opaque →
+> codec dispatches serialize/realize), PROCESS (`EmitBoxed`/`BoxedDescribe`), METHOD
+> (`Boxed.describe`, dispatched SERVER-SIDE through the threaded Core), PROTOCOL
+> (`rest`; default registry is `local`-only). `local == rest == parallel` throughout.
+>
+> **TWO `set_core` gaps the test revealed + fixed** (user's "if it's hard, that's an
+> inconsistency to FIX"): (a) the rest server ran `node.update()` WITHOUT `set_core`,
+> so a server-side method-dispatching process couldn't reach `core.methods` → fixed
+> (`node.set_core(core)` at initialize + a `ProcessNode::set_core` convenience); (b)
+> `ParallelProcess` never set_core'd its inner (a shared `Arc<dyn Process>`) → same
+> gap → fixed (set_core the inner `Box` before `Arc::from` in `ParallelProtocol::
+> instantiate`).
+>
+> **THE METHOD MATRIX, made consistent ([[method_matrix]]).** `MethodRegistry` IS the
+> open type×method matrix (rows × cols, both freely extensible) — distinct from the
+> closed `TypeMethods` algebra. Its `dispatch` was EXACT-MATCH only while
+> `TypeRegistry::methods` already walked `inherits`. Fixed: `dispatch` resolves brand
+> → `is_a` ancestors (new `TypeRegistry::ancestors`) → STRUCTURAL variant (new
+> `method::structural_name`; a branded `{_type: Cell}` map falls back to the `Map`
+> row). `dispatch_with(types,…)` adds the is_a chain; chrysalis eval's `.method()`
+> uses it → surface dispatch by subsumption. The viz `render_state_dot` (a bare
+> function OUTSIDE the matrix — user spotted it) is now a `("Map","dot")` method
+> (returns DOT source as data, like `plot`); works on any state, branded or not.
+>
+> **NEXT — rest delta-in/update-out (#5, the 2026-06-07d step 2 — still open):** make
+> rest STATEFUL + delta-in, mirroring stream (client holds `prev_input`, sends
+> `diff(element, prev, state)`; server holds input-per-id, folds via `apply_with`).
+> OUTWARD-FACING: the python COPASI/Tellurium sidecar speaks the state-in wire, so
+> change the rust client+server together + keep the in-suite rest tests consistent
+> (python = follow-up #48/#49). The byte layer (`value_to_json`/Arrow) STAYS under
+> the algebra door.
+
+---
+
 ## ⏯️ NEXT-SESSION PROMPT (2026-06-07d — boundary codec UNIFIED through the algebra; NEXT = thread the Core through the protocol layer + rest delta-in)
 
 > Full workspace GREEN (724 tests, 0 fail; +8 this arc). The "real transport"
