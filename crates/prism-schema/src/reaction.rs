@@ -979,12 +979,21 @@ fn assign_list_items(
             continue;
         }
         let (ckey, cval) = &children[j];
-        // The child key doubles as the redex key, so a bare `Site` item
-        // captures under the (distinct) child key rather than colliding.
+        // The redex key for this item → the matched child key. For an
+        // as-pattern item (`?west :: Cell`), the redex key is the BINDER NAME
+        // (`?west`), so `key_map[?west] = <matched child key>` — letting a
+        // reactum keyed by the binder (`{ ?west: … }`) `remap_keys` back to the
+        // matched entry (an IN-PLACE modify of the coupled composite), and the
+        // computed path resolve `?west`'s key. A bare `Site` / plain item keeps
+        // the child key as its own redex key (no distinct binder name).
+        let redex_key = match &items[i] {
+            Pattern::Bind { name, .. } => name.clone(),
+            _ => ckey.clone(),
+        };
         if try_pair(ckey, &items[i], ckey, cval, false, bindings) {
             bindings
                 .key_map
-                .entry(ckey.clone())
+                .entry(redex_key)
                 .or_insert_with(|| ckey.clone());
             used[j] = true;
             if assign_list_items(i + 1, items, children, used, bindings) {
