@@ -107,7 +107,7 @@
 - ✅ #39 `tensor_by_schema` — DONE 2026-06-06. Schema-driven dual of `divide_by_schema` (`prism_schema::tensor_by_schema`): Delta/Integer SUM, Float/Bool/etc. share-left, containers recurse per-field with key-union, Maybe/Overwrite delegate, link-kinds tensor `node_data_branches`, Custom dispatches to `TypeMethods::tensor` (new trait method). `Qubits` overrides with the quantum cross-product. Law `tensor(divide(state, 2).0, divide(state, 2).1) = state` proven for Delta/Integer + mixed-extensivity Tree. 12 tests in `prism-schema/tests/tensor_by_schema.rs` + 1 chrysalis dispatch test.
 - ✅ #42 Bigraph port type — DONE 2026-06-06. `prism_schema::BigraphTypeMethods` registered as `bigraph` builtin: `apply` reads `Value::Foreign(FOREIGN_REACTION, ReactionRule)` and fires via `fire_rule` + `apply_fire`; no-match no-op; plain Overwrite. Chrysalis-side converter `chrysalis::runtime::rule::{to_structural_rule, to_bigraph_value}` — closure-free chrysalis Rule → prism ReactionRule for structural reactions. With #41's symmetric input bridge, any `~{port :: bigraph}` composite input now accepts reactions as typed updates and fires them inside — algebra-layer property. 4 + 3 tests prove the end-to-end. Reactions-cross-bridges as data is the algebra's job, not a bridge special-case.
 - ✅ #40 cross-composite redex syntax — RESOLVED 2026-06-06 as a LINK-GRAPH operation. Both the original sketch `alice~{state: a} | bob~{state: b}` (raw control as peer) and the interim map-literal answer `{ alice: { state: ?a }, bob: … }` (place-graph descent) conflated place graph with link graph. Cross-composite is fundamentally a LINK operation: match sealed composites by published ports on a shared link, never by descent. The principled form lifts MAPK's `~bond` to composites: `?west ~{edge: ~e} | ?east ~{edge: ~e}` — `?`-prefixed site binders + shared link var `~e`. Two grammar restrictions REMOVED enable this: (1) redex head may be `?x` not only `K[args]`; (2) port target may bind `?v` not only `!`/`~link`. Expresses the COUPLING (any two composites on `e`), encapsulation-clean by construction, unifies molecule-level and composite-level BRS with identical syntax. Documented in `docs/chrysalis-design.md` §"Cross-composite redexes are LINK-GRAPH matches" + `docs/merge-protocol.md` slice 7 + memory `feedback_no_case_heuristics` (supersedes the map-literal entry). Implementation = matcher side of #43.
-- 🧩 #43 cross-composite reactor — **FIRST SLICE DONE 2026-06-08b** (the CRUX delta-returning reactor + engine per-tick reactor + auto-detect); the #40 link-graph surface matcher + chrysalis wiring + distributed form remain. The arc:
+- ✅ #43 cross-composite reactor — **COMPLETE 2026-06-08c** (place-graph delta reactor + link-graph matcher + `|` parser unification + firing consume→produce AND in-place modify + reaction-firing keying unified to one `localize_fire` + in-place surface + DISTRIBUTED over a live rest bridge + LIVE running composites via the BRIDGE not config.state). Remaining tail is optional sugar only (sortless `?west ~{edge:~e}`, `?v` port targets). The arc:
   - ✅ **Foundational unfurl-fire-fold** (2026-06-06): `prism_schema::fire_across_composites(parent, rule, composite_paths) → CrossFireResult { parent, fired }` — the WHOLE-STATE form (apply on the flat union, then fold). 4 tests (`prism-schema/tests/fire_across_composites.rs`) incl. the load-bearing demo (redex can't match the composite-form parent, matches the flat union after unfurl).
   - ✅ **The DELTA form (the CRUX, 2026-06-08b)**: `prism_schema::cross_fire_delta(parent, rule, composite_paths) → CrossFireDelta { delta, fired, label }` + `refold_fire_update`. Shares `unfurl_and_fire` with the whole-state form (unfurl → match flat → `fire_rule_at`, NO apply); the new half RE-FOLDS the localized `fire_update` — nest under its path, then REFRAME: at every composite boundary the path crosses, wrap the sub-delta as `{config:{state: …}}`. So the change lands at the composite INTERIOR (`cells.alice.config.state.value`) as a field-localized `_add`/`_remove`/`_divide` — NOT the folded full parent, NOT overwrite (clobbers), NOT `diff` (loses `_remove`/`_divide`). Sentinels kept verbatim → `_divide` survives to the engine. Genuinely cross-composite via a computed reactum binding two composites and emitting per-composite localized `_add`s (the shape #40's `?w ~{edge:~e} | ?e ~{edge:~e}` compiles to). +4 property tests (8 total): equivalent to the whole-parent fold, COMPOSES with a concurrent grow, `_add`/`_remove`/`_divide` survive, no-match no-op.
   - ✅ **Engine per-tick reactor + auto-detect** (2026-06-08b): `prism_bigraph::CrossCompositeReactor` — a `Process`, thin driver over `cross_fire_delta` (the cross-composite sibling of `BigraphicalReactiveSystem`; the MECHANISM is shared in prism-schema, no clone). Each tick: read the wired subtree → AUTO-DETECT the composites (`detect_composite_paths`; `_type:"composite"`, one level) → fire rules → reconcile per-rule deltas (RecursiveTree, schema-faithful — not `Any` last-wins) → emit `{state: <delta>}` (output=delta contract). `prism-bigraph/tests/cross_composite_reactor.rs` (3 tests): fires through the engine reaching INSIDE both composites; no-op without composites; COMPOSES with a concurrent grow through the engine's real per-branch reconcile. Schema FULLY DECLARED (`engine_schema`: `cells` open `Map{RecursiveTree}`, process slots `ProcessLink`) — no `schema_at_path` `Any`-fallback dodge.
@@ -145,7 +145,60 @@
   - ✅ **#61a link schema first-class** (2026-06-07c) — `collect_branches` (chrysalis/src/schema.rs) now types a `link name :: T` pool slot by its declared `T`; a bare `link name = d` falls through to `infer` (not stamped `Any`). The TYPE lives on the SLOT (where the merge happens) — engine `resolve_link` reads only the `_links` marker's PRESENCE, so no schema side-channel on the marker. `tests/link_schema.rs` proves a `map[Reaction]` slot is `Map{Custom(Reaction)}`; the AlChemy link tests are the behavioral guards.
   - ✅ **#61b real transport** — DONE 2026-06-08. `ReactionType::serialize/realize` emit/consume the structural data form (`to_data_value`/`to_bigraph_value`), and a reaction now crosses a **LIVE** `rest:` bridge and FIRES on the far side (`chrysalis/tests/reaction_rest.rs`: a reaction lives only on the client, crosses to a `RestProcessServer` as data, is reconstructed runnable by the server's threaded-Core codec, fires A→B server-side). The payoff of the Core-threading arc — the earlier `reaction_transport.rs`/`distributed_alchemy.rs` only crossed a hand-rolled serde boundary "without a live socket".
 
+- 🧩 #62 NATIVE MESH — the new direction (user: "native ability to be a mesh network will be a key feature... make it FUNDAMENTAL... seamlessly operate with the rest"). Memory [[mesh_as_protocol]]. **The design:** the mesh = the PROTOCOL abstraction generalized from parent↔child (`local`/`rest`/`stream`) to **peer↔peer** (`peer:`/`mesh:` first-class). SEAMLESS because every boundary is the uniform schema-algebra codec ([[boundary_codec_algebra]]) — so reactions, cross-composite coupling, AlChemy, quantum teleportation work over the mesh UNCHANGED (the mesh is an ADDRESS, not a mode). `docs/distributed-execution.md`'s "cluster = a protocol with a pluggable backend", promoted to a foundation.
+  - ✅ **Peer-bridge SLICE 1** (2026-06-08): a SHARED LINK (bigraph hyperedge) REPLICATED across two peer engines, NO coordinator, converging over a LIVE rest bridge (`prism-bigraph/tests/peer_shared_link.rs`). The deep Q ("where is a P2P shared link STORED?"): nowhere single — each peer reifies a replica, the link IS the convergence (a link-graph relation has no place-graph location). HOMED (rendezvous, SPOF) vs REPLICATED (P2P, CRDT) — chose replicated.
+  - ✅ **Deep P2P/mesh survey** (task #11, 2026-06-08; full report in the session transcript) — grounded the enduring design on PROVEN work. Distilled in [[mesh_as_protocol]]: CALM (coordination-free ⟺ monotone) governs; CRDT semilattice law (comm+assoc+**idempotent**) is the link-merge contract; δ-state CRDTs; SWIM+gossip over Tailscale L3 (NOT DHTs); ship-the-rule reactions explicit/async (Waldo + 8 fallacies); NO auto-DGC (acyclic-only, bigraph links CYCLE → explicit lease/epoch); budget tombstone/metadata GC; per-datum symmetric-vs-authoritative (Figma: home awkward non-monotone links); authenticated tailnet ⇒ not Byzantine.
+  - ✅ **CRDT mesh-safety LAW (executable)** (2026-06-08): `prism-schema/tests/crdt_laws.rs` — a `mesh` link's merge must be a join-semilattice; `map[T]`∪ ✅ mesh-safe, bare additive ❌ (double-counts on re-delivery — the footgun), per-source pool ✅ (PN-counter fix). IDEMPOTENCE is the discriminator.
+  - ⏳ **NEXT (task #12):** (1) make the CRDT law a CLOSURE INVARIANT — the algebra REJECTS a `mesh` link whose reconcile isn't a semilattice; (2) the `peer:`/`mesh:` protocol + a δ-CRDT shared-link realization (`link name :: T` declares `mesh`) + gossip/anti-entropy; (3) SWIM membership; (4) N-peer; (5) reactions/AlChemy over the mesh (single-host atomic, cross-host fire-optimistic + converge via CRDT). Then the distributed-execution octree (#27) + the explicit cross-host ref lifecycle. **Open frontier (honest):** atomic topology-rewrite across hosts, evolving-merge AlChemy, distributed cyclic GC — genuinely unsolved.
+- 🧩 #63 STREAMING SYNTHESIZERS — the other big build toward "streaming biological quantum synthesizers" (the ultimate demo). `docs/synthesis-bigraphs.md` (gorgon → library; tick = one audio block; modules = process/step with signal ports; offline-first; build order A1–A9). Memory [[synthesizer_project]]. INDEPENDENT of the mesh (offline-first) — a good parallel front. Quantum is done (Bell/GHZ/teleportation, #35/#36); self-reconfiguring synths = AlChemy on synth bigraphs (mechanism done, needs the synth domain). First audible milestone: a `.ys` patch that makes sound.
+
 A side-quest doc captured the broader landscape: `docs/exploring-the-computational-unknown.md` — survey of reflective towers, meta-circular interpreters, macros, Futamura projections, staging, algebraic effects, probabilistic / differentiable / reversible / quantum / unconventional computing, and the axes that compose into the space of methods.
+
+---
+
+## ⏯️ NEXT-SESSION PROMPT (2026-06-08d — #43 cross-composite reactor COMPLETE (local/distributed/live); the PEER-BRIDGE / NATIVE-MESH keystone STARTED; a deep P2P survey is grounding the enduring design)
+
+> Full workspace GREEN (752 tests, 0 fail). #43 finished end to end (see the
+> 2026-06-08c prompt + the durable #43 entry: place-graph delta reactor, link-graph
+> matcher, `|` parser unification, firing consume→produce AND in-place modify, the
+> reaction-firing KEYING unified to ONE `localize_fire`, in-place surface, DISTRIBUTED
+> over a live rest bridge, LIVE running composites via the BRIDGE — user-corrected: NOT
+> config.state, [[feedback_bridge_not_config]]). Then started the next chapter.
+>
+> **NATIVE MESH is the new direction — FUNDAMENTAL, not bolted on** (user: "native
+> ability to be a mesh network will be a key feature... make it fundamental... seamlessly
+> operate with the rest"). The design ([[mesh_as_protocol]]): the mesh = the PROTOCOL
+> abstraction generalized from parent↔child (`local`/`rest`/`stream`) to **peer↔peer**
+> (`peer:`/`mesh:` first-class). SEAMLESS because every boundary is the uniform
+> schema-algebra codec ([[boundary_codec_algebra]]) — so reactions, cross-composite
+> coupling, AlChemy, quantum teleportation work over the mesh UNCHANGED (the mesh is an
+> ADDRESS, not a mode). `docs/distributed-execution.md`'s "cluster = a protocol with a
+> pluggable backend", promoted to a foundation.
+>
+> **The peer bridge — SLICE 1 DONE.** `prism-bigraph/tests/peer_shared_link.rs`: a
+> SHARED LINK (bigraph hyperedge) REPLICATED across two peer engines, **no
+> coordinator**, converging over a LIVE rest bridge (each peer holds its replica;
+> symmetric exchange; idempotent CRDT union). The deep Q the user raised — "where is a
+> P2P shared link STORED?": nowhere single; each peer reifies a replica, the link IS the
+> convergence (a link-graph relation has no place-graph location). Realizations: HOMED
+> (rendezvous — SPOF) vs REPLICATED (P2P, CRDT). We chose replicated. **Correctness
+> condition:** coordination-free convergence needs the link's schema-reconcile to be a
+> CRDT (commutative+associative+IDEMPOTENT) — `map[Reaction]` ∪ / per-source pools ARE;
+> naive additive + LWW are NOT (CALM theorem).
+>
+> **GROUNDING IN FLIGHT — task #11 (background agent):** a deep survey of P2P/mesh
+> literature (CRDTs + delta/GC limits, CALM, causality-vs-consensus, gossip/DHT/SWIM/NAT/
+> WireGuard-Tailscale, object-caps/CapTP/Goblins vs actors/Orleans vs ship-the-rewrite
+> for reactions, case studies + the fallacies of distributed computing) — to build on
+> PROVEN solutions and avoid old mistakes BEFORE building the full `peer:` protocol.
+>
+> **NEXT:** integrate the survey → design + build the first-class `peer:` protocol + a
+> CRDT shared-link realization (a `link` declares `mesh`); then membership/discovery,
+> continuous per-tick gossip (vs slice-1's one-shot), N-peer; then reactions/composites/
+> AlChemy/quantum over the mesh (should be ~free given the uniform boundary). Transport:
+> rest/stream over Tailscale IPs. The grand arc: distributed mesh-alchemy → streaming
+> biological quantum synthesizers (the synth domain = `docs/synthesis-bigraphs.md`,
+> gorgon→library, the other big build). See [[mesh_as_protocol]], [[synthesizer_project]].
 
 ---
 
