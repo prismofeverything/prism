@@ -116,7 +116,8 @@
   - ✅ **Reaction-firing CONSISTENCY — the firing KEYING is now ONE implementation** (2026-06-08c, user-raised: "is the redex/reactum system consistent across paths? make some conformance tests + same implementation through all code paths"). Matching was already ONE path (`find_matches`); FIRING (reactum→delta) branched into two with divergent behavior. Now unified: **`prism_schema::localize_fire(removed, products)`** is the single keying convention (consume the matched keys; key products — a LIST → fresh-keyed multiset, a `{_add/_remove}` map → passthrough, a plain map → named `_add`); BOTH `fire_rule_at` (structural) and chrysalis `reaction_delta` (computed) route through it. Fixes: (1) a structural LIST reactum now FIRES (`a|b => c|d`; it used to return None — silent no-op); (2) a bound link `~e` now resolves in a COMPUTED reactum (was structural-only — `eval_pattern` records `BindingSource::Edge`, `eval_value` resolves it, symmetric with sites `?x`). Deleted chrysalis's duplicate keying (`reaction_delta` tail + `fresh_id`/`FRESH_NODE`). Conformance suite: `prism-schema/tests/fire_keying.rs` (2) + `chrysalis/tests/reaction_conformance.rs` (3: bound-link-in-computed; structural≡computed non-list; structural≡computed multiset). Memory [[cross_composite_reactor]].
   - ✅ **In-place coupling MECHANISM** (2026-06-08c): a list-bound as-pattern site now carries its matched KEY — `assign_list_items` records `key_map[?west] = <matched child key>` (the binder name is the redex key, no dup, removed-set unchanged for existing multiset). So a STRUCTURAL reactum keyed by binders `{ ?west: <west'>, ?east: <east'> }` MODIFIES the coupled pair IN PLACE (same keys, not fresh) via the EXISTING structural path (`remap_keys` renames `?west`→matched key, then `localize_fire`). `prism-schema/tests/fire_keying.rs::keyed_by_binder_reactum_modifies_coupled_nodes_in_place`.
   - ✅ **In-place coupling SURFACE end-to-end** (2026-06-08c): `parse_braces` now accepts a `?name` map key, so a binder-keyed reactum `{ ?west: <west'>, ?east: <east'> }` parses. Demo `chrysalis/tests/cross_composite_firing.rs::cross_composite_link_reaction_modifies_coupled_cells_in_place` — two `Cell` composites coupled on a shared `link e` BOND IN PLACE (same keys, `mass` PRESERVED via rest-capture `more: ?rw`, a true field-preserving modify), firing once via the NAC `bonded: !`. The cross-composite coupling/diffusion is now usable from `.ys`. The `?west.balance(~e)` METHOD syntax is an alternative surface needing composite methods (#30); the in-place SEMANTICS is fully achieved.
-  - ⏳ **REMAINING**: (a') the SORTLESS sugar `?west ~{edge:~e}` (no `:: Sort`) — needs an `Expr::Site` ports field for faithful unparse; the sorted form is canonical, so optional. (b) restriction (2): a `?v` port target that BINDS the value. (c) the distributed form via #42 over a real bridge. (d) LIVE sub-engine composites — make `config.state` the live source for the (place-graph) reactor (today's engine test uses inert composite specs to isolate the mechanism).
+  - ✅ **DISTRIBUTED cross-composite reactor** (2026-06-08c): a cross-composite IN-PLACE coupling reaction (structural → serializable) lives only on the client, crosses a LIVE rest bridge (HTTP) as data, is reconstructed runnable server-side by the threaded-Core codec, and FIRES on the remote cells — coupling them in place (same keys, both bonded). `chrysalis/tests/distributed_cross_composite.rs`. The model: "send the reaction to where the composites live" (encapsulation-clean — NOT unfurl-over-the-bridge), the BATWD §V remote case. Pure COMBINATION of existing pieces (reaction transport #61b + the link-graph match + the in-place keying); no new mechanism.
+  - ⏳ **REMAINING**: (a') the SORTLESS sugar `?west ~{edge:~e}` (no `:: Sort`) — needs an `Expr::Site` ports field for faithful unparse; the sorted form is canonical, so optional. (b) restriction (2): a `?v` port target that BINDS the value. (c) LIVE sub-engine composites — make `config.state` the live source for the (place-graph) reactor (today's engine test uses inert composite specs to isolate the mechanism); the place-graph (unfurl) distributed form (snapshot-over-bridge) if ever needed beyond the send-the-reaction model.
 - ✅ **S1 BATWD §IV — fold/unfurl as schema-algebra ops** — DONE 2026-06-06 (4 sub-slices). `prism_schema::fold` module + algebra re-exports.
   - ✅ **A — `unfurl(spec) ↔ fold(envelope)`** — spec-level inverse pair. Round-trip identity `fold(unfurl(spec)) ≡ spec`. 7 tests.
   - ✅ **B — `unfurl_into(parent, path) ↔ fold_at(parent, path, boundary)`** — parent-context lift hoists `config.state` to the slot; reseals from boundary descriptor (`UnfurlAt`). Round-trip identity. 7 more tests (14 total in `fold_unfurl.rs`).
@@ -191,14 +192,26 @@ A side-quest doc captured the broader landscape: `docs/exploring-the-computation
 > `?west ~{edge:~e}` the docs sketched is deferred (needs an `Expr::Site` ports field
 > for faithful unparse). User can request sortless if wanted.
 >
-> **NEXT — list-bound sites carry their KEY (task #7).** The reactum-as-METHOD
-> in-place form `?west.balance(~e) | ?east.balance(~e)` (diffusion — MODIFY the
-> coupled composites, not consume+produce) needs a list-bound `?west` to bind its
-> matched KEY (a Node-like binding for list items; today only a top-level `?c ::
-> Cell` Node-binds). The keying is already unified, so this is the last piece for the
-> in-place coupling reaction. Then: (b) `?v` port targets, (c) distributed via #42,
-> (d) live sub-engine composites for the place-graph reactor. See the durable #43
-> entry.
+> **The #43 cross-composite reactor arc is now COMPLETE** (continued in this same
+> session past the prompt above):
+> - **In-place coupling** — `assign_list_items` records `key_map[?west] = matched
+>   key`, so a binder-keyed reactum `{ ?west: <west'>, ?east: <east'> }` modifies the
+>   coupled pair IN PLACE (same keys) via the EXISTING structural path (`remap_keys`
+>   + `localize_fire`) — no new firing mode. SURFACE: `parse_braces` accepts a
+>   `?name` map key; `.ys` demo couples two cells in place with `mass` preserved via
+>   rest-capture (`cross_composite_firing.rs`). Mechanism test: `fire_keying.rs`.
+> - **DISTRIBUTED** — that same cross-composite coupling reaction (structural →
+>   serializable) crosses a LIVE rest bridge and fires on REMOTE cells, coupling them
+>   in place server-side (`distributed_cross_composite.rs`). "Send the reaction to
+>   where the composites live" (BATWD §V remote case) — pure combination of the
+>   reaction transport (#61b) + the link-graph match + the in-place keying.
+>
+> **NEXT — the smaller-remaining #43 tail** (all optional / extensions): (a') the
+> SORTLESS head `?west ~{edge:~e}` (needs an `Expr::Site` ports field); (b) `?v` port
+> targets that BIND the value; (c) LIVE sub-engine composites (`config.state` as live
+> source) for the PLACE-GRAPH (unfurl) reactor. The core thesis — one BRS rewrites
+> across composites, locally AND distributed, in place — is proven. See the durable
+> #43 entry.
 
 ---
 
