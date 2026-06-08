@@ -107,7 +107,7 @@
 - ✅ #39 `tensor_by_schema` — DONE 2026-06-06. Schema-driven dual of `divide_by_schema` (`prism_schema::tensor_by_schema`): Delta/Integer SUM, Float/Bool/etc. share-left, containers recurse per-field with key-union, Maybe/Overwrite delegate, link-kinds tensor `node_data_branches`, Custom dispatches to `TypeMethods::tensor` (new trait method). `Qubits` overrides with the quantum cross-product. Law `tensor(divide(state, 2).0, divide(state, 2).1) = state` proven for Delta/Integer + mixed-extensivity Tree. 12 tests in `prism-schema/tests/tensor_by_schema.rs` + 1 chrysalis dispatch test.
 - ✅ #42 Bigraph port type — DONE 2026-06-06. `prism_schema::BigraphTypeMethods` registered as `bigraph` builtin: `apply` reads `Value::Foreign(FOREIGN_REACTION, ReactionRule)` and fires via `fire_rule` + `apply_fire`; no-match no-op; plain Overwrite. Chrysalis-side converter `chrysalis::runtime::rule::{to_structural_rule, to_bigraph_value}` — closure-free chrysalis Rule → prism ReactionRule for structural reactions. With #41's symmetric input bridge, any `~{port :: bigraph}` composite input now accepts reactions as typed updates and fires them inside — algebra-layer property. 4 + 3 tests prove the end-to-end. Reactions-cross-bridges as data is the algebra's job, not a bridge special-case.
 - ✅ #40 cross-composite redex syntax — RESOLVED 2026-06-06 as a LINK-GRAPH operation. Both the original sketch `alice~{state: a} | bob~{state: b}` (raw control as peer) and the interim map-literal answer `{ alice: { state: ?a }, bob: … }` (place-graph descent) conflated place graph with link graph. Cross-composite is fundamentally a LINK operation: match sealed composites by published ports on a shared link, never by descent. The principled form lifts MAPK's `~bond` to composites: `?west ~{edge: ~e} | ?east ~{edge: ~e}` — `?`-prefixed site binders + shared link var `~e`. Two grammar restrictions REMOVED enable this: (1) redex head may be `?x` not only `K[args]`; (2) port target may bind `?v` not only `!`/`~link`. Expresses the COUPLING (any two composites on `e`), encapsulation-clean by construction, unifies molecule-level and composite-level BRS with identical syntax. Documented in `docs/chrysalis-design.md` §"Cross-composite redexes are LINK-GRAPH matches" + `docs/merge-protocol.md` slice 7 + memory `feedback_no_case_heuristics` (supersedes the map-literal entry). Implementation = matcher side of #43.
-- 🧩 #43 cross-composite reactor — PARTIAL 2026-06-06. Foundational mechanism: `prism_schema::fire_across_composites(parent, rule, composite_paths) → CrossFireResult { parent, fired }` enacts the BATWD §V unfurl-fire-fold maneuver. 4 tests in `prism-schema/tests/fire_across_composites.rs` incl. the load-bearing demonstration (redex CANNOT match composite-form parent but matches the flat union after unfurl). REMAINING: (a) auto-detection of which composites a redex names (today caller supplies); (b) engine-level BRS process that runs the mechanism per-tick (today one-shot function); (c) distributed form using #42's Bigraph-typed updates to send reactions across stream/rest bridges.
+- 🧩 #43 cross-composite reactor — PARTIAL 2026-06-06. Foundational mechanism: `prism_schema::fire_across_composites(parent, rule, composite_paths) → CrossFireResult { parent, fired }` enacts the BATWD §V unfurl-fire-fold maneuver. 4 tests in `prism-schema/tests/fire_across_composites.rs` incl. the load-bearing demonstration (redex CANNOT match composite-form parent but matches the flat union after unfurl). REMAINING: (a) auto-detection of which composites a redex names (today caller supplies); (b) engine-level BRS process that runs the mechanism per-tick (today one-shot function); (c) distributed form using #42's Bigraph-typed updates to send reactions across stream/rest bridges. **CRUX (2026-06-08, see the 2026-06-08 prompt):** the per-tick reactor must emit a RE-FOLDED structural fire-delta (map `fire_update`'s unfurled paths back to composite paths) — NOT the folded full parent, NOT overwrite (clobbers concurrent dynamics), NOT `diff(pre,post)` (loses `_remove`). Build on the working place-graph matcher first, then swap in the link-graph `?west ~{edge: ~e}` form.
 - ✅ **S1 BATWD §IV — fold/unfurl as schema-algebra ops** — DONE 2026-06-06 (4 sub-slices). `prism_schema::fold` module + algebra re-exports.
   - ✅ **A — `unfurl(spec) ↔ fold(envelope)`** — spec-level inverse pair. Round-trip identity `fold(unfurl(spec)) ≡ spec`. 7 tests.
   - ✅ **B — `unfurl_into(parent, path) ↔ fold_at(parent, path, boundary)`** — parent-context lift hoists `config.state` to the slot; reseals from boundary descriptor (`UnfurlAt`). Round-trip identity. 7 more tests (14 total in `fold_unfurl.rs`).
@@ -202,6 +202,24 @@ A side-quest doc captured the broader landscape: `docs/exploring-the-computation
 > per-tick (today a one-shot function); (d) distributed form via #42's Bigraph-typed
 > updates over a real bridge. Unlocks topology reactions, outer links, mesh — the
 > "one BRS rewrites both levels" thesis.
+>
+> **THE CRUX (first-slice design, settled 2026-06-08 — do NOT lose this):**
+> `fire_across_composites` returns the *folded post-fire PARENT* (a full state). But
+> the engine-level reactor (b) must emit a **DELTA** (the output=delta contract —
+> `docs/execution-model.md` §"The boundary contract: state in, delta out") that
+> COMPOSES with the composites' OWN per-tick dynamics (a cell inside `alice` grows the
+> same tick). So the two obvious shortcuts are both wrong: **overwriting the subtree**
+> CLOBBERS the concurrent grow; **`diff(pre, post)`** LOSES structure (the `_remove`/
+> zombie bug). The principled path is a **re-folded structural fire-delta**: take the
+> `fire_update` (which lives on the UNFURLED paths, e.g. `cells.alice.value`) and map
+> each path back to its composite path (`cells.alice.config.state.value`) so it
+> reconciles field-by-field with the grow delta. So the real first slice = a
+> DELTA-returning cross-composite fire (re-fold the fire-UPDATE, NOT the whole parent),
+> wired into a per-tick reactor with auto-detected composite paths — built on the
+> WORKING place-graph matcher first (today's `fire_across_composites` matches
+> composites by KEY + rewrites inside; tests in `prism-schema/tests/fire_across_
+> composites.rs`), THEN swap in the link-graph `?west ~{edge: ~e}` matcher (#40). Skip
+> the overwrite shortcut (CLAUDE.md: build the principled solution, not a workaround).
 
 ---
 
