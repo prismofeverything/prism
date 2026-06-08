@@ -25,6 +25,7 @@ use std::sync::Arc;
 
 use thiserror::Error;
 
+use crate::registry::TypeRegistry;
 use crate::value::Value;
 
 /// Result type for method dispatch.
@@ -105,19 +106,62 @@ impl MethodRegistry {
         self.by_type.get(type_name)?.get(method)
     }
 
-    /// Dispatch a method call on a receiver. The receiver's type is
-    /// inferred via [`value_type_name`].
-    pub fn dispatch(
+    /// Dispatch a method on `receiver`, resolving the type-row by FALLBACK:
+    /// the receiver's brand ([`value_type_name`]), then its STRUCTURAL variant —
+    /// so a method registered on `Map` fires for a branded `{_type: Cell}` state
+    /// ([`structural_name`]). For the `inherits`-chain fallback too (a method on a
+    /// supertype `composite` firing for a `Cell`), use
+    /// [`dispatch_with`](Self::dispatch_with), which threads the `TypeRegistry`.
+    /// This brings the open type×method matrix's dispatch in line with the closed
+    /// `TypeMethods` algebra, whose `TypeRegistry::methods` already walks `inherits`.
+    pub fn dispatch(&self, receiver: &Value, method: &str, args: &[Value]) -> MethodResult {
+        self.dispatch_resolved(None, receiver, method, args)
+    }
+
+    /// Like [`dispatch`](Self::dispatch) but also tries the brand's `inherits`
+    /// ancestors in `types` (between the brand and the structural fallback) — full
+    /// subsumption dispatch, identical to how `TypeMethods` resolves.
+    pub fn dispatch_with(
         &self,
+        types: &TypeRegistry,
         receiver: &Value,
         method: &str,
         args: &[Value],
     ) -> MethodResult {
-        let type_name = value_type_name(receiver).to_string();
-        match self.lookup(&type_name, method) {
-            Some(f) => f(receiver, args),
-            None => Err(MethodError::NotFound { type_name, method: method.to_string() }),
+        self.dispatch_resolved(Some(types), receiver, method, args)
+    }
+
+    /// The shared resolution walk: brand → (its `is_a` ancestors, if `types` given)
+    /// → structural variant. First `(row, method)` that exists wins; else `NotFound`
+    /// reported against the brand.
+    fn dispatch_resolved(
+        &self,
+        types: Option<&TypeRegistry>,
+        receiver: &Value,
+        method: &str,
+        args: &[Value],
+    ) -> MethodResult {
+        let brand = value_type_name(receiver);
+        if let Some(f) = self.lookup(brand, method) {
+            return f(receiver, args);
         }
+        if let Some(types) = types {
+            for ancestor in types.ancestors(brand) {
+                if let Some(f) = self.lookup(&ancestor, method) {
+                    return f(receiver, args);
+                }
+            }
+        }
+        let structural = structural_name(receiver);
+        if structural != brand {
+            if let Some(f) = self.lookup(structural, method) {
+                return f(receiver, args);
+            }
+        }
+        Err(MethodError::NotFound {
+            type_name: brand.to_string(),
+            method: method.to_string(),
+        })
     }
 
     /// Iterate over all registered `(type, method)` pairs. Useful for
@@ -149,6 +193,27 @@ pub fn value_type_name(value: &Value) -> &str {
             .unwrap_or("Map"),
         Value::Struct { .. } => "Struct",
         Value::Foreign(f) => &f.type_name,
+        Value::Bytes(_) => "Bytes",
+    }
+}
+
+/// The receiver's STRUCTURAL variant name — like [`value_type_name`] but ignoring
+/// the `_type` brand on a `Map`. The final method-dispatch fallback row, so a method
+/// registered on `Map` (e.g. `dot` over any bigraph value) fires for every map
+/// state, branded or not.
+pub fn structural_name(value: &Value) -> &'static str {
+    match value {
+        Value::None => "None",
+        Value::Bool(_) => "Bool",
+        Value::Int(_) => "Int",
+        Value::Float(_) => "Float",
+        Value::String(_) => "String",
+        Value::List(_) => "List",
+        Value::Map(_) => "Map",
+        Value::Struct { .. } => "Struct",
+        // A `Foreign`'s structural identity IS its type name (no generic fallback);
+        // `value_type_name` already returns that, so this row is never the extra try.
+        Value::Foreign(_) => "Foreign",
         Value::Bytes(_) => "Bytes",
     }
 }
@@ -194,5 +259,39 @@ mod tests {
         use crate::value::Foreign;
         let v = Value::Foreign(Foreign::new("Mesh", 42i32));
         assert_eq!(value_type_name(&v), "Mesh");
+    }
+
+    #[test]
+    fn dispatch_falls_back_brand_then_is_a_then_structural() {
+        use crate::schema::Schema;
+        let mut methods = MethodRegistry::new();
+        // A method on the SUPERTYPE row `composite`, and one on the STRUCTURAL row `Map`.
+        methods.register("composite", "kind", |_r, _a| {
+            Ok(Value::String("from-composite".into()))
+        });
+        methods.register("Map", "shape", |_r, _a| Ok(Value::String("from-map".into())));
+
+        let mut types = TypeRegistry::new();
+        types.register("composite", Schema::Any, None);
+        types.register_full("Cell", Schema::Any, None, None, vec!["composite".into()]); // Cell <: composite
+
+        let cell = Value::tree([
+            ("_type", Value::String("Cell".into())),
+            ("mass", Value::float(1.0)),
+        ]);
+
+        // No ("Cell","kind") exists; exact dispatch can't find it...
+        assert!(methods.dispatch(&cell, "kind", &[]).is_err());
+        // ...but with the type hierarchy it walks Cell -> composite (the is_a fallback).
+        assert_eq!(
+            methods.dispatch_with(&types, &cell, "kind", &[]).unwrap().as_str(),
+            Some("from-composite"),
+        );
+        // The structural fallback (Map) needs no registry: a branded map still finds
+        // a ("Map", _) method through plain dispatch.
+        assert_eq!(
+            methods.dispatch(&cell, "shape", &[]).unwrap().as_str(),
+            Some("from-map"),
+        );
     }
 }

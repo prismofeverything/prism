@@ -374,6 +374,36 @@ impl TypeRegistry {
         }
     }
 
+    /// The `inherits` ancestors of `name`, depth-first left-to-right, NOT
+    /// including `name` itself, de-duplicated — the resolution order surface
+    /// **method dispatch** walks after the brand. This is the open-matrix
+    /// (`MethodRegistry`) analogue of [`Self::methods`], which already walks the
+    /// same chain for the closed `TypeMethods` algebra; exposing it lets the two
+    /// "matrices" dispatch by the SAME subsumption relation.
+    pub fn ancestors(&self, name: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(name.to_string());
+        self.collect_ancestors(name, &mut out, &mut visited);
+        out
+    }
+
+    fn collect_ancestors(
+        &self,
+        name: &str,
+        out: &mut Vec<String>,
+        visited: &mut std::collections::HashSet<String>,
+    ) {
+        if let Some(entry) = self.types.get(name) {
+            for parent in &entry.inherits {
+                if visited.insert(parent.clone()) {
+                    out.push(parent.clone());
+                    self.collect_ancestors(parent, out, visited);
+                }
+            }
+        }
+    }
+
     /// Look up the `TypeMethods` for a type, walking the inheritance
     /// chain depth-first left-to-right if the type itself doesn't
     /// have one. Returns `None` if no ancestor has methods either.

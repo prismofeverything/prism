@@ -295,7 +295,11 @@ impl Evaluator {
                     .iter()
                     .map(|a| self.eval_value(a, env))
                     .collect::<Result<_, _>>()?;
-                Ok(self.methods().dispatch(&recv, method, &arg_vals)?)
+                // Inheritance-aware dispatch: a `.method()` resolves by subsumption
+                // (brand → its `is_a` ancestors → structural variant), the same
+                // relation `TypeMethods` uses — so a method on a supertype, or on the
+                // structural `Map` row (e.g. `dot`), fires for a branded state.
+                Ok(self.methods().dispatch_with(self.types(), &recv, method, &arg_vals)?)
             }
 
             // Value field access: read `name` off the evaluated base (`None` if

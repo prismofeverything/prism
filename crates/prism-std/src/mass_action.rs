@@ -707,6 +707,18 @@ pub fn register_methods(reg: &mut MethodRegistry) {
             .unwrap_or_default();
         write_file(&format!("{path}.svg"), &svg_text, "svg")
     });
+
+    // `state.dot()` — render any bigraph state as Graphviz DOT *source* (a String,
+    // viz-as-data like `plot`/`csv`). Registered on the STRUCTURAL `Map` row, so it
+    // fires for every map state through the dispatch fallback — branded or not. This
+    // wires the EXISTING `prism_viz::render_state_dot` into the open method matrix;
+    // it had been a bare function, a capability outside our own method dispatch.
+    reg.register("Map", "dot", |recv, _args| {
+        Ok(Value::String(prism_viz::render_state_dot(
+            recv,
+            &prism_viz::DotOptions::default(),
+        )))
+    });
 }
 
 /// Read the path argument (first positional) of a writer method.
@@ -925,5 +937,29 @@ mod tests {
         let root = fig.get_field("root").expect("root");
         let svg = prism_viz::svg::to_svg(root);
         assert!(svg.starts_with("<svg"), "overlay should be an SVG document");
+    }
+
+    #[test]
+    fn dot_method_renders_any_state_as_graphviz_with_brand_fallback() {
+        // The viz `render_state_dot` capability, now a COLUMN in the method matrix.
+        let mut reg = MethodRegistry::new();
+        register_methods(&mut reg);
+
+        // An unbranded bigraph state (a Map) dispatches ("Map","dot") exactly.
+        let state = Value::tree([("cell", Value::tree([("mass", Value::float(2.0))]))]);
+        let dot = reg.dispatch(&state, "dot", &[]).expect("dot");
+        assert!(
+            dot.as_str().unwrap_or_default().contains("digraph"),
+            "dot returns Graphviz source"
+        );
+
+        // A BRANDED state ({_type: Cell}) has brand "Cell" — exact dispatch would
+        // miss, but the STRUCTURAL fallback to ("Map","dot") still renders it.
+        let branded =
+            Value::tree([("_type", Value::from("Cell")), ("mass", Value::float(1.0))]);
+        let dot2 = reg
+            .dispatch(&branded, "dot", &[])
+            .expect("dot on a branded state via the structural fallback");
+        assert!(dot2.as_str().unwrap_or_default().contains("digraph"));
     }
 }
