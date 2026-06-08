@@ -132,7 +132,7 @@
 - ✅ #60 reactions vs `_add`/`_remove` — RESOLVED 2026-06-07. The sentinels are the schema algebra's **delta vocabulary** (produced by `diff`/methods/reaction-fire; consumed by `apply`; irreducible — `apply ∘ diff = id` needs them), NOT subreactions. Reactions are the **dynamical generator**; the bridge is the **duality** *delta = degenerate reaction; reaction = guarded delta*. Made load-bearing by **rules-as-state** (BRS reads its ruleset from state; a reactum `_add`s a reaction-value `Foreign(FOREIGN_REACTION, …)` and it fires later). Proven: `rules_as_state.rs` (a reaction installs a reaction that fires — the loop closed). Doc: `schema-algebra.md` §"Deltas and reactions". The substrate for #61 AlChemy (one move — `_add` of a spec — is uniform for process/composite/reaction).
 - 🧩 #61 AlChemy demo — a `.ys` BRS whose reactions GENERATE new reactions (reactions as first-class transmittable values; closure-under-composition / self-catalysis; Fontana's AlChemy). The closing of the reaction loop (memory [[project_chrysalis_evolution]] direction 4). Built end-to-end (local → shared-link → outer-link → distributed). Cleanup:
   - ✅ **#61a link schema first-class** (2026-06-07c) — `collect_branches` (chrysalis/src/schema.rs) now types a `link name :: T` pool slot by its declared `T`; a bare `link name = d` falls through to `infer` (not stamped `Any`). The TYPE lives on the SLOT (where the merge happens) — engine `resolve_link` reads only the `_links` marker's PRESENCE, so no schema side-channel on the marker. `tests/link_schema.rs` proves a `map[Reaction]` slot is `Map{Custom(Reaction)}`; the AlChemy link tests are the behavioral guards.
-  - ⏳ **#61b real transport** — `ReactionType::serialize` (runtime/rule.rs:437) is a TODO passthrough; fill it (structural data form) + carry a `map[Reaction]` link across a real `stream:`/`rest:` bridge (the wire format is proven by `distributed_alchemy.rs`; the `rest` protocol exists, #45).
+  - ✅ **#61b real transport** — DONE 2026-06-08. `ReactionType::serialize/realize` emit/consume the structural data form (`to_data_value`/`to_bigraph_value`), and a reaction now crosses a **LIVE** `rest:` bridge and FIRES on the far side (`chrysalis/tests/reaction_rest.rs`: a reaction lives only on the client, crosses to a `RestProcessServer` as data, is reconstructed runnable by the server's threaded-Core codec, fires A→B server-side). The payoff of the Core-threading arc — the earlier `reaction_transport.rs`/`distributed_alchemy.rs` only crossed a hand-rolled serde boundary "without a live socket".
 
 A side-quest doc captured the broader landscape: `docs/exploring-the-computational-unknown.md` — survey of reflective towers, meta-circular interpreters, macros, Futamura projections, staging, algebraic effects, probabilistic / differentiable / reversible / quantum / unconventional computing, and the axes that compose into the space of methods.
 
@@ -181,13 +181,27 @@ A side-quest doc captured the broader landscape: `docs/exploring-the-computation
 > function OUTSIDE the matrix — user spotted it) is now a `("Map","dot")` method
 > (returns DOT source as data, like `plot`); works on any state, branded or not.
 >
-> **NEXT — rest delta-in/update-out (#5, the 2026-06-07d step 2 — still open):** make
-> rest STATEFUL + delta-in, mirroring stream (client holds `prev_input`, sends
-> `diff(element, prev, state)`; server holds input-per-id, folds via `apply_with`).
-> OUTWARD-FACING: the python COPASI/Tellurium sidecar speaks the state-in wire, so
-> change the rust client+server together + keep the in-suite rest tests consistent
-> (python = follow-up #48/#49). The byte layer (`value_to_json`/Arrow) STAYS under
-> the algebra door.
+> **rest delta-in: DECIDED AGAINST (2026-06-08).** `input = state, output = delta` is
+> a fundamental, correct asymmetry (the `diff`/`apply` adjunction; a process is a
+> `state → delta` arrow = the reaction shape), uniform across transports. "delta-in"
+> was never a semantics — only stream's wire COMPRESSION (a delta-log the receiver
+> folds to a state before `update()`). rest stays **state-in by design** (matches the
+> stateless COPASI/Tellurium sidecar; delta-in would diverge rust↔python AND make a
+> request/response protocol lockstep-fragile). rest is already correct: state-codec
+> in, delta-codec out. Documented in `docs/execution-model.md` §"The boundary
+> contract: state in, delta out". **NO rest stateful work.**
+>
+> **NEXT — the BATWD keystone (#43): the cross-composite link-graph redex.** All its
+> prereqs are now in place — `prism_schema::fire_across_composites` (unfurl-fire-fold),
+> #40 design (`?west ~{edge: ~e} | ?east ~{edge: ~e}`), #42 Bigraph port, #56 links,
+> and the Core threading (enables the distributed form). REMAINING (the 2026-06-06c
+> endgame): (a) the surface MATCHER — remove two grammar restrictions (redex head may
+> be `?x` not only `K[args]`; port target may bind `?v`), lower `?x ~{p: ~e}` to a
+> shared-link match; (b) auto-detect which composites a redex names (today the caller
+> supplies paths); (c) an engine-level BRS-over-composites running the mechanism
+> per-tick (today a one-shot function); (d) distributed form via #42's Bigraph-typed
+> updates over a real bridge. Unlocks topology reactions, outer links, mesh — the
+> "one BRS rewrites both levels" thesis.
 
 ---
 

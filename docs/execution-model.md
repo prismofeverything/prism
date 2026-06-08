@@ -113,6 +113,42 @@ uniform across transports. `report.ys`'s six independent sections, each a
 `stream:`/`parallel:`/`rest:` process, run concurrently with no change to the
 sections.
 
+## The boundary contract: **state in, delta out** (decided 2026-06-08)
+
+The seam `invoke(state, interval) -> Update` encodes a deliberate, *correct*
+asymmetry — the same shape as a reaction (redex matches on **state**, reactum
+yields a **delta**) and the `diff`/`apply` adjunction:
+
+- **Input is a state (snapshot).** A process computes its change *from current
+  values* (`Grow` needs the actual mass, not Δmass); the BSP tick assembles a fresh
+  input snapshot at each process's ports every step. State-in is native.
+- **Output is a delta.** Outputs **compose**: many processes write the same place
+  and the engine reconciles their deltas through the schema (additive `Delta`,
+  `overwrite`, structural `_add`/`_remove`). Snapshots don't compose — and *diffing*
+  a snapshot to recover a delta **loses structure** (the grow/divide zombie bug:
+  `serve_stream`'s snapshot-diff dropped `_remove`; `serve_process` had to *forward
+  the update* instead). So delta-out is load-bearing.
+
+This contract is uniform across **every** transport, served by one codec: the input
+through the **state** door (`serialize_with`/`realize_with`), the output through the
+**delta** door (`serialize_update`/`realize_update`). See `docs/schema-algebra.md`
+and the `boundary_codec_algebra` memory.
+
+**The input *wire encoding* is a per-transport optimization — NOT the semantics.** A
+stateful pipe (`stream`) MAY carry the input as a delta-*log* (`[seed state, diff,
+diff, …]`) and **fold** it to a state (`apply_with`) before `update()` — pure
+bandwidth compression over a long stream. A stateless transport (`rest`, and the
+python COPASI/Tellurium sidecar) carries the **full snapshot** each call. Both
+realize to the identical input state; results match (`grow_divide_over_rest ≡
+grow_divide_stream`).
+
+So `rest` is left **state-in by design**: it matches the stateless sidecar wire
+(forcing delta-in would diverge rust↔python and make a request/response protocol
+lockstep-fragile), and "update-in" was only ever a name for stream's wire
+compression, never a second semantics. If a rust↔rust large-state rest path ever
+needs input compression, add a *negotiated* delta-log input mode at connect — there
+is no consumer today.
+
 ## Features — the evaluation
 
 - **MUST**: the `Defer` seam + flush hook + concurrent invoke (the core — it
