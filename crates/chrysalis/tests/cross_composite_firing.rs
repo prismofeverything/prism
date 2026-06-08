@@ -57,6 +57,68 @@ composite Environment
 Environment[]
 "#;
 
+/// IN-PLACE coupling: the reactum is keyed by the binders (`{ ?west: …, ?east:
+/// … }`), so each matched cell is MODIFIED AT ITS OWN KEY (gains `bonded`),
+/// rather than consumed+reproduced. The NAC `bonded: !` makes it fire once and
+/// terminate. This is the surface form of the in-place firing mechanism
+/// (`key_map[?west] = matched key` → `remap_keys` → in place).
+const BOND_IN_PLACE: &str = r#"
+composite Cell[mass0 :: Float = 1.0]
+  ~{edge :: any}
+  ->{mass :: Float @ mass}
+( mass: mass0 )
+
+reaction BondInPlace (
+  ?west :: Cell[bonded: !, more: ?rw] ~{edge: ~e} | ?east :: Cell[bonded: !, more: ?re] ~{edge: ~e}
+  => { ?west: Cell[bonded: ~e, more: ?rw] ~{edge: ~e}, ?east: Cell[bonded: ~e, more: ?re] ~{edge: ~e} }
+)
+
+composite Environment
+  ->{cells :: map[Cell] @ cells}
+(
+  link e :: any = 'e0' |
+  cells: {
+    'a': Cell[mass0: 1.0] ~{edge: ~e} ->{mass: %.mass},
+    'b': Cell[mass0: 1.0] ~{edge: ~e} ->{mass: %.mass}
+  } |
+  rxn: BRS[rules: [BondInPlace]] ~{state: cells} ->{state: cells}
+)
+
+Environment[]
+"#;
+
+#[test]
+fn cross_composite_link_reaction_modifies_coupled_cells_in_place() {
+    let s = run(BOND_IN_PLACE, 2.0);
+    let cells = s
+        .get_field("cells")
+        .and_then(|v| v.as_map())
+        .expect("cells map present");
+    // SAME keys 'a' and 'b' (in place — not fresh, not consumed).
+    let a = cells
+        .get("a")
+        .unwrap_or_else(|| panic!("cell 'a' modified in place (same key); cells={cells:?}"));
+    let b = cells.get("b").expect("cell 'b' in place");
+    // Both gained the `bonded` edge — the cross-composite reaction coupled them.
+    assert!(
+        a.get_field("bonded").is_some_and(|v| !matches!(v, Value::None)),
+        "cell a bonded in place: {a:?}"
+    );
+    assert!(
+        b.get_field("bonded").is_some_and(|v| !matches!(v, Value::None)),
+        "cell b bonded in place: {b:?}"
+    );
+    // Both are still Cells (modified, not replaced by a different type).
+    assert_eq!(a.get_field("_type").and_then(|v| v.as_str()), Some("Cell"));
+    // True MODIFY, not replace: the cell's `mass` (its prior state) survives via
+    // the rest-capture `?rw` — the reaction added `bonded`, it didn't clobber.
+    assert_eq!(
+        a.get_field("mass").and_then(|v| v.as_f64()),
+        Some(1.0),
+        "mass preserved across the in-place modify (rest-capture): {a:?}"
+    );
+}
+
 #[test]
 fn cross_composite_link_reaction_fires_and_produces_a_bond() {
     let s = run(COUPLE, 2.0);

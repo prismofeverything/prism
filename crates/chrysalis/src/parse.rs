@@ -1650,6 +1650,13 @@ impl Parser {
                     }
                     K::S(lit)
                 }
+                // `?name` — a site-BINDER key (a reactum that MODIFIES the matched
+                // entries in place: `{ ?west: <west'>, ?east: <east'> }`). The
+                // matcher records `key_map[?west] = <matched key>`, so the
+                // structural `remap_keys` renames `?west` back to the matched entry
+                // (cross-composite coupling, the firing half done in
+                // `prism_schema::reaction`). A static key — never interpolated.
+                Tok::Question => K::Id(format!("?{}", self.ident()?)),
                 other => return Err(self.err(&format!("expected a field key, found {other:?}"))),
             };
             self.expect(&Tok::Colon)?;
