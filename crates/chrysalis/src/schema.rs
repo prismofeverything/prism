@@ -447,6 +447,23 @@ fn collect_branches(
                 }
             }
         }
+        // A `link name :: T = default` declares a value-bearing hyperedge whose
+        // shared pool SLOT is `name` (eval lowers it to that slot + a `_links`
+        // scope marker). Type the slot by its DECLARED `T` so the engine's apply
+        // at the resolved link slot is SCHEMA-DRIVEN — a `Delta` pool sums (and
+        // halves on division), a `map[Reaction]` pool `_add`-merges per-element
+        // through `Reaction`'s methods — rather than riding the `_add` sentinel on
+        // an `infer`red `Any`. The merge has always happened at `<scope>.name`
+        // (engine `resolve_link` only needs the `_links` MARKER's presence, never
+        // its value), so the TYPE belongs on the slot, here. A bare `link name = d`
+        // (no `:: T`) inserts nothing, leaving `infer` to type the slot from the
+        // default value — the same fallthrough as a pure-data `KeyedEntry`.
+        Expr::LinkDecl { name, schema, .. } => {
+            if let Some(s) = schema {
+                let ty = lower_in_prog(s, program, building);
+                out.insert(Key::from(name.as_str()), ty);
+            }
+        }
         _ => {}
     }
 }

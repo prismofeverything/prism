@@ -130,9 +130,54 @@
 - ✅ #58 apply_fire unified onto the algebra (2026-06-06) — fire-application is now ONE schema-aware path (`algebra::apply_with`), not a schemaless mutator; the BRS RETURNS reconciled fire deltas and the ENGINE applies them; the Core is threaded so `Custom` types resolve (mapk: `set_core` + `result.core`, not a registry subset); an unregistered/registryless `Custom` degrades to STRUCTURAL (the value defines the type), not blind-replace. The bug was one thing wearing three masks — three spots that lacked the Core.
 - 🧩 #59 the generative-core unification PROGRAM (`docs/generative-core.md`) — reduce to the essential core, ONE way to do each thing. Facets (keep concrete, point the same way): ✅ **thread Core consistently (not registry subsets) — RULE formalized + applied 2026-06-06** (push/pull, no subset fields; BRS holds Core; evaluator collapsed onto Core; `set_registry` + `CompileResult` subset fields deleted; reflective-reaction consumer; see prompt 2026-06-06d, `prism_bigraph::core` doc, [[feedback_thread_the_core]]); survey duplicate paths across prism+chrysalis; one-door BUILD-FAILING guards (make non-duplication an automatable invariant); confluence / normal-forms (the algebra as canonicalizer); core + desugaring / Felleisen conservative-extensions; unify method definition (composites get a `with { methods }` block too); the BASIS question (#60).
 - ✅ #60 reactions vs `_add`/`_remove` — RESOLVED 2026-06-07. The sentinels are the schema algebra's **delta vocabulary** (produced by `diff`/methods/reaction-fire; consumed by `apply`; irreducible — `apply ∘ diff = id` needs them), NOT subreactions. Reactions are the **dynamical generator**; the bridge is the **duality** *delta = degenerate reaction; reaction = guarded delta*. Made load-bearing by **rules-as-state** (BRS reads its ruleset from state; a reactum `_add`s a reaction-value `Foreign(FOREIGN_REACTION, …)` and it fires later). Proven: `rules_as_state.rs` (a reaction installs a reaction that fires — the loop closed). Doc: `schema-algebra.md` §"Deltas and reactions". The substrate for #61 AlChemy (one move — `_add` of a spec — is uniform for process/composite/reaction).
-- 🧩 #61 AlChemy demo — a `.ys` BRS whose reactions GENERATE new reactions (reactions as first-class transmittable values; closure-under-composition / self-catalysis; Fontana's AlChemy). The closing of the reaction loop (memory [[project_chrysalis_evolution]] direction 4).
+- 🧩 #61 AlChemy demo — a `.ys` BRS whose reactions GENERATE new reactions (reactions as first-class transmittable values; closure-under-composition / self-catalysis; Fontana's AlChemy). The closing of the reaction loop (memory [[project_chrysalis_evolution]] direction 4). Built end-to-end (local → shared-link → outer-link → distributed). Cleanup:
+  - ✅ **#61a link schema first-class** (2026-06-07c) — `collect_branches` (chrysalis/src/schema.rs) now types a `link name :: T` pool slot by its declared `T`; a bare `link name = d` falls through to `infer` (not stamped `Any`). The TYPE lives on the SLOT (where the merge happens) — engine `resolve_link` reads only the `_links` marker's PRESENCE, so no schema side-channel on the marker. `tests/link_schema.rs` proves a `map[Reaction]` slot is `Map{Custom(Reaction)}`; the AlChemy link tests are the behavioral guards.
+  - ⏳ **#61b real transport** — `ReactionType::serialize` (runtime/rule.rs:437) is a TODO passthrough; fill it (structural data form) + carry a `map[Reaction]` link across a real `stream:`/`rest:` bridge (the wire format is proven by `distributed_alchemy.rs`; the `rest` protocol exists, #45).
 
 A side-quest doc captured the broader landscape: `docs/exploring-the-computational-unknown.md` — survey of reflective towers, meta-circular interpreters, macros, Futamura projections, staging, algebraic effects, probabilistic / differentiable / reversible / quantum / unconventional computing, and the axes that compose into the space of methods.
+
+---
+
+## ⏯️ NEXT-SESSION PROMPT (2026-06-07c — #61a link schema first-class DONE; NEXT = #61b real transport)
+
+> Full workspace GREEN (718 tests, 0 fail; +2). Closed the FIRST of the two
+> AlChemy-arc cleanup threads (the latest 2026-06-07b prompt's NEXT-1).
+>
+> **#61a — a `link`'s declared schema is first-class on its pool slot.** A
+> `link name :: T = default` declares a value-bearing hyperedge the engine shares
+> as ONE slot `name`; the merge of multiple attached ports must be driven by `T`,
+> in the schema algebra. `collect_branches` (chrysalis/src/schema.rs) skipped
+> `Expr::LinkDecl`, so the slot got NO declared schema and was typed only by
+> `infer` over the default — a `map[Reaction]` pool seeded `{}` inferred to an
+> empty/`Any` map, losing the element type, so an `_add` rode the sentinel
+> STRUCTURALLY instead of merging per-element through `Reaction`'s methods. Fix: a
+> one-arm addition — `LinkDecl { name, schema, .. }` inserts `lower_in_prog(T)` at
+> `name`; a bare `link name = d` (no `:: T`) inserts nothing and falls through to
+> `infer` (NOT stamped `Any`).
+>
+> **KEY FINDING (placement):** the type belongs on the SLOT, NOT the `_links`
+> marker. Engine `resolve_link` (prism-bigraph/src/engine.rs:128) reads only the
+> marker's `.is_some()` PRESENCE for scope detection; the merge happens at
+> `<scope>.name`, so the slot schema drives it. This is the schema-algebra-faithful
+> placement — no `_links` side-channel (the discipline the user's revert last
+> session implied: link behavior = the slot's schema reconcile, [[feedback_schema_algebra]]).
+>
+> Proof: `chrysalis/tests/link_schema.rs` (2 tests) — a `map[Reaction]` slot is
+> `Map{Custom(Reaction)}` (typed), an untyped link is absent from the declared
+> branches (left to infer). The end-to-end AlChemy link tests
+> (`shared_link_alchemy`/`outer_link_alchemy`/`distributed_alchemy`) are the
+> behavioral guards — all still green, now schema-driven not luck.
+>
+> **NEXT — #61b real transport (the second cleanup thread):**
+> 1. `ReactionType::serialize` (chrysalis/src/runtime/rule.rs:437) is a TODO
+>    passthrough — emit the structural data form (redex/reactum patterns) so a
+>    `:: reaction` / `map[Reaction]` slot has its OWN codec via the type (today the
+>    `Expr::to_value` path in `distributed_alchemy.rs` does it externally).
+> 2. Carry a `map[Reaction]` link across a real `stream:`/`rest:` bridge — a thin
+>    layer over the proven JSON wire format (the `rest` protocol exists, #45). With
+>    #61a, the slot is typed, so the cross-bridge apply/reconcile is schema-driven.
+> 3. Then the bigger OPEN front: BATWD slice 1 — the cross-composite link-graph
+>    redex matcher (#43, the keystone). See the 2026-06-06c BATWD endgame block.
 
 ---
 
