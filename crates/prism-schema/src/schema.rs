@@ -1539,6 +1539,143 @@ impl Schema {
         }
     }
 
+    /// Schema-directed codec for an UPDATE — a value in this schema's
+    /// delta-vocabulary δ(S), the codec counterpart of [`apply_with_reg`]. An
+    /// update is NOT a value of `S`: it may carry the `_add`/`_remove`/`_divide`
+    /// delta sentinels (which a settled state never has) or be a bare increment.
+    /// So serializing it with [`serialize_with_reg`] would mis-read `_add` as a
+    /// data key. This mirrors apply's sentinel walk: `_add` values serialize
+    /// through the element/branch schema, per-key deltas recurse, `_remove`/
+    /// `_divide` are structural keys; everything else (a `Custom` delta, an
+    /// `Overwrite` payload, a scalar increment) delegates to the state codec
+    /// (the type owns its own delta form). Kept EXPLICIT — not folded into
+    /// `serialize_with_reg` — because only in a delta is `_add` a sentinel.
+    /// Inverse: [`realize_update_with_reg`].
+    pub fn serialize_update_with_reg(
+        &self,
+        reg: Option<&crate::registry::TypeRegistry>,
+        update: &Value,
+    ) -> Value {
+        self.delta_codec(reg, update, Schema::serialize_with_reg, Schema::serialize_update_with_reg)
+    }
+
+    /// Inverse of [`serialize_update_with_reg`]: reconstruct a runnable update
+    /// (with `Foreign` carriers realized) from its wire form.
+    pub fn realize_update_with_reg(
+        &self,
+        reg: Option<&crate::registry::TypeRegistry>,
+        encoded: &Value,
+    ) -> Value {
+        self.delta_codec(reg, encoded, Schema::realize_with_reg, Schema::realize_update_with_reg)
+    }
+
+    /// The shared delta-codec walk. `leaf` is the STATE codec used at a
+    /// non-delta position (`Custom` dispatch, `Overwrite`/`Maybe` unwrap to a
+    /// replacement value, a scalar that serializes like its value); `recur` is
+    /// this same delta codec, used inside containers so NESTED deltas keep their
+    /// sentinels. On a sentinel-free state this is identical to `leaf`, so it is
+    /// a conservative extension (a state ⊂ its own δ).
+    fn delta_codec(
+        &self,
+        reg: Option<&crate::registry::TypeRegistry>,
+        v: &Value,
+        leaf: fn(&Schema, Option<&crate::registry::TypeRegistry>, &Value) -> Value,
+        recur: fn(&Schema, Option<&crate::registry::TypeRegistry>, &Value) -> Value,
+    ) -> Value {
+        if reg.is_none() {
+            return self.encode(v);
+        }
+        match (self, v) {
+            // Map: every entry (and every `_add` value) shares the element schema.
+            (Self::Map { value }, Value::Map(u)) => {
+                let mut out: StateMap = IndexMap::new();
+                for (k, entry) in u {
+                    match k.as_str() {
+                        "_add" => {
+                            let s = match entry.as_map() {
+                                Some(am) => Value::Map(
+                                    am.iter()
+                                        .map(|(ak, av)| (ak.clone(), recur(value.as_ref(), reg, av)))
+                                        .collect(),
+                                ),
+                                None => entry.clone(),
+                            };
+                            out.insert(k.clone(), s);
+                        }
+                        "_remove" | "_divide" => {
+                            out.insert(k.clone(), entry.clone());
+                        }
+                        _ => {
+                            out.insert(k.clone(), recur(value.as_ref(), reg, entry));
+                        }
+                    }
+                }
+                Value::Map(out)
+            }
+            // Tree: each key resolves its own branch schema (a missing branch —
+            // e.g. an `_add`ed-from-nothing slot — falls back to `Any`).
+            (Self::Tree { branches }, Value::Map(u)) => {
+                let mut out: StateMap = IndexMap::new();
+                for (k, entry) in u {
+                    match k.as_str() {
+                        "_add" => {
+                            let s = match entry.as_map() {
+                                Some(am) => Value::Map(
+                                    am.iter()
+                                        .map(|(ak, av)| {
+                                            let es = branches.get(ak).unwrap_or(&Schema::Any);
+                                            (ak.clone(), recur(es, reg, av))
+                                        })
+                                        .collect(),
+                                ),
+                                None => entry.clone(),
+                            };
+                            out.insert(k.clone(), s);
+                        }
+                        "_remove" | "_divide" => {
+                            out.insert(k.clone(), entry.clone());
+                        }
+                        other => {
+                            let es = branches.get(other).unwrap_or(&Schema::Any);
+                            out.insert(k.clone(), recur(es, reg, entry));
+                        }
+                    }
+                }
+                Value::Map(out)
+            }
+            (Self::List { element }, Value::Map(u))
+                if u.contains_key("_add") || u.contains_key("_remove") =>
+            {
+                // `_add`: a List of element values; `_remove`: by-value (a List of
+                // element values) or `"all"`. Element values recurse through the
+                // element schema; `"all"` stays structural.
+                let mut out: StateMap = IndexMap::new();
+                if let Some(Value::List(adds)) = u.get("_add") {
+                    let mapped = adds.iter().map(|x| recur(element.as_ref(), reg, x)).collect();
+                    out.insert(Key::from("_add"), Value::List(mapped));
+                }
+                if let Some(rem) = u.get("_remove") {
+                    let mapped = match rem {
+                        Value::List(vals) => {
+                            Value::List(vals.iter().map(|x| recur(element.as_ref(), reg, x)).collect())
+                        }
+                        other => other.clone(),
+                    };
+                    out.insert(Key::from("_remove"), mapped);
+                }
+                Value::Map(out)
+            }
+            (Self::List { element }, Value::List(items)) => {
+                Value::List(items.iter().map(|x| recur(element.as_ref(), reg, x)).collect())
+            }
+            // Non-container δ, or a container whose update isn't a map: the state
+            // codec handles `Custom` (the type owns its delta form), `Overwrite`/
+            // `Maybe` (a replacement value), and scalars (a delta serializes like
+            // its value).
+            _ => leaf(self, reg, v),
+        }
+    }
+
     /// Registry-threaded `default` — a `Custom` type's `default` dispatches
     /// (the registryless `default_value` returns `None` for any `Custom`).
     pub fn default_with_reg(&self, reg: Option<&crate::registry::TypeRegistry>) -> Value {

@@ -525,17 +525,26 @@ pub fn serve_process(
     let mut prev_time: f64 = 0.0;
     while let Some(row) = reader.next() {
         let (time, payload) = row.map_err(|e| RunError::Invoke(format!("read frame: {e}")))?;
+        // Decode the incoming frame through the algebra codec FIRST (so a typed/
+        // Custom port crosses by its schema, not raw JSON), THEN fold. The first
+        // frame is an absolute input state, the rest are deltas — `realize_update`
+        // handles both (it is identity on a sentinel-free state). The fold itself
+        // is `apply_with`, exactly as before.
+        let realized = algebra::realize_update(Some(types.as_ref()), &in_elem, &payload);
         let full = match &cur_in {
-            None => payload.clone(),
+            None => realized,
             Some(prev) if matches!(payload, Value::None) => prev.clone(),
-            Some(prev) => algebra::apply_with(Some(types.as_ref()), &in_elem, prev, &payload),
+            Some(prev) => algebra::apply_with(Some(types.as_ref()), &in_elem, prev, &realized),
         };
         cur_in = Some(full.clone());
         let dt = time - prev_time;
         prev_time = time;
         let delta = composite.update(&full, dt).into_value().unwrap_or(Value::None);
+        // Encode the outgoing update through the algebra codec (the dual): a
+        // Custom-typed delta crosses as data instead of failing the JSON cell.
+        let wire = algebra::serialize_update(Some(types.as_ref()), &out_schema, &delta);
         writer
-            .push(time, &delta)
+            .push(time, &wire)
             .map_err(|e| RunError::Invoke(format!("write frame: {e}")))?;
         writer
             .flush()

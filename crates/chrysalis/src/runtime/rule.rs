@@ -435,10 +435,27 @@ impl TypeMethods for ReactionType {
     }
 
     fn serialize(&self, _r: &TypeRegistry, _s: &Schema, state: &Value) -> Value {
-        // TODO (distributed transport, AlChemy milestone 3): a structural
-        // serialize (redex/reactum patterns) so a reaction crosses a JSON
-        // boundary. In-process (local / shared-link) needs no codec.
-        state.clone()
+        // The transmittable form of a reaction is the closure-free STRUCTURAL
+        // `ReactionRule` rendered to data (`ReactionRule::to_data_value`) — plain
+        // maps/strings/scalars, so a `:: reaction` slot crosses a `rest:`/
+        // `stream:` bridge as JSON (a runnable `Foreign` would `value_to_json` to
+        // `null`). A stored reaction is `Foreign(FOREIGN_REACTION, ReactionRule)`;
+        // a chrysalis `Rule` (`FOREIGN_RULE`) reifies to structural first. A
+        // COMPUTED rule (guard / computed reactum / rate closure) has no wire form
+        // (`to_data_value` → `None`) — pass it through unchanged (in-process use
+        // only; the honest boundary, not a lossy encode). Inverse: `realize`.
+        match state {
+            Value::Foreign(f) if f.type_name == FOREIGN_REACTION => f
+                .downcast_ref::<ReactionRule>()
+                .and_then(|rr| rr.to_data_value())
+                .unwrap_or_else(|| state.clone()),
+            Value::Foreign(f) if f.type_name == FOREIGN_RULE => f
+                .downcast_ref::<Rule>()
+                .and_then(to_structural_rule)
+                .and_then(|rr| rr.to_data_value())
+                .unwrap_or_else(|| state.clone()),
+            _ => state.clone(),
+        }
     }
 
     fn realize(&self, _r: &TypeRegistry, _s: &Schema, encoded: &Value) -> Value {
@@ -448,6 +465,16 @@ impl TypeMethods for ReactionType {
                 .downcast_ref::<Rule>()
                 .and_then(to_bigraph_value)
                 .unwrap_or_else(|| encoded.clone()),
+            // A wire-arrived reaction in DATA form (`{_pat: "Rule", …}` — off a
+            // `rest:`/`stream:` bridge, a deserialized link, or any serde
+            // boundary): reconstruct the runnable `Foreign(FOREIGN_REACTION, …)`
+            // so the BRS reads it as a rule (rules-as-state). Inverse of
+            // `serialize`. A non-rule map is left untouched.
+            Value::Map(m) if m.get("_pat").and_then(|t| t.as_str()) == Some("Rule") => {
+                ReactionRule::from_data_value(encoded)
+                    .map(|rr| Value::Foreign(Foreign::new(FOREIGN_REACTION, rr)))
+                    .unwrap_or_else(|_| encoded.clone())
+            }
             // Already transmittable, or not a reaction value — pass through.
             _ => encoded.clone(),
         }

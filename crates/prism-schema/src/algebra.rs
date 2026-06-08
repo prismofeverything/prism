@@ -141,3 +141,26 @@ pub fn realize_with(
 pub fn serialize_with(registry: Option<&TypeRegistry>, schema: &Schema, value: &Value) -> Value {
     schema.serialize_with_reg(registry, value)
 }
+
+/// `serialize_update(s, u)` — the codec for an UPDATE (a value in δ(s), the
+/// delta-vocabulary of `s`), the codec counterpart of [`apply_with`]. An update
+/// is not a value of `s` — it may carry `_add`/`_remove`/`_divide` sentinels —
+/// so it needs its own door: this mirrors apply's sentinel walk and dispatches a
+/// `Custom`/`Foreign` leaf's wire form, leaving `_remove`/`_divide` structural.
+/// Use this (not [`serialize_with`]) for anything crossing a boundary as a
+/// delta. On a sentinel-free state it agrees with [`serialize_with`].
+///
+/// Law: `apply_with(r, s, st, realize_update(r, s, serialize_update(r, s, u)))
+///       ≡ apply_with(r, s, st, u)` for every state `st`.
+#[inline]
+pub fn serialize_update(registry: Option<&TypeRegistry>, schema: &Schema, update: &Value) -> Value {
+    schema.serialize_update_with_reg(registry, update)
+}
+
+/// `realize_update(s, u)` — decode an UPDATE from its wire form (codec inverse
+/// of [`serialize_update`]): reconstructs `Foreign` carriers inside the delta
+/// (e.g. a `map[Reaction]`'s `_add`ed reactions) through the element schema.
+#[inline]
+pub fn realize_update(registry: Option<&TypeRegistry>, schema: &Schema, encoded: &Value) -> Value {
+    schema.realize_update_with_reg(registry, encoded)
+}

@@ -29,7 +29,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use prism_schema::algebra;
 use prism_schema::schema::{json_to_value, value_to_json};
+
+use crate::protocols::rest::record_schema;
 
 use crate::factory::ProcessRegistry;
 use crate::process::ProcessNode;
@@ -242,12 +245,25 @@ fn route(
                 };
                 Arc::clone(n)
             };
+            // Decode the input + encode the output through the algebra (the one
+            // codec door) so a typed/Custom port crosses by its SCHEMA, not a
+            // schema-blind `value_to_json`. The input is a state (`realize_with`),
+            // the output an update/delta (`serialize_update`). `reg = None` until a
+            // shared type registry rides the wire (#48); structural for plain data
+            // → non-breaking. Mirrors the client; `json_to_value`/`value_to_json`
+            // are the byte layer UNDER the door.
+            let in_elem = record_schema(&node.inputs());
+            let out_elem = record_schema(&node.outputs());
+            let decoded = algebra::realize_with(None, &in_elem, &state);
             let update = match &*node {
-                ProcessNode::Process(p) => p.update(&state, interval),
-                ProcessNode::Step(s) => s.update(&state),
+                ProcessNode::Process(p) => p.update(&decoded, interval),
+                ProcessNode::Step(s) => s.update(&decoded),
             };
             match update.into_value() {
-                Some(v) => ("200 OK", value_to_json(&v).to_string()),
+                Some(v) => (
+                    "200 OK",
+                    value_to_json(&algebra::serialize_update(None, &out_elem, &v)).to_string(),
+                ),
                 None => ("200 OK", "null".to_string()),
             }
         }

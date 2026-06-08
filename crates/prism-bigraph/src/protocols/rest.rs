@@ -41,7 +41,7 @@ use std::time::Duration;
 
 use indexmap::IndexMap;
 use prism_schema::{
-    Schema, Value,
+    Key, Schema, Value, algebra,
     schema::{json_to_value, value_to_json},
 };
 
@@ -53,6 +53,16 @@ use crate::protocol::{Protocol, ProtocolError};
 use crate::update::Update;
 
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
+
+/// The element schema of a port-set — the `Tree` the boundary codec
+/// serializes/realizes against (the input or output face as one schema). The
+/// mirror of the stream protocol's `record_schema`, so both bridges encode the
+/// face the same way.
+pub(crate) fn record_schema(ports: &PortSchema) -> Schema {
+    Schema::Tree {
+        branches: ports.iter().map(|(k, v)| (Key::from(k.as_str()), v.clone())).collect(),
+    }
+}
 
 // ── RestProcess ──────────────────────────────────────────────────────
 
@@ -174,15 +184,26 @@ impl Process for RestProcess {
             "{}/process/{}/update/{}",
             self.base_url, self.process_class, self.process_id
         );
+        // Encode the input through the algebra's serialize door (the one codec),
+        // THEN the JSON byte layer — so a typed/Custom port crosses by its SCHEMA,
+        // not a schema-blind `value_to_json`. The input is a state (serialize), the
+        // returned value an update/delta (`realize_update`). `reg = None` until a
+        // shared type registry rides the wire (#48); structural for plain data, so
+        // this is non-breaking. (`value_to_json`/`json_to_value` are demoted to the
+        // byte layer UNDER the algebra door — no longer the door itself.)
+        let in_elem = record_schema(&self.cached_inputs);
+        let out_elem = record_schema(&self.cached_outputs);
         let body = serde_json::json!({
-            "state": value_to_json(state),
+            "state": value_to_json(&algebra::serialize_with(None, &in_elem, state)),
             "interval": interval,
         });
         let agent = self.agent.clone(); // cheap: Arc inside
         let label = format!("{}/{}", self.process_class, self.process_id);
         let handle = std::thread::spawn(move || match agent.post(&url).send_json(body) {
             Ok(resp) => match resp.into_json::<serde_json::Value>() {
-                Ok(raw) if !raw.is_null() => Update::value(json_to_value(&raw)),
+                Ok(raw) if !raw.is_null() => {
+                    Update::value(algebra::realize_update(None, &out_elem, &json_to_value(&raw)))
+                }
                 _ => Update::Noop,
             },
             Err(e) => {

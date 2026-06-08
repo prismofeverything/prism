@@ -368,6 +368,175 @@ impl ReactionRule {
     }
 }
 
+// ── Reaction as data — Pattern / ReactionRule ↔ Value (#61b) ──────────────
+//
+// A STRUCTURAL reaction (closure-free) is pure data: `redex`/`reactum` Patterns
+// + an instantiation map + a label/rate. These codecs render it to a JSON-able
+// `Value` so a reaction crosses a `rest:`/`stream:` bridge (or any serde
+// boundary) and is reconstructed on the far side. The payoff: a `map[Reaction]`
+// link — now schema-typed (#61a) — transports through the SAME schema-driven
+// `serialize`/`apply` path as any other typed slot, no bridge special-case.
+//
+// Each node is tagged `_pat` — distinct from `_type` (which appears INSIDE a
+// `Pattern::Map` as genuine sort content) and from the chrysalis SOURCE form
+// `{_type: "Rule"}` (an `Expr` tree). Two representations of a reaction coexist
+// by design: authored source (the Expr form `compile_reaction_value` reads) vs
+// compiled structural rule (this form `from_data_value` reads). The runnable
+// `Foreign(FOREIGN_REACTION, ReactionRule)` carrier can't cross a wire; this
+// data form is what does.
+
+/// Error from [`Pattern::from_value`] / [`ReactionRule::from_data_value`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatternFromValue(pub String);
+
+impl std::fmt::Display for PatternFromValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "reaction from value: {}", self.0)
+    }
+}
+impl std::error::Error for PatternFromValue {}
+
+fn pat_err(msg: impl Into<String>) -> PatternFromValue {
+    PatternFromValue(msg.into())
+}
+
+impl Pattern {
+    /// Serialize this pattern to a JSON-able data `Value` (the structural wire
+    /// form). Inverse of [`Pattern::from_value`]; faithful + lossless for the
+    /// closure-free structural patterns that cross a wire.
+    pub fn to_value(&self) -> Value {
+        let tagged = |variant: &str, fields: Vec<(&str, Value)>| -> Value {
+            let mut m: StateMap = IndexMap::new();
+            m.insert(Key::from("_pat"), Value::String(variant.to_string()));
+            for (k, v) in fields {
+                m.insert(Key::from(k), v);
+            }
+            Value::Map(m)
+        };
+        match self {
+            Pattern::Site => tagged("Site", vec![]),
+            Pattern::LinkVar(k) => tagged("LinkVar", vec![("name", Value::String(k.to_string()))]),
+            Pattern::Absent => tagged("Absent", vec![]),
+            Pattern::Atom(v) => tagged("Atom", vec![("value", v.clone())]),
+            Pattern::Map(entries) => {
+                let mut m: StateMap = IndexMap::new();
+                for (k, p) in entries {
+                    m.insert(k.clone(), p.to_value());
+                }
+                tagged("Map", vec![("entries", Value::Map(m))])
+            }
+            Pattern::List(items) => tagged(
+                "List",
+                vec![("items", Value::List(items.iter().map(Pattern::to_value).collect()))],
+            ),
+            Pattern::Bind { name, inner } => tagged(
+                "Bind",
+                vec![
+                    ("name", Value::String(name.to_string())),
+                    ("inner", inner.to_value()),
+                ],
+            ),
+        }
+    }
+
+    /// Reconstruct a pattern from its [`Pattern::to_value`] data form.
+    pub fn from_value(v: &Value) -> Result<Pattern, PatternFromValue> {
+        let m = v.as_map().ok_or_else(|| pat_err("a pattern is a `_pat`-tagged map"))?;
+        let tag = m
+            .get("_pat")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| pat_err("a pattern map needs a `_pat` tag"))?;
+        let field = |k: &str| m.get(k).ok_or_else(|| pat_err(format!("`{tag}` needs `{k}`")));
+        match tag {
+            "Site" => Ok(Pattern::Site),
+            "Absent" => Ok(Pattern::Absent),
+            "LinkVar" => Ok(Pattern::LinkVar(Key::from(
+                field("name")?.as_str().ok_or_else(|| pat_err("LinkVar `name` is a string"))?,
+            ))),
+            "Atom" => Ok(Pattern::Atom(field("value")?.clone())),
+            "Map" => {
+                let entries = field("entries")?
+                    .as_map()
+                    .ok_or_else(|| pat_err("Map `entries` is a map"))?;
+                let mut out: IndexMap<Key, Pattern> = IndexMap::new();
+                for (k, p) in entries {
+                    out.insert(k.clone(), Pattern::from_value(p)?);
+                }
+                Ok(Pattern::Map(out))
+            }
+            "List" => {
+                let items = field("items")?
+                    .as_list()
+                    .ok_or_else(|| pat_err("List `items` is a list"))?;
+                Ok(Pattern::List(
+                    items.iter().map(Pattern::from_value).collect::<Result<_, _>>()?,
+                ))
+            }
+            "Bind" => Ok(Pattern::Bind {
+                name: Key::from(
+                    field("name")?.as_str().ok_or_else(|| pat_err("Bind `name` is a string"))?,
+                ),
+                inner: Box::new(Pattern::from_value(field("inner")?)?),
+            }),
+            other => Err(pat_err(format!("unknown `_pat` tag `{other}`"))),
+        }
+    }
+}
+
+impl ReactionRule {
+    /// Serialize a STRUCTURAL rule to a JSON-able data `Value`. `None` if the
+    /// rule carries a closure (`guard` / `reactum_fn` / `rate_fn`) — those can't
+    /// cross a wire, so the caller keeps the runnable form for in-process use.
+    /// Wire form: `{_pat: "Rule", label, redex, reactum, instantiation?, rate?}`.
+    pub fn to_data_value(&self) -> Option<Value> {
+        if self.guard.is_some() || self.reactum_fn.is_some() || self.rate_fn.is_some() {
+            return None;
+        }
+        let mut m: StateMap = IndexMap::new();
+        m.insert(Key::from("_pat"), Value::String("Rule".to_string()));
+        m.insert(Key::from("label"), Value::String(self.label.clone()));
+        m.insert(Key::from("redex"), self.redex.to_value());
+        m.insert(Key::from("reactum"), self.reactum.to_value());
+        if !self.instantiation.is_empty() {
+            let mut inst: StateMap = IndexMap::new();
+            for (k, v) in &self.instantiation {
+                inst.insert(k.clone(), Value::String(v.to_string()));
+            }
+            m.insert(Key::from("instantiation"), Value::Map(inst));
+        }
+        if let Some(rate) = self.rate {
+            m.insert(Key::from("rate"), Value::Float(rate.into()));
+        }
+        Some(Value::Map(m))
+    }
+
+    /// Reconstruct a structural rule from its [`ReactionRule::to_data_value`]
+    /// form (the closure fields stay `None` — the wire carries no closures).
+    pub fn from_data_value(v: &Value) -> Result<ReactionRule, PatternFromValue> {
+        let m = v.as_map().ok_or_else(|| pat_err("a rule is a `_pat: \"Rule\"` map"))?;
+        if m.get("_pat").and_then(|t| t.as_str()) != Some("Rule") {
+            return Err(pat_err("rule data needs `_pat: \"Rule\"`"));
+        }
+        let redex = Pattern::from_value(m.get("redex").ok_or_else(|| pat_err("Rule needs `redex`"))?)?;
+        let reactum =
+            Pattern::from_value(m.get("reactum").ok_or_else(|| pat_err("Rule needs `reactum`"))?)?;
+        let mut rule = ReactionRule::new(redex, reactum);
+        if let Some(label) = m.get("label").and_then(|v| v.as_str()) {
+            rule.label = label.to_string();
+        }
+        if let Some(inst) = m.get("instantiation").and_then(|v| v.as_map()) {
+            rule.instantiation = inst
+                .iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), Key::from(s))))
+                .collect();
+        }
+        if let Some(rate) = m.get("rate").and_then(|v| v.as_f64()) {
+            rule.rate = Some(rate);
+        }
+        Ok(rule)
+    }
+}
+
 fn collect_sites(pat: &Pattern) -> Vec<Key> {
     let mut out = Vec::new();
     fn walk(pat: &Pattern, out: &mut Vec<Key>) {
