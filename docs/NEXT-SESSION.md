@@ -136,6 +136,64 @@ A side-quest doc captured the broader landscape: `docs/exploring-the-computation
 
 ---
 
+## ⏯️ NEXT-SESSION PROMPT (2026-06-07b — AlChemy arc COMPLETE through distributed; NEXT = link-schema-first-class + real transport)
+
+> Full workspace GREEN (716 tests, 0 fail; +9 this arc). #61 AlChemy built end to
+> end — reactions making reactions, local → shared-link → cross-composite →
+> distributed. The BATWD demo's self-modifying-rules pillar is real.
+>
+> **The chain (each a green test):**
+> - **reactions-as-data** — `Expr::from_value` closed on `Site`/`Rule`/`ReplaceWith`/
+>   `Where`; `Evaluator::compile_reaction_value` is the eval-for-reactions
+>   (`Value → Expr → Pattern → ReactionRule`). A reaction serializes / round-trips /
+>   compiles / runs (`reaction_as_data.rs`). The `Reaction` TYPE (`runtime::rule::
+>   ReactionType`, capitalised — `reaction` is a keyword) reifies a reference at a
+>   `:: Reaction` slot (`reaction_type.rs`).
+> - **rules-as-state** (#60) — BRS reads its ruleset from state; `compile_reaction(R)`
+>   builtin reifies a reference OR assembled data.
+> - **local** AlChemy (`alchemy.ys`, `alchemy.rs`) — a reaction installs a reaction
+>   that fires (Bootstrap → Grow → Sprout).
+> - **rules port** (`alchemy_pool.rs`) — BRS `rules` input/output; reads seed ∪
+>   `collect_reactions(state)` ∪ `collect_reactions(rules_input)`; routes a reactum's
+>   `_rules` effect to the `rules` output.
+> - **shared-link** within one place graph (`shared_link_alchemy.rs`) — pool is a
+>   `link reactions :: map[Reaction]`; a reaction born in one region fires in another.
+> - **outer link** across SEALED composites (`outer_link_alchemy.rs`) — a `~name`
+>   referenced inside a composite but declared in an ancestor auto-bridges
+>   (`outer_link_names` + a local mirror + `_links` + a bridged port wired to the
+>   parent's `~name`); the merge is **the parent slot's schema-driven
+>   `apply_reconciled`** — NOT a bridge special-case (user caught me bolting a
+>   `link_ports`/Overwrite branch onto the bridge; reverted — "links work via the
+>   slot's schema reconcile, in the algebra"). Also fixed `lower_port_bindings` to
+>   use `lower_target_to_wire` so the BRS port accepts `~link` (#9).
+> - **distributed** (`distributed_alchemy.rs`) — a reaction crosses a JSON wire
+>   (serde round-trip) and fires on the far side. The `Foreign` runnable form can't
+>   cross; the DATA form can — the payoff of reactions-as-data.
+>
+> **THE LESSON (user-enforced, memory [[feedback_schema_algebra]]):** link behavior
+> must come from the link's SCHEMA via the algebra (`apply`/`reconcile`), never a
+> side-channel. A link is a typed shared slot; multiple ports writing it reconcile
+> via its schema (`engine::apply_reconciled` → `reconcile_with`). Don't special-case
+> the bridge.
+>
+> **NEXT — in order:**
+> 1. **Link schema first-class** (the open thread): `link name :: T` does NOT yet
+>    thread `T` onto the slot — `composite_inner_schema` (chrysalis/src/schema.rs:348)
+>    ignores `LinkDecl`, so the slot schema is INFERRED and the merge rides the
+>    `_add` sentinel, not `T`. Make the `LinkDecl` schema reach the slot (and the
+>    `_links` marker carry it) so a `Delta` pool sums / a `map[Reaction]` pool
+>    `_add`-merges BY ITS TYPE. The user's "behavior depends on the schema" point.
+> 2. **Real transport** — the distributed test proves the WIRE FORMAT (JSON data);
+>    the actual `stream:`/`rest:` bridge carrying the reaction link is a thin layer
+>    over it (the `rest` protocol exists, #45). The `Reaction` type's `serialize`
+>    should emit the data form (today a stub) so a `map[Reaction]` link crosses a
+>    real bridge.
+> 3. **#9 thread LinkVar everywhere**; **#8 the place/link/engine unification tangent**.
+> 4. BATWD slice 1 (cross-composite link-graph REDEX — the matcher side) still open
+>    if wanted; outer links just gave it the link-fabric half.
+
+---
+
 ## ⏯️ NEXT-SESSION PROMPT (2026-06-07 — #60 resolved: reaction/delta basis + rules-as-state; NEXT = BATWD slice 1)
 
 > Full workspace GREEN (709 tests, 0 fail; +1). #60 — the basis question

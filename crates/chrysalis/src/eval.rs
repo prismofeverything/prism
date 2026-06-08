@@ -893,7 +893,26 @@ impl Evaluator {
         // See crates/prism-bigraph/tests/growth_division.rs for the proven
         // subengine grow/divide pattern.
         let resolved = self.composite_param_env(def, args, env)?;
-        let inner_state = self.eval_value(&def.body, &resolved)?;
+        let mut inner_state = self.eval_value(&def.body, &resolved)?;
+
+        // OUTER LINKS: a `~name` referenced inside this composite but declared in
+        // an ANCESTOR scope is bridged at the boundary (the link graph is cut
+        // where the composite seals — BATWD). Inject a LOCAL mirror slot + a
+        // `_links` marker so the inner `~name` resolves locally; below, add a
+        // same-named bridged port wired to the parent's `~name`. The composite
+        // bridge then forwards the mirror's deltas OUT to the shared pool and the
+        // pool's value IN — so two composites on one link share it like one
+        // hyperedge (a producer's `_add` reaches a consumer).
+        let outer_links = outer_link_names(&inner_state);
+        if let Value::Map(m) = &mut inner_state {
+            for name in &outer_links {
+                m.entry(Key::from(name.as_str())).or_insert_with(Value::map);
+                if let Value::Map(lm) = m.entry(Key::from("_links")).or_insert_with(Value::map) {
+                    lm.insert(Key::from(name.as_str()), Value::Bool(true));
+                }
+            }
+        }
+
         // Each port's bridge wire: the explicit `@ internal.path` if declared,
         // else name-inference (the same-named top-level field).
         let wire_of = |name: &str, decl: &crate::ast::PortDecl| -> Value {
@@ -910,6 +929,12 @@ impl Evaluator {
         let mut bridge_out: IndexMap<Key, Value> = IndexMap::new();
         for (p, decl) in def.interface.outputs.iter() {
             bridge_out.insert(Key::from(p.as_str()), wire_of(p, decl));
+        }
+        // Each outer link gets a bridged port `name` ↔ its inner mirror slot.
+        for name in &outer_links {
+            let mirror = Value::List(vec![Value::String(name.clone())]);
+            bridge_in.insert(Key::from(name.as_str()), mirror.clone());
+            bridge_out.insert(Key::from(name.as_str()), mirror);
         }
         let bridge = Value::Map(IndexMap::from([
             (Key::from("inputs"), Value::Map(bridge_in)),
@@ -951,6 +976,23 @@ impl Evaluator {
             // The `address` stays `local:Composite` (the generic composite factory);
             // the brand is for recognition, the address for instantiation.
             m.insert(Key::from("_type"), Value::String(def.name.clone()));
+            // The OUTER face of each bridged outer link: a same-named port wired
+            // to the PARENT's `~name` (a `{_link}` attachment the parent resolves
+            // to its own `link name` slot). So the composite imports the shared
+            // pool through its boundary — encapsulation intact, no reach into the
+            // parent's state.
+            for name in &outer_links {
+                let link_wire = Value::Map(IndexMap::from([(
+                    Key::from("_link"),
+                    Value::String(name.clone()),
+                )]));
+                if let Value::Map(ins) = m.entry(Key::from("inputs")).or_insert_with(Value::map) {
+                    ins.insert(Key::from(name.as_str()), link_wire.clone());
+                }
+                if let Value::Map(outs) = m.entry(Key::from("outputs")).or_insert_with(Value::map) {
+                    outs.insert(Key::from(name.as_str()), link_wire);
+                }
+            }
         }
         // Seed the EXPORTED FACE: each output port wired to `%.field` (the own
         // node) gets its initial value placed ON the node, so `cells.N.field`
@@ -2090,6 +2132,44 @@ fn value_to_string(v: &Value) -> String {
 /// Lower `PortBindings` (call-site `~{port: target}` / `->{port: target}`)
 /// to the wire-spec format `discover_processes` expects:
 /// `{port: Value::List([segments…])}`.
+/// Collect every link name referenced as `{_link: name}` anywhere under `v`
+/// (a `~name` attachment, lowered). A `{_link}` map is a leaf — no deeper scan.
+fn collect_link_refs(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::Map(m) => {
+            if let Some(name) = m.get("_link").and_then(|x| x.as_str()) {
+                let n = name.to_string();
+                if !out.contains(&n) {
+                    out.push(n);
+                }
+                return;
+            }
+            for vv in m.values() {
+                collect_link_refs(vv, out);
+            }
+        }
+        Value::List(xs) => xs.iter().for_each(|vv| collect_link_refs(vv, out)),
+        _ => {}
+    }
+}
+
+/// Link names referenced inside a composite body whose `link name` is NOT
+/// declared locally (not in `_links`). They resolve to an ANCESTOR scope, so the
+/// composite must BRIDGE them at its boundary — the bigraph link graph cut where
+/// a composite seals (BATWD "outer links"; ports are where the link graph is
+/// cut). Returns them so [`Evaluator::build_composite_outer`] can auto-add a
+/// mirror + a bridged port wired to the parent's `~name`.
+fn outer_link_names(inner_state: &Value) -> Vec<String> {
+    let local: std::collections::HashSet<String> = inner_state
+        .get_field("_links")
+        .and_then(|v| v.as_map())
+        .map(|m| m.keys().map(|k| k.to_string()).collect())
+        .unwrap_or_default();
+    let mut refs = Vec::new();
+    collect_link_refs(inner_state, &mut refs);
+    refs.into_iter().filter(|n| !local.contains(n)).collect()
+}
+
 fn lower_port_bindings(
     bindings: &IndexMap<Name, Expr>,
     evaluator: &Evaluator,
