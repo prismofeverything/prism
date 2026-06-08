@@ -113,8 +113,8 @@
   - ✅ **Engine per-tick reactor + auto-detect** (2026-06-08b): `prism_bigraph::CrossCompositeReactor` — a `Process`, thin driver over `cross_fire_delta` (the cross-composite sibling of `BigraphicalReactiveSystem`; the MECHANISM is shared in prism-schema, no clone). Each tick: read the wired subtree → AUTO-DETECT the composites (`detect_composite_paths`; `_type:"composite"`, one level) → fire rules → reconcile per-rule deltas (RecursiveTree, schema-faithful — not `Any` last-wins) → emit `{state: <delta>}` (output=delta contract). `prism-bigraph/tests/cross_composite_reactor.rs` (3 tests): fires through the engine reaching INSIDE both composites; no-op without composites; COMPOSES with a concurrent grow through the engine's real per-branch reconcile. Schema FULLY DECLARED (`engine_schema`: `cells` open `Map{RecursiveTree}`, process slots `ProcessLink`) — no `schema_at_path` `Any`-fallback dodge.
   - ✅ **The #40 link-graph surface MATCHER** (2026-06-08c): the sorted form `?west :: Cell ~{edge: ~e} | ?east :: Cell ~{edge: ~e}` parses, lowers (`eval_pattern_top` → `Pattern::Bind` over `Pattern::LinkVar` — the SAME machinery as MAPK's `~bond`, no new matcher), and COUPLES two composites on a shared edge link (NOT on different links). `chrysalis/tests/cross_composite_link_redex.rs`. Removed restriction (1): a redex item HEAD may be `?x` (the binder), not only `K[args]`. **Parser UNIFICATION (user-driven — "why two ways for `|`?"):** the reaction redex / reactum positions now parse with the SAME body grammar (`parse_parallel_items`, extracted from `parse_body`) as a term/composite body — so `|` works at the reaction top level with NO required wrapping parens (`reaction R ( a | b => c | d )`); a wrapped `( a | b )` is just optional grouping (MAPK reactions parse identically). One `|`, one grammar, everywhere a parallel composition appears.
   - ✅ **The link-graph reaction FIRES end-to-end** (2026-06-08c): two `Cell` composites coupled on a shared `link e` are replaced by a `bond` recording `~e` — `chrysalis/tests/cross_composite_firing.rs`, through the EXISTING `BRS` (the link-graph form needs no unfurl). The reactum is a STRUCTURAL map `{ bond: Bond[link: ~e] }` (structural so `~e` resolves via `instantiate`; a map so the List redex emits a well-formed `_add`).
-  - ✅ **Reaction-firing CONSISTENCY — bound-link in a computed reactum + conformance tests** (2026-06-08c, user-raised: "is the redex/reactum system consistent across paths?"). Matching is ONE path (`find_matches`); FIRING (reactum→delta) branched into two with divergent behavior. FIXED: a bound link `~e` now resolves in a COMPUTED reactum (was structural-only — `eval_value` rejected a `LinkVar`); `eval_pattern` records `BindingSource::Edge` and `eval_value` resolves it, symmetric with sites `?x`. Pinned by `chrysalis/tests/reaction_conformance.rs` (2 tests: bound-link reachable in computed; structural≡computed agree).
-  - ⏳ **REMAINING**: (a) **unify the firing KEYING across paths** (the deeper half of the consistency concern, task #6) — structural (prism `fire_rule_at`: key_map-remove + reactum-as-`_add`, Map-only → a List reactum returns None, silent no-op) vs computed (chrysalis `reaction_delta`: fresh-key list, `_divide` routing) should be ONE keying impl so they agree for ALL reactum shapes; then the reactum-as-METHOD in-place form (`?west.balance(~e)`) needs list-bound sites to carry their matched key (only top-level `?c :: Cell` Node-binds today). (a') the SORTLESS sugar `?west ~{edge:~e}` (no `:: Sort`) — needs an `Expr::Site` ports field for faithful unparse; the sorted form is canonical, so optional. (b) restriction (2): a `?v` port target that BINDS the value. (c) the distributed form via #42 over a real bridge. (d) LIVE sub-engine composites — make `config.state` the live source for the (place-graph) reactor (today's engine test uses inert composite specs to isolate the mechanism).
+  - ✅ **Reaction-firing CONSISTENCY — the firing KEYING is now ONE implementation** (2026-06-08c, user-raised: "is the redex/reactum system consistent across paths? make some conformance tests + same implementation through all code paths"). Matching was already ONE path (`find_matches`); FIRING (reactum→delta) branched into two with divergent behavior. Now unified: **`prism_schema::localize_fire(removed, products)`** is the single keying convention (consume the matched keys; key products — a LIST → fresh-keyed multiset, a `{_add/_remove}` map → passthrough, a plain map → named `_add`); BOTH `fire_rule_at` (structural) and chrysalis `reaction_delta` (computed) route through it. Fixes: (1) a structural LIST reactum now FIRES (`a|b => c|d`; it used to return None — silent no-op); (2) a bound link `~e` now resolves in a COMPUTED reactum (was structural-only — `eval_pattern` records `BindingSource::Edge`, `eval_value` resolves it, symmetric with sites `?x`). Deleted chrysalis's duplicate keying (`reaction_delta` tail + `fresh_id`/`FRESH_NODE`). Conformance suite: `prism-schema/tests/fire_keying.rs` (2) + `chrysalis/tests/reaction_conformance.rs` (3: bound-link-in-computed; structural≡computed non-list; structural≡computed multiset). Memory [[cross_composite_reactor]].
+  - ⏳ **REMAINING**: (a) the reactum-as-METHOD in-place form (`?west.balance(~e)`) — needs list-bound sites to carry their matched KEY (only a top-level `?c :: Cell` Node-binds today; a list-bound `?west` is value-only), so a per-site key-consuming method can key its delta. (a') the SORTLESS sugar `?west ~{edge:~e}` (no `:: Sort`) — needs an `Expr::Site` ports field for faithful unparse; the sorted form is canonical, so optional. (b) restriction (2): a `?v` port target that BINDS the value. (c) the distributed form via #42 over a real bridge. (d) LIVE sub-engine composites — make `config.state` the live source for the (place-graph) reactor (today's engine test uses inert composite specs to isolate the mechanism).
 - ✅ **S1 BATWD §IV — fold/unfurl as schema-algebra ops** — DONE 2026-06-06 (4 sub-slices). `prism_schema::fold` module + algebra re-exports.
   - ✅ **A — `unfurl(spec) ↔ fold(envelope)`** — spec-level inverse pair. Round-trip identity `fold(unfurl(spec)) ≡ spec`. 7 tests.
   - ✅ **B — `unfurl_into(parent, path) ↔ fold_at(parent, path, boundary)`** — parent-context lift hoists `config.state` to the slot; reseals from boundary descriptor (`UnfurlAt`). Round-trip identity. 7 more tests (14 total in `fold_unfurl.rs`).
@@ -142,6 +142,61 @@
   - ✅ **#61b real transport** — DONE 2026-06-08. `ReactionType::serialize/realize` emit/consume the structural data form (`to_data_value`/`to_bigraph_value`), and a reaction now crosses a **LIVE** `rest:` bridge and FIRES on the far side (`chrysalis/tests/reaction_rest.rs`: a reaction lives only on the client, crosses to a `RestProcessServer` as data, is reconstructed runnable by the server's threaded-Core codec, fires A→B server-side). The payoff of the Core-threading arc — the earlier `reaction_transport.rs`/`distributed_alchemy.rs` only crossed a hand-rolled serde boundary "without a live socket".
 
 A side-quest doc captured the broader landscape: `docs/exploring-the-computational-unknown.md` — survey of reflective towers, meta-circular interpreters, macros, Futamura projections, staging, algebraic effects, probabilistic / differentiable / reversible / quantum / unconventional computing, and the axes that compose into the space of methods.
+
+---
+
+## ⏯️ NEXT-SESSION PROMPT (2026-06-08c — #43 link-graph matcher + FIRING + the `|` parser unification + the reaction-firing KEYING unified to one impl; NEXT = list-bound site keys for `?west.balance(~e)`)
+
+> Full workspace GREEN (744 tests, 0 fail; +6 this arc). Continued #43 past the
+> first slice (the place-graph delta reactor of 2026-06-08b) into the link-graph
+> surface + firing, and — user-driven mid-session — two consistency unifications.
+>
+> **#40 link-graph MATCHER (sorted form).** `?west :: Cell ~{edge: ~e} | ?east ::
+> Cell ~{edge: ~e}` parses, lowers (`eval_pattern_top` → `Pattern::Bind` over
+> `Pattern::LinkVar` — the SAME machinery as MAPK's `~bond`, no new matcher), and
+> COUPLES two SEALED composites on a shared edge link (not on different links).
+> `chrysalis/tests/cross_composite_link_redex.rs`. Removed restriction (1): a redex
+> item HEAD may be `?x` (the binder), not only `K[args]`. The link-graph form needs
+> NO unfurl — it matches published ports, so it runs through the EXISTING `BRS`, not
+> the place-graph `CrossCompositeReactor`. It FIRES end-to-end (`cross_composite_
+> firing.rs`: two coupled cells → a `bond`).
+>
+> **Parser UNIFICATION (user: "why two ways for `|`?").** `|` was parsed ONLY inside
+> a `( … )` body, so a reaction's redex/reactum needed their own wrapping parens
+> (MAPK's `( a|b ) => ( c|d )`) while the docs sketched `a|b => c|d` — a doc-vs-code
+> gap. Extracted `parse_parallel_items(stop)` from `parse_body` and parse the
+> reaction sides with it (stop at `=>`/`where`/`)`). Now `|` works at the reaction
+> top level with no required parens; a wrapped `( a|b )` is just optional grouping;
+> MAPK parses identically. One `|`, one grammar, everywhere.
+>
+> **Reaction-firing KEYING unified to ONE impl (user: "is the redex/reactum system
+> consistent? same implementation through all code paths").** Matching was already
+> one path (`find_matches`); FIRING (reactum→delta) branched structural vs computed
+> and DIVERGED. Now `prism_schema::localize_fire(removed, products)` is the SINGLE
+> keying convention (consume matched keys; key products — LIST → fresh-keyed
+> multiset, `{_add/_remove}` map → passthrough, plain map → named `_add`); BOTH
+> `fire_rule_at` (structural) and chrysalis `reaction_delta` (computed) route through
+> it; chrysalis's duplicate keying (`reaction_delta` tail + `fresh_id`/`FRESH_NODE`)
+> DELETED. Fixes: a structural LIST reactum now FIRES (`a|b => c|d` — used to return
+> None, silent no-op); a bound link `~e` resolves in a COMPUTED reactum (was
+> structural-only; `eval_pattern` records `BindingSource::Edge`, `eval_value`
+> resolves it, symmetric with `?x`). Conformance: `prism-schema/tests/fire_keying.rs`
+> (2) + `chrysalis/tests/reaction_conformance.rs` (3). Method [[method_matrix]]
+> stance — each conformance test started RED, the unification turned it green.
+>
+> **DESIGN CALL flagged to user (open):** the SORTED head `?west :: Cell ~{edge:~e}`
+> is canonical (type-safe, consistent with chrysalis's typed patterns); the SORTLESS
+> `?west ~{edge:~e}` the docs sketched is deferred (needs an `Expr::Site` ports field
+> for faithful unparse). User can request sortless if wanted.
+>
+> **NEXT — list-bound sites carry their KEY (task #7).** The reactum-as-METHOD
+> in-place form `?west.balance(~e) | ?east.balance(~e)` (diffusion — MODIFY the
+> coupled composites, not consume+produce) needs a list-bound `?west` to bind its
+> matched KEY (a Node-like binding for list items; today only a top-level `?c ::
+> Cell` Node-binds). The keying is already unified, so this is the last piece for the
+> in-place coupling reaction. Then: (b) `?v` port targets, (c) distributed via #42,
+> (d) live sub-engine composites for the place-graph reactor. See the durable #43
+> entry.
 
 ---
 

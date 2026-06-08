@@ -22,7 +22,7 @@ pub use method::{value_type_name, MethodError, MethodFn, MethodRegistry, MethodR
 pub use reaction::{
     Activity, Bindings, ControlStatus, FireUpdate, GuardFn, Match, Pattern, RateFn,
     ReactionRule, ReactumFn, apply_fire, find_matches, fire_rule, fire_rule_at,
-    instantiate, is_active,
+    instantiate, is_active, localize_fire,
 };
 pub use fold::{
     cross_fire_delta, fire_across_composites, fold, fold_at, refold_fire_update, refuse_links,

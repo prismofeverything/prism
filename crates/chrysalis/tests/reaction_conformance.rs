@@ -95,3 +95,56 @@ fn structural_and_computed_reactums_agree() {
          structural={struct_cells:?}\ncomputed={comp_cells:?}"
     );
 }
+
+// ── Multiset (List redex) — the case the keying unification fixed ───────────
+
+/// A multiset reaction `F | B => G | H` written two ways. `MultiStruct`'s
+/// reactum is a pure template (STRUCTURAL — it used to return None, a silent
+/// no-op); `MultiComp` wraps the product list in `if true then … else …`
+/// (COMPUTED). Both must consume F, B and produce G, H — products keyed FRESHLY
+/// by the ONE shared `localize_fire`.
+const MULTISET: &str = r#"
+reaction MultiStruct ( ?f :: F | ?b :: B => G[] | H[] )
+
+reaction MultiComp ( ?f :: F | ?b :: B => if true then [G[], H[]] else [] )
+
+composite EnvMultiStruct ->{soup :: map[any] @ soup} (
+  soup: { 'f': F[], 'b': B[] } |
+  rxn: BRS[rules: [MultiStruct]] ~{state: soup} ->{state: soup}
+)
+
+composite EnvMultiComp ->{soup :: map[any] @ soup} (
+  soup: { 'f': F[], 'b': B[] } |
+  rxn: BRS[rules: [MultiComp]] ~{state: soup} ->{state: soup}
+)
+"#;
+
+/// The multiset of `_type` labels in the soup after running, sorted — fresh keys
+/// differ between paths, so the conformance comparison is modulo keys.
+fn soup_types(entry: &str) -> Vec<String> {
+    let src = format!("{MULTISET}\n{entry}[]\n");
+    let mut ts: Vec<String> = run(&src, 2.0)
+        .get_field("soup")
+        .and_then(|v| v.as_map().cloned())
+        .map(|m| {
+            m.values()
+                .filter_map(|v| v.get_field("_type").and_then(|t| t.as_str()).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    ts.sort();
+    ts
+}
+
+#[test]
+fn structural_and_computed_multiset_reactions_agree() {
+    // A structural LIST reactum now FIRES (was a silent no-op) with the same
+    // products as the computed one — the keying is one implementation.
+    let s = soup_types("EnvMultiStruct");
+    let c = soup_types("EnvMultiComp");
+    assert_eq!(s, vec!["G".to_string(), "H".to_string()], "structural fired F|B => G|H: {s:?}");
+    assert_eq!(
+        s, c,
+        "structural and computed multiset reactions agree (modulo fresh keys): struct={s:?} comp={c:?}"
+    );
+}

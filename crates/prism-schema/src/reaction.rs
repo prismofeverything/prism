@@ -1006,6 +1006,16 @@ fn gensym_edge() -> String {
     format!("~e_{n}")
 }
 
+static FRESH_NODE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// A fresh container key for a multiset reaction's product (`a | b => c | d`),
+/// used by [`localize_fire`]. Prefix `g` (NOT `_`, which marks meta keys the
+/// matcher / discovery skip) — the same convention as chrysalis's `fresh_id`.
+fn gensym_node() -> String {
+    let n = FRESH_NODE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("g{n}")
+}
+
 /// Build the concrete replacement subtree from a reactum pattern using
 /// the bindings captured during matching.
 pub fn instantiate(
@@ -1192,30 +1202,75 @@ pub fn fire_rule_at(rule: &ReactionRule, m: &Match) -> Option<FireUpdate> {
         .collect();
     let renamed = remap_keys(&replacement, &actual_map);
 
-    let added = match renamed {
-        Value::Map(_) => renamed,
-        _ => return None,
-    };
-
     // Removed keys = state keys consumed by the redex (everything in key_map's
-    // range). Express the change as a `{_remove, _add}` localized delta so
-    // `apply_fire` enacts it through the one schema-aware algebra apply.
+    // range). The keying — what's removed, how the products are keyed — runs
+    // through [`localize_fire`], the ONE convention shared with the chrysalis
+    // computed path (`reaction_delta`). A LIST reactum (a multiset reaction
+    // `a | b => c | d`) thereby FIRES (fresh-keyed products) instead of silently
+    // no-op'ing, exactly as the computed path does.
     let removed: Vec<Value> = m
         .bindings
         .key_map
         .values()
         .map(|k| Value::String(k.to_string()))
         .collect();
-    let delta = Value::Map(StateMap::from_iter([
-        (Key::from("_remove"), Value::List(removed)),
-        (Key::from("_add"), added),
-    ]));
 
     Some(FireUpdate {
         path: m.path.clone(),
-        delta,
+        delta: localize_fire(removed, renamed),
         label: rule.label.clone(),
     })
+}
+
+/// Localize a fired reactum into a `{_remove, _add, …}` delta — THE single
+/// keying convention, shared by the STRUCTURAL path ([`fire_rule_at`]) and the
+/// chrysalis COMPUTED path (`reaction_delta`). It consumes `removed` (the matched
+/// keys the reaction replaces) and keys the `products`:
+///
+/// - a **`List`** → a multiset of products under FRESH keys (`a | b => c | d`);
+/// - a **`Map` carrying `_add`/`_remove`** sentinels → passed through (the
+///   reactum authored its own delta); its `_remove` overrides `removed`;
+/// - any other **`Map`** → added wholesale (named products, MAPK-style);
+/// - a scalar / other → added as the single product.
+///
+/// Both firing paths feed `(removed, products)` here, so a reaction's keying is
+/// its meaning — not an artifact of the structural-vs-computed classification.
+pub fn localize_fire(removed: Vec<Value>, products: Value) -> Value {
+    let mut delta: StateMap = StateMap::new();
+    if !removed.is_empty() {
+        delta.insert(Key::from("_remove"), Value::List(removed));
+    }
+    match products {
+        // Multiset products → fresh keys (Milner: the reactum's ions are fresh).
+        Value::List(items) => {
+            let mut add: StateMap = StateMap::new();
+            for item in items {
+                add.insert(Key::from(gensym_node().as_str()), item);
+            }
+            delta.insert(Key::from("_add"), Value::Map(add));
+        }
+        // The reactum authored its own delta (`{_remove, _add, _divide, …}`):
+        // pass the sentinels through; its `_remove` overrides the matched keys.
+        Value::Map(mut m) if m.contains_key("_add") || m.contains_key("_remove") => {
+            if let Some(rem) = m.shift_remove("_remove") {
+                delta.insert(Key::from("_remove"), rem);
+            }
+            if let Some(add) = m.shift_remove("_add") {
+                delta.insert(Key::from("_add"), add);
+            }
+            for (k, v) in m {
+                delta.insert(k, v);
+            }
+        }
+        // Named products (a MAPK-style template / a `{key: value}` reactum).
+        Value::Map(m) => {
+            delta.insert(Key::from("_add"), Value::Map(m));
+        }
+        other => {
+            delta.insert(Key::from("_add"), other);
+        }
+    }
+    Value::Map(delta)
 }
 
 /// Build a [`FireUpdate`] from a computed reactum's produced delta.

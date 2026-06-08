@@ -12,7 +12,6 @@
 //! into an environment the reactum/guard/rate can read.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use indexmap::IndexMap;
 
@@ -20,20 +19,13 @@ use prism_schema::reaction::{GuardFn, RateFn, ReactumFn};
 use prism_schema::registry::{TypeMethods, TypeRegistry};
 use prism_schema::value::Foreign;
 use prism_schema::{
-    Bindings, DivideContext, FOREIGN_REACTION, Key, Pattern, ReactionRule, Schema, StateMap, Value,
+    localize_fire, Bindings, DivideContext, FOREIGN_REACTION, Key, Pattern, ReactionRule, Schema,
+    StateMap, Value,
 };
 
 use crate::ast::{Expr, Name};
 use crate::eval::Evaluator;
 
-/// Monotonic source of fresh state keys for ions a multiset reaction
-/// produces (the soup is keyed, but anonymous-parallel reactants/products
-/// have no inherent key).
-static FRESH_NODE: AtomicU64 = AtomicU64::new(0);
-
-fn fresh_id() -> String {
-    format!("g{}", FRESH_NODE.fetch_add(1, Ordering::Relaxed))
-}
 
 /// `Value::Foreign` type tag for a chrysalis [`Rule`] carrier. Lets a
 /// reaction flow through state as a first-class value (constructed by a
@@ -243,11 +235,19 @@ pub fn to_prism_rule(rule: &Rule, evaluator: Arc<Evaluator>) -> ReactionRule {
     pr
 }
 
-/// Build the localized delta for a computed reactum: `_remove` the state
-/// key(s) the redex matched at its OUTER binding(s), `_add` the reactum value
-/// — or pass an explicit `{_add, _remove}` map the reactum produced straight
-/// through. This is the chrysalis firing convention (which key the match
-/// consumes); prism's `fire_rule_at` then emits this delta at the match path.
+/// Build the localized delta for a COMPUTED reactum. This computes only the
+/// chrysalis-specific HEAD — which keys the reaction CONSUMES — then defers the
+/// keying of products to `prism_schema::localize_fire`, the ONE convention the
+/// STRUCTURAL path (`fire_rule_at`) also uses. So a structural and a computed
+/// reaction with the same meaning produce the same delta (the consistency
+/// invariant pinned by `chrysalis/tests/reaction_conformance.rs`).
+///
+/// The consumed set:
+///   - a multiset redex (`?f | ?b => …`) consumes EVERY matched child;
+///   - a keyed / top-level `?c :: Cell` redex consumes its `Node` / `OuterKey`
+///     entries (the entry the reaction REPLACES).
+/// The `_divide` directive (`?c.divide()`) is routed through the late-bound
+/// `_divide` apply unchanged (it is not a plain product).
 fn reaction_delta(
     is_list: bool,
     bindings: &Bindings,
@@ -255,30 +255,20 @@ fn reaction_delta(
     reactum_val: Value,
 ) -> Value {
     if is_list {
-        // Multiset reaction (`?f::F | ?b::B => …`): consume EVERY matched
-        // child (all of key_map), and add the reactum's ion(s) under fresh
-        // keys. The reactum value is a List for parallel products (`F | Phi`)
-        // or a single ion (`F`).
+        // Multiset reaction (`?f::F | ?b::B => …`): consume EVERY matched child;
+        // `localize_fire` fresh-keys the products. Normalize a single ion (or a
+        // bare value) to a list so it is fresh-keyed, not added as a named map.
         let removed: Vec<Value> = bindings
             .key_map
             .values()
             .map(|k| Value::String(k.to_string()))
             .collect();
-        let items = match reactum_val {
-            Value::List(xs) => xs,
-            Value::None => vec![],
-            other => vec![other],
+        let products = match reactum_val {
+            Value::List(_) => reactum_val,
+            Value::None => Value::List(vec![]),
+            other => Value::List(vec![other]),
         };
-        let mut add: StateMap = StateMap::new();
-        for item in items {
-            add.insert(Key::from(fresh_id().as_str()), item);
-        }
-        let mut delta: StateMap = StateMap::new();
-        if !removed.is_empty() {
-            delta.insert(Key::from("_remove"), Value::List(removed));
-        }
-        delta.insert(Key::from("_add"), Value::Map(add));
-        return Value::Map(delta);
+        return localize_fire(removed, products);
     }
 
     // The consumed (removed-and-replaced) key(s): a top-level `?c :: Cell` binds
@@ -320,31 +310,9 @@ fn reaction_delta(
         }
     }
 
-    let mut delta: StateMap = StateMap::new();
-    if !matched_keys.is_empty() {
-        delta.insert(Key::from("_remove"), Value::List(matched_keys.clone()));
-    }
-    match reactum_val {
-        // Explicit delta from the reactum — pass its sentinels through.
-        Value::Map(mut m) if m.contains_key("_add") || m.contains_key("_remove") => {
-            if let Some(rem) = m.shift_remove("_remove") {
-                delta.insert(Key::from("_remove"), rem);
-            }
-            if let Some(add) = m.shift_remove("_add") {
-                delta.insert(Key::from("_add"), add);
-            }
-            for (k, v) in m {
-                delta.insert(k, v);
-            }
-        }
-        Value::Map(m) => {
-            delta.insert(Key::from("_add"), Value::Map(m));
-        }
-        other => {
-            delta.insert(Key::from("_add"), other);
-        }
-    }
-    Value::Map(delta)
+    // The keying — what's removed, how products are keyed — is the SHARED
+    // convention (one implementation across structural + computed paths).
+    localize_fire(matched_keys, reactum_val)
 }
 
 // ════════════════════════════════════════════════════════════════════

@@ -18,7 +18,6 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use prism_schema::{find_matches, MethodRegistry, Value};
 
-use chrysalis::ast::Program;
 use chrysalis::eval::Evaluator;
 use chrysalis::runtime::rule::RuleBindings;
 
