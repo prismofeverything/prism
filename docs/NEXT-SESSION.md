@@ -142,6 +142,68 @@ A side-quest doc captured the broader landscape: `docs/exploring-the-computation
 
 ---
 
+## ⏯️ NEXT-SESSION PROMPT (2026-06-08b — #43 FIRST SLICE: the delta-returning cross-composite reactor (the CRUX) + engine per-tick reactor + auto-detect; NEXT = the #40 link-graph surface matcher)
+
+> Full workspace GREEN (736 tests, 0 fail; +8 this slice). Built the #43 keystone's
+> first slice exactly as the 2026-06-08 CRUX specified: a DELTA-returning
+> cross-composite fire that COMPOSES with concurrent dynamics, wired into a per-tick
+> engine reactor with auto-detected composite paths. Place-graph matcher; the #40
+> link-graph surface + chrysalis wiring + distributed form remain (see the durable
+> #43 entry, now expanded with the full arc).
+>
+> **The delta mechanism (prism-schema, `fold.rs`).** `cross_fire_delta(parent, rule,
+> composite_paths) → CrossFireDelta { delta, fired, label }` — the DELTA sibling of
+> `fire_across_composites` (whole-state). Shared prefix `unfurl_and_fire` (unfurl →
+> match flat union → `fire_rule_at`, NO apply). The new half `refold_fire_update`:
+> nest the localized fire-update under its path, then REFRAME — at every composite
+> boundary the path crosses, wrap the sub-delta as `{config:{state: …}}`. So the
+> change lands at the composite INTERIOR (`cells.alice.config.state.value`) as a
+> field-localized `_add`/`_remove`/`_divide` — NOT the folded full parent, NOT
+> overwrite (clobbers concurrent grow), NOT `diff` (loses `_remove`, kills `_divide`).
+> Sentinels kept verbatim (a node-level op) → `_divide` survives to the engine.
+> Genuinely cross-composite via a computed reactum binding two composites + emitting
+> per-composite localized `_add`s (the shape #40's `?w ~{edge:~e} | ?e ~{edge:~e}`
+> compiles to). 4 property tests: equivalence with the whole-parent fold, COMPOSES
+> with a concurrent grow (the CRUX), `_add`/`_remove`/`_divide` survive, no-match no-op.
+>
+> **The engine reactor (prism-bigraph, `cross_reactor.rs`).** `CrossCompositeReactor`
+> — a `Process`, thin driver over `cross_fire_delta` (the cross-composite sibling of
+> `BigraphicalReactiveSystem`; the MECHANISM is shared in prism-schema, no clone).
+> Each tick: read the wired subtree → AUTO-DETECT composites (`detect_composite_paths`
+> — `_type:"composite"`, one level, no caller-supplied paths) → fire rules →
+> reconcile per-rule deltas (RecursiveTree, schema-faithful, not `Any` last-wins) →
+> emit `{state: <delta>}` (output=delta contract). 3 engine tests: fires through the
+> engine reaching INSIDE both composites; no-op without composites; COMPOSES with a
+> concurrent grow through the engine's REAL per-branch reconcile.
+>
+> **NO `Schema::Any` dodge (user-caught mid-slice; [[feedback_schema_algebra]]).** The
+> composition test first leaned on a PARTIAL Tree schema (declared only `cells`),
+> relying on `schema_at_path`'s missing-branch `Any` fallback (schema.rs:696) to
+> discover the process slots — a Tree is a closed record, branches aren't
+> "legitimately missing"; that was an incomplete schema masking a shortcut. Fixed:
+> `engine_schema` declares EVERY branch — `cells` an open `Map{RecursiveTree}` (the
+> reaction adds an interior `bond` a real `~{edge:~e}` port would declare), each
+> process slot a `ProcessLink` (discovery schema-FIRST, not via the `_type`-hint
+> fallback). The `schema_at_path` Any-fallback itself is the open-world leniency
+> (all-`Any` regions / dynamic adds) — a real tension with static typing that touches
+> schema-as-state (#15); not tightened here.
+>
+> **SCOPE (honest).** Place-graph matcher; composites unfurled ONE level; the engine
+> test uses INERT composite specs (no `address` → not instantiated as sub-engines) to
+> isolate the reactor mechanism from the orthogonal "make `config.state` the LIVE
+> source for a RUNNING sub-engine composite" sync (a real composite holds its evolving
+> inner state privately; its live face is on the node, e.g. `cells.N.mass`).
+>
+> **NEXT — finish #43:** (a) the #40 link-graph surface MATCHER — remove the two
+> grammar restrictions (redex head may be `?x`, port target may bind `?v`), lower
+> `?x ~{p:~e}` to a shared-link match; (b) chrysalis surface wiring (a control →
+> `CrossCompositeReactor`, e.g. a cross-composite `BRS` mode) + a `.ys` demo (two
+> cells bond over a shared `~e`); (c) the distributed form via #42 Bigraph-typed
+> updates over a real `rest:`/`stream:` bridge; (d) LIVE sub-engine composites
+> (`config.state` as live source). Memory: [[cross_composite_reactor]].
+
+---
+
 ## ⏯️ NEXT-SESSION PROMPT (2026-06-08 — Core threaded through the protocol layer + the all-four-registries conformance test + method matrix made consistent; NEXT = rest delta-in #5)
 
 > Full workspace GREEN (728 tests, 0 fail; +4 this arc). The 2026-06-07d NEXT steps

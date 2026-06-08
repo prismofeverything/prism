@@ -162,6 +162,19 @@ bridge-protocol + director process outside) is only that we reified the
 boundary for distribution. The unification is `fold`/`unfurl` + a BRS
 that unfurls on demand.
 
+> **Implemented (first slice, 2026-06-08; #43).** `prism_schema::
+> fire_across_composites` is the WHOLE-STATE form (step 3 = `fold` the whole
+> parent). A per-tick reactor instead needs a DELTA (output=delta contract), so
+> step 3 is refined: `cross_fire_delta` + `refold_fire_update` re-fold the
+> *fire-update's paths* (not the whole state) — at each crossed composite
+> boundary, insert `[config, state]` — yielding a field-localized delta at the
+> composite interior that **composes** with the composites' own per-tick dynamics
+> (a cell grows the same tick) instead of clobbering them, and keeps `_divide`
+> intact. `prism_bigraph::CrossCompositeReactor` is the per-tick consumer
+> (auto-detecting which composites the redex spans). REMAINING: the link-graph
+> surface matcher (§ below / merge-protocol slice 7), chrysalis wiring, and the
+> remote case (`unfurl` = snapshot over the bridge, via #42's typed updates).
+
 ## VI. The merge protocol is the first instance
 
 `docs/merge-protocol.md`'s cross-composite reactor (slice 6) reads, in

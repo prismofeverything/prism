@@ -2057,7 +2057,13 @@ impl Parser {
         let name = self.ident()?;
         let params = self.parse_bracket_params()?;
         self.expect(&Tok::LParen)?;
-        let redex = self.parse_expr()?;
+        // Redex / reactum are BODIES (parallel compositions), parsed by the same
+        // grammar as a term/composite body — so `|` works directly here, with no
+        // required wrapping parens (`a | b => c | d`). The redex stops at `=>` or
+        // `where`; the reactum at the reaction's closing `)`. A side wrapped in
+        // its own `( … )` still parses (optional grouping), so MAPK's
+        // `( a | b ) => ( c | d )` is unchanged.
+        let redex = self.parse_parallel_items(&[Tok::FatArrow, Tok::Where])?;
         // optional `where <guard>` between redex and `=>`
         let guard = if self.accept(&Tok::Where) {
             Some(self.parse_expr()?)
@@ -2065,7 +2071,7 @@ impl Parser {
             None
         };
         self.expect(&Tok::FatArrow)?;
-        let reactum = self.parse_expr()?;
+        let reactum = self.parse_parallel_items(&[Tok::RParen])?;
         self.expect(&Tok::RParen)?;
         // Optional `rate ( expr )` clause AFTER the body — the reaction's
         // propensity expression. It closes over config params AND matched
@@ -2129,6 +2135,19 @@ impl Parser {
     /// process body); a lone value → that value.
     fn parse_body(&mut self) -> Result<Expr, ParseError> {
         self.expect(&Tok::LParen)?;
+        let body = self.parse_parallel_items(&[Tok::RParen])?;
+        self.expect(&Tok::RParen)?;
+        Ok(body)
+    }
+
+    /// Parse a `|`-separated sequence of body items, stopping (WITHOUT consuming)
+    /// at any token in `stop`. The shared grammar behind EVERY parallel
+    /// composition: a term/composite body `( … )` AND a reaction's redex /
+    /// reactum (which stop at `=>` / `where` / `)` rather than each being wrapped
+    /// in their own parens). So `|` means the same thing wherever a composition
+    /// appears — `reaction R ( a | b => c | d )` needs no inner parens, and the
+    /// grouping form `( a | b )` is just optional parens, not a second syntax.
+    fn parse_parallel_items(&mut self, stop: &[Tok]) -> Result<Expr, ParseError> {
         enum Item {
             Entry(String, Expr),
             Bind(String, Expr),
@@ -2136,7 +2155,7 @@ impl Parser {
             Value(Expr),
         }
         let mut items = Vec::new();
-        if !self.check(&Tok::RParen) {
+        if !stop.iter().any(|t| self.check(t)) {
             loop {
                 // `link <name> [:: T] = <default>` — a first-class link
                 // declaration (the bigraph link graph hyperedge). `link` is
@@ -2172,7 +2191,6 @@ impl Parser {
                 }
             }
         }
-        self.expect(&Tok::RParen)?;
 
         // A `link` declaration desugars to an `Expr::LinkDecl` body element.
         let link_decl = |name: String, schema: Option<SchemaExpr>, default: Expr| Expr::LinkDecl {

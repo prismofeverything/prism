@@ -252,11 +252,32 @@ principle)
    - ✅ **Foundational mechanism** (S2 / `prism_schema::fire_across_composites`,
      2026-06-06): given a parent + ReactionRule + composite paths,
      `unfurl_into` each composite, `find_matches` + `fire_rule_at` +
-     `apply_fire` against the flat union, `fold_at` each back. Tests in
-     `prism-schema/tests/fire_across_composites.rs` prove cross-composite
-     redex matching + rewriting. REMAINING: auto-detection of which
-     composites a redex names (today the caller passes the paths);
-     engine-level BRS process that consumes the mechanism each tick.
+     `apply_fire` against the flat union, `fold_at` each back — the
+     WHOLE-STATE form. Tests in `prism-schema/tests/fire_across_composites.rs`
+     prove cross-composite redex matching + rewriting.
+   - ✅ **The DELTA form** (the CRUX, 2026-06-08): `cross_fire_delta`
+     returns a `CrossFireDelta { delta, fired, label }` instead of the
+     folded full parent. `refold_fire_update` re-paths the localized
+     fire-update — at every composite boundary it crosses, insert
+     `[config, state]` — so the change lands at the composite INTERIOR as a
+     field-localized `_add`/`_remove`/`_divide`. This is what lets a per-tick
+     reactor emit an UPDATE (output=delta contract) that COMPOSES with the
+     composites' own dynamics: NOT the full parent, NOT overwrite (clobbers a
+     concurrent grow), NOT `diff` (loses `_remove`, kills `_divide`). +4 tests
+     (equivalence with the whole-parent fold, composes-with-grow,
+     directive-survival, no-op).
+   - ✅ **Engine per-tick reactor + auto-detect** (2026-06-08):
+     `prism_bigraph::CrossCompositeReactor` (a `Process`; the cross-composite
+     sibling of `BigraphicalReactiveSystem`, a thin driver over
+     `cross_fire_delta`) reads its wired subtree, AUTO-DETECTS the composites
+     (`detect_composite_paths`; no caller-supplied paths), fires, and emits
+     `{state: <delta>}`. `prism-bigraph/tests/cross_composite_reactor.rs`
+     (3 tests) incl. composes-with-a-concurrent-grow through the engine's
+     real per-branch reconcile.
+   - ⏳ REMAINING: the link-graph surface matcher (slice 7, below) + chrysalis
+     wiring + the distributed form (slice 8) + LIVE sub-engine composites
+     (`config.state` as the live source; today the engine test uses inert
+     composite specs to isolate the reactor mechanism).
 
 7. **Sibling-addressing in reaction syntax** — RESOLVED 2026-06-06 as
    a LINK-GRAPH operation (task #40). The original sketch
