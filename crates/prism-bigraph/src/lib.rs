@@ -2,6 +2,7 @@ pub mod brs;
 pub mod builder;
 pub mod composite;
 pub mod core;
+pub mod cross_reactor;
 pub mod defer;
 pub mod document;
 pub mod engine;
@@ -18,6 +19,7 @@ pub mod vivarium;
 
 pub use brs::{BigraphicalReactiveSystem, BrsMode, FiredEvent};
 pub use builder::EngineBuilder;
+pub use cross_reactor::{detect_composite_paths, CrossCompositeReactor};
 pub use defer::{Defer, DeferSlot};
 pub use protocol::{LocalProtocol, ParsedAddress, Protocol, ProtocolError, ProtocolRegistry};
 pub use protocol_runtime::{ProtocolRuntime, ProtocolRuntimes};

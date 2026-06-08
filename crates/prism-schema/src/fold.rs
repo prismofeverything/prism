@@ -48,7 +48,7 @@
 
 use indexmap::IndexMap;
 
-use crate::reaction::{apply_fire, find_matches, fire_rule_at, ReactionRule};
+use crate::reaction::{apply_fire, find_matches, fire_rule_at, FireUpdate, ReactionRule};
 use crate::value::{Key, StateMap, Value};
 
 /// The `_type` sentinel for an unfurled composite envelope.
@@ -513,38 +513,195 @@ pub fn fire_across_composites(
     rule: &ReactionRule,
     composite_paths: &[&[Key]],
 ) -> Option<CrossFireResult> {
-    // ── 1. Unfurl all named composites, remember each boundary ──
-    let mut current = parent.clone();
-    let mut boundaries: Vec<(Vec<Key>, Value)> = Vec::with_capacity(composite_paths.len());
-    for path in composite_paths {
-        let result = unfurl_into(&current, path)?;
-        current = result.parent;
-        boundaries.push((path.to_vec(), result.boundary));
-    }
+    // ── 1-3. Unfurl all named composites + fire against the flat union ──
+    let UnfurlFire {
+        mut flat,
+        boundaries,
+        fired,
+    } = unfurl_and_fire(parent, rule, composite_paths)?;
 
-    // ── 2. Match against the flat union ──
-    let matches = find_matches(&current, &rule.redex, None);
-
-    // ── 3. Fire if there's a match ──
-    let fired = if let Some(m) = matches.first() {
-        let fire_update = fire_rule_at(rule, m)?;
+    // ── 3b. Apply the fire to the flat parent (whole-state form) ──
+    if let Some(fire_update) = &fired {
         // Structural cross-composite fire (no `Custom`-typed split here yet);
         // pass `None`. When a registry-driven fire (e.g. `_divide`) is needed
         // across composites, thread the Core's registry through here.
-        current = apply_fire(&current, &fire_update, None);
-        true
-    } else {
-        false
-    };
+        flat = apply_fire(&flat, fire_update, None);
+    }
 
     // ── 4. Re-fold (in reverse order — innermost composites last) ──
+    let mut current = flat;
     for (path, boundary) in boundaries.iter().rev() {
         current = fold_at(&current, path, boundary)?;
     }
 
     Some(CrossFireResult {
         parent: current,
+        fired: fired.is_some(),
+    })
+}
+
+/// The shared prefix of the two cross-composite reactors: unfurl every named
+/// composite into the parent, match the redex against the now-flat union, and
+/// (if matched) compute the localized [`FireUpdate`] — WITHOUT applying it. The
+/// whole-state form ([`fire_across_composites`]) applies + folds; the delta form
+/// ([`cross_fire_delta`]) re-folds the update's PATHS instead. Returns `None`
+/// only if a `composite_path` is not a valid composite spec.
+struct UnfurlFire {
+    /// The unfurled flat parent (pre-apply): every named composite replaced by
+    /// its inner `config.state`.
+    flat: Value,
+    /// `(composite_path, boundary)` per unfurled composite, in unfurl order.
+    boundaries: Vec<(Vec<Key>, Value)>,
+    /// The fire update on the UNFURLED paths, or `None` if nothing matched.
+    fired: Option<FireUpdate>,
+}
+
+fn unfurl_and_fire(
+    parent: &Value,
+    rule: &ReactionRule,
+    composite_paths: &[&[Key]],
+) -> Option<UnfurlFire> {
+    // ── 1. Unfurl all named composites, remember each boundary ──
+    let mut flat = parent.clone();
+    let mut boundaries: Vec<(Vec<Key>, Value)> = Vec::with_capacity(composite_paths.len());
+    for path in composite_paths {
+        let result = unfurl_into(&flat, path)?;
+        flat = result.parent;
+        boundaries.push((path.to_vec(), result.boundary));
+    }
+
+    // ── 2. Match against the flat union ──
+    let matches = find_matches(&flat, &rule.redex, None);
+
+    // ── 3. Fire if there's a match (compute the update; do not apply) ──
+    let fired = matches.first().and_then(|m| fire_rule_at(rule, m));
+
+    Some(UnfurlFire {
+        flat,
+        boundaries,
         fired,
     })
+}
+
+/// The DELTA form of [`fire_across_composites`] — the engine-facing reactor's
+/// payload (the output=delta contract, `docs/execution-model.md`).
+///
+/// Where [`fire_across_composites`] returns the folded post-fire PARENT (a full
+/// state), this returns a **re-folded structural fire-delta**: the localized
+/// [`FireUpdate`] (which lives on the UNFURLED paths, e.g. `cells.alice.value`)
+/// with each path mapped back to its composite-interior location
+/// (`cells.alice.config.state.value`) — see [`refold_fire_update`]. The delta is
+/// what an engine-level per-tick reactor emits so the cross-composite fire
+/// COMPOSES with the composites' own per-tick dynamics (a cell inside `alice`
+/// grows the SAME tick): a field-localized `_add`/`_remove`/`_divide` at
+/// `config.state` reconciles field-by-field with the grow delta, rather than
+/// CLOBBERING the subtree (overwrite) or LOSING structure (diff). The raw fire
+/// directives are preserved verbatim — `_divide` survives to the engine, which
+/// splits the LIVE (grown) node via `divide_by_schema`.
+///
+/// Returns `None` only when a `composite_path` is not a valid composite spec
+/// (the same precondition as [`fire_across_composites`]). On a match-free run,
+/// `fired` is `false` and `delta` is [`Value::None`] (a no-op update).
+#[derive(Clone, Debug)]
+pub struct CrossFireDelta {
+    /// The re-folded structural fire-delta, nested from the parent root, ready
+    /// for the engine to apply at the reactor's wired slot. [`Value::None`] when
+    /// nothing fired.
+    pub delta: Value,
+    /// `true` iff `find_matches` produced a match and the rule fired.
+    pub fired: bool,
+    /// The fired rule's label (empty when nothing fired).
+    pub label: String,
+}
+
+pub fn cross_fire_delta(
+    parent: &Value,
+    rule: &ReactionRule,
+    composite_paths: &[&[Key]],
+) -> Option<CrossFireDelta> {
+    let UnfurlFire { fired, .. } = unfurl_and_fire(parent, rule, composite_paths)?;
+    Some(match fired {
+        Some(update) => CrossFireDelta {
+            delta: refold_fire_update(&update, composite_paths),
+            fired: true,
+            label: update.label,
+        },
+        None => CrossFireDelta {
+            delta: Value::None,
+            fired: false,
+            label: rule.label.clone(),
+        },
+    })
+}
+
+// ── Re-fold: map a fire update's UNFURLED paths back to composite interiors ──
+
+/// Re-fold a [`FireUpdate`] (localized at an UNFURLED path) into a root-nested
+/// delta in the FOLDED frame: at every composite boundary the update crosses,
+/// insert `[config, state]`, so the change lands inside the composite's interior
+/// (where its folded inner state lives) instead of replacing the inlined slot.
+///
+/// The two halves:
+/// 1. **Nest** the update's localized delta under its path (`[a, b] + δ →
+///    {a: {b: δ}}`), reproducing the absolute-path delta in the unfurled frame.
+/// 2. **Reframe** that nested delta: walk it tracking the absolute path, and
+///    when the path equals a composite path, wrap the sub-delta there as
+///    `{config: {state: <sub-delta>}}`. The composite's children (matched in the
+///    unfurled frame as bare inner state) thereby resolve under `config.state`.
+///
+/// Sentinels (`_add`/`_remove`/`_divide` and any `_`-prefixed meta) operate on
+/// their node's OWN children, so they are kept in place (not descended into) —
+/// a `_divide` of a composite node, or an `_add`/`_remove` of an interior field,
+/// survives verbatim. This is why the result composes: a per-field interior
+/// `_add` reconciles with a concurrent grow on a sibling field, and a `_divide`
+/// reaches the engine to split the live node.
+pub fn refold_fire_update(update: &FireUpdate, composite_paths: &[&[Key]]) -> Value {
+    let nested = nest_path(&update.path, update.delta.clone());
+    reframe(&nested, &mut Vec::new(), composite_paths)
+}
+
+/// `[a, b, c] + δ → {a: {b: {c: δ}}}`; an empty path returns `δ` unchanged.
+fn nest_path(path: &[Key], delta: Value) -> Value {
+    let mut v = delta;
+    for seg in path.iter().rev() {
+        let mut m: StateMap = StateMap::new();
+        m.insert(seg.clone(), v);
+        v = Value::Map(m);
+    }
+    v
+}
+
+fn is_composite_path(abs: &[Key], composite_paths: &[&[Key]]) -> bool {
+    composite_paths.iter().any(|cp| *cp == abs)
+}
+
+/// See [`refold_fire_update`]. `abs` is the absolute path of `delta`'s node.
+fn reframe(delta: &Value, abs: &mut Vec<Key>, composite_paths: &[&[Key]]) -> Value {
+    // At a composite boundary, everything below targets the composite's INNER
+    // contents → relocate the whole sub-delta under `config.state`. Stop
+    // descending: the first slice unfurls one level (siblings), so there is no
+    // nested composite below this boundary to reframe further.
+    if is_composite_path(abs, composite_paths) {
+        return Value::tree([("config", Value::tree([("state", delta.clone())]))]);
+    }
+    match delta {
+        Value::Map(m) => {
+            let mut out: StateMap = StateMap::new();
+            for (k, v) in m {
+                // Sentinels / meta act on THIS node's own children (a node-level
+                // structural op) — keep verbatim, don't treat as a path step.
+                if k.starts_with('_') {
+                    out.insert(k.clone(), v.clone());
+                    continue;
+                }
+                abs.push(k.clone());
+                let reframed = reframe(v, abs, composite_paths);
+                abs.pop();
+                out.insert(k.clone(), reframed);
+            }
+            Value::Map(out)
+        }
+        _ => delta.clone(),
+    }
 }
 

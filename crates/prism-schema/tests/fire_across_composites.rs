@@ -6,8 +6,12 @@
 //! union, firing the rule, and folding each composite back. The first
 //! user-visible payoff of S1's `unfurl_into` / `fold_at`.
 
-use prism_schema::reaction::{Pattern, ReactionRule};
-use prism_schema::{fire_across_composites, Key, Value, COMPOSITE_TYPE};
+use std::sync::Arc;
+
+use prism_schema::reaction::{Bindings, Pattern, ReactionRule, ReactumFn};
+use prism_schema::{
+    algebra, cross_fire_delta, fire_across_composites, Key, Schema, StateMap, Value, COMPOSITE_TYPE,
+};
 
 fn val_str(s: &str) -> Value {
     Value::String(s.to_string())
@@ -237,4 +241,212 @@ fn fire_across_composites_with_single_composite_still_works() {
     let result = fire_across_composites(&parent, &rule, &[&solo]).expect("solo case");
     assert!(result.fired);
     assert_eq!(inner_value_at(&result.parent, "solo"), Some(0.0));
+}
+
+// ════════════════════════════════════════════════════════════════════
+// cross_fire_delta — the DELTA form (the engine-facing reactor payload)
+// ════════════════════════════════════════════════════════════════════
+//
+// Where `fire_across_composites` returns the folded whole PARENT,
+// `cross_fire_delta` returns a re-folded structural fire-DELTA whose paths
+// land at each composite's `config.state` interior. This is what an engine
+// per-tick reactor emits so the cross-composite fire COMPOSES with the
+// composites' own dynamics (a cell grows the same tick) — the CRUX.
+
+/// A genuinely cross-composite reaction: bind TWO `Slot` composites (matched in
+/// the unfurled frame as bare inner state) and ADD a shared `bond` edge field to
+/// each interior. A computed reactum emitting per-composite-key LOCALIZED `_add`s
+/// — the shape #40's link-graph redex (`?w ~{edge:~e} | ?e ~{edge:~e}`) compiles
+/// to. NOT a container-level whole-replace (which would clobber concurrent grow).
+fn bond_rule(edge: &str) -> ReactionRule {
+    let redex = Pattern::list([
+        Pattern::Bind {
+            name: Key::from("?w"),
+            inner: Box::new(Pattern::sort("Slot", Vec::<(&str, Pattern)>::new())),
+        },
+        Pattern::Bind {
+            name: Key::from("?e"),
+            inner: Box::new(Pattern::sort("Slot", Vec::<(&str, Pattern)>::new())),
+        },
+    ]);
+    let edge = edge.to_string();
+    let reactum_fn: ReactumFn = Arc::new(move |b: &Bindings| {
+        // For each matched composite key, a LOCALIZED interior delta: add a
+        // `bond` field. Touches only `bond` — leaves `value` (and any concurrent
+        // grow on it) alone.
+        let mut out = StateMap::new();
+        for key in b.key_map.values() {
+            out.insert(
+                key.clone(),
+                Value::tree([("_add", Value::tree([("bond", val_str(&edge))]))]),
+            );
+        }
+        Value::Map(out)
+    });
+    ReactionRule::new(redex, Pattern::Site)
+        .with_label("bond")
+        .with_reactum_fn(reactum_fn)
+}
+
+fn inner_field(parent: &Value, cell: &str, field: &str) -> Option<Value> {
+    parent
+        .get_path(&[
+            Key::from("cells"),
+            Key::from(cell),
+            Key::from("config"),
+            Key::from("state"),
+            Key::from(field),
+        ])
+        .cloned()
+}
+
+#[test]
+fn cross_fire_delta_is_equivalent_to_the_whole_parent_fold() {
+    // The defining equivalence: applying the re-folded DELTA to the composite-
+    // form parent yields exactly what `fire_across_composites` produces by
+    // applying+folding the whole flat parent. Same fire, two shapes — the delta
+    // form must agree with the whole-state form.
+    let parent = parent_with_two_slots(7.0, 13.0);
+    let alice = [Key::from("cells"), Key::from("alice")];
+    let bob = [Key::from("cells"), Key::from("bob")];
+    let rule = bond_rule("e1");
+
+    let whole = fire_across_composites(&parent, &rule, &[&alice, &bob])
+        .expect("whole-state fire");
+    assert!(whole.fired);
+
+    let cfd = cross_fire_delta(&parent, &rule, &[&alice, &bob]).expect("delta fire");
+    assert!(cfd.fired);
+    assert_eq!(cfd.label, "bond");
+
+    // Apply the re-folded delta to the ORIGINAL composite-form parent.
+    let applied = algebra::apply_with(None, &Schema::Any, &parent, &cfd.delta);
+
+    assert_eq!(
+        applied, whole.parent,
+        "the re-folded delta reproduces the whole-parent fold exactly"
+    );
+    // And concretely: both composites carry the bond in their interior, and
+    // their original `value` is untouched.
+    assert_eq!(inner_field(&applied, "alice", "bond"), Some(val_str("e1")));
+    assert_eq!(inner_field(&applied, "bob", "bond"), Some(val_str("e1")));
+    assert_eq!(inner_value_at(&applied, "alice"), Some(7.0));
+    assert_eq!(inner_value_at(&applied, "bob"), Some(13.0));
+    // The composites are still composite specs (the delta didn't dissolve them).
+    assert_eq!(
+        applied
+            .get_path(&alice)
+            .and_then(|v| v.get_field("_type"))
+            .and_then(|v| v.as_str()),
+        Some(COMPOSITE_TYPE),
+    );
+}
+
+#[test]
+fn cross_fire_delta_composes_with_a_concurrent_grow() {
+    // THE CRUX property. The reactor's delta must reconcile field-by-field with
+    // a same-tick "grow" on a DIFFERENT interior field — not clobber it. We
+    // reconcile the cross-fire delta with a grow delta (additive on `value`) and
+    // apply: both the bond (reaction) AND the grown value (grow) must survive.
+    let parent = parent_with_two_slots(7.0, 13.0);
+    let alice = [Key::from("cells"), Key::from("alice")];
+    let bob = [Key::from("cells"), Key::from("bob")];
+
+    let cfd = cross_fire_delta(&parent, &bond_rule("e1"), &[&alice, &bob]).expect("delta");
+
+    // A concurrent grow: +1.0 to each cell's interior `value` (a sibling field).
+    let grow = Value::tree([(
+        "cells",
+        Value::tree([
+            (
+                "alice",
+                Value::tree([("config", Value::tree([("state", Value::tree([("value", Value::float(1.0))]))]))]),
+            ),
+            (
+                "bob",
+                Value::tree([("config", Value::tree([("state", Value::tree([("value", Value::float(1.0))]))]))]),
+            ),
+        ]),
+    )]);
+
+    // Reconcile the two deltas (the engine's per-tick combine) then apply, using
+    // a recursing schema — the engine reconciles against the real STRUCTURED
+    // state schema (a Tree that descends per-branch), never opaque `Any`
+    // (which is last-wins and would drop a whole writer). `RecursiveTree` is the
+    // schema-faithful stand-in: it collates `_add`/`_remove` + per-key deltas at
+    // every map level, exactly as the engine's per-branch reconcile does.
+    let nested = Schema::RecursiveTree {
+        leaf: Box::new(Schema::Any),
+    };
+    let combined =
+        prism_schema::reconcile::reconcile_with(None, &nested, &[cfd.delta.clone(), grow])
+            .expect("reconcile");
+    let applied = algebra::apply_with(None, &nested, &parent, &combined);
+
+    // Grow survived (7 + 1) AND the reaction's bond landed — they COMPOSED.
+    assert_eq!(
+        inner_value_at(&applied, "alice"),
+        Some(8.0),
+        "grow on `value` is preserved (not clobbered by the reaction)"
+    );
+    assert_eq!(inner_value_at(&applied, "bob"), Some(14.0));
+    assert_eq!(inner_field(&applied, "alice", "bond"), Some(val_str("e1")));
+    assert_eq!(inner_field(&applied, "bob", "bond"), Some(val_str("e1")));
+}
+
+#[test]
+fn cross_fire_delta_preserves_raw_directives_at_the_interior() {
+    // The re-fold maps PATHS, never diffs/overwrites — so the raw fire directives
+    // (`_add`/`_remove`/`_divide`) survive verbatim under `config.state`, where
+    // the engine enacts them schema-aware (a `_divide` splits the LIVE node).
+    let parent = parent_with_two_slots(7.0, 13.0);
+    let alice = [Key::from("cells"), Key::from("alice")];
+    let bob = [Key::from("cells"), Key::from("bob")];
+
+    let cfd = cross_fire_delta(&parent, &bond_rule("e1"), &[&alice, &bob]).expect("delta");
+
+    // The delta nests to cells.alice.config.state and keeps `_add` intact.
+    let interior = cfd
+        .delta
+        .get_path(&[
+            Key::from("cells"),
+            Key::from("alice"),
+            Key::from("config"),
+            Key::from("state"),
+        ])
+        .expect("delta lands at alice.config.state");
+    assert!(
+        interior.get_field("_add").is_some(),
+        "the raw `_add` directive is preserved at the interior, not diffed away: {interior:?}"
+    );
+    // It did NOT replace the whole composite (no top-level _remove/_add of the
+    // composite key at the cells container).
+    let cells_delta = cfd
+        .delta
+        .get_path(&[Key::from("cells")])
+        .expect("cells delta");
+    assert!(
+        cells_delta.get_field("_remove").is_none() && cells_delta.get_field("_add").is_none(),
+        "no container-level whole-composite replace: {cells_delta:?}"
+    );
+}
+
+#[test]
+fn cross_fire_delta_with_no_match_is_a_noop() {
+    // No match → fired=false, delta=None (a no-op the engine drops).
+    let parent = parent_with_two_slots(1.0, 2.0);
+    let alice = [Key::from("cells"), Key::from("alice")];
+    let bob = [Key::from("cells"), Key::from("bob")];
+
+    let rule = ReactionRule::new(
+        Pattern::map([(
+            "nope",
+            Pattern::sort("Nonexistent", Vec::<(&str, Pattern)>::new()),
+        )]),
+        Pattern::map([("nope", Pattern::Atom(Value::None))]),
+    );
+
+    let cfd = cross_fire_delta(&parent, &rule, &[&alice, &bob]).expect("no-match returns Some");
+    assert!(!cfd.fired);
+    assert_eq!(cfd.delta, Value::None);
 }
