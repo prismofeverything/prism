@@ -436,10 +436,17 @@ impl Evaluator {
                 context: "value".into(),
                 message: "`!` (unbound) is only valid inside a pattern".into(),
             }),
-            Expr::LinkVar(_) => Err(EvalError::InvalidForm {
-                context: "value".into(),
-                message: "`~name` is only valid inside a pattern".into(),
-            }),
+            Expr::LinkVar(name) => {
+                // A bound link `~name` in a (computed) reactum / guard resolves to
+                // the captured edge value — recorded by the redex lowering
+                // (`eval_pattern`'s `LinkVar` arm) under `~name`, symmetric with a
+                // site `?x`. Outside a reaction (or for an unbound link) there is
+                // no binding, so it errors with a clear message.
+                env.get(&format!("~{name}")).cloned().ok_or_else(|| EvalError::InvalidForm {
+                    context: "value".into(),
+                    message: format!("`~{name}` is not a bound link here (only a redex binds it)"),
+                })
+            }
             Expr::Rule { .. } => Err(EvalError::InvalidForm {
                 context: "value".into(),
                 message: "`=>` is only valid inside a reaction body".into(),
@@ -1474,7 +1481,17 @@ impl Evaluator {
             }
 
             Expr::Unbound => Ok(Pattern::Absent),
-            Expr::LinkVar(name) => Ok(Pattern::link_var(name.clone())),
+            Expr::LinkVar(name) => {
+                // Record the edge binding so a COMPUTED reactum can reference the
+                // bound link `~name` as a value — symmetric with how a site `?x`
+                // is recorded (a STRUCTURAL reactum already resolves `~name` via
+                // prism's `instantiate`). The chrysalis name is `~name`
+                // (namespaced like `?` for sites) so it can't collide with a
+                // config param / var of the same bare name. `bind_environment`
+                // fills it from `bindings.edges[name]`; `eval_value` reads it.
+                bindings.insert(format!("~{name}"), BindingSource::Edge(Key::from(name.as_str())));
+                Ok(Pattern::link_var(name.clone()))
+            }
 
             Expr::Site { name, sort } => {
                 match sort {

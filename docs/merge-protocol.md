@@ -298,15 +298,28 @@ principle)
 
    `?west`/`?east` are site binders (the `?` disambiguates, no case
    rule); `~e` is the shared link var that COUPLES the composites.
-   Two grammar *restrictions removed* enable this: (1) redex head may
-   be `?x` not only `K[args]`; (2) port target may bind `?v` not only
-   `!`/`~link`. The pattern expresses the COUPLING (any two composites
-   on `e`), is encapsulation-clean by construction, and unifies the
-   two scales — ONE BRS rewrites molecule-level AND composite-level
-   link patterns with identical syntax. Documented in
-   `docs/chrysalis-design.md` §"Cross-composite redexes are LINK-GRAPH
-   matches"; memory `feedback_no_case_heuristics` (superseding entry).
-   Implementation: matcher side of #43 (cross-composite reactor).
+   The pattern expresses the COUPLING (any two composites on `e`), is
+   encapsulation-clean by construction, and unifies the two scales —
+   ONE BRS rewrites molecule-level AND composite-level link patterns
+   with identical syntax. Documented in `docs/chrysalis-design.md`
+   §"Cross-composite redexes are LINK-GRAPH matches"; memory
+   `feedback_no_case_heuristics` (superseding entry).
+   - ✅ **Matcher LANDED (2026-06-08)**: the sorted form `?west :: Cell
+     ~{edge: ~e} | ?east :: Cell ~{edge: ~e}` parses, lowers
+     (`eval_pattern_top` → `Pattern::Bind` over `Pattern::LinkVar`), and
+     COUPLES two composites on a shared edge link (not on different
+     links) — `chrysalis/tests/cross_composite_link_redex.rs`. Removed
+     restriction (1) (a redex item HEAD may be `?x`, the binder, not only
+     `K[args]`). Plus a parser UNIFICATION: the reaction redex / reactum
+     positions now parse with the SAME body grammar
+     (`parse_parallel_items`) as a term/composite body, so `|` works at
+     the reaction top level with no required wrapping parens — `( a | b )`
+     becomes optional grouping, MAPK unchanged.
+   - ⏳ REMAINING: the reactum-as-method firing (`?west.balance(~e)`)
+     through a reactor end-to-end; the SORTLESS sugar `?west ~{edge:~e}`
+     (needs an `Expr::Site` ports field for faithful unparse — the sorted
+     form is canonical); restriction (2), a `?v` port target that BINDS
+     the value.
 
 8. **Distributed merge** — slices 1-7 working when source composites
    are stream children on remote machines. Test that "merge produces

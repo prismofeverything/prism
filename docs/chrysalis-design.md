@@ -939,18 +939,37 @@ coupling:
 
 ```
 reaction Diffuse (
-  ?west ~{edge: ~e} | ?east ~{edge: ~e}
+  ?west :: Cell ~{edge: ~e} | ?east :: Cell ~{edge: ~e}
   => ?west.balance(~e) | ?east.balance(~e)
 )
 ```
 
 - **`?west` / `?east`** — `?`-prefixed SITE BINDERS (the existing site
-  sigil). The `?` does the disambiguation — no case rule needed.
+  sigil) — the redex item's HEAD is the binder, not a control `K[args]`
+  (restriction (1) removed). `:: Cell` is the (recommended) sort
+  annotation — like every other redex item, a cross-composite item is
+  typed; the binder constrains to `Cell`. The `?` does the
+  disambiguation — no case rule needed.
 - **`~{edge: ~e}`** — `~{}` keeps its ONE meaning (ports↔links); `~e`
   is the shared LINK VAR that COUPLES the two composites.
-- Two grammar *restrictions removed* (not rules added) make this
-  possible: (1) a redex head may be `?x` (not only a control `K[args]`);
-  (2) a port target may bind a value `?v` (not only `!` / `~link`).
+
+**Status (2026-06-08, #43/#40 matcher slice).** The matcher is LIVE: the
+sorted form above parses, lowers (`eval_pattern_top` → `Pattern::Bind`
+over `Pattern::LinkVar`, the same machinery as `~bond`), and COUPLES
+two composites on a shared edge link (and does NOT couple on different
+links) — `crates/chrysalis/tests/cross_composite_link_redex.rs`. `|`
+works directly at the reaction top level (no required wrapping parens):
+the reaction's redex / reactum positions parse with the SAME body
+grammar (`parse_parallel_items`) as a term/composite body, so `|` means
+the same thing everywhere a parallel composition appears, and a wrapped
+`( a | b )` is just optional grouping (MAPK's form is unchanged).
+DEFERRED: the reactum-as-method firing (`?west.balance(~e)`) through a
+reactor end-to-end; the SORTLESS sugar `?west ~{edge: ~e}` (no
+`:: Sort`) — would need an `Expr::Site` ports field for faithful
+unparse, and the sorted form is more type-safe (so it's canonical);
+restriction (2), a `?v` port target that BINDS the port value (today a
+`?v` target lowers to an anonymous `Pattern::Site` whose binding isn't
+recorded) — add when a consumer needs it.
 
 This **expresses the coupling** — `~e` IS the connection. It
 generalizes over which composites (any two coupled by `e`, never
