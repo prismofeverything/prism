@@ -18,6 +18,7 @@ use std::time::Duration;
 use prism_bigraph::factory::ProcessRegistry;
 use prism_bigraph::protocol::{ParsedAddress, ProtocolRegistry};
 use prism_bigraph::protocols::RestProtocol;
+use prism_bigraph::Core;
 use prism_schema::Value;
 
 // =============================================================================
@@ -174,7 +175,7 @@ fn rest_protocol_round_trip_against_mock_server() {
     // Give the listener a moment to be ready.
     thread::sleep(Duration::from_millis(50));
 
-    let registry = Arc::new(ProcessRegistry::new());
+    let core = Core::from(Arc::new(ProcessRegistry::new()));
     let mut protocols = ProtocolRegistry::new();
     protocols.register(Arc::new(RestProtocol));
 
@@ -192,7 +193,7 @@ fn rest_protocol_round_trip_against_mock_server() {
     ]));
     let parsed = ParsedAddress::parse(&address).unwrap();
     let node = protocols
-        .instantiate(&parsed, Value::None, &registry)
+        .instantiate(&parsed, Value::None, &core)
         .expect("instantiate RestProcess");
 
     let proc = match node {
@@ -211,7 +212,7 @@ fn rest_protocol_inputs_outputs_cached_from_init() {
     let server = MockServer::start();
     thread::sleep(Duration::from_millis(50));
 
-    let registry = Arc::new(ProcessRegistry::new());
+    let core = Core::from(Arc::new(ProcessRegistry::new()));
     let mut protocols = ProtocolRegistry::new();
     protocols.register(Arc::new(RestProtocol));
 
@@ -228,7 +229,7 @@ fn rest_protocol_inputs_outputs_cached_from_init() {
     ]));
     let parsed = ParsedAddress::parse(&address).unwrap();
     let node = protocols
-        .instantiate(&parsed, Value::None, &registry)
+        .instantiate(&parsed, Value::None, &core)
         .unwrap();
 
     let proc = match node {

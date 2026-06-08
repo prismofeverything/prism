@@ -14,7 +14,7 @@ use indexmap::IndexMap;
 use prism_bigraph::factory::ProcessRegistry;
 use prism_bigraph::process::{Process, ProcessNode};
 use prism_bigraph::protocols::{RestProcess, RestProcessServer};
-use prism_bigraph::{Schema, Update, Value};
+use prism_bigraph::{Core, Schema, Update, Value};
 
 /// Typed ports across the three reconcile-relevant kinds.
 #[derive(Debug)]
@@ -45,13 +45,14 @@ impl Process for TypedProcess {
 fn rest_bridge_reconstructs_real_port_schemas() {
     let mut registry = ProcessRegistry::new();
     registry.register("Typed", |_config| ProcessNode::Process(Box::new(TypedProcess)));
-    let server = RestProcessServer::start(Arc::new(registry)).expect("start rest server");
+    let server = RestProcessServer::start(Core::from(Arc::new(registry))).expect("start rest server");
     std::thread::sleep(Duration::from_millis(50));
 
     let rp = RestProcess::initialize(
         format!("http://127.0.0.1:{}", server.port()),
         "Typed",
         Value::map(),
+        Core::new(),
     )
     .expect("initialize rest process");
 

@@ -148,7 +148,7 @@ impl Core {
         config: Value,
     ) -> Result<ProcessNode, ProtocolError> {
         let parsed = ParsedAddress::parse(address)?;
-        self.protocols.instantiate(&parsed, config, &self.processes)
+        self.protocols.instantiate(&parsed, config, self)
     }
 }
 

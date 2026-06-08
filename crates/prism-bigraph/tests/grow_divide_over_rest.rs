@@ -81,7 +81,7 @@ fn wire(seg: &str) -> Value {
 
 #[test]
 fn a_remote_process_is_discovered_and_driven_over_rest() {
-    let server = RestProcessServer::start(server_registry()).expect("start server");
+    let server = RestProcessServer::start(Core::from(server_registry())).expect("start server");
     std::thread::sleep(Duration::from_millis(50));
 
     // A `Grow` addressed `rest:` — discovery must resolve it and instantiate a
@@ -146,7 +146,7 @@ fn rest_grow_node(port: u16) -> Value {
 /// delete one, and confirm exactly that one's server instance is ended.
 #[test]
 fn deleting_a_remote_cell_ends_its_server_instance() {
-    let server = RestProcessServer::start(server_registry()).expect("start server");
+    let server = RestProcessServer::start(Core::from(server_registry())).expect("start server");
     std::thread::sleep(Duration::from_millis(50));
 
     let state = Value::tree([

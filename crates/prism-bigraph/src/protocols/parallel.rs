@@ -30,8 +30,8 @@ use std::thread::JoinHandle;
 
 use prism_schema::Value;
 
+use crate::core::Core;
 use crate::defer::Defer;
-use crate::factory::ProcessRegistry;
 use crate::process::{Process, ProcessNode};
 use crate::protocol::{Protocol, ProtocolError};
 use crate::protocol_runtime::ProtocolRuntime;
@@ -294,18 +294,25 @@ impl Protocol for ParallelProtocol {
         &self,
         data: &Value,
         config: Value,
-        registry: &Arc<ProcessRegistry>,
+        core: &Core,
     ) -> Result<ProcessNode, ProtocolError> {
         let class_name = data.as_str().ok_or_else(|| {
             ProtocolError::MalformedAddress(format!(
                 "parallel protocol expects data: String, got {data:?}"
             ))
         })?;
-        let node = registry.create(class_name, config).ok_or_else(|| {
+        let node = core.processes.create(class_name, config).ok_or_else(|| {
             ProtocolError::UnknownClass(class_name.to_string(), "parallel".into())
         })?;
         match node {
-            ProcessNode::Process(p) => {
+            ProcessNode::Process(mut p) => {
+                // Thread the Core into the INNER process NOW — one line below it
+                // becomes a shared `Arc<dyn Process>`, after which `set_core` (which
+                // needs `&mut`) can never reach it. Without this, a method-dispatching
+                // process wrapped in `parallel:` could not reach `core.methods` — the
+                // same gap the rest server had. The engine's later `set_core` on the
+                // wrapper is a no-op; the inner already holds the Core.
+                p.set_core(core.clone());
                 let inner: Arc<dyn Process> = Arc::from(p);
                 let wrapped = ParallelProcess::new(inner, self.pool(), class_name.to_string());
                 Ok(ProcessNode::Process(Box::new(wrapped)))
@@ -332,6 +339,7 @@ impl Protocol for ParallelProtocol {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::factory::ProcessRegistry;
     use crate::ports::PortSchema;
     use crate::protocol::{ParsedAddress, ProtocolRegistry};
     use indexmap::IndexMap;
@@ -380,11 +388,11 @@ mod tests {
 
     #[test]
     fn parallel_protocol_round_trip() {
-        let registry = make_registry();
+        let core = Core::from(make_registry());
         let protocols = parallel_registry();
         let addr = ParsedAddress::parse(&Value::String("parallel:Double".into())).unwrap();
         let node = protocols
-            .instantiate(&addr, Value::None, &registry)
+            .instantiate(&addr, Value::None, &core)
             .unwrap();
         let proc = match node {
             ProcessNode::Process(p) => p,
@@ -400,11 +408,11 @@ mod tests {
     #[test]
     fn parallel_invoke_returns_a_defer_resolved_later() {
         // invoke() must not block — it returns a Defer the pool fills.
-        let registry = make_registry();
+        let core = Core::from(make_registry());
         let protocols = parallel_registry();
         let addr = ParsedAddress::parse(&Value::String("parallel:Double".into())).unwrap();
         let node = protocols
-            .instantiate(&addr, Value::None, &registry)
+            .instantiate(&addr, Value::None, &core)
             .unwrap();
         let proc = match node {
             ProcessNode::Process(p) => p,
@@ -473,11 +481,11 @@ mod tests {
     fn parallel_drop_shuts_down_cleanly() {
         // Dropping the protocol (last pool owner) joins the workers; if
         // shutdown were broken this would hang or panic on drop.
-        let registry = make_registry();
+        let core = Core::from(make_registry());
         let protocols = parallel_registry();
         let addr = ParsedAddress::parse(&Value::String("parallel:Double".into())).unwrap();
         let node = protocols
-            .instantiate(&addr, Value::None, &registry)
+            .instantiate(&addr, Value::None, &core)
             .unwrap();
         drop(node);
         drop(protocols); // last Arc<ParallelPool> → Drop joins workers

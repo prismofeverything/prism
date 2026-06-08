@@ -13,7 +13,7 @@
 //!   2. The engine applies that delta (the BRS only needs `types` for the
 //!      schema-aware apply), then `discover_processes` finds the new spec and
 //!      instantiates it through the ENGINE's full Core —
-//!      `core.protocols.instantiate(addr, config, registry)` — and `set_core`s
+//!      `core.protocols.instantiate(addr, config, &core)` — and `set_core`s
 //!      the new node. So `local`/`rest`/`parallel`/`stream` and composite
 //!      subengines all work, because the ENGINE holds the Core, not the BRS.
 //!

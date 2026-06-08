@@ -36,7 +36,7 @@
 //! shape, the REST process just shuttles `Value`s). State and updates
 //! round-trip through `value_to_json` / `json_to_value`.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use indexmap::IndexMap;
@@ -45,8 +45,8 @@ use prism_schema::{
     schema::{json_to_value, value_to_json},
 };
 
+use crate::core::Core;
 use crate::defer::Defer;
-use crate::factory::ProcessRegistry;
 use crate::ports::PortSchema;
 use crate::process::{Process, ProcessNode};
 use crate::protocol::{Protocol, ProtocolError};
@@ -76,6 +76,12 @@ pub struct RestProcess {
     cached_outputs: PortSchema,
     agent: ureq::Agent,
     ended: Mutex<bool>,
+    /// The WHOLE [`Core`] this client was built against (not a `types` subset —
+    /// the Core-threading rule). Its `types` drive the boundary codec so a
+    /// Custom-typed port crosses by its schema; holding the whole Core means a
+    /// future need (a method-dispatching response, a nested protocol) costs no
+    /// re-threading.
+    core: Core,
 }
 
 impl std::fmt::Debug for RestProcess {
@@ -96,6 +102,7 @@ impl RestProcess {
         base_url: impl Into<String>,
         process_class: impl Into<String>,
         config: Value,
+        core: Core,
     ) -> Result<Self, ProtocolError> {
         let base_url = base_url.into();
         let process_class = process_class.into();
@@ -144,6 +151,7 @@ impl RestProcess {
             cached_outputs,
             agent,
             ended: Mutex::new(false),
+            core,
         })
     }
 }
@@ -187,23 +195,26 @@ impl Process for RestProcess {
         // Encode the input through the algebra's serialize door (the one codec),
         // THEN the JSON byte layer — so a typed/Custom port crosses by its SCHEMA,
         // not a schema-blind `value_to_json`. The input is a state (serialize), the
-        // returned value an update/delta (`realize_update`). `reg = None` until a
-        // shared type registry rides the wire (#48); structural for plain data, so
-        // this is non-breaking. (`value_to_json`/`json_to_value` are demoted to the
-        // byte layer UNDER the algebra door — no longer the door itself.)
+        // returned value an update/delta (`realize_update`). The registry is the
+        // WHOLE Core's `types` (threaded in at instantiation), so a Custom/`Foreign`
+        // port dispatches its own wire form instead of nulling. (`value_to_json`/
+        // `json_to_value` are the byte layer UNDER the algebra door — not the door.)
         let in_elem = record_schema(&self.cached_inputs);
         let out_elem = record_schema(&self.cached_outputs);
+        let types = self.core.types.clone(); // Arc clone moved into the request thread
         let body = serde_json::json!({
-            "state": value_to_json(&algebra::serialize_with(None, &in_elem, state)),
+            "state": value_to_json(&algebra::serialize_with(Some(types.as_ref()), &in_elem, state)),
             "interval": interval,
         });
         let agent = self.agent.clone(); // cheap: Arc inside
         let label = format!("{}/{}", self.process_class, self.process_id);
         let handle = std::thread::spawn(move || match agent.post(&url).send_json(body) {
             Ok(resp) => match resp.into_json::<serde_json::Value>() {
-                Ok(raw) if !raw.is_null() => {
-                    Update::value(algebra::realize_update(None, &out_elem, &json_to_value(&raw)))
-                }
+                Ok(raw) if !raw.is_null() => Update::value(algebra::realize_update(
+                    Some(types.as_ref()),
+                    &out_elem,
+                    &json_to_value(&raw),
+                )),
                 _ => Update::Noop,
             },
             Err(e) => {
@@ -275,7 +286,7 @@ impl Protocol for RestProtocol {
         &self,
         data: &Value,
         config: Value,
-        _registry: &Arc<ProcessRegistry>,
+        core: &Core,
     ) -> Result<ProcessNode, ProtocolError> {
         let map = data.as_map().ok_or_else(|| {
             ProtocolError::MalformedAddress(format!(
@@ -303,7 +314,9 @@ impl Protocol for RestProtocol {
             }
         };
         let base_url = format!("http://{host}:{port_str}");
-        let rest_process = RestProcess::initialize(base_url, process, config)?;
+        // Thread the WHOLE Core into the client so its boundary codec dispatches
+        // `core.types` (a Custom-typed port crosses by schema, not a JSON null).
+        let rest_process = RestProcess::initialize(base_url, process, config, core.clone())?;
         Ok(ProcessNode::Process(Box::new(rest_process)))
     }
 
@@ -330,22 +343,22 @@ mod tests {
     #[test]
     fn rest_address_parsing_rejects_missing_fields() {
         let p = RestProtocol;
-        let registry = Arc::new(ProcessRegistry::new());
+        let core = Core::new();
 
         let bad = Value::Map(IndexMap::from_iter([(
             "process".into(),
             Value::String("Cell".into()),
         )]));
-        let err = p.instantiate(&bad, Value::None, &registry).unwrap_err();
+        let err = p.instantiate(&bad, Value::None, &core).unwrap_err();
         assert!(matches!(err, ProtocolError::MalformedAddress(_)));
     }
 
     #[test]
     fn rest_address_parsing_rejects_non_map() {
         let p = RestProtocol;
-        let registry = Arc::new(ProcessRegistry::new());
+        let core = Core::new();
         let bad = Value::String("local:Cell".into());
-        let err = p.instantiate(&bad, Value::None, &registry).unwrap_err();
+        let err = p.instantiate(&bad, Value::None, &core).unwrap_err();
         assert!(matches!(err, ProtocolError::MalformedAddress(_)));
     }
 }

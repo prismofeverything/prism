@@ -601,7 +601,7 @@ fn grow_divide_glucose_is_identical_local_and_over_rest() {
     // only the address. The cell runs remotely on the server; the parent's Divider
     // still divides the cell NODES (rest-addressed → daughters inherit the
     // protocol), so division crosses the boundary for free.
-    let server = RestProcessServer::start(core().processes).expect("start rest server");
+    let server = RestProcessServer::start(core()).expect("start rest server");
     std::thread::sleep(Duration::from_millis(50));
 
     let local = run_grow_divide(make_initial(local_addr()), core(), "local");

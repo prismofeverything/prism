@@ -15,7 +15,7 @@
 
 use prism_bigraph::process::Process;
 use prism_bigraph::protocols::RestProcess;
-use prism_bigraph::{Schema, Update, Value};
+use prism_bigraph::{Core, Schema, Update, Value};
 
 /// A → B at rate 0.7 (mass action), as the `EulerIntegrator`'s network config.
 fn crn() -> Value {
@@ -46,8 +46,13 @@ fn prism_drives_python_sidecar_over_the_typed_bridge() {
         return;
     };
 
-    let rp = RestProcess::initialize(url, "EulerIntegrator", Value::tree([("network", crn())]))
-        .expect("initialize EulerIntegrator over rest");
+    let rp = RestProcess::initialize(
+        url,
+        "EulerIntegrator",
+        Value::tree([("network", crn())]),
+        Core::new(),
+    )
+    .expect("initialize EulerIntegrator over rest");
 
     // SAME TYPE SYSTEM BOTH ENDS: python's `{"state": "map[float]"}` is parsed
     // back into the real Rust Schema — not Schema::Any.

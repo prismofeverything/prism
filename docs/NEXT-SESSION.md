@@ -138,6 +138,83 @@ A side-quest doc captured the broader landscape: `docs/exploring-the-computation
 
 ---
 
+## ⏯️ NEXT-SESSION PROMPT (2026-06-07d — boundary codec UNIFIED through the algebra; NEXT = thread the Core through the protocol layer + rest delta-in)
+
+> Full workspace GREEN (724 tests, 0 fail; +8 this arc). The "real transport"
+> thread (#61b) opened into a **protocol-codec unification**, user-directed:
+> *"don't bypass the algebra — use it everywhere; make rest work the same way as
+> stream; all protocols give identical results, just differ in protocol."*
+>
+> **The unified model (the answer):** every boundary (composite/local, stream,
+> rest, trace) carries an ALGEBRA-ENCODED value over a byte transport. The algebra
+> is the **door**; `value_to_json`/`json_to_value` (rest) + raw `serde_json` (trace)
+> are demoted to the byte layer UNDER it. A **state** (absolute frame) →
+> `serialize_with`/`realize_with`; an **update** (δ(S) — *updates aren't the
+> schema's type*) → `serialize_update`/`realize_update`.
+>
+> **LANDED this arc (all green):**
+> - **#61a link schema first-class** — `collect_branches` types a `link name :: T`
+>   slot by `T` (chrysalis/src/schema.rs); `tests/link_schema.rs`. (2026-06-07c)
+> - **The delta codec** `prism_schema::algebra::serialize_update`/`realize_update`
+>   (schema.rs `serialize_update_with_reg`/`realize_update_with_reg`/`delta_codec`)
+>   — the missing algebra op for UPDATES; mirrors apply's `_add`/`_remove`/`_divide`
+>   walk, recurses `_add` leaves through the element schema, dispatches `Custom`
+>   leaves; conservative extension of `serialize_with` on sentinel-free states.
+>   `prism-schema/tests/reaction_data.rs` + `chrysalis/tests/reaction_transport.rs`.
+> - **Reaction-as-data codec** — `prism_schema::reaction::Pattern::to_value/from_value`
+>   + structural `ReactionRule::to_data_value/from_data_value` (`_pat`-tagged, JSON-able);
+>   `ReactionType::serialize/realize` wired to it (chrysalis runtime/rule.rs). A
+>   reaction crosses a JSON boundary + fires (`reaction_transport.rs`).
+> - **Routed the boundary codec through the algebra door**: rest client + server
+>   (`protocols/rest.rs` + `rest_server.rs`, non-breaking — `record_schema` builds
+>   the port-face element, `serialize_with`/`realize_update` over it); stream child
+>   `serve_process` (runner.rs, WITH its type registry → Custom dispatch — proven by
+>   `quantum_lifecycle_stream` crossing `map[QuantumSystem]` green). `reg = None` on
+>   the rest ends + stream parent until the Core is threaded (next).
+>
+> **WHERE rest vs stream stand:** stream is **update-in/update-out** (input delta via
+> `algebra::diff(element, prev, state)`, output delta forwarded; the child folds via
+> `apply_with` — runner.rs serve_process). Rest is now algebra-routed but still
+> **state-in** (stateless server). Results are ALREADY identical
+> (`grow_divide_over_rest` ≡ `grow_divide_stream`); the gap is mechanism (the door,
+> now fixed) + the update-in symmetry.
+>
+> **THE MISSING TEST DIMENSION (user's diagnosis — the driver):** *why did the
+> subset-threading go uncaught?* Because EVERY rest/stream/parallel test uses BASE
+> types (`float`/`map`) + process-only registries — none crosses a boundary with a
+> value needing a NON-BASE type/method/protocol. So nothing ever asked the boundary
+> to dispatch something only the full Core knows. **Add that dimension FIRST**: a
+> Core-threading *conformance* test — a non-base `Custom` type (carrying a `Foreign`,
+> so raw JSON nulls it) on a port that crosses rest (then stream, parallel,
+> composite). It FAILS today (value lost — the boundary has no `TypeRegistry`) and
+> PASSING it REQUIRES the Core threaded. The test pins the property; the refactor
+> satisfies it. Generalize: assert each transport gives IDENTICAL results to `local`
+> for the SAME non-base-typed program (the "differ only in protocol" invariant).
+>
+> **NEXT — in order (user-directed: "yes we want both"; verification-first):**
+> 0. **Write the failing conformance test** (above) — the missing dimension.
+> 1. **Thread the CORE through the protocol layer** (the #59 Core-threading rule —
+>    [[feedback_thread_the_core]] — UNFINISHED here: `Protocol::instantiate` +
+>    `Core::instantiate` (core.rs:151) + `RestProcessServer::start` all take an
+>    `Arc<ProcessRegistry>` SUBSET, which the rule forbids). Edit map:
+>    (a) `Protocol::instantiate(&self, data, config, core: &Core)` (protocol.rs trait
+>    + `LocalProtocol` → `core.processes.create`); (b) `ProtocolRegistry::instantiate`
+>    + `Core::instantiate` pass `self`; (c) `engine.rs:1625` pass `&self.core`;
+>    (d) the 4 impls (rest/parallel/stream) → `core.processes`; rest+stream NODES
+>    store the Core (or `core.types`) so the codec reads it; (e) `RestProcessServer::
+>    start(core: Core)` + `core.processes`/`core.types`; (f) fix ~14 call sites
+>    (`Core::from(registry)` for registry-only tests). THEN flip the codec `reg` from
+>    `None` → the held `core.types()` — ACTIVATES `Custom`/reaction transport over a
+>    real bridge (the original #61b payoff).
+> 2. **rest delta-in/update-out** — make rest stateful + delta-in, mirroring stream's
+>    `diff` (client `prev_input`) + `serve_process` fold (server held-input-per-id +
+>    `apply_with`). OUTWARD-FACING: the python COPASI/Tellurium sidecar speaks the
+>    state-in wire, so coordinate (the rust client+server change together; the
+>    in-suite rest tests stay consistent; python is a noted follow-up, #48/#49).
+> 3. The byte layer (`value_to_json`/Arrow-`serde_json`) STAYS — under the door.
+
+---
+
 ## ⏯️ NEXT-SESSION PROMPT (2026-06-07c — #61a link schema first-class DONE; NEXT = #61b real transport)
 
 > Full workspace GREEN (718 tests, 0 fail; +2). Closed the FIRST of the two

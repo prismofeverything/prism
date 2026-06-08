@@ -101,7 +101,7 @@ fn client_core() -> Core {
 #[test]
 fn engine_invoke_pass_runs_rest_processes_concurrently() {
     const N: usize = 4;
-    let server = RestProcessServer::start(server_core().processes).expect("start rest server");
+    let server = RestProcessServer::start(server_core()).expect("start rest server");
     std::thread::sleep(Duration::from_millis(50));
 
     let mut branches: IndexMap<Key, Schema> =

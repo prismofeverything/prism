@@ -15,7 +15,7 @@ use indexmap::IndexMap;
 use prism_bigraph::factory::ProcessRegistry;
 use prism_bigraph::process::{Process, ProcessNode};
 use prism_bigraph::protocols::{RestProcess, RestProcessServer};
-use prism_bigraph::{Schema, Update, Value};
+use prism_bigraph::{Core, Schema, Update, Value};
 
 /// mass += mass · rate · interval (a delta) — the same `Grow` as growth_division.
 #[derive(Debug)]
@@ -63,7 +63,7 @@ fn grow_registry() -> Arc<ProcessRegistry> {
 /// verify the cleanup invariant: ending every process leaves none behind.
 #[test]
 fn rest_server_lifecycle_creates_runs_and_cleans_up() {
-    let server = RestProcessServer::start(grow_registry()).expect("start server");
+    let server = RestProcessServer::start(Core::from(grow_registry())).expect("start server");
     std::thread::sleep(Duration::from_millis(50)); // let the listener settle
 
     let config = Value::tree([("rate", Value::float(2.0))]);
@@ -71,7 +71,8 @@ fn rest_server_lifecycle_creates_runs_and_cleans_up() {
     // Start a bunch of remote processes (initialize → server stores each).
     let procs: Vec<RestProcess> = (0..3)
         .map(|_| {
-            RestProcess::initialize(server.base_url(), "Grow", config.clone()).expect("initialize")
+            RestProcess::initialize(server.base_url(), "Grow", config.clone(), Core::new())
+                .expect("initialize")
         })
         .collect();
     assert_eq!(
@@ -108,11 +109,11 @@ fn rest_server_lifecycle_creates_runs_and_cleans_up() {
 /// as a partial graph (here: the whole class is unknown).
 #[test]
 fn rest_server_rejects_an_unregistered_process() {
-    let server = RestProcessServer::start(grow_registry()).expect("start server");
+    let server = RestProcessServer::start(Core::from(grow_registry())).expect("start server");
     std::thread::sleep(Duration::from_millis(50));
 
     // `Grow` is registered; `Ghost` is not.
-    let result = RestProcess::initialize(server.base_url(), "Ghost", Value::None);
+    let result = RestProcess::initialize(server.base_url(), "Ghost", Value::None, Core::new());
     assert!(
         result.is_err(),
         "initializing an unregistered process must error"

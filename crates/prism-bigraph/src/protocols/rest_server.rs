@@ -34,7 +34,7 @@ use prism_schema::schema::{json_to_value, value_to_json};
 
 use crate::protocols::rest::record_schema;
 
-use crate::factory::ProcessRegistry;
+use crate::core::Core;
 use crate::process::ProcessNode;
 
 /// Live process instances, keyed by the id `initialize` handed out. Shared across
@@ -55,15 +55,20 @@ pub struct RestProcessServer {
 }
 
 impl RestProcessServer {
-    /// Start a server on `127.0.0.1:0` (an OS-chosen free port) serving `registry`.
-    pub fn start(registry: Arc<ProcessRegistry>) -> std::io::Result<Self> {
-        Self::start_on(registry, "127.0.0.1:0")
+    /// Start a server on `127.0.0.1:0` (an OS-chosen free port) serving `core`.
+    /// Takes the WHOLE [`Core`] (never a registry subset — the Core-threading
+    /// rule): `core.processes` builds the instances, `core.types` drives the
+    /// boundary codec (a Custom-typed port crosses by schema), and the server
+    /// `set_core`s each instance so a method-dispatching or composite node reaches
+    /// `core.methods`/`core.protocols` too.
+    pub fn start(core: Core) -> std::io::Result<Self> {
+        Self::start_on(core, "127.0.0.1:0")
     }
 
     /// Start a server bound to `addr` (e.g. `"127.0.0.1:8088"`; port `0` = an
     /// OS-chosen free port — read it back via [`RestProcessServer::port`]).
     pub fn start_on(
-        registry: Arc<ProcessRegistry>,
+        core: Core,
         addr: impl std::net::ToSocketAddrs,
     ) -> std::io::Result<Self> {
         let listener = TcpListener::bind(addr)?;
@@ -81,11 +86,11 @@ impl RestProcessServer {
                 while !shutdown.load(Ordering::SeqCst) {
                     match listener.accept() {
                         Ok((stream, _)) => {
-                            let registry = Arc::clone(&registry);
+                            let core = core.clone(); // cheap: every Core field is an Arc
                             let processes = Arc::clone(&processes);
                             let next_id = Arc::clone(&next_id);
                             thread::spawn(move || {
-                                if let Err(e) = handle(stream, &registry, &processes, &next_id) {
+                                if let Err(e) = handle(stream, &core, &processes, &next_id) {
                                     eprintln!("rest server: {e}");
                                 }
                             });
@@ -137,7 +142,7 @@ impl Drop for RestProcessServer {
 
 fn handle(
     mut stream: TcpStream,
-    registry: &Arc<ProcessRegistry>,
+    core: &Core,
     processes: &Processes,
     next_id: &AtomicUsize,
 ) -> std::io::Result<()> {
@@ -168,7 +173,7 @@ fn handle(
     }
     let body = String::from_utf8_lossy(&body).into_owned();
 
-    let (status, payload) = route(&method, &path, &body, registry, processes, next_id);
+    let (status, payload) = route(&method, &path, &body, core, processes, next_id);
 
     let response = format!(
         "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n\
@@ -184,7 +189,7 @@ fn route(
     method: &str,
     path: &str,
     body: &str,
-    registry: &Arc<ProcessRegistry>,
+    core: &Core,
     processes: &Processes,
     next_id: &AtomicUsize,
 ) -> (&'static str, String) {
@@ -192,7 +197,7 @@ fn route(
     match (method, segs.as_slice()) {
         // POST /process/{class}/initialize  body=config → "process_id"
         ("POST", ["process", class, "initialize"]) => {
-            if !registry.contains(class) {
+            if !core.processes.contains(class) {
                 return (
                     "404 Not Found",
                     json_string(&format!("process-not-found: {class}")),
@@ -201,7 +206,7 @@ fn route(
             let config = json_to_value(&parse_json(body));
             // A composite document may reference inner processes this server's core
             // doesn't have — reject it rather than silently building a partial graph.
-            let missing = crate::core::missing_process_refs(&config, &**registry);
+            let missing = core.missing_process_refs(&config);
             if !missing.is_empty() {
                 return (
                     "400 Bad Request",
@@ -211,8 +216,14 @@ fn route(
                     )),
                 );
             }
-            match registry.create(class, config) {
-                Some(node) => {
+            match core.processes.create(class, config) {
+                Some(mut node) => {
+                    // Thread the WHOLE Core into the server-side instance, mirroring
+                    // the engine's per-node `set_core` during discovery — so a
+                    // method-dispatching process reaches `core.methods` and a
+                    // composite's subengine inherits `core.types`/`core.protocols`.
+                    // The method & protocol axes cross the boundary, not just types.
+                    node.set_core(core.clone());
                     let id = format!("{class}-{}", next_id.fetch_add(1, Ordering::SeqCst));
                     processes.lock().unwrap().insert(id.clone(), Arc::new(node));
                     ("200 OK", json_string(&id))
@@ -248,13 +259,13 @@ fn route(
             // Decode the input + encode the output through the algebra (the one
             // codec door) so a typed/Custom port crosses by its SCHEMA, not a
             // schema-blind `value_to_json`. The input is a state (`realize_with`),
-            // the output an update/delta (`serialize_update`). `reg = None` until a
-            // shared type registry rides the wire (#48); structural for plain data
-            // → non-breaking. Mirrors the client; `json_to_value`/`value_to_json`
-            // are the byte layer UNDER the door.
+            // the output an update/delta (`serialize_update`). The registry is the
+            // WHOLE Core's `types`, so a Custom/`Foreign` port dispatches its own
+            // wire form instead of nulling. Mirrors the client; `json_to_value`/
+            // `value_to_json` are the byte layer UNDER the door.
             let in_elem = record_schema(&node.inputs());
             let out_elem = record_schema(&node.outputs());
-            let decoded = algebra::realize_with(None, &in_elem, &state);
+            let decoded = algebra::realize_with(Some(core.types.as_ref()), &in_elem, &state);
             let update = match &*node {
                 ProcessNode::Process(p) => p.update(&decoded, interval),
                 ProcessNode::Step(s) => s.update(&decoded),
@@ -262,7 +273,8 @@ fn route(
             match update.into_value() {
                 Some(v) => (
                     "200 OK",
-                    value_to_json(&algebra::serialize_update(None, &out_elem, &v)).to_string(),
+                    value_to_json(&algebra::serialize_update(Some(core.types.as_ref()), &out_elem, &v))
+                        .to_string(),
                 ),
                 None => ("200 OK", "null".to_string()),
             }

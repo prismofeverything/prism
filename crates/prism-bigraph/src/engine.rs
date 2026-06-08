@@ -1484,8 +1484,6 @@ impl Engine {
     /// Scan changed state paths for new process nodes and instantiate them.
     /// Also remove processes whose parent state was deleted.
     fn discover_processes(&mut self, changed_paths: &[Path]) {
-        let registry = Arc::clone(&self.core.processes);
-
         // Collect processes to add/remove (can't mutate self while iterating)
         let mut to_add: Vec<(String, ProcessSpec, ProcessNode)> = Vec::new();
         let mut to_remove: Vec<String> = Vec::new();
@@ -1521,7 +1519,7 @@ impl Engine {
         for path in unique_paths {
             let state_at_path = self.state.get_path(path).cloned();
             if let Some(Value::Map(map)) = state_at_path {
-                self.scan_for_processes(&map, path, &registry, &mut to_add);
+                self.scan_for_processes(&map, path, &mut to_add);
             }
         }
 
@@ -1549,7 +1547,6 @@ impl Engine {
         &self,
         map: &prism_schema::StateMap,
         parent_path: &[Key],
-        registry: &Arc<ProcessRegistry>,
         results: &mut Vec<(String, ProcessSpec, ProcessNode)>,
     ) {
         for (key, val) in map {
@@ -1597,7 +1594,7 @@ impl Engine {
                 let has_type_hint = type_hint.is_some_and(|t| self.core.types.is_a(t, "link"));
                 if !is_link && !has_type_hint {
                     // Not a process node — recurse to find nested links.
-                    self.scan_for_processes(child_map, &child_path, registry, results);
+                    self.scan_for_processes(child_map, &child_path, results);
                     continue;
                 }
 
@@ -1618,11 +1615,13 @@ impl Engine {
                 // Get config
                 let config = child_map.get("config").cloned().unwrap_or(Value::None);
 
-                // Dispatch through the protocol registry.
+                // Dispatch through the protocol registry, threading the whole Core
+                // (so a `rest:`/`stream:` node stores it and its boundary codec can
+                // dispatch `core.types`; never a registry subset).
                 let node = match self
                     .core
                     .protocols
-                    .instantiate(&parsed, config.clone(), registry)
+                    .instantiate(&parsed, config.clone(), &self.core)
                 {
                     Ok(n) => n,
                     Err(_) => continue,

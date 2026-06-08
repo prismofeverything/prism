@@ -26,8 +26,8 @@ use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
 use prism_bigraph::{
-    Defer, PortSchema, Process, ProcessNode, ProcessRegistry, Protocol, ProtocolError,
-    ProtocolRegistry, Update,
+    Core, Defer, PortSchema, Process, ProcessNode, Protocol, ProtocolError, ProtocolRegistry,
+    Update,
 };
 use prism_schema::{Key, Schema, Value, algebra, schema_to_value};
 use prism_trace::{TraceReader, TraceWriter};
@@ -301,7 +301,11 @@ impl Protocol for StreamProtocol {
         &self,
         data: &Value,
         _config: Value,
-        _registry: &Arc<ProcessRegistry>,
+        // The whole Core is threaded for trait uniformity; the stream PARENT proxies
+        // a child `.ys` that rebuilds its own Core from the program, so nothing here
+        // stores a subset. (When the parent codec becomes type-aware it reads
+        // `core.types` then — a follow-on; today it forwards diffs/raw.)
+        _core: &Core,
     ) -> Result<ProcessNode, ProtocolError> {
         let path = data.as_str().ok_or_else(|| {
             ProtocolError::MalformedAddress(format!(

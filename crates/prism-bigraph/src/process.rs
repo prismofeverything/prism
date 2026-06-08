@@ -165,4 +165,16 @@ impl ProcessNode {
     pub fn is_step(&self) -> bool {
         matches!(self, Self::Step(_))
     }
+
+    /// Push the runtime [`Core`](crate::Core) into this node. The engine does this
+    /// for every live node during discovery; the rest server does it for the node
+    /// it builds server-side, so a method-dispatching process reaches
+    /// `core.methods` and a composite's subengine inherits `core.types`/
+    /// `core.protocols`. Default no-op for nodes that don't capture the Core.
+    pub fn set_core(&mut self, core: crate::Core) {
+        match self {
+            Self::Process(p) => p.set_core(core),
+            Self::Step(s) => s.set_core(core),
+        }
+    }
 }

@@ -29,7 +29,7 @@ use indexmap::IndexMap;
 use prism_schema::{Key, Schema, Value};
 use thiserror::Error;
 
-use crate::factory::ProcessRegistry;
+use crate::core::Core;
 use crate::process::ProcessNode;
 
 /// A schema record of `String`-typed fields — the common shape of a protocol's
@@ -59,14 +59,20 @@ pub trait Protocol: Send + Sync + std::fmt::Debug {
     ///   it's a `Value::String("ClassName")`. Richer protocols (REST,
     ///   Docker, …) accept a map.
     /// - `config` is the per-instance config from the spec.
-    /// - `registry` is the local process registry. Most protocols
-    ///   ignore it, but `local`, `parallel`, `pool`, `ray` all use it
-    ///   to resolve the underlying class.
+    /// - `core` is the WHOLE runtime [`Core`], never a registry subset
+    ///   (the Core-threading rule — see [`crate::core`]). `local`/
+    ///   `parallel`/`stream` read `core.processes` to resolve the class;
+    ///   `rest`/`stream` additionally STORE the Core so their boundary
+    ///   codec can dispatch `core.types` (a Custom-typed port crosses by
+    ///   its schema, not a schema-blind JSON `null`). A protocol needing
+    ///   only one registry still receives the whole Core and reads its
+    ///   part, so a new need (a reactum that instantiates a process, a
+    ///   method-dispatching server-side node) adds no re-threading.
     fn instantiate(
         &self,
         data: &Value,
         config: Value,
-        registry: &Arc<ProcessRegistry>,
+        core: &Core,
     ) -> Result<ProcessNode, ProtocolError>;
 
     /// The protocol's **address type** — `(type name, representation schema)` —
@@ -198,14 +204,14 @@ impl Protocol for LocalProtocol {
         &self,
         data: &Value,
         config: Value,
-        registry: &Arc<ProcessRegistry>,
+        core: &Core,
     ) -> Result<ProcessNode, ProtocolError> {
         let class_name = data.as_str().ok_or_else(|| {
             ProtocolError::MalformedAddress(format!(
                 "local protocol expects data: String, got {data:?}"
             ))
         })?;
-        registry
+        core.processes
             .create(class_name, config)
             .ok_or_else(|| ProtocolError::UnknownClass(class_name.to_string(), "local".into()))
     }
@@ -269,23 +275,24 @@ impl ProtocolRegistry {
     }
 
     /// Look up the protocol for a parsed address and dispatch
-    /// `instantiate`. Convenience wrapper.
+    /// `instantiate`, threading the whole [`Core`]. Convenience wrapper.
     pub fn instantiate(
         &self,
         address: &ParsedAddress,
         config: Value,
-        registry: &Arc<ProcessRegistry>,
+        core: &Core,
     ) -> Result<ProcessNode, ProtocolError> {
         let protocol = self
             .get(&address.protocol)
             .ok_or_else(|| ProtocolError::UnknownProtocol(address.protocol.clone()))?;
-        protocol.instantiate(&address.data, config, registry)
+        protocol.instantiate(&address.data, config, core)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::factory::ProcessRegistry;
     use crate::process::Step;
     use crate::update::Update;
     use indexmap::IndexMap;
@@ -343,33 +350,33 @@ mod tests {
 
     #[test]
     fn local_protocol_instantiates() {
-        let registry = registry_with_noop();
+        let core = Core::from(registry_with_noop());
         let protocols = ProtocolRegistry::new();
         let addr = ParsedAddress::parse(&Value::String("local:Noop".into())).unwrap();
         let node = protocols
-            .instantiate(&addr, Value::None, &registry)
+            .instantiate(&addr, Value::None, &core)
             .unwrap();
         assert!(matches!(node, ProcessNode::Step(_)));
     }
 
     #[test]
     fn unknown_protocol_errors() {
-        let registry = registry_with_noop();
+        let core = Core::from(registry_with_noop());
         let protocols = ProtocolRegistry::new();
         let addr = ParsedAddress::parse(&Value::String("ray:Cell".into())).unwrap();
         let err = protocols
-            .instantiate(&addr, Value::None, &registry)
+            .instantiate(&addr, Value::None, &core)
             .unwrap_err();
         assert!(matches!(err, ProtocolError::UnknownProtocol(p) if p == "ray"));
     }
 
     #[test]
     fn unknown_class_errors() {
-        let registry = registry_with_noop();
+        let core = Core::from(registry_with_noop());
         let protocols = ProtocolRegistry::new();
         let addr = ParsedAddress::parse(&Value::String("local:Nope".into())).unwrap();
         let err = protocols
-            .instantiate(&addr, Value::None, &registry)
+            .instantiate(&addr, Value::None, &core)
             .unwrap_err();
         assert!(matches!(err, ProtocolError::UnknownClass(_, _)));
     }

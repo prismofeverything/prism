@@ -2,7 +2,6 @@
 //! a remote client can build std processes / composites on it, and the lifecycle
 //! cleans up. The CLI `server` subcommand is a thin wrapper around exactly this.
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use chrysalis::prelude::std_core;
@@ -25,7 +24,7 @@ fn std_core_has_runprocess_and_composite() {
 #[test]
 fn std_core_serves_a_composite_over_rest_with_cleanup() {
     let core = std_core();
-    let server = RestProcessServer::start(Arc::clone(&core.processes)).expect("start server");
+    let server = RestProcessServer::start(core.clone()).expect("start server");
     std::thread::sleep(Duration::from_millis(50));
 
     // A trivial composite document (empty inner state, no ports) — proves the
@@ -37,7 +36,7 @@ fn std_core_serves_a_composite_over_rest_with_cleanup() {
             Value::tree([("inputs", Value::map()), ("outputs", Value::map())]),
         ),
     ]);
-    let proc = RestProcess::initialize(server.base_url(), "Composite", config)
+    let proc = RestProcess::initialize(server.base_url(), "Composite", config, core.clone())
         .expect("initialize a composite on the server");
     assert_eq!(
         server.live_count(),
@@ -52,7 +51,7 @@ fn std_core_serves_a_composite_over_rest_with_cleanup() {
 #[test]
 fn server_rejects_a_doc_referencing_an_unknown_process() {
     let core = std_core();
-    let server = RestProcessServer::start(Arc::clone(&core.processes)).expect("start server");
+    let server = RestProcessServer::start(core.clone()).expect("start server");
     std::thread::sleep(Duration::from_millis(50));
 
     // A composite whose inner cell names a process the std core lacks → rejected.
@@ -74,7 +73,7 @@ fn server_rejects_a_doc_referencing_an_unknown_process() {
             Value::tree([("inputs", Value::map()), ("outputs", Value::map())]),
         ),
     ]);
-    let result = RestProcess::initialize(server.base_url(), "Composite", config);
+    let result = RestProcess::initialize(server.base_url(), "Composite", config, core.clone());
     assert!(
         result.is_err(),
         "a doc referencing an unknown inner process must be rejected"

@@ -269,7 +269,7 @@ fn cmd_server(args: &[String]) {
     }
 
     let core = std_core();
-    let server = RestProcessServer::start_on(Arc::clone(&core.processes), ("127.0.0.1", port))
+    let server = RestProcessServer::start_on(core.clone(), ("127.0.0.1", port))
         .unwrap_or_else(|e| die("server", e));
 
     let mut served: Vec<&str> = core.processes.type_names();
