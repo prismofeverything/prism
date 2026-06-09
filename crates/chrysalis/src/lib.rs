@@ -30,6 +30,7 @@ pub mod cli;
 pub mod codegen;
 pub mod compile;
 pub mod contract;
+pub mod coord;
 pub mod eval;
 pub mod fixtures;
 pub mod parse;

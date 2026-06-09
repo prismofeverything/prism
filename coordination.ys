@@ -15,6 +15,7 @@
 #  Add a peer:  create coord/<peer>.ys (`def <peer> = {...}`); add a `from <peer>
 #               import <peer>` + a `<peer>: <peer>` entry to coord/board.ys.
 #
-#  Next: the LIVE socket form — `chrysalis coord` (no file at all; push/pull over
-#  the mesh). This file is just a signpost now.
+#  LIVE socket form (no file at all): `chrysalis coord serve` runs the daemon;
+#  `chrysalis coord push <peer> '<json>'` merges your key; `chrysalis coord pull`
+#  prints the converged board. Roles + purviews: coord/ROSTER.md.
 # ═══════════════════════════════════════════════════════════════════════════

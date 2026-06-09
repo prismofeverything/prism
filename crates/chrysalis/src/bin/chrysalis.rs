@@ -33,6 +33,7 @@ fn main() {
         "check" => cmd_check(rest),
         "format" => cmd_format(rest),
         "server" => cmd_server(rest),
+        "coord" => cmd_coord(rest),
         "repl" => chrysalis::repl::run().unwrap_or_else(|e| die("repl", e)),
         "compile" => {
             eprintln!(
@@ -287,6 +288,40 @@ fn cmd_server(args: &[String]) {
     // process is killed. (`core`/`server` stay in scope so neither is dropped.)
     loop {
         std::thread::park();
+    }
+}
+
+/// `chrysalis coord <serve|push|pull>` — the live agent coordination board on the
+/// mesh (#62 dogfood). `serve` hosts the board as one `map[any]` mesh link; `push`
+/// merges a peer's key (per-source, no collision); `pull` prints the converged board.
+fn cmd_coord(args: &[String]) {
+    // Pull out `--port P`; the rest are positional (sub [peer] [json]).
+    let mut port = chrysalis::coord::DEFAULT_PORT;
+    let mut pos: Vec<&str> = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--port" {
+            i += 1;
+            if let Some(p) = args.get(i).and_then(|s| s.parse().ok()) {
+                port = p;
+            }
+        } else {
+            pos.push(&args[i]);
+        }
+        i += 1;
+    }
+    let Some((sub, rest)) = pos.split_first() else {
+        die("coord", "usage: chrysalis coord <serve|push <peer> '<json>'|pull> [--port P]");
+    };
+    match *sub {
+        "serve" => chrysalis::coord::serve(port).unwrap_or_else(|e| die("coord serve", e)),
+        "push" => {
+            let peer = rest.first().unwrap_or_else(|| die("coord push", "need <peer>"));
+            let json = rest.get(1).unwrap_or_else(|| die("coord push", "need '<json>'"));
+            chrysalis::coord::push(port, peer, json).unwrap_or_else(|e| die("coord push", e));
+        }
+        "pull" => chrysalis::coord::pull(port).unwrap_or_else(|e| die("coord pull", e)),
+        other => die("coord", format!("unknown subcommand `{other}` (serve|push|pull)")),
     }
 }
 
