@@ -12,6 +12,7 @@
 //! ring, A3) and the distributed `net:` protocol (A8); the *patch* is
 //! unchanged — only the sink differs.
 
+pub mod device;
 pub mod envelope;
 pub mod lowpass;
 pub mod oscillator;
@@ -24,14 +25,20 @@ pub mod voice;
 pub mod wav;
 pub mod wave;
 
+pub use device::interleave;
+#[cfg(feature = "realtime")]
+pub use device::{run_realtime, RealtimeOpts};
 pub use envelope::Envelope;
 pub use lowpass::LowPass;
 pub use oscillator::Oscillator;
 pub use patch::{module_node, register_audio, render_patch, wire_map};
 pub use reactions::{
-    detune_voice, patch_brs_node, prune_oscillator, render_patch_brs, spawn_voice, PATCH_BRS,
+    audio_engine, detune_voice, patch_brs_node, prune_oscillator, render_patch_brs, spawn_voice,
+    PATCH_BRS,
 };
-pub use render::{render, render_kernel, render_mix, render_oscillator, render_path, render_voice};
+pub use render::{
+    render, render_kernel, render_mix, render_oscillator, render_path, render_voice, tick_block,
+};
 pub use voice::voice_composite_node;
 pub use signal::{
     register_signal, signal_from_slice, signal_registry, signal_schema, signal_to_vec, signal_type,

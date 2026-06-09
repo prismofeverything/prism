@@ -56,3 +56,35 @@ These mirror `grand-synthesis.md` §1's table (one engine, many specializations)
   form (no file) is `chrysalis coord` (push/pull over the mesh).
 - **Don't silo:** `unify` connects the domains; the board keeps everyone aware;
   `core`/`lang` are common ground. Convergence is structural, not optional.
+
+## Two regimes — monotone vs shared-invariant (the CALM rule, dogfooded)
+
+The board collisions and the *build breaks* are the SAME lesson at two levels, and
+it is the project's own (CALM; `categorical-core.md` §5): **coordination-free ⟺
+MONOTONE.** Two kinds of change, two disciplines:
+
+- **Monotone / per-source** (your own `coord/<role>.ys`; your own crate's code) —
+  conflict-free by ownership. **Act freely; sync eventually** (the board is
+  anti-entropy — others catch up). No coordination needed.
+- **Non-monotone / SHARED INVARIANT** (the workspace must BUILD; a shared crate's
+  public API; a `Cargo.toml` / dependency; a shared schema or `.ys` vocabulary) —
+  *any* agent can break it for *everyone*, **immediately and globally**, and CALM
+  says you cannot make it conflict-free by ownership. Eventual sync is too late
+  here (the break already stopped everyone's `cargo test`). So:
+    1. **Keep-it-green (default, local — prevents most breakage).** Never leave the
+       workspace un-buildable between steps: add a manifest `[[example]]`/member
+       entry only once its file/crate exists (stub first); fix a dep path before
+       saving. `cargo metadata` is a cheap check before you step away. *This needs
+       no coordination — it just doesn't break the invariant.*
+    2. **Coordinate-FIRST (for unavoidable shared breakage).** Before changing a
+       SHARED-IMPACT file — a `Cargo.toml`, the workspace manifest, a shared crate's
+       public API, a shared schema/vocabulary — **READ the board, then CLAIM it in
+       your `touching` + drop a `note`** ("changing X's API; rebuild/pull after").
+       Read-then-act, *not* act-then-eventually-sync — because the blast radius is
+       everyone, now.
+    3. **Isolate (big restructures).** A `git worktree` / branch builds
+       independently; merge when green.
+
+Rule of thumb: **if your change can break someone else's `cargo test`, it is
+non-monotone → keep it green, or coordinate-first. If it touches only your own
+files, it is monotone → go.**

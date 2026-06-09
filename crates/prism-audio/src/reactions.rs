@@ -112,6 +112,16 @@ pub fn render_patch_brs(
     block: usize,
     n_blocks: usize,
 ) -> Vec<f32> {
+    let mut engine = audio_engine(state, schema, rules, block);
+    render_path(&mut engine, out_path, n_blocks)
+}
+
+/// Build the audio patch engine and return it ready to tick: the standard module
+/// registry + a `Composite` factory (for Voice composites) + a `PatchBrs` factory
+/// carrying `rules`, the `Signal` type registry, and the patch `state`/`schema`
+/// discovered. The shared builder behind both offline render ([`render_patch_brs`])
+/// and live playback ([`crate::device::run_realtime`]).
+pub fn audio_engine(state: Value, schema: Schema, rules: Vec<ReactionRule>, block: usize) -> Engine {
     // The Composite factory needs the whole Core (a spawned voice subengine
     // inherits types/processes); the Core holds the registry that holds this
     // factory — the cycle is resolved by a OnceLock set once everything is built
@@ -142,7 +152,7 @@ pub fn render_patch_brs(
     let mut engine =
         Engine::from_state(schema, state, core).expect("build patch+brs engine from state");
     engine.discover_all_processes();
-    render_path(&mut engine, out_path, n_blocks)
+    engine
 }
 
 /// **Spawn a voice** — a reaction that brings a new [`voice_composite_node`] to

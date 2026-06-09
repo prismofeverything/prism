@@ -11,7 +11,7 @@ pub mod rest;
 pub mod rest_server;
 
 pub use mesh::{mesh_links, MeshProtocol, MeshReplica};
-pub use mesh_agent::{GossipHandle, MeshAgent};
+pub use mesh_agent::{GossipHandle, LiveField, MeshAgent};
 pub use swim::Membership;
 pub use parallel::{ParallelProcess, ParallelProtocol};
 pub use rest::{RestProcess, RestProtocol};

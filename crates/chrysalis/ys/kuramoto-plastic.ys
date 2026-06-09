@@ -1,0 +1,56 @@
+# kuramoto-plastic.ys — Demo 3: the network learns its own wiring.
+# ──────────────────────────────────────────────────────────────────────────
+# Each oscillator carries a PLASTIC coupling weight `w`, updated by a Hebbian
+# rule  dw = eta * (align - w)  where  align = R*cos(Ψ-θ)  is how in-phase it is
+# with the mean field. In-phase oscillators STRENGTHEN (w grows toward R); drifting
+# ones DECOUPLE (w -> 0). So the synchronized core self-reinforces and stragglers
+# are shed — the DYNAMICS reshape the WIRING (the soft topology: w->0 = a pruned
+# coupling). This is the M/R closure made dynamical (categorical-core §9 Demo 3):
+# the system rewrites its own structure from its own state. Builds on Demo 1's
+# additive mean-field pool; the weight is a second additive state per oscillator.
+
+process PlasticSpin[omega :: Float = 1.0, k :: Float = 6.0, n :: Float = 8.0, dt :: Float = 0.05, eta :: Float = 0.3]
+  ~{theta :: Float, weight :: Float, field :: array[[2], float], interval :: Float = 1.0}
+  ->{theta :: Float, weight :: Float, field :: array[[2], float]}
+(
+  sx       = field.at(0) |
+  sy       = field.at(1) |
+  c        = theta.cos() |
+  s        = theta.sin() |
+  align    = (sx * c + sy * s) / n |                  # R*cos(Ψ-θ): this oscillator's coherence with the field
+  coupling = weight * (k / n) * (sy * c - sx * s) |   # coupling SCALED by the plastic weight
+  dtheta   = (omega + coupling) * dt |
+  dweight  = eta * (align - weight) * dt |            # Hebbian: weight tracks alignment
+  next     = theta + dtheta |
+  {theta: dtheta, weight: dweight, field: [next.cos() - c, next.sin() - s]}
+)
+
+composite PlasticOscillator[theta0 :: Float = 0.0, omega :: Float = 1.0, k :: Float = 6.0, n :: Float = 8.0]
+  ~{field :: array[[2], float] @ field = [0.0, 0.0]}
+  ->{theta :: Float @ theta, weight :: Float @ weight, field :: array[[2], float] @ field}
+(
+  theta: theta0 |
+  weight: 1.0 |
+  field: field |
+  spin: PlasticSpin[omega: omega, k: k, n: n] ~{theta: theta, weight: weight, field: field} ->{theta: theta, weight: weight, field: field}
+)
+
+# A spread of frequencies: a CORE near the mean (0.9..1.1) that will entrain, and
+# OUTLIERS far from it (0.2, 0.5, 1.5, 1.8) that drift — so plasticity has a real
+# structure to learn (strengthen the core, shed the outliers).
+composite PlasticTile[
+  omegas :: map[Float] = {
+    '0': 0.2, '1': 0.5, '2': 0.9, '3': 1.0,
+    '4': 1.0, '5': 1.1, '6': 1.5, '7': 1.8
+  },
+  k :: Float = 6.0,
+  n :: Float = 8.0
+]
+  ->{field :: array[[2], float] @ field, oscillators :: map[PlasticOscillator] @ oscillators}
+(
+  link field :: array[[2], float] = [8.0, 0.0] |
+  oscillators: {
+    '{id}': PlasticOscillator[theta0: 0.0, omega: w, k: k, n: n] ~{field: ~field} ->{field: ~field}
+    for id, w in omegas
+  }
+)

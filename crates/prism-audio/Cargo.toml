@@ -10,3 +10,20 @@ publish = false
 prism-schema = { workspace = true }
 prism-bigraph = { workspace = true }
 indexmap = { workspace = true }
+# The lock-free ring is the device-boundary seam (engine thread ↔ audio thread).
+# Pure Rust, no system libs — so the engine→ring pump and its test build anywhere.
+ringbuf = "0.4"
+# The realtime device + network layer (A3/A8). Optional: these pull cpal, which
+# needs system audio libs (ALSA), so the offline render path (A1/A2/A5) never
+# requires them. cpal/anyhow are used directly by the run_realtime driver.
+gorgon = { path = "../../../gorgon", optional = true }
+cpal = { version = "0.15", optional = true }
+anyhow = { version = "1", optional = true }
+
+[features]
+# Enable the cpal device boundary + the `play` example: `--features realtime`.
+realtime = ["dep:gorgon", "dep:cpal", "dep:anyhow"]
+
+[[example]]
+name = "play"
+required-features = ["realtime"]

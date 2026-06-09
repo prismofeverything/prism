@@ -34,6 +34,20 @@ pub fn render(engine: &mut Engine, out_key: &str, n_blocks: usize) -> Vec<f32> {
     out
 }
 
+/// Advance the engine one tick and return the output `Signal` block at nested
+/// slot `path` (e.g. `["patch", "mix"]`) as samples. The unit of both offline
+/// render ([`render_path`]) and the realtime driver
+/// ([`crate::device::run_realtime`]) — one tick = one audio block. A missing slot
+/// yields an empty block.
+pub fn tick_block(engine: &mut Engine, path: &[&str]) -> Vec<f32> {
+    engine.tick();
+    let mut node = Some(engine.state());
+    for &seg in path {
+        node = node.and_then(|v| v.get_field(seg));
+    }
+    node.map(signal_to_vec).unwrap_or_default()
+}
+
 /// Like [`render`] but reads the output `Signal` at a nested slot `path`
 /// (e.g. `["patch", "mix"]`) — for patches whose buses live inside a
 /// sub-bigraph (e.g. under the slot a BRS rewrites, A5). An empty/last-missing
@@ -41,14 +55,7 @@ pub fn render(engine: &mut Engine, out_key: &str, n_blocks: usize) -> Vec<f32> {
 pub fn render_path(engine: &mut Engine, path: &[&str], n_blocks: usize) -> Vec<f32> {
     let mut out = Vec::new();
     for _ in 0..n_blocks {
-        engine.tick();
-        let mut node = Some(engine.state());
-        for &seg in path {
-            node = node.and_then(|v| v.get_field(seg));
-        }
-        if let Some(block) = node {
-            out.extend_from_slice(&signal_to_vec(block));
-        }
+        out.extend_from_slice(&tick_block(engine, path));
     }
     out
 }

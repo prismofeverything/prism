@@ -171,3 +171,50 @@ impl Drop for GossipHandle {
         }
     }
 }
+
+/// A LIVE mesh field — the engine-side bridge for a `mesh:` link. A running engine
+/// reads + writes a shared field each tick; a [`LiveField`] wraps a [`MeshAgent`]
+/// that gossips that field CONTINUOUSLY in the background, so the field stays
+/// converged with peers WHILE the engine runs — the streaming form of the batched
+/// `mesh_link_distributed` (e.g. Kuramoto tiles phase-locking live, or synth voices
+/// over `net:`).
+///
+/// Per tick the engine calls [`sync`](LiveField::sync) with its OWN keys (single-
+/// writer-per-key); it returns the converged field (its keys + peers', kept fresh by
+/// the background gossip) to read back. With an `overwrite`-per-value schema both the
+/// publish and the gossip overwrite, so re-delivery never accumulates.
+pub struct LiveField {
+    agent: MeshAgent,
+    gossip: Option<GossipHandle>,
+}
+
+impl LiveField {
+    /// Host the field replica (gated mesh-safe); not yet gossiping — call
+    /// [`go_live`](LiveField::go_live) once peer ports are known.
+    pub fn host(schema: Schema, seed: Value, types: Arc<TypeRegistry>) -> Result<Self, String> {
+        Ok(Self { agent: MeshAgent::host(schema, seed, types)?, gossip: None })
+    }
+
+    /// This field's rest port (a peer address).
+    pub fn port(&self) -> u16 {
+        self.agent.port()
+    }
+
+    /// Begin CONTINUOUSLY gossiping `peers` in the background (the live stream). For
+    /// a growing/auto-discovered peer set use the agent directly with SWIM.
+    pub fn go_live(&mut self, peers: Vec<u16>, interval: Duration) {
+        self.gossip = Some(self.agent.start_gossip(peers, interval));
+    }
+
+    /// Each engine tick: PUBLISH the engine's own field keys, and return the
+    /// CONVERGED field (its keys + peers', merged in live by the background gossip).
+    pub fn sync(&self, local: &Value) -> Value {
+        self.agent.contribute(local);
+        self.agent.replica()
+    }
+
+    /// The current converged field, without publishing (a read-only peek).
+    pub fn field(&self) -> Value {
+        self.agent.replica()
+    }
+}

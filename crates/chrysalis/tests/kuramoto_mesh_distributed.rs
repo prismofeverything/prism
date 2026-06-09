@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use indexmap::IndexMap;
-use prism_bigraph::protocols::{mesh_links, MeshReplica, RestProcessServer, RestProtocol};
+use prism_bigraph::protocols::{mesh_links, MeshAgent, MeshReplica, RestProcessServer, RestProtocol};
 use prism_bigraph::{Core, Engine, ProcessNode, ProcessRegistry, Protocol};
 use prism_bigraph::process::Process;
 use prism_schema::{Key, Schema, TypeRegistry, Value};
@@ -155,4 +155,56 @@ fn two_tiles_phase_lock_over_a_live_mesh_boundary() {
     eprintln!("DISTRIBUTED Kuramoto:  R_a={r_a:.3}  R_b={r_b:.3}");
     assert!(r_a > 0.8, "peer A should phase-lock over the mesh: R={r_a:.3}");
     assert!(r_b > 0.8, "peer B should phase-lock over the mesh: R={r_b:.3}");
+}
+
+/// The LIVE-STREAM form (the mesh agent's follow-up): instead of 400 explicit
+/// gossip rounds, each tile hosts its field via a `MeshAgent` whose background
+/// `start_gossip` loop replicates CONTINUOUSLY while the engines tick — the
+/// phase-lock happens live, not in a batch. The engine stays authoritative for
+/// its own keys (re-host each tick); gossip refreshes the remote keys.
+#[test]
+fn two_tiles_phase_lock_as_a_live_mesh_stream() {
+    let src_a = format!(
+        "{KURAMOTO_MESH}\nTileMesh[omegas: {{'a0': 0.6, 'a1': 0.8, 'a2': 1.2, 'a3': 1.4}}, n: 8.0, k: 4.0]\n"
+    );
+    let src_b = format!(
+        "{KURAMOTO_MESH}\nTileMesh[omegas: {{'b0': 0.7, 'b1': 0.9, 'b2': 1.1, 'b3': 1.3}}, n: 8.0, k: 4.0]\n"
+    );
+    let mut a = run_peer(&src_a);
+    let mut b = run_peer(&src_b);
+    a.run(0.05);
+    b.run(0.05);
+    let name = mesh_links(a.state()).into_iter().next().expect("a mesh link `field`");
+
+    // Host each tile's field; CONTINUOUS background gossip keeps them converged live.
+    let agent_a = MeshAgent::host(field_schema(), a.state().get_field(&name).cloned().unwrap(), types())
+        .expect("host a");
+    let agent_b = MeshAgent::host(field_schema(), b.state().get_field(&name).cloned().unwrap(), types())
+        .expect("host b");
+    let _ga = agent_a.start_gossip(vec![agent_b.port()], Duration::from_millis(3));
+    let _gb = agent_b.start_gossip(vec![agent_a.port()], Duration::from_millis(3));
+    std::thread::sleep(Duration::from_millis(50));
+
+    for round in 0..300 {
+        // pull the live-converged field, tick the oscillators, push the authoritative field
+        write_slot(&mut a, &name, agent_a.replica());
+        write_slot(&mut b, &name, agent_b.replica());
+        a.run(0.5);
+        b.run(0.5);
+        *agent_a.slot_arc().lock().unwrap() = a.state().get_field(&name).cloned().unwrap();
+        *agent_b.slot_arc().lock().unwrap() = b.state().get_field(&name).cloned().unwrap();
+        std::thread::sleep(Duration::from_millis(2)); // let the background gossip run
+        if round % 60 == 0 {
+            eprintln!(
+                "stream round {round}: R_a={:.3} R_b={:.3}",
+                order_parameter(a.state(), 8.0),
+                order_parameter(b.state(), 8.0)
+            );
+        }
+    }
+    let r_a = order_parameter(a.state(), 8.0);
+    let r_b = order_parameter(b.state(), 8.0);
+    eprintln!("LIVE-STREAM Kuramoto:  R_a={r_a:.3}  R_b={r_b:.3}");
+    assert!(r_a > 0.8, "peer A phase-locks on the live stream: R={r_a:.3}");
+    assert!(r_b > 0.8, "peer B phase-locks on the live stream: R={r_b:.3}");
 }
