@@ -31,17 +31,22 @@ overall; the deep docs hold the content.
   (plastic Kuramoto — the network learns its own wiring).
 - `synth` → `coord/synth.next` — **A3 audible** done (gorgon-as-lib + device + `play`);
   next: A8 distributed jam over the mesh.
-- `lang` → `coord/lang.next` — the chrysalis surface; **booting on the HOMOICONIC
-  UNIFICATION** (Stages 1/2/4 of `docs/homoiconic-unification.md`): close the
-  quote/reify round-trip, collapse the N instantiate-builders into one, dissolve
-  `compile_reaction`, then the one-eval close.
-- `simplify` → `coord/simplify.next` — REDUCE; owns Stage 3 (the one-instantiate
-  build-failing guard + the homoiconic-surface duplication audit #46). Invariant-#2
-  (round-trip totality) guard landed.
-- `core` → `coord/core.next` — the substrate (schema algebra + engine + BRS); **booting**
-  for **Stage 4 — THE LINCHPIN**: eval DATA→runnable at every consumer boundary
-  (`discover_processes`/`collect_reactions`/`find_matches`) — the move that dissolves the
-  FLAT/RICH constructor seam.
+- `lang` → `coord/lang.next` — the chrysalis surface. HOMOICONIC: **Stages 1, 2a, 2b, 4c
+  DONE** (round-trip total · `compile_reaction` dissolved · one `build_rule` lowering core ·
+  `Reaction[]`/`Pattern()` constructors · param-gap solved — `X[args]` calls a function ·
+  **all reaction producers now emit transparent DATA → FLAT/RICH dissolved for reactions**).
+  Next: **4a** (pair w/ core — a `.ys` `eval` op calling `Core::instantiate_spec`) + the
+  Axis-A `from_value`-completeness (reaction/function/type reify).
+- `simplify` → `coord/simplify.next` — REDUCE. HOMOICONIC: **Stage 3 DONE** — invariants
+  #1 (one instantiate/lowering core; reactions ×3 surfaces + patterns) + #2 (round-trip
+  totality, build-failing witness) PINNED green. Finding: the `pattern`-definer *value* form
+  is missing (only `Pattern[]` constructor is a value) — doc overclaims or a TODO. Parked /
+  #46 consolidation tail open.
+- `core` → `coord/core.next` — the substrate. HOMOICONIC **Stage 4c DONE (THE LINCHPIN)**:
+  the BRS evals transparent reaction-DATA (`push_reaction` → `ReactionRule::from_data_value`,
+  symmetric w/ `discover_processes`); landed the **4a node rung** `Core::instantiate_spec` +
+  the **type-as-data** `schema_codec` (Axis-A primitive). Also flipped `.ys` imports to
+  explicit-origin + fixed the board lexer (apostrophe/brace escapes).
 - *(future, add a `<agent>.ys`+`.next` pair when booted: `bio`, `quantum`, `spatial` —
   see ROSTER for the role map.)*
 
@@ -54,13 +59,20 @@ overall; the deep docs hold the content.
 - **M5** — the living demo (categorical-core §M5).
 
 ## What to unify next
-- **🔴 ACTIVE: the HOMOICONIC FACE** (`docs/homoiconic-unification.md`) — one `quote`,
-  one `reify`, one `eval`; the capitalized constructor *is* `quote` of the lowercase
-  definer; collapse the N `build_X_value` instantiate-builders into one path; dissolve
-  the `compile_reaction`/`BRS` special-cases. `lang` implements (Stages 1/2/4),
-  `simplify` guards (Stage 3), `unify` designs/drives. It hardens the surface every
-  domain writes `.ys` against — synth A6 + #61 AlChemy ride directly on it.
-  (= #64 §7 + #30 + #32.)
+- **🟢 THE HOMOICONIC FACE — forged + PINNED** (`docs/homoiconic-unification.md`). Stages
+  1/2/3/4c DONE: one `quote` (`to_value`, total) · one `reify` (`from_value`) · the
+  capitalized constructor IS `quote` of the definer · **one `build_rule` lowering core** ·
+  the param-gap closed (`X[args]` calls a function) · **reactions now emit transparent DATA,
+  uniform with process specs — FLAT/RICH dissolved** · the one-door guards (invariants #1+#2)
+  PIN it against regression. Insight banked: FLAT/RICH was the *reaction-opacity exception*,
+  not a law — it dissolves once the **consumer boundaries eval DATA→runnable** (core's 4c did
+  the rule boundary). **REMAINING (next session):** (a) **4a — the metacircular close**
+  (lang+core: a `.ys` `eval` op calling `Core::instantiate_spec`/`discover_processes` = the
+  node rung; substrate READY); (b) the **Axis-A `from_value`-completeness** (reify
+  reaction/function/type — core's `schema_codec` is the type primitive; the premise the broad
+  uniformity leans on); (c) cleanups — retire the `ReactionType::realize` re-wrap, add the
+  `pattern`-definer value form (simplify's finding), 4b/4d. Hardens the surface every domain
+  writes `.ys` against — synth A6 + #61 AlChemy ride on it. (= #64 §7 + #30 + #32.)
 - **The `.ys`-mesh-link ↔ `LiveField` binding** is the cross-domain reuse point —
   synth A8 *and* manifold's distributed Demo 3 both need it. Make it one clean surface.
 - **Hunt duplication** (the simplify instinct): one merge/diff/apply (schema algebra),

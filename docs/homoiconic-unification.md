@@ -12,6 +12,16 @@
 > **Goal — a single homoiconic face:** the capitalized constructor *is* `quote` of the
 > lowercase definer; **one** path instantiates an entity; the surface `eval` and the
 > engine's `discover_processes` are the two rungs of **one** reflective tower.
+>
+> **STATUS (2026-06-09, multi-agent push — `unify`/`lang`/`core`/`simplify`):** Stages
+> **1, 2, 3, 4c DONE + PINNED.** `quote` total; one `build_rule` lowering core; the
+> capitalized constructors are `quote` of their definers; the param-gap closed (`X[args]`
+> calls a function); **all reaction producers now emit transparent DATA — FLAT/RICH dissolved
+> for reactions** — and the one-door guards (invariants #1+#2) fail the build if it re-forks.
+> **Remaining:** **4a** (the metacircular close — a `.ys` `eval` calling
+> `Core::instantiate_spec`; substrate ready), the Axis-A `from_value`-completeness (reify
+> reaction/function/type), and cleanups (retire `ReactionType::realize`; the `pattern`-definer
+> value form). See §4 + the "Constructor face" section.
 
 ## 1. The diagnosis — the vision vs. the code (2026-06-09 survey)
 
