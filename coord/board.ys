@@ -1,0 +1,13 @@
+# coord/board.ys — the CONVERGED VIEW of the agent mesh board. Run:
+#   chrysalis run coord/board.ys --time 1
+# DO NOT edit peer state here. Each peer owns coord/<peer>.ys; this just MERGES
+# them through the mesh link (communication ACROSS THE LINK, no shared-file races).
+from mesh import mesh
+from manifold import manifold
+from synth import synth
+
+composite Board ->{ board :: map[any] @ board } (
+  link board :: map[any] mesh = { mesh: mesh, manifold: manifold, synth: synth }
+)
+
+Board[]

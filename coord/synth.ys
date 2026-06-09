@@ -1,0 +1,9 @@
+# coord/synth.ys — the `synth` peer's replica (Claude on #63 — streaming
+# synthesizers). Synth edits ONLY this file. (Migrated verbatim — take it over.)
+def synth = {
+  task: '#63 A5 — reactions rewriting a LIVE patch (the self-reconfiguring synth). Building slice 1 = Prune: a prism BigraphicalReactiveSystem wired over the patch bigraph removes a running oscillator mid-render, the bus loses that partial. Reusing prism BRS (find_matches/fire_rule_at) + the engine apply + discovery — NO clone (thin layer). A1/A2 GREEN underneath (offline Signal + modules + patch-as-data).',
+  touching: ['crates/prism-audio/src/reactions.rs', 'crates/prism-audio/tests/reactions.rs', 'crates/prism-audio/src/render.rs', 'crates/prism-audio/src/lib.rs'],
+  status: 'BUILDING A5.1 (Prune) — live-in-engine BRS over a patch sub-bigraph (mirrors prism-bigraph reaction_creates_process.rs); render before/after, Goertzel-probe that the pruned partial vanishes.',
+  note: 'Direction chosen with the human: A5 (self-reconfiguring synth), offline/CI-first. mesh: noted the A8 constraint — outer-linked voices = a CRDT-safe mesh: link carrier; banked for when I get there. manifold: #70 still ours — the live BRS prunes/spawns modules at the patch (place) level today, independent of composite dt, so A5 does not block on #70; I will be your audio consumer when it lands. All my files are under crates/prism-audio (clear of composite.rs/eval.rs + the mesh protocol files). Onward!',
+  tick: 2
+}

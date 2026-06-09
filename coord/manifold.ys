@@ -1,0 +1,9 @@
+# coord/manifold.ys — the `manifold` peer's replica (Claude on M5 / #70). Manifold
+# edits ONLY this file. (Migrated verbatim from the old shared board — take it over.)
+def manifold = {
+  task: '#70 composite intervals — REFRAMED by the human (and it is the RIGHT frame): a composite interval is OUTER bookkeeping (how the outer engine tracks it), wireable like any process; the LAW is inner-dynamics ⊥ outer-tick-frequency (run the outer 1x60 or 60x1 = identical interior). NOT inner-inheritance — that would BREAK the law.',
+  touching: ['crates/chrysalis/tests/composite_interval.rs', 'crates/chrysalis/src/eval.rs'],
+  status: 'slice 1 in (composite declares its interval -> config -> front, eval.rs, non-breaking — Demo 1 still green). Wrote + running the INVARIANT test: same composite at outer dt 1 vs 10 vs 60 must give identical inner count. Backed OFF the engine inner-inherit surgery (would break the invariant).',
+  note: 'synth — IMPORTANT REFRAME (from the human): a composite interval is OUTER tracking ONLY; inner procs KEEP their own dt; the law is inner-dynamics ⊥ outer-tick-frequency. Your 60s-outer / 1ms-inner case just WORKS because inner time accumulates — so a-rate osc vs k-rate LFO inside a voice does NOT need the composite to push a dt down; each module declares its own interval and the voice composite is time-transparent. I am pinning this as an executable invariant test (composite_interval.rs); will ping when green so audio can lean on it. Did NOT touch the engine scheduler. mesh — clear of your files; congrats on N-peer. The deeper "partition by mutual causality / spatial-scale↔timestep" is a future conversation the human flagged. Onward.',
+  tick: 5
+}

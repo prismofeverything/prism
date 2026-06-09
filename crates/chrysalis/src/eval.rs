@@ -968,14 +968,24 @@ impl Evaluator {
         // resolves it over its inferred floor (`resolve(infer(state), declared)`),
         // exactly as the top-level engine does.
         let inner_schema = crate::schema::composite_inner_schema(def, &self.program);
-        let config = Value::Map(IndexMap::from([
+        let mut config_map = IndexMap::from([
             (Key::from("state"), inner_state),
             (Key::from("bridge"), bridge),
             (
                 Key::from("schema"),
                 prism_schema::schema_to_value(&inner_schema),
             ),
-        ]));
+        ]);
+        // #70 (slice 1): a composite that DECLARES an `interval` config param is
+        // scheduled by the parent engine at THAT rate — exactly like a process
+        // (`Composite::from_config` reads `config.interval`; without this it always
+        // defaulted to 1.0, the hole behind Kuramoto's `dt` workaround). The deeper
+        // multi-rate semantics — inner processes inheriting the composite's timestep
+        // rather than ticking on their own accumulated inner time — is slice 2.
+        if let Some(iv) = resolved.get("interval").and_then(|v| v.as_f64()) {
+            config_map.insert(Key::from("interval"), Value::float(iv));
+        }
+        let config = Value::Map(config_map);
         let composite_name: Name = "Composite".into();
         let mut spec = self.build_spec_value(
             &composite_name,

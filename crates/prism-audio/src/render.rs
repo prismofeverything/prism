@@ -34,6 +34,25 @@ pub fn render(engine: &mut Engine, out_key: &str, n_blocks: usize) -> Vec<f32> {
     out
 }
 
+/// Like [`render`] but reads the output `Signal` at a nested slot `path`
+/// (e.g. `["patch", "mix"]`) — for patches whose buses live inside a
+/// sub-bigraph (e.g. under the slot a BRS rewrites, A5). An empty/last-missing
+/// path contributes nothing for that tick.
+pub fn render_path(engine: &mut Engine, path: &[&str], n_blocks: usize) -> Vec<f32> {
+    let mut out = Vec::new();
+    for _ in 0..n_blocks {
+        engine.tick();
+        let mut node = Some(engine.state());
+        for &seg in path {
+            node = node.and_then(|v| v.get_field(seg));
+        }
+        if let Some(block) = node {
+            out.extend_from_slice(&signal_to_vec(block));
+        }
+    }
+    out
+}
+
 /// The simplest end-to-end patch — one oscillator into an `out` bus, phase
 /// self-wired — rendered `n_blocks` blocks offline.
 pub fn render_oscillator(osc: Oscillator, n_blocks: usize) -> Vec<f32> {

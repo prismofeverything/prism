@@ -16,6 +16,7 @@ pub mod envelope;
 pub mod lowpass;
 pub mod oscillator;
 pub mod patch;
+pub mod reactions;
 pub mod render;
 pub mod signal;
 pub mod vca;
@@ -26,7 +27,8 @@ pub use envelope::Envelope;
 pub use lowpass::LowPass;
 pub use oscillator::Oscillator;
 pub use patch::{module_node, register_audio, render_patch, wire_map};
-pub use render::{render, render_kernel, render_mix, render_oscillator, render_voice};
+pub use reactions::{patch_brs_node, prune_oscillator, render_patch_brs, PATCH_BRS};
+pub use render::{render, render_kernel, render_mix, render_oscillator, render_path, render_voice};
 pub use signal::{
     register_signal, signal_from_slice, signal_registry, signal_schema, signal_to_vec, signal_type,
     silence, SIGNAL,
