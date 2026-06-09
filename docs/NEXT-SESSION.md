@@ -4,7 +4,9 @@
 
 > Resume prism (Rust process-bigraphs + the `.ys` language). Read this prompt +
 > the **CURRENT STATUS** block below + [`docs/grand-synthesis.md`](grand-synthesis.md)
-> (the roadmap to the ultimate demo) + the `MEMORY.md` index. Then **rebuild the
+> (the roadmap to the ultimate demo) + [`docs/categorical-core.md`](categorical-core.md)
+> (the spine: domains = theories, couplings = functors, M0–M5) + the `MEMORY.md`
+> index. Then **rebuild the
 > harness task list** from "## Remaining work — by category": `TaskCreate` one task
 > per `#N` entry (all are pending / in-progress; the `## ✅ Completed` section is
 > provenance, not panel tasks). Continue from the **NEXT** items in CURRENT STATUS.
@@ -13,14 +15,14 @@
 
 ---
 
-## ⏯️ CURRENT STATUS (2026-06-08e — task list reorganized + the grand-synthesis roadmap; #62 mesh M1 slices 1–2 landed: the CRDT closure invariant + the first-class `mesh:` protocol)
+## ⏯️ CURRENT STATUS (2026-06-08e — task list reorganized + the grand-synthesis roadmap; #62 mesh M1 slices 1–3 landed: the CRDT closure invariant + the first-class `mesh:` protocol + live-bridge convergence)
 
 > This file was reorganized (was ~2034 lines): the durable task list is now
 > **Remaining work — by category** + a **✅ Completed** archive + a 1-line **session
 > archive**; the roadmap to the ultimate demo (distributed streaming mesh
 > biology+quantum+synth) moved to **[`grand-synthesis.md`](grand-synthesis.md)**
-> (the one-engine thesis + M0→M4). Then dived into the mesh (#62 / M1), 2 slices,
-> full workspace assumptions intact (prism-schema 118+, mesh+peer tests green):
+> (the one-engine thesis + M0→M4). Then dived into the mesh (#62 / M1), 3 slices,
+> regression-clean (prism-schema 119+, prism-bigraph + chrysalis green):
 >
 > **Slice 1 — the CRDT law is now a CLOSURE INVARIANT.** `algebra::mesh_safety`
 > (new op, `prism-schema/src/mesh.rs`, re-exported through the algebra surface): a
@@ -35,22 +37,27 @@
 > `schema-algebra.md`'s op table.
 >
 > **Slice 2 — the first-class `mesh:` protocol.** `MeshProtocol` / `MeshReplica`
-> (`prism-bigraph/src/protocols/mesh.rs`): `instantiate` GATES the link's
-> value-schema through `mesh_safety` (a non-convergent link is REFUSED — illegal
-> distributed states unrepresentable), and a replica MERGES a peer's δ via
-> `algebra::apply_with` — the schema's own reconcile, the SAME boundary codec
-> every protocol uses, NOT slice-1's hand-rolled key-union ([[boundary_codec_algebra]]).
-> Registered in every chrysalis Core (`stream_protocols`). `prism-bigraph/tests/
-> mesh_protocol.rs`: the gate rejects additive/LWW/missing-schema; two replicas
-> converge with no coordinator; re-delivery is idempotent.
+> (`prism-bigraph/src/protocols/mesh.rs`): the GATE moved into `MeshReplica::new` /
+> `::shared` (the only constructors — `mesh_safety` is checked there, so an ungated
+> divergent replica cannot exist), and a replica MERGES a peer's contribution STATE
+> via `algebra::merge` — the schema's own state-based CRDT join, the SAME algebra
+> every boundary uses, NOT slice-1's hand-rolled union ([[boundary_codec_algebra]]).
+> Registered in every chrysalis Core (`stream_protocols`). `mesh_protocol.rs`: the
+> gate rejects additive/LWW/missing-schema; two replicas converge; idempotent.
 >
-> **NEXT (continue M1):** (a) the δ-CRDT shared-link over a LIVE rest/stream bridge
-> — two `mesh:` replicas converging across a socket (generalize `peer_shared_link.rs`
-> to the protocol; the replica's `update` already speaks the δ-in/link-out port
-> contract); (b) the **`link :: T mesh`** chrysalis surface (declare a mesh link in
-> `.ys`, lower to a `mesh:` node, gate at compile); (c) continuous gossip /
-> anti-entropy (vs one-shot). Then SWIM membership; N-peer; reactions / AlChemy /
-> quantum over the mesh (≈ free given the uniform codec); transport over Tailscale.
+> **Slice 3 — the live bridge.** Two `mesh:` replicas, each hosted at a rest
+> server, exchange contribution STATES over a LIVE HTTP bridge and CONVERGE with no
+> coordinator — the first-class generalization of `peer_shared_link.rs`
+> (`prism-bigraph/tests/mesh_live_bridge.rs`). `merge` is state-based, so the
+> existing boundary codec carries the state (`realize_with`) — no delta-in (#5)
+> needed. Deployable by pointing each peer at the other's Tailscale IP.
+>
+> **NEXT (continue M1):** (a) the **`link :: T mesh`** chrysalis surface (declare a
+> mesh link in `.ys`, lower to a `mesh:` node, gate at compile); (b) continuous
+> gossip / anti-entropy (vs slice-3's one-shot exchange) + SWIM membership; (c)
+> N-peer; then reactions / AlChemy / quantum over the mesh (≈ free given the uniform
+> codec); the δ-state CRDT (ship deltas via `apply`, needs rest delta-in #5) as a
+> bandwidth refinement; transport over Tailscale.
 > **See [`grand-synthesis.md`](grand-synthesis.md) M1.**
 
 ---
@@ -74,16 +81,18 @@ is the same schema-algebra codec.
 ### A. Distribution & Mesh — *the active front*
 - **#62 NATIVE MESH** — the protocol abstraction generalized parent↔child →
   **peer↔peer** (`peer:`/`mesh:`). DONE: peer shared-link slice 1, deep P2P
-  survey, executable CRDT law; **the CRDT law as a CLOSURE INVARIANT**
-  (`algebra::mesh_safety` + `crdt_laws.rs` — rejects a non-semilattice merge);
-  **the first-class `mesh:` protocol** (`MeshProtocol`/`MeshReplica`) — gates
-  instantiation through `mesh_safety` and merges replicas via the schema `apply`
-  (the CRDT join, not a hand-rolled union), registered in every chrysalis Core.
-  **NEXT:** (a) the δ-CRDT shared-link over a LIVE rest/stream bridge (two `mesh:`
-  replicas converging across a socket); (b) the **`link :: T mesh`** chrysalis
-  surface (declare + gate at compile); (c) continuous gossip / anti-entropy; then
-  SWIM membership; N-peer; reactions / AlChemy / quantum over the mesh. Transport
-  over Tailscale. (= grand-synthesis M1.) [[mesh_as_protocol]]
+  survey; **the CRDT law as a CLOSURE INVARIANT** (`algebra::mesh_safety` +
+  `crdt_laws.rs` — rejects a non-semilattice merge); **the first-class `mesh:`
+  protocol** (`MeshProtocol`/`MeshReplica`) — gated at construction, merges replicas
+  via the schema `merge` (state-based CRDT join), registered in every chrysalis
+  Core; **live-bridge convergence** (two `mesh:` replicas converge over a LIVE rest
+  bridge, no coordinator — `mesh_live_bridge.rs`). **NEXT:** (a) the **`link :: T
+  mesh`** chrysalis surface (declare + gate at compile); (b) continuous gossip /
+  anti-entropy + SWIM membership; (c) N-peer; then reactions / AlChemy / quantum
+  over the mesh; the δ-state CRDT (#5); **transport generalized** — address+auth =
+  capability refs, transport pluggable (QUIC/Noise/relay), **Tailscale one backend,
+  not a dependency** (`categorical-core.md` §4/§9). (= grand-synthesis M1.)
+  [[mesh_as_protocol]]
 - **#25 distributed phase 1** — batched `ray:` protocol (`flush_pending`, one
   packet/shard). Also the last open bit of #21. *Low-effort; proves the batching
   seam.*
@@ -146,6 +155,18 @@ is the same schema-algebra codec.
   parallel front. (= grand-synthesis M3.) [[synthesizer_project]]
 
 ### E. Unification & Fundamentals — *the generative core*
+- **#64 THE CATEGORICAL CORE** (umbrella, `docs/categorical-core.md`) — name the
+  prop/SMT spine the other docs each touch a facet of (a `.ys` module = a presented
+  theory; `|`=⊗; `fold`/`unfurl`=the compact cup/cap=M/R-closure=reflection). Mostly
+  RECOGNITION. Two weight-pulling additions (each *deletes* a special case, Felleisen-
+  gated): (a) a first-class **`functor`** definer — unify unit-conversion + the
+  protocol codec + `compile` + cross-domain bridges (today bespoke glue); (b)
+  **`quote`/`eval`** first-class — `eval`=`discover_processes` promoted, `quote`=
+  `Expr::to_value`; dissolves `compile_reaction`, collapses the meta/object
+  (definer/constructor) duplication, makes the homoiconic round-trip TOTAL. Plus a
+  shared **`Complex`/`Signal[ℂ]`** base sort (quantum=unitary, manifold=dissipative —
+  one ℂ-linear dagger category; Selinger CPM). Companion to #59; threads M0–M5.
+  [[boundary_codec_algebra]] [[generative_core_doc]]
 - **#59 the generative-core unification PROGRAM** (umbrella, `docs/generative-core.md`)
   — reduce to the essential core, ONE way to do each thing. DONE: the Core-threading
   RULE; the boundary codec unified through the algebra; the 4-registry conformance
@@ -210,6 +231,14 @@ is the same schema-algebra codec.
   adapter.ys`; the 4D structural plot (bigraph-viz per `_add`/`_remove`); apply down
   `CANONICAL_ORDER` validating each family. *(Streaming kernel done; this is the
   tooling/viz polish.)*
+- **#67 the dependability trio** (theoretical→dependable DX) — (a) **trace-as-
+  time-travel debugger**: the delta-log already records every tick (`state(t)=
+  fold(apply,initial,deltas[..t])`), so step / inspect-at-t / breakpoint-on-fire is a
+  UI over data we already emit — *near-free, high value*; (b) **chrysalis LSP** over
+  the REPL's type/env machinery (hover / go-to-def / completion); (c) a **package
+  registry + lockfile** — a registry *of theories* (semver, `chrysalis add`),
+  generalizing the `project.ys` + `from … import …` resolver (ties to the long-run
+  packages-ecosystem milestone). `chrysalis new` already shipped (#31).
 
 ### G. Performance — *do LAST, after the feature set*
 - **#19 performance sweep** — establish benchmarks; profile the hot paths (eval per
@@ -217,6 +246,32 @@ is the same schema-algebra codec.
   algebra apply/diff/reconcile + `Value` cloning; the delta-log/Arrow codec +
   streaming; discovery); optimize **without** sacrificing the principled design
   (closed algebra, no half-measures; check once, erase, run raw). Gated on features.
+
+### H. Spatial computing & visualization — *the eye (M5)*
+- **#65 SPATIAL DOMAIN** (the 4th specialization, `../parsimony` — a mature ~17.6k-LOC
+  cellPACK rewrite). FIT: its `Compartment`=place graph, `Op`-batch (Insert/Remove/
+  Replace)=the `_add`/`_remove` delta vocabulary, pipeline-cache=`StepCache`, and
+  **`VoxelField`/QBVH = the #27 octree, already built**. Fold-in: (a) the type catalog
+  NOW (`Snapshot↔Value` via `Schema::Custom`, `Space`/`Transform`/`Mesh`/`Field`, a
+  `Render` method = a functor to the geometry prop, #64); (b) 3D/4D rendering of the
+  whole organism + the bigraph topology itself (retires the graphviz viz; folds in
+  #11/#18's 4D structural plot); (c) the deep packing-as-BRS adapter AFTER the M1 API
+  settles (parsimony's own plan). nD is natural (the `Array` schema). (= grand-synth
+  M5.) See `categorical-core.md` §9.
+
+### I. Adaptive networks — *the coupling layer (M5)*
+- **#66 MANIFOLD DOMAIN** (the 5th specialization, `../manifold` — ~8.5k-LOC adaptive
+  dynamical networks on a complex substrate: real=amplitude/Hebbian, imag=phase/
+  Kuramoto/STDP; its two-phase update IS the BSP tick). FIT (recognition, no new
+  engine): node=a `process`, synapse=a first-class `link` ([[link_surface]]), plastic
+  weight=a link-schema `reconcile`/`apply` of a Δ ([[reaction_delta_basis]]), topology
+  learning=a topology-rewriting BRS (#43) — **the network learns its own topology = the
+  M/R closure made dynamical**. Shares the `Complex` sort with quantum (#64). Demos:
+  **Demo 1** Kuramoto tile as a composite syncing via one `map[id→ℂ]` link (`R→1`,
+  **runs today**); **Demo 2** two tiles phase-lock over a `mesh:` link (M1); **Demo 3**
+  plastic topology = a self-rewriting BRS (#43, local-first — the closure payoff). The
+  natural coupling layer that ties the domains into one *learning* organism. (=
+  grand-synth M5.)
 
 ---
 
@@ -344,6 +399,10 @@ linker override (rustflags change ⇒ whole-tree rebuild).
 - `README.md` — the port + chrysalis + commands.
 - `crates/chrysalis/ys/GUIDE.md` — how to write `.ys`; `docs/chrysalis-primer.md` —
   the executable fluency reference.
+- **[`docs/categorical-core.md`](categorical-core.md)** — the spine (domains =
+  theories, couplings = functors, `fold`/`unfurl` = cup/cap = M/R-closure =
+  reflection, convergence = the fixpoint; adds spatial `../parsimony` + manifold
+  `../manifold` as M5). Read with grand-synthesis.
 - `docs/prism-architecture.md`, `docs/schema-algebra.md`,
   `docs/chrysalis-design.md`, `docs/process-contracts.md`,
   `docs/execution-model.md`, `docs/distributed-execution.md`.

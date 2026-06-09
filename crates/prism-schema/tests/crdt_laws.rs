@@ -147,3 +147,26 @@ fn last_writer_wins_is_rejected_because_it_is_not_commutative() {
     // …so the closure invariant refuses it as a mesh link.
     assert!(algebra::mesh_safety(&schema).is_err());
 }
+
+#[test]
+fn the_classifier_governs_the_merge_join_too() {
+    // `mesh_safety` is derived from `reconcile`, but the `mesh:` protocol joins
+    // replicas STATE-based via `algebra::merge`. The verdict governs both: for a
+    // mesh-safe per-source map, `merge` is idempotent + commutative; for an unsafe
+    // additive scalar, `merge` is order-dependent (last-writer-wins) — exactly
+    // what the classifier already says.
+    let map = Schema::map(Schema::float());
+    let a = Value::tree([("alice", Value::float(1.0))]);
+    let b = Value::tree([("bob", Value::float(2.0))]);
+    let ab = algebra::merge(&map, &a, &b);
+    assert_eq!(ab, algebra::merge(&map, &ab, &b), "per-source map merge is IDEMPOTENT");
+    assert_eq!(ab, algebra::merge(&map, &b, &a), "…and COMMUTATIVE (disjoint keys)");
+    assert!(algebra::is_mesh_safe(&map));
+
+    let f = Schema::float();
+    let z = Value::float(0.0);
+    let one_two = algebra::merge(&f, &algebra::merge(&f, &z, &Value::float(1.0)), &Value::float(2.0));
+    let two_one = algebra::merge(&f, &algebra::merge(&f, &z, &Value::float(2.0)), &Value::float(1.0));
+    assert_ne!(one_two, two_one, "scalar merge is order-dependent (LWW)");
+    assert!(algebra::mesh_safety(&f).is_err(), "…so the classifier rejects it");
+}

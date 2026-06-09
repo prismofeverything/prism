@@ -49,6 +49,31 @@ merge being **CRDT-safe** (the one real correctness condition; see M1).
 **synthesizer domain** (M3 — a `Signal` type, an audio device boundary, the
 gorgon library). Everything else is "exercise the substrate harder."
 
+### 1b. The spine — the categorical core (and two more specializations)
+
+Why each column is a *specialization* rather than a separate system has a name,
+stated in [`categorical-core.md`](categorical-core.md): **every domain is a
+presentation (generators + equations) of one symmetric monoidal theory; every
+cross-domain coupling and protocol boundary is a functor; the closed/compact
+structure gives reflection, entanglement, and self-production as one thing.** It is
+the **spine** — mostly *recognition* (`|`=⊗, `~{}->{}`=a morphism, `fold`/`unfurl`=
+the compact cup/cap, the schema algebra=a Lawvere theory, a `.ys` module=a presented
+theory) — not a milestone; it threads through all of M0–M4 and makes the demo *more
+coherent*, not bigger. The spine reveals **two further specializations** of the same
+substrate (table columns 4 and 5):
+
+- **Spatial (`../parsimony`)** — node = placement/compartment; link = adjacency;
+  couple = pack; split = partition; distribute = **the octree (parsimony's
+  `VoxelField`/QBVH *is* #27, already built)**; generate = a BRS over geometry. It
+  contributes the **eye**: 3D/4D rendering of the whole organism (render = a functor
+  to the geometry prop).
+- **Adaptive networks (`../manifold`)** — node = oscillator/adaptive unit; link =
+  a (plastic) synapse; couple = Kuramoto phase-coupling; split = decouple; generate
+  = Hebbian/STDP firing **topology reactions — the network learns its own topology,
+  the M/R closure made dynamical.** Plastic weight = a link-schema `reconcile`;
+  two-phase update = the BSP tick. The natural **coupling layer** binding the domains
+  into one learning organism.
+
 ---
 
 ## 2. The milestone path
@@ -80,12 +105,14 @@ mode. Slices (in order):
    associative + **idempotent**). Idempotence is the discriminator: `map[T]` ∪ and
    per-source pools are safe; naive additive + LWW are not (CALM). Laws in
    `crdt_laws.rs`; in the `schema-algebra.md` op table.
-2. 🚧 **The `peer:` / `mesh:` protocol + a δ-CRDT shared-link realization** —
-   the first-class `mesh:` protocol (`MeshProtocol`/`MeshReplica`) is *landed*: it
-   gates instantiation through `mesh_safety` and merges replicas via the schema
-   `apply` (the CRDT join). **Remaining:** convergence over a LIVE bridge (two
-   `mesh:` replicas across a socket), the `link name :: T mesh` `.ys` surface, and
-   the δ-state (vs full-state) CRDT delta.
+2. 🚧 **The `peer:` / `mesh:` protocol + a CRDT shared-link realization** —
+   *landed:* the first-class `mesh:` protocol (`MeshProtocol`/`MeshReplica`) gates
+   instantiation through `mesh_safety` and merges replicas via the schema `merge`
+   (the state-based CRDT join); two replicas **converge over a LIVE rest bridge**
+   with no coordinator (`mesh_live_bridge.rs`). **Remaining:** the `link name :: T
+   mesh` `.ys` surface (declare a mesh link in chrysalis), continuous gossip /
+   anti-entropy (vs one-shot exchange), and the δ-state CRDT (ship *deltas* via
+   `apply`, needs rest delta-in #5) as a bandwidth refinement.
 3. **Continuous gossip / anti-entropy** — per-tick convergence (vs slice-1's
    one-shot), with tombstone/metadata GC budgeted (no auto-DGC — bigraph links
    cycle → explicit lease/epoch).
@@ -160,6 +187,27 @@ This is `synthesis-bigraphs.md` §X's "homoiconic distributed mesh jam" with
 **biology and quantum added as concurrent composites on the same distributed
 tree** — same `fold`/`unfurl` algebra, same outer-link topology reactions, same
 BRS, just more specializations plugged in.
+
+### M5 — the living demo (the same vision, becoming) — #65 + #66
+
+**M4 is a fixed checkpoint, not the edge of the world.** The vision is in a state of
+becoming, and M5 is the same organism growing two faculties — *without enlarging or
+deferring M4*. M5 is M4, now:
+
+- **rendered** — the whole mesh drawn in 3D/4D via the **spatial** domain
+  (`../parsimony`, #65); you *see* colonies, entanglement, patches, and the bigraph
+  topology itself. `render` is a functor from each domain prop to the geometry prop.
+- **adapting** — an **adaptive-network** layer (`../manifold`, #66) couples and
+  modulates the domains and **learns its own topology** (Hebbian/STDP firing
+  topology reactions, #43): the M/R closure made dynamical. Manifold is the coupling
+  layer that turns five parallel domains into one *learning* organism.
+
+All of it expressed through the **categorical core** ([`categorical-core.md`](categorical-core.md)):
+domains = theories, couplings = functors, convergence = the shared fixpoint the
+substrate iterates (confluence / CRDT / dynamical attractor). This is not
+"bigger-and-more-remote" in a way that breaks doability — each piece is recognition
+plus a small consumer, threaded by the spine. See `categorical-core.md` §9 and the
+graded manifold demos there (Demo 1 runs on today's substrate).
 
 ---
 
@@ -238,6 +286,11 @@ are tooling polish, not blockers.
   [[synthesizer_project]].
 - **Quantum:** [`quantum-bigraphs.md`](quantum-bigraphs.md),
   [`effects-and-handlers.md`](effects-and-handlers.md).
+- **The spine:** [`categorical-core.md`](categorical-core.md) — domains = theories,
+  couplings = functors, `fold`/`unfurl` = the compact cup/cap = M/R-closure =
+  reflection, convergence = the fixpoint the substrate iterates.
+- **Spatial & adaptive (M5):** `../parsimony` (spatial computing / the octree / the
+  3D-4D eye), `../manifold` (adaptive resonance networks / the coupling layer).
 - **Fundamentals:** [`schema-algebra.md`](schema-algebra.md),
   [`generative-core.md`](generative-core.md),
   [`state-schema-unification.md`](state-schema-unification.md).

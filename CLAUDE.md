@@ -24,6 +24,16 @@ application domain.
   synthesizers at once. The one-engine thesis (three domains = three specializations
   of the same substrate) + the M0→M4 milestone path + which tasks feed each. Read
   with NEXT-SESSION.md for the *why* and the *order*.
+- **`docs/categorical-core.md`** — the **spine**: prism is a framework for
+  *presented symmetric monoidal theories* (props / Lawvere theories). A **domain**
+  is a presentation (generators + equations); a cross-domain coupling / protocol
+  boundary is a **functor**; the closed/compact structure makes `fold`/`unfurl` =
+  cup/cap = entanglement = M/R-closure = reflection ONE thing; convergence
+  (confluence / CRDT / dynamical attractor) = the shared **fixpoint** the substrate
+  iterates. Names the through-line every other doc touches a facet of, adds two
+  domains (spatial = `../parsimony`, adaptive networks = `../manifold`), and the two
+  weight-pulling additions (`functor`, `quote`/`eval`). Read for the unification /
+  cross-domain / reflection direction (the M5 "living demo").
 - **`docs/execution-model.md`** — how prism runs + parallelizes: the BSP tick and
   the one seam (`invoke() → Defer → flush → collect`) that makes
   `local`/`parallel`/`rest`/`stream`/batched-`ray` all parallelize through the same

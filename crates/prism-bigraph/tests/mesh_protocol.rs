@@ -5,11 +5,11 @@
 //!   1. `instantiate` GATES the link's value-schema through
 //!      `algebra::mesh_safety` — an additive / last-writer-wins / sequence link
 //!      is refused before any replica can diverge.
-//!   2. The replica MERGES a peer's δ via `algebra::apply_with` (the schema's
-//!      reconcile — the same boundary codec every protocol uses), so the join is
-//!      idempotent + commutative *because* the schema passed the gate. This is
+//!   2. The replica MERGES a peer's contribution STATE via `algebra::merge` (the
+//!      state-based CRDT join — the same algebra every boundary uses), so the join
+//!      is idempotent + commutative *because* the schema passed the gate. This is
 //!      the first-class form of `peer_shared_link.rs`'s slice 1, whose hand-rolled
-//!      union is now the schema apply.
+//!      union is now the schema `merge`.
 
 use std::sync::Arc;
 
@@ -47,8 +47,10 @@ fn replica_of(node: ProcessNode) -> Box<dyn Process> {
     }
 }
 
-fn add(key: &str, v: f64) -> Value {
-    Value::tree([("_add", Value::tree([(key, Value::float(v))]))])
+/// A contribution is a peer's STATE fragment in the link's sort — merging it is
+/// the schema's key-union join (per-source: each peer owns its key).
+fn frag(key: &str, v: f64) -> Value {
+    Value::tree([(key, Value::float(v))])
 }
 
 #[test]
@@ -72,15 +74,15 @@ fn unsafe_schema_is_rejected_by_the_closure_invariant() {
 
 #[test]
 fn replica_merges_through_the_schema_join() {
-    // The merge IS the schema's apply (the CRDT join) — idempotent on re-delivery.
+    // The merge IS the schema's `merge` (the CRDT join) — idempotent on re-delivery.
     let schema = Schema::map(Schema::float());
     let node = instantiate(&schema, Some(Value::tree([("alice", Value::float(1.0))]))).unwrap();
     let p = replica_of(node);
     let r = p.as_any().downcast_ref::<MeshReplica>().unwrap();
 
-    let once = r.merge(&add("bob", 2.0));
-    let twice = r.merge(&add("bob", 2.0)); // re-delivery
-    assert_eq!(once, twice, "idempotent (CRDT join via the schema apply)");
+    let once = r.merge(&frag("bob", 2.0));
+    let twice = r.merge(&frag("bob", 2.0)); // re-delivery
+    assert_eq!(once, twice, "idempotent (CRDT join via the schema merge)");
     assert_eq!(r.replica().get_field("alice").and_then(|v| v.as_f64()), Some(1.0));
     assert_eq!(r.replica().get_field("bob").and_then(|v| v.as_f64()), Some(2.0));
 }
@@ -98,23 +100,23 @@ fn two_replicas_converge_with_no_coordinator() {
     let a = alice.as_any().downcast_ref::<MeshReplica>().unwrap();
     let b = bob.as_any().downcast_ref::<MeshReplica>().unwrap();
 
-    b.merge(&add("alice", 1.0)); // alice's contribution lands in bob's replica
-    a.merge(&add("bob", 2.0)); // bob's contribution lands in alice's replica
+    b.merge(&frag("alice", 1.0)); // alice's contribution lands in bob's replica
+    a.merge(&frag("bob", 2.0)); // bob's contribution lands in alice's replica
     assert_eq!(a.replica(), b.replica(), "converged with no coordinator");
 
     // Order-independent + idempotent: re-delivery preserves the agreement.
-    a.merge(&add("alice", 1.0));
-    b.merge(&add("bob", 2.0));
+    a.merge(&frag("alice", 1.0));
+    b.merge(&frag("bob", 2.0));
     assert_eq!(a.replica(), b.replica(), "idempotent re-delivery preserves convergence");
 }
 
 #[test]
 fn replica_update_drives_the_join_through_the_engine_port() {
-    // The engine path: a `contribution` input δ flows through `update`, merges via
-    // the schema join, and the converged link is republished on `link`.
+    // The engine path: a `contribution` input STATE flows through `update`, merges
+    // via the schema join, and the converged link is republished on `link`.
     let schema = Schema::map(Schema::float());
     let p = replica_of(instantiate(&schema, None).unwrap());
-    let state = Value::tree([("contribution", add("a", 5.0))]);
+    let state = Value::tree([("contribution", frag("a", 5.0))]);
     let out = p.update(&state, 1.0);
 
     let r = p.as_any().downcast_ref::<MeshReplica>().unwrap();
