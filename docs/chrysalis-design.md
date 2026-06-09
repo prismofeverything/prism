@@ -870,9 +870,22 @@ asymmetry **dissolves at Stage 4**, when every consumer boundary —
 evals DATA → runnable, so every constructor can produce DATA (quote) uniformly. The
 bracket is offered where inline construction is ergonomic (reactions/patterns are built
 inline in reactums / BRS lists; processes are usually named) — a presentation choice.
-**Open gaps (2b not yet fully done):** (1) a parameterized `reaction X[p](…)` must
-desugar to a *callable* (`def X = Reaction[…]` is a parameterless value — `X[args]`
-errors); (2) the `process X` ≡ `quote ↔ eval` uniformity proof must land.
+2b gaps **closed**: (1) parameterization — `X[args]` now *calls* a function, so a
+parameterized `reaction X[p](…)` has the def-form `def X(p) = Reaction[…]` instantiated
+`X[p: v]` (the `[]`/`()` reconciliation; the param reaches a fire-time guard/rate via
+the captured closure); (2) uniformity — `definer ≡ quote ↔ reify ↔ run` is demonstrated
+(and it fixed a real bug: a program's `main` binding was dropped through `quote`).
+
+**Stage 4c landed — the FLAT/RICH dissolution.** A STRUCTURAL reaction, from ANY
+producer (the `reaction` definer, `Reaction[…]`, `=>`-in-value, `compile_reaction`), now
+evaluates to **transparent `{_pat:"Rule"}` DATA** (`ReactionRule::to_data_value`), not an
+opaque `Foreign`; the BRS rule boundary evals it back (`collect_reactions`/`push_reaction`
+in `brs.rs` — core; `brs_rules` in chrysalis — both via `ReactionRule::from_data_value`).
+So a reaction is now plain data, **uniform with a process spec**, and crosses every
+boundary (link / bridge / rest / JSON wire) as JSON. A COMPUTED reaction (guard / computed
+reactum / rate closure) keeps the in-process `Foreign(FOREIGN_RULE)` carrier (its closures
+need the evaluator at fire time). Remaining Stage-4 work: the `Pattern(…)` / node-spec /
+`eval`-tower rungs (4a/4d) + the `to_value`/`from_value` Axis-A completeness pass.
 
 ### Evaluation: every name a value, every value composes
 

@@ -113,6 +113,20 @@ the Stage-3 one-door guard (don't let your N→1 collapse regress).
   reactum at FIRE time. Tests: `alchemy::parameterized_reaction_via_callable_def` +
   `…_uses_its_param_at_fire_time`. (`functions`/`mr` green — the `[]`-call change is additive.)
 
+- **Stage 4c flip (the FLAT/RICH dissolution for reactions)** — took the handoff from core
+  (whose `push_reaction`/`collect_reactions` substrate was live). Flipped EVERY chrysalis
+  reaction producer (`build_reaction_value` definer, `eval_rule_expr` anon/data,
+  `build_reaction_constructor` `Reaction[…]`, `compile_reaction_value`) to emit transparent
+  `{_pat:"Rule"}` DATA for STRUCTURAL reactions via `to_data_value` (a COMPUTED reaction keeps
+  the in-process `Foreign(FOREIGN_RULE)` carrier); made `brs_rules` (the static `rules:[…]`
+  reader) eval that DATA via prism's `ReactionRule::from_data_value` (thin-layer, like core's
+  `collect_reactions`). A reaction is now plain data — uniform with a process spec, JSON-able
+  across every boundary. Updated 3 producer-form assertions (`reaction_as_data`,
+  `distributed_alchemy`, `reaction_type`) from `Foreign(FOREIGN_REACTION)` → `{_pat:"Rule"}`
+  DATA (assertions encoded the old opaque form). ~50 reaction tests green. `ReactionType::realize`
+  KEPT (harmless — re-wraps a crossed data reaction to `Foreign` at a typed slot; retiring
+  ripples to `reaction_type`+`distributed_alchemy` — a separate cleanup). Board brace-break fixed.
+
 ## ⚠️ Finding — Axis A is NOT yet uniform across every kind (for unify/core)
 The GAP-proof exposed that `EntityDef`/`Program` `to_value`↔`from_value` only fully round-trips
 **process / step / composite / binding** today. `reaction` + `function` are *serialized but not

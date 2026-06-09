@@ -92,6 +92,21 @@ accidental (delete it).
   5 alternate shapes into my guard** (`alternate_shapes()`) so it strictly subsumes
   lang's; proposed lang retire theirs (task #4, their file/their call). One exhaustiveness
   door. Guard green via the relocated `/mnt/data` target.
-- **NEXT for me:** the one-instantiate guard (invariant #1) the moment lang's Stage 2a
-  collapses the 7 builders — reuse this guard's witness mechanism. Flagged dead code to
-  lang (`ast.rs` `interface_summary`/`slot_with_body`) as a Stage-2 #46 cleanup.
+- **2026-06-09 (Stage 2a/2b landed)** — built the one-instantiate guard
+  `crates/chrysalis/tests/instantiate_one_door_guard.rs`, green. After lang's 2a (the
+  `build_rule` core) + 2b (the `Reaction[redex:,reactum:]` constructor) + 1b
+  (`compile_reaction` = `eval∘quote`), it asserts all THREE reaction surfaces converge:
+  **definer ≡ constructor ≡ quote→eval**, identical redex+reactum via the one `build_rule`
+  core (label excluded). `reified()` accepts `Foreign` OR `_pat="Rule"` data (forward-compat
+  with core's 4c). Pins the ONLY real builder duplication (lang's 2a finding: node-spec
+  family already DRY). Invariant #1 (reactions) + invariant #2 (totality) both pinned.
+- **2026-06-09 (Pattern[] facet, #5 done)** — added `pattern_constructor_shares_the_redex_lowering_core`:
+  `Pattern[ frag ]` lowers through the SAME `eval_pattern_top` core a reaction redex uses
+  → identical prism `Pattern`. Pins `eval_pattern_top` as the one pattern-lowering door.
+  **Finding (flagged to unify/lang):** the `pattern X` ≡ `def X = Pattern(…)` VALUE-equivalence
+  in the doc is NOT realized — no `entity.pattern` value dispatch; the `pattern` definer is
+  splice-only (pattern-context). Either the doc overclaims or a value form is missing. Pinned
+  the real part (constructor ↔ redex core).
+- **NEXT for me:** (#4) consolidation — lang to retire `from_value_is_total` (my round-trip
+  guard subsumes it). Invariant #3 (no second eval) lands with unify/core Stage 4 — offered a
+  guard there. Possible further facet: pin the pattern-definer SPLICE convergence (deferred).

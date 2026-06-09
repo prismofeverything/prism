@@ -246,7 +246,18 @@ Stage-2 reaction exception surfacing in the constructor**, and must be framed as
   ↔ `to_value`/`from_value` ↔ `compile_reaction`); spin off one consolidation per
   confirmed multiplicity.
 
-### Stage 4 — one eval / the reflective tower · `lang` + `unify` · gated on 1–3
+### Stage 4 — one eval / the reflective tower · `core` + `lang` + `unify`
+
+**Stage 4 = the chrysalis↔prism SEAM = a `core`+`lang` joint.** Recognition: all four
+boundaries below are ONE 2nd-rung eval (DATA → runnable). **`core`** owns the prism side (the
+boundary evals + the recognition doc in `schema-algebra.md`); **`lang`** owns the chrysalis
+surface (the `.ys` `eval` op + the `build_reaction_value`→DATA flip + query builtins); they
+**pair at the seam — chrysalis CALLS prism** (thin-layer, never clones; cf. core's 4c using
+`from_data_value`, not `eval_rule_expr`). **`unify`** keeps the "one eval" recognition + the
+thin-layer discipline honest. **Sequencing:** (1) the **4c handoff** — lang flips
+`build_reaction_value`→DATA now (core's substrate is live + 2b is green) — *this is what
+dissolves FLAT/RICH*, so first; (2) **4a** (the metacircular close) in parallel; (3) the
+`from_value`-completeness prereq (gap 3); then 4b / 4d / the recognition doc.
 - **4a.** Expose the engine-level rung as a first-class `.ys` operation: a `.ys` program
   can `eval` a spec it built into a running node. **Must call** prism's
   `discover_processes` / `Core::instantiate` (thin layer — `engine.rs:1486`/`:1449`),

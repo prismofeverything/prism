@@ -58,4 +58,34 @@ mod tests {
             IndexMap::from([("report".into(), Schema::Any)]),
         ));
     }
+
+    #[test]
+    fn codec_round_trips_the_type_vocabulary() {
+        // The schema sorts a user `type Name = …` can carry — the Axis-A
+        // definition-as-data path (`homoiconic-unification.md`): chrysalis's
+        // `EntityDef` serializes a `type`'s representation through THIS codec, so
+        // a typed definition survives `quote ↔ reify`. The serde transcode is
+        // total over `Schema` by construction; this makes the guarantee
+        // EXECUTABLE for the vocabulary `type` actually emits (incl. `Custom`, the
+        // common named-type case, and the algebraic + link sorts).
+        roundtrips(Schema::bool());
+        roundtrips(Schema::integer());
+        roundtrips(Schema::string());
+        roundtrips(Schema::delta());
+        roundtrips(Schema::maybe(Schema::float()));
+        roundtrips(Schema::overwrite(Schema::float()));
+        roundtrips(Schema::tuple(vec![Schema::float(), Schema::string()]));
+        roundtrips(Schema::recursive_tree(Schema::float()));
+        roundtrips(Schema::Enum {
+            values: vec!["a".into(), "b".into()],
+            default: Some("a".into()),
+        });
+        roundtrips(Schema::Const { inner: Box::new(Schema::float()) });
+        roundtrips(Schema::Quote { inner: Box::new(Schema::float()) });
+        roundtrips(Schema::Custom { name: "Counter".into(), parameters: Default::default() });
+        // A `type` can name a node kind (composite/process/link).
+        roundtrips(Schema::link(IndexMap::new(), IndexMap::new()));
+        roundtrips(Schema::process_link(IndexMap::new(), IndexMap::new()));
+        roundtrips(Schema::composite_link(IndexMap::new(), IndexMap::new(), Schema::Any));
+    }
 }

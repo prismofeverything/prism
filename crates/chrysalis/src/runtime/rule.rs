@@ -164,16 +164,26 @@ pub fn brs_rules(config: &Value, evaluator: &Arc<Evaluator>) -> Vec<ReactionRule
     };
     list.iter()
         .filter_map(|item| {
-            let Value::Foreign(f) = item else { return None };
-            if f.type_name == FOREIGN_RULE {
-                // A chrysalis `Rule` (from a `reaction` definer) — close its
-                // computed reactum / guard / rate over the evaluator.
-                f.downcast_ref::<Rule>()
-                    .map(|r| to_prism_rule(r, Arc::clone(evaluator)))
-            } else if f.type_name == FOREIGN_REACTION {
-                // An already-reified reaction (from the `Reaction[…]` constructor
-                // or a wire-arrived reaction) — runnable as-is.
-                f.downcast_ref::<ReactionRule>().cloned()
+            if let Value::Foreign(f) = item {
+                if f.type_name == FOREIGN_RULE {
+                    // A chrysalis `Rule` (a COMPUTED reaction from a definer) —
+                    // close its computed reactum / guard / rate over the evaluator.
+                    f.downcast_ref::<Rule>()
+                        .map(|r| to_prism_rule(r, Arc::clone(evaluator)))
+                } else if f.type_name == FOREIGN_REACTION {
+                    // An already-reified reaction — runnable as-is.
+                    f.downcast_ref::<ReactionRule>().cloned()
+                } else {
+                    None
+                }
+            } else if item.as_map().and_then(|m| m.get("_pat")).and_then(|v| v.as_str())
+                == Some("Rule")
+            {
+                // A TRANSPARENT at-rest reaction (`{_pat:"Rule"}`, Stage 4c — what a
+                // STRUCTURAL definer/constructor now emits) — lower via the prism
+                // codec (chrysalis CALLS prism; thin-layer), exactly as
+                // `collect_reactions`/`push_reaction` do for rules-as-state.
+                ReactionRule::from_data_value(item).ok()
             } else {
                 None
             }
@@ -385,6 +395,21 @@ pub fn to_structural_rule(rule: &Rule) -> Option<ReactionRule> {
 /// or `rest:` transport (merge-protocol slice 5).
 pub fn to_bigraph_value(rule: &Rule) -> Option<Value> {
     to_structural_rule(rule).map(|pr| Value::Foreign(Foreign::new(FOREIGN_REACTION, pr)))
+}
+
+/// The TRANSPARENT data form of a chrysalis [`Rule`] — `{_pat:"Rule", …}` via
+/// [`ReactionRule::to_data_value`] — for a STRUCTURAL rule (closure-free). This is
+/// the reaction-at-rest carrier the BRS evals DIRECTLY: `push_reaction` /
+/// `collect_reactions` (`brs.rs`) and chrysalis's `brs_rules` lower it back with
+/// `ReactionRule::from_data_value` (homoiconic-unification Stage 4c) — symmetric
+/// with a process spec read by `discover_processes`. `None` for a COMPUTED rule
+/// (guard / computed reactum / rate closure), which must stay the in-process
+/// `Foreign(FOREIGN_RULE)` carrier (its closures need *this* evaluator at fire
+/// time). Flipping the reaction producers from `to_bigraph_value` (opaque
+/// `Foreign`) to THIS (transparent data) is what dissolves the FLAT/RICH seam: a
+/// reaction becomes plain data, like the node/spec constructors.
+pub fn to_data_value(rule: &Rule) -> Option<Value> {
+    to_structural_rule(rule).and_then(|pr| pr.to_data_value())
 }
 
 /// The `reaction` TYPE — a reaction *at rest*, as transmittable / storable DATA.

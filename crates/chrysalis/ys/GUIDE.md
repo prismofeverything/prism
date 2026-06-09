@@ -65,6 +65,11 @@ String interpolation uses `{…}`:
 def label = 'cell {id}'
 ```
 
+Two escapes for literal text (doubling, the inverse of how they round-trip):
+`''` is a literal apostrophe (`'it''s'` → `it's`); `{{` / `}}` are literal
+braces (`'paths {{a,b}}'` → `paths {a,b}`), so prose with a brace doesn't start
+interpolation.
+
 ---
 
 ## 3. Types

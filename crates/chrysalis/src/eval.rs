@@ -1303,7 +1303,13 @@ impl Evaluator {
             resolved,
             &rule_env,
         )?;
-        Ok(Value::Foreign(prism_schema::value::Foreign::new(FOREIGN_RULE, rule)))
+        // Emit TRANSPARENT data when structural (Stage 4c: the BRS evals it via
+        // `from_data_value`) — a reaction becomes uniform with a process spec, so
+        // the FLAT/RICH seam dissolves; a COMPUTED rule (guard / computed reactum /
+        // rate closure) keeps the in-process `Foreign(FOREIGN_RULE)` carrier, whose
+        // closures need THIS evaluator at fire time.
+        Ok(crate::runtime::rule::to_data_value(&rule)
+            .unwrap_or_else(|| Value::Foreign(prism_schema::value::Foreign::new(FOREIGN_RULE, rule))))
     }
 
     /// Compile a REACTION assembled as DATA into the runnable, transmittable
@@ -1331,16 +1337,23 @@ impl Evaluator {
         // installs a rule. An already-transmittable value passes through.
         if let Value::Foreign(f) = data {
             if f.type_name == FOREIGN_RULE {
-                if let Some(reified) = f
-                    .downcast_ref::<Rule>()
-                    .and_then(crate::runtime::rule::to_bigraph_value)
-                {
-                    return Ok(reified);
+                if let Some(rule) = f.downcast_ref::<Rule>() {
+                    // Structural → transparent at-rest DATA (`{_pat:"Rule"}`, 4c);
+                    // a COMPUTED rule keeps the in-process `Foreign(FOREIGN_RULE)`
+                    // carrier (its closures need this evaluator at fire time).
+                    return Ok(
+                        crate::runtime::rule::to_data_value(rule).unwrap_or_else(|| data.clone())
+                    );
                 }
             }
             if f.type_name == prism_schema::FOREIGN_REACTION {
                 return Ok(data.clone());
             }
+        }
+        // Already the transparent at-rest data form (`{_pat:"Rule"}`, Stage 4c) —
+        // the BRS evals it directly; it IS the compiled reaction, pass through.
+        if data.as_map().and_then(|m| m.get("_pat")).and_then(|v| v.as_str()) == Some("Rule") {
+            return Ok(data.clone());
         }
         let expr = Expr::from_value(data).map_err(|e| EvalError::InvalidForm {
             context: "compile_reaction".into(),
@@ -1416,7 +1429,7 @@ impl Evaluator {
     ) -> Result<Value, EvalError> {
         let rule =
             self.build_rule("assembled".into(), redex, reactum, None, None, IndexMap::new(), env)?;
-        Ok(crate::runtime::rule::to_bigraph_value(&rule)
+        Ok(crate::runtime::rule::to_data_value(&rule)
             .unwrap_or_else(|| Value::Foreign(prism_schema::value::Foreign::new(FOREIGN_RULE, rule))))
     }
 
@@ -1462,7 +1475,7 @@ impl Evaluator {
         // computed rule stays `Foreign(FOREIGN_RULE)` and keeps this closure —
         // `to_structural_rule` returns `None` for it.)
         let rule = self.build_rule("Reaction".into(), redex, reactum, guard, rate, env.clone(), env)?;
-        Ok(crate::runtime::rule::to_bigraph_value(&rule)
+        Ok(crate::runtime::rule::to_data_value(&rule)
             .unwrap_or_else(|| Value::Foreign(prism_schema::value::Foreign::new(FOREIGN_RULE, rule))))
     }
 

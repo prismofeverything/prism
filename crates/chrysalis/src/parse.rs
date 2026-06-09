@@ -403,6 +403,27 @@ mod lex_tests {
     }
 
     #[test]
+    fn string_braces_escape_and_round_trip() {
+        // `{{`/`}}` is a LITERAL brace, not interpolation — the board fix:
+        // heartbeat prose like a `{path,shorthand}` no longer evaluates as
+        // `{expr}` (which broke the coord board on `{eval.rs,ast.rs}` →
+        // "unbound variable: eval"). Unparse re-escapes, so it survives
+        // parse → unparse → parse. The brace twin of the `''` apostrophe escape.
+        let src = "def x = 'src/{{eval.rs,ast.rs}}'";
+        let prog = parse_program(src).expect("a literal-brace string parses");
+        let out = crate::unparse::unparse(&prog);
+        assert!(
+            out.contains("{{eval.rs,ast.rs}}"),
+            "literal braces re-escaped on unparse: {out}"
+        );
+        // A single `{` still opens interpolation (the feature is intact).
+        assert!(parse_program("def y = 'hi {name}'").is_ok(), "interpolation still parses");
+        // Idempotent round-trip (no Program PartialEq needed — compare the text).
+        let out2 = crate::unparse::unparse(&parse_program(&out).expect("re-parse"));
+        assert_eq!(out, out2, "brace-literal string round-trips");
+    }
+
+    #[test]
     fn lexes_comprehension_and_membership_ops() {
         let t = toks("[e.to for e in xs if not (e == y)]");
         assert!(
@@ -1513,6 +1534,21 @@ impl Parser {
         let mut lit = String::new();
         let mut i = 0;
         while i < chars.len() {
+            // `{{` / `}}` escape to a LITERAL brace (the inverse of
+            // `unparse_string`'s `{` → `{{` / `}` → `}}`), so prose can hold a
+            // brace without starting interpolation — the brace twin of the
+            // lexer's `''` apostrophe escape. A SINGLE `{` still opens
+            // interpolation; a single `}` is a forgiving literal.
+            if chars[i] == '{' && chars.get(i + 1) == Some(&'{') {
+                lit.push('{');
+                i += 2;
+                continue;
+            }
+            if chars[i] == '}' && chars.get(i + 1) == Some(&'}') {
+                lit.push('}');
+                i += 2;
+                continue;
+            }
             if chars[i] == '{' {
                 if !lit.is_empty() {
                     segments.push(StringSeg::Lit(std::mem::take(&mut lit)));

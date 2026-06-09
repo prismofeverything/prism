@@ -42,6 +42,12 @@ become a portability contract).
 - **Carrier** = a *typed value* `(schema, value)`. An *update* is a value
   in the same sort interpreted as a change (additive for `Delta`/numeric,
   replacing for `Overwrite`, structural `_add`/`_remove` for collections).
+- *Future refinement:* **units** are not a sort here — a `Quantity` is
+  compile-time-checked then erased to `Delta`/`Float` (dimension dropped), which
+  is why a units `type` can't serialize. The plan is a *dimension refinement* on
+  the numeric sorts (in the **type**, erased from the **value** → still zero-cost),
+  so `check` does dimensional wiring and the boundary codec does conversion. See
+  **#71** / `docs/units-in-the-schema.md`.
 
 ## Operations (the closed set)
 

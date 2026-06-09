@@ -17,7 +17,7 @@
 use prism_bigraph::process::Process;
 use prism_bigraph::{BigraphicalReactiveSystem, Schema, Update, Value};
 use prism_schema::reaction::ReactionRule;
-use prism_schema::{FOREIGN_REACTION, algebra};
+use prism_schema::algebra;
 
 use chrysalis::ast::{Def, Expr};
 
@@ -36,6 +36,21 @@ fn collect_types(v: &Value, out: &mut Vec<String>) {
             collect_types(vv, out);
         }
     }
+}
+
+/// Lower a compiled STRUCTURAL reaction VALUE to a runnable prism `ReactionRule`.
+/// Stage 4c: a structural reaction now compiles to TRANSPARENT DATA
+/// (`{_pat:"Rule"}`) — uniform with a process spec, the FLAT/RICH seam dissolved —
+/// rather than an opaque `Foreign(FOREIGN_REACTION)`. We lower it back via the
+/// prism codec (`ReactionRule::from_data_value`), exactly as the BRS boundary does
+/// (`brs_rules` / `collect_reactions`).
+fn rule_from(compiled: &Value) -> ReactionRule {
+    assert_eq!(
+        compiled.as_map().and_then(|m| m.get("_pat")).and_then(|v| v.as_str()),
+        Some("Rule"),
+        "a compiled structural reaction is transparent `_pat:\"Rule\"` DATA: {compiled:?}"
+    );
+    ReactionRule::from_data_value(compiled).expect("from_data_value")
 }
 
 /// Drive a BRS directly: feed the subtree on the `state` port, apply its delta.
@@ -92,17 +107,7 @@ fn a_reaction_assembled_as_data_runs() {
         .evaluator
         .compile_reaction_value(&data, &env)
         .expect("compile_reaction");
-    let Value::Foreign(f) = &compiled else {
-        panic!("expected a Foreign reaction value: {compiled:?}")
-    };
-    assert_eq!(
-        f.type_name, FOREIGN_REACTION,
-        "compiled to the transmittable form: {compiled:?}"
-    );
-    let rule: ReactionRule = f
-        .downcast_ref::<ReactionRule>()
-        .expect("a prism ReactionRule")
-        .clone();
+    let rule = rule_from(&compiled);
 
     // (4) RUN the assembled reaction: a BRS turns an `A` into a `B`.
     let brs = BigraphicalReactiveSystem::new(vec![rule]);
@@ -151,17 +156,7 @@ fn eval_of_a_quoted_reaction_builds_the_runnable_form() {
     // The GENERAL eval path — `eval ∘ quote⁻¹`, no `compile_reaction` in sight.
     let expr = Expr::from_value(&data).expect("from_value");
     let compiled = result.evaluator.eval_value(&expr, &env).expect("eval");
-    let Value::Foreign(f) = &compiled else {
-        panic!("eval of a quoted reaction is a Foreign reaction: {compiled:?}")
-    };
-    assert_eq!(
-        f.type_name, FOREIGN_REACTION,
-        "eval ∘ quote produces the transmittable reaction form: {compiled:?}"
-    );
-    let rule: ReactionRule = f
-        .downcast_ref::<ReactionRule>()
-        .expect("a prism ReactionRule")
-        .clone();
+    let rule = rule_from(&compiled);
 
     // And it fires: A → B, identically to the `compile_reaction_value` door.
     let brs = BigraphicalReactiveSystem::new(vec![rule]);
@@ -192,17 +187,7 @@ fn reaction_constructor_equals_the_definer() {
         .arg_named("reactum", Expr::term("B").build())
         .build();
     let compiled = result.evaluator.eval_value(&ctor, &env).expect("eval Reaction[…]");
-    let Value::Foreign(f) = &compiled else {
-        panic!("Reaction[…] is a Foreign reaction: {compiled:?}")
-    };
-    assert_eq!(
-        f.type_name, FOREIGN_REACTION,
-        "Reaction[…] reifies to the transmittable form: {compiled:?}"
-    );
-    let rule: ReactionRule = f
-        .downcast_ref::<ReactionRule>()
-        .expect("a prism ReactionRule")
-        .clone();
+    let rule = rule_from(&compiled);
 
     let brs = BigraphicalReactiveSystem::new(vec![rule]);
     let after = drive(&brs, Value::tree([("a0", ion("A"))]), 2);

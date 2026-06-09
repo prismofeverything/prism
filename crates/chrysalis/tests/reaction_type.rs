@@ -1,6 +1,8 @@
 //! The `reaction` TYPE — the foundation of chrysalis AlChemy. Its `realize`
-//! REIFIES a chrysalis `Rule` value (`FOREIGN_RULE`) into the closure-free
-//! `Foreign(FOREIGN_REACTION, ReactionRule)` form. That is the AUTO-convert: a
+//! REIFIES a reaction value — the transparent `{_pat:"Rule"}` DATA a structural
+//! reaction now is (Stage 4c), or the `FOREIGN_RULE` carrier a computed reaction
+//! keeps — into the closure-free `Foreign(FOREIGN_REACTION, ReactionRule)` form
+//! the BRS reads. That is the AUTO-convert: a
 //! `:: reaction` / `:: map[reaction]` slot turns a reaction reference into the
 //! exact value `BigraphicalReactiveSystem` reads as a rule (rules-as-state) and
 //! that crosses a `:: bigraph` bridge (#42) — one value for store / link-share /
@@ -27,10 +29,15 @@ fn grow_rule_value() -> Value {
 #[test]
 fn reaction_type_reifies_chrysalis_rule_to_transmittable_form() {
     let v = grow_rule_value();
-    // A reaction reference evaluates to the rich chrysalis-`Rule` form.
-    assert!(
-        matches!(&v, Value::Foreign(f) if f.type_name == "ChrysalisRule"),
-        "reaction ref → chrysalis Rule value: {v:?}"
+    // A STRUCTURAL reaction reference now evaluates to TRANSPARENT DATA
+    // (`{_pat:"Rule"}`, Stage 4c — uniform with a process spec, no opaque Foreign);
+    // `realize`/`apply` still reify it to the runnable form below. (A COMPUTED
+    // reaction — guard / computed reactum / rate — keeps the `ChrysalisRule`
+    // Foreign carrier, which `realize` also reifies.)
+    assert_eq!(
+        v.as_map().and_then(|m| m.get("_pat")).and_then(|x| x.as_str()),
+        Some("Rule"),
+        "reaction ref → transparent reaction DATA: {v:?}"
     );
 
     // `realize` at the `reaction` type reifies it to the transmittable form —

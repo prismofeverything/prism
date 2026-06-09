@@ -14,7 +14,7 @@
 use prism_bigraph::process::Process;
 use prism_bigraph::{BigraphicalReactiveSystem, Schema, Update, Value};
 use prism_schema::reaction::ReactionRule;
-use prism_schema::{FOREIGN_REACTION, algebra};
+use prism_schema::algebra;
 
 use chrysalis::ast::{Def, Expr};
 
@@ -79,14 +79,15 @@ fn a_reaction_crosses_a_json_wire_and_runs() {
         .evaluator
         .compile_reaction_value(&arrived, &env)
         .expect("compile the arrived reaction");
-    let Value::Foreign(f) = &compiled else {
-        panic!("expected a runnable reaction: {compiled:?}")
-    };
-    assert_eq!(f.type_name, FOREIGN_REACTION, "recompiled to the runnable form");
-    let rule: ReactionRule = f
-        .downcast_ref::<ReactionRule>()
-        .expect("a prism ReactionRule")
-        .clone();
+    // Stage 4c: a structural reaction recompiles to TRANSPARENT DATA
+    // (`{_pat:"Rule"}`) — uniform with a process spec, no opaque `Foreign` — so it
+    // is still fully JSON-able on the far side too. Lower it back to run.
+    assert_eq!(
+        compiled.as_map().and_then(|m| m.get("_pat")).and_then(|v| v.as_str()),
+        Some("Rule"),
+        "recompiled to transparent reaction DATA: {compiled:?}"
+    );
+    let rule = ReactionRule::from_data_value(&compiled).expect("from_data_value");
 
     let brs = BigraphicalReactiveSystem::new(vec![rule]);
     let after = drive(&brs, Value::tree([("a0", ion("A"))]), 2);

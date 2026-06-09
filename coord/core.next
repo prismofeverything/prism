@@ -67,13 +67,31 @@ Pair with `unify` on the design, `lang` on the chrysalis↔prism seam.
   interpolation (avoid them; a `{{`-escape would harden it — flagged to lang).
 - **`core` is ON the board** — `coord/core.ys` heartbeat created; `coord/board.ys` imports
   `.core` (the leading dot dodges the native-`core` collision). Full 6-peer board converges.
+- **Recognition doc** — `schema-algebra.md` § "Eval: state-data → runnable (the lower rung)":
+  the 3 boundaries (`discover_processes`/`collect_reactions`/`find_matches`) = ONE 2nd-rung eval,
+  each an EXISTING op (not a new trait). `homoiconic-unification.md` 4c marked ✅ DONE + the lang
+  handoff. Laws already pinned in `reaction_data.rs`.
+- **Two Stage-4 core ENABLERS for lang (both green):**
+  - **4a node rung** — `Core::instantiate_spec(spec) → ProcessNode` (`core.rs`): owns the
+    `{_type,address,config}` envelope shape so chrysalis's surface `eval` CALLS it (thin-layer),
+    never re-implementing the envelope. The node analogue of `from_data_value`/`Pattern::from_value`.
+    Tests: `core.rs` `instantiate_spec_*` (2).
+  - **Axis-A `type`-as-data** — `schema_codec::{schema_to_value,value_to_schema}` (already existed;
+    now round-trip-pinned TOTAL over the user-`type` vocabulary incl. `Custom`, `schema_codec.rs`).
+    Lang wires the `EntityDef` type arm to these. FINDING: units are NOT in the prism `Schema`
+    (`Const`/`Quote` wrap an inner schema), so `unit`/`context` def-as-data is chrysalis AST
+    serialization, not a core gap (units types lack serde — a gated add if lang's `UnitDef` needs it).
 
-## Next (resume here)
-- **Stage 4d** (patterns) — `Pattern::from_value` is the eval; already total+lawed and reused by
-  `from_data_value`. Mostly recognition; a `find_matches`-from-data entry only if a consumer (lang's
-  `count()`/`.matches()`) needs it.
-- **Stage 4 recognition doc** — name the 3 boundaries (`discover_processes`/`collect_reactions`/
-  `find_matches`) as ONE 2nd-rung eval (Value data → runnable), each an EXISTING op — in
-  `schema-algebra.md`. NOT a new trait (Felleisen). Laws already pinned in `reaction_data.rs`.
-- **Coordinate the lang handoff** — 4c substrate is live; lang flips `build_reaction_value` to
-  emit DATA + retires the `ReactionType::realize` BRS re-wrap.
+## Next (resume here) — mostly lang/unify + simplify
+- **Stage 4a/4b (lang + unify)** — the surface `.ys` `eval` rung (calls `Core::instantiate_spec`)
+  + unify the `meta` `eval`/`load` with the engine rung. The metacircular close.
+- **Axis-A completeness (lang, core supports)** — `EntityDef::from_value` rebuilds only
+  process/step/composite/binding; make it total (reaction/function rebuild; type via the codec
+  above; unit/context AST). The "definition-as-data uniform" premise Stage 4 leans on.
+- **4c flip (lang)** — `build_reaction_value` emits DATA; the `ReactionType::realize` BRS re-wrap retires.
+- **Stage-3 guard (simplify)** — re-run + extend the one-instantiate guard now that lang 2b is green.
+- If lang's `count()`/`.matches()` lands, a `find_matches`-from-DATA convenience (else `Pattern::from_value`).
+- **#71 units as a schema refinement** (`docs/units-in-the-schema.md`) — captured, not started.
+  Units are compile-time-erased today (dimension dropped → `Delta`/`Float`), which is the units
+  half of the Axis-A gap. Carry `Dimension` in the schema (erased from the value, zero-cost), so
+  `check`/codec/`serialize` consult it. Core-heavy (schema + algebra + units serde); first refinement of #68.

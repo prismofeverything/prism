@@ -267,6 +267,19 @@ is the same schema-algebra codec.
   `tensor`) for `Array` / vector sorts (the Kuramoto mean-field is `array[[2], float]`;
   the additive-array reduction is the mean-field fold). *Surfaced by #66; manifold
   agent to detail.*
+- **#71 units as a schema refinement** (`docs/units-in-the-schema.md`) — units are
+  **compile-time-checked then fully erased** today (`Quantity[…,extensive]` → `Delta`/
+  `Float`, dimension dropped; *"units never reach the engine"*), which is exactly why a
+  `type Mass` can't serialize — **the units half of the Axis-A gap**. Fix: decouple the
+  two erasures — keep raw `f64` in the **value** (zero-cost hot path) but carry the
+  `Dimension` in the **schema** (an `Option<Dimension>` on `Float`/`Delta`, or a
+  `Quantity` sort), so `check` does dimension-mismatch wiring, the boundary codec does
+  gram→kg conversion (subsuming `thread_factor_inputs`), and `serialize` round-trips a
+  units `type`. Consulted at check/wire/boundary/serialize, *not* per-op. The first
+  base-sort refinement of #68; touches core (schema + algebra threading + units serde,
+  the gated `Ratio`-serde add) + chrysalis (`lower_schema` keeps the dimension).
+  *Surfaced 2026-06-09 with the human; design note written.* [[feedback_zero_cost]]
+  [[project_units_cross_boundary]]
 
 ### F. Surface language & tooling — *chrysalis DX*
 - **#10 comment-preserving parse/unparse** — extern fully retired; **REMAINING:**
