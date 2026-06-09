@@ -101,10 +101,14 @@ families now run as `.ys` report sections through codegen —
   folded additively (`Array[[2]]`), so Brownian + drift + interactions +
   boundary-correction *superpose* — particles fit the same fold-via-`apply` algebra
   as everything else (retiring their `Map[Any]` dodge + two more `Schema::Any` leaks).
-- **`.ys` file modules**: `from <pkg>.<sub>.<file> import <Def>` resolves a sibling
-  `.ys` (package-rooted, recursive; the module's types + host imports ride along).
-  The six sections are DRYed into shared modules — `report/section.ys`
-  (Trace/Figure/Plot/Output) + `composites/comets.ys` (the Comet system).
+- **`.ys` file modules** (explicit-origin resolution): a **leading dot** is a
+  relative file — `from .file import <Def>` is the sibling `file.ys`, `from
+  .sub.file import …` is `sub/file.ys`; a package path `from pkg.sub.file import …`
+  is package-rooted (recursive; the module's types + host imports ride along). A
+  **bare** name (`from core import …`) is a native/registry module — never a file.
+  The name's shape decides (no path search, no precedence; the retired #50
+  std-module-first), so a sibling and a native can't collide. The six sections are
+  DRYed into shared modules — `report/section.ys` + `composites/comets.ys`.
 
 **6. The road ahead.** Assemble the six sections into ONE report *workflow*
 (run-all → a combined report; the report as an expirable step-DAG over the

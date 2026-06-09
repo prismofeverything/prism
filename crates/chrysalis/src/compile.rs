@@ -119,13 +119,13 @@ impl ModuleRegistry {
         Self::default()
     }
 
-    /// The set of NATIVE host module names this registry knows (`core`,
-    /// `integrators`, `diffusion`, …). File-module import resolution consults it
-    /// so a native module wins over a same-named sibling `.ys` (std-module-first:
-    /// `from diffusion import …` binds the native even when a `diffusion.ys` demo
-    /// sits beside the importer). (#50)
-    pub fn module_names(&self) -> HashSet<String> {
-        self.modules.keys().cloned().collect()
+    /// Is `module` a known NATIVE/registry module (`core`, `integrators`,
+    /// `diffusion`, …)? A BARE `from X import …` resolves only here; a dotted or
+    /// relative path (`.X`, `pkg.X`) is a file, resolved before compile. Used to
+    /// give a precise diagnostic when a bare import names no native module (the
+    /// common cause: a sibling file written bare instead of `.X`).
+    pub fn has_module(&self, module: &str) -> bool {
+        self.modules.contains_key(module)
     }
 
     /// Declare that `module` exports a whole native process named `name`
@@ -245,9 +245,18 @@ fn resolve_imports(
                         functions.insert(name.clone(), f);
                     }
                     None => {
-                        return Err(CompileError::Other(format!(
-                            "unknown import `{name}` from native module `{module}`"
-                        )));
+                        // A bare import resolves only against native/registry
+                        // modules (explicit-origin: `.X`/`pkg.X` would be a file).
+                        // Distinguish the two failure shapes so the fix is obvious.
+                        let detail = if modules.has_module(module) {
+                            format!("native module `{module}` has no export `{name}`")
+                        } else {
+                            format!(
+                                "no native module `{module}` — for a sibling file write \
+                                 `from .{module} import {name}`"
+                            )
+                        };
+                        return Err(CompileError::Other(format!("unknown import `{name}`: {detail}")));
                     }
                 }
             }

@@ -9,7 +9,7 @@
 # Expected: `{"count": 5.0}`
 
 from meta import compile_value
-from ast import
+from .ast import
   float, var, record, parallel, keyed,
   term, ports, float_port,
   mk_process, mk_composite, program

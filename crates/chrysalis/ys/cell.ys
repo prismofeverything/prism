@@ -10,8 +10,8 @@
 # parent map, so the environment (not the cell) owns the structural split. That is
 # exactly why the cell is identical across protocols — see environment.ys.
 
-from grow import Grow       # also brings the `Mass` / `pg` vocabulary
-from divide import Divide
+from .grow import Grow       # also brings the `Mass` / `pg` vocabulary
+from .divide import Divide
 
 
 # Its `mass`/`glucose` ports bridge to the inner slots (`@`), so the parent seeds

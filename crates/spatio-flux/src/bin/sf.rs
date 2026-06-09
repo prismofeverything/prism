@@ -8,7 +8,7 @@
 //! cargo run -p spatio-flux --bin sf -- run <file.ys> [--time T]
 //! ```
 
-use chrysalis::parse::parse_file_with_natives;
+use chrysalis::parse::parse_file;
 use spatio_flux::prelude::{sf_methods, sf_modules, sf_registry};
 
 fn main() {
@@ -37,10 +37,11 @@ fn main() {
         std::process::exit(2);
     };
 
-    // Resolve file-module imports std-module-first against spatio-flux's natives,
-    // so `from diffusion import …` binds the native (not the `diffusion.ys` demo).
+    // File imports resolve by explicit origin: a bare `diffusion` is the native
+    // module (resolved at compile against `modules`); `.diffusion` would be the
+    // sibling demo. No path search, no precedence.
     let modules = sf_modules();
-    let prog = parse_file_with_natives(&path, &modules.module_names()).unwrap_or_else(|e| {
+    let prog = parse_file(&path).unwrap_or_else(|e| {
         eprintln!("sf: parse {path}: {e}");
         std::process::exit(1);
     });

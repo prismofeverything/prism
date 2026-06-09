@@ -20,7 +20,7 @@
 #
 # `chrysalis run environment.ys --time N` runs the whole environment.
 
-from cell import Cell
+from .cell import Cell
 
 protocol StreamingCell = stream<Cell, path: 'cell.ys'>
 

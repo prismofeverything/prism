@@ -28,9 +28,12 @@ seam* (lets reaction/pattern constructors produce DATA like process/composite):
 - [ ] **nodes** — `discover_processes` (`engine.rs:1486`/`:1449`): process-DATA spec → running
       node. EXISTS; expose as a first-class `.ys` `eval` (4a), unify with the `meta`-import
       `eval`/`load` (4b).
-- [ ] **rules** — `collect_reactions`/`push_reaction` (`brs.rs:472`/`:452`): TODAY accepts
-      ONLY `Foreign(ReactionRule)`; add an EVAL step so a reaction-DATA value in state lowers
-      to a `ReactionRule` (via lang's `eval_rule_expr` = `compile_reaction = eval∘quote`) (4c).
+- [x] **rules** — `collect_reactions`/`push_reaction` (`brs.rs`): DONE (4c). `push_reaction`
+      now evals a TRANSPARENT reaction-DATA map (`_pat="Rule"`) via the existing
+      `ReactionRule::from_data_value`, additive beside the `Foreign` carrier — symmetric with
+      `discover_processes`. Consumer: `prism-bigraph/tests/reaction_data_as_state.rs` (3 green).
+      This is the substrate that lets `build_reaction_value` emit pure DATA (FLAT/RICH dissolves)
+      + lets chrysalis's `ReactionType::realize` re-wrap retire (lang's flip, gated on this).
 - [ ] **patterns** — `find_matches` (`prism_schema::reaction`): a `Pattern(…)`/redex DATA value
       → a matcher (4d).
 - [ ] Unify the three as ONE "eval data→runnable" op/pattern. Thin-layer: chrysalis CALLS this;
@@ -45,4 +48,32 @@ completion (the reframe + param desugaring + uniformity proof) + `simplify`'s St
 Pair with `unify` on the design, `lang` on the chrysalis↔prism seam.
 
 ## Done (this arc)
-- (fresh agent — none yet)
+- **Stage 4c (THE LINCHPIN)** — `push_reaction` (brs.rs) evals transparent reaction-DATA
+  (`_pat="Rule"` map → `ReactionRule` via the existing `from_data_value`), additive beside the
+  `Foreign` carrier. Tests: `reaction_data_as_state.rs` (3) + `rules_as_state` regression. The
+  rule boundary now reads DATA like the node boundary (`discover_processes`).
+- **`.ys` import grammar FLIPPED to explicit-origin** (user-chosen detour off the board work;
+  see [[project_ys_import_explicit_origin]]): bare `from X import` = native/registry ONLY;
+  sibling/relative file = `from .X import` (leading dot); package paths stay dotted. Collapsed
+  `resolve_file_modules` to `is_file_module = module.contains('.')`, DELETED the `natives`
+  precedence plumbing + `parse_file_with_natives` + `module_names()` (the retired #50). Migrated
+  EVERY sibling import in the tree (coord board + `ys/` demos + spatio-flux `culture.ys`).
+  `compile.rs` gives a `.X` migration hint on a bad bare import. Green across 10+ multi-file
+  consumers + spatio-flux. Files: `parse.rs`, `compile.rs`, `cli.rs`, `spatio-flux/.../sf.rs`,
+  `parse_import.rs`; GUIDE.md import section updated.
+- **Two `.ys` board-robustness fixes** (the coord board dogfoods `.ys` as data): lexer now
+  escapes a doubled quote `''` → `'` (unparse re-escapes) so heartbeat prose with apostrophes
+  parses (was wedging the whole board via synth/unify/simplify); braces in prose are
+  interpolation (avoid them; a `{{`-escape would harden it — flagged to lang).
+- **`core` is ON the board** — `coord/core.ys` heartbeat created; `coord/board.ys` imports
+  `.core` (the leading dot dodges the native-`core` collision). Full 6-peer board converges.
+
+## Next (resume here)
+- **Stage 4d** (patterns) — `Pattern::from_value` is the eval; already total+lawed and reused by
+  `from_data_value`. Mostly recognition; a `find_matches`-from-data entry only if a consumer (lang's
+  `count()`/`.matches()`) needs it.
+- **Stage 4 recognition doc** — name the 3 boundaries (`discover_processes`/`collect_reactions`/
+  `find_matches`) as ONE 2nd-rung eval (Value data → runnable), each an EXISTING op — in
+  `schema-algebra.md`. NOT a new trait (Felleisen). Laws already pinned in `reaction_data.rs`.
+- **Coordinate the lang handoff** — 4c substrate is live; lang flips `build_reaction_value` to
+  emit DATA + retires the `ReactionType::realize` BRS re-wrap.

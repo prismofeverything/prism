@@ -16,7 +16,7 @@ use crate::ast::{
     CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, SchemaExpr,
 };
 use crate::compile::ModuleRegistry;
-use crate::parse::parse_file_with_natives;
+use crate::parse::parse_file;
 use crate::runner::{invoke, invoke_driven, invoke_trace, run, serve_process, serve_stream};
 
 /// Resolve a `stream` protocol's relative `.ys` `path` against the entry file's
@@ -225,9 +225,10 @@ pub fn run_command(
         );
         return 2;
     };
-    // Resolve file-module imports std-module-first: a native (e.g. `diffusion`)
-    // wins over a same-named sibling `.ys` demo (#50).
-    let mut prog = match parse_file_with_natives(&path, &modules.module_names()) {
+    // Resolve file-module imports by explicit origin: a dotted/relative path
+    // (`.cell`, `lib.x`) is a file; a bare name (`diffusion`) is a native import,
+    // resolved at compile against `modules`. No path search, no precedence.
+    let mut prog = match parse_file(&path) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("parse {path}: {e}");

@@ -334,7 +334,7 @@ You don't usually hand-write addresses — you bind a protocol + its config to a
 **type**, then use it like any control. This is *protocols-as-types*:
 
 ```ys
-from cell import Cell
+from .cell import Cell
 protocol StreamingCell = stream<Cell, path: 'cell.ys'>   # a Cell that runs as its own process
 
 composite Environment ->{cells: map[Cell] @ cells} (
@@ -359,23 +359,31 @@ plan (domain decomposition, halo exchange, the octree).
 
 ## 11. Importing — `.ys` files and native capabilities
 
-Two kinds of import, same syntax `from <module> import <names>`:
+Two kinds of import — the **shape of the path** decides which (explicit origin:
+no search path, no precedence, so a sibling file and a native module can never
+collide):
 
-**`.ys` file modules** — pull a definer (process/step/composite/type) from a
-**sibling `.ys` file** (resolved next to the importing file):
+| write | resolves to |
+|---|---|
+| `from .name import …`     | a **sibling `.ys` file** (`name.ys`, next to the importer) |
+| `from .sub.name import …` | a relative file `sub/name.ys` |
+| `from name import …`      | a **native / registry module** (the std library / a host) |
+
+**`.ys` file modules** — a **leading dot** pulls a definer
+(process/step/composite/type) from a **relative file**:
 
 ```ys
-from grow import Grow            # brings `Grow` (+ its `Mass` / unit vocabulary)
-from divide import Divide
-from cell import Cell            # a composite from cell.ys
+from .grow import Grow            # brings `Grow` (+ its `Mass` / unit vocabulary)
+from .divide import Divide
+from .cell import Cell            # a composite from cell.ys
 ```
 
 This is how the modular cell library composes: `grow.ys` and `divide.ys` are
 single-process files; `cell.ys` imports both and wires them; `environment.ys`
 imports `Cell`. A type alias / unit declared in the imported file comes along.
 
-**Native modules** — reusable Rust pulled in the same way (the replacement for
-`extern`). Three kinds:
+**Native modules** — reusable Rust pulled by a **bare** name (the replacement
+for `extern`). Three kinds:
 
 ```ys
 from core import RunProcess          # a whole native process, used as-is

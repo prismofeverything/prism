@@ -382,6 +382,27 @@ mod lex_tests {
     }
 
     #[test]
+    fn parses_relative_vs_bare_module_paths() {
+        use crate::ast::Def;
+        // Explicit origin: a LEADING dot ⇒ relative file (`.mesh` = sibling
+        // `mesh.ys`, `.lib.sim` = `lib/sim.ys`); a BARE name ⇒ native/registry
+        // module. The shape decides — no path search, no precedence.
+        let prog = parse_program(
+            "from .mesh import mesh\nfrom .lib.sim import Run\nfrom core import RunProcess\ndef n = 1",
+        )
+        .expect("parse imports");
+        let modules: Vec<&str> = prog
+            .defs
+            .iter()
+            .filter_map(|d| match d {
+                Def::Use { module, .. } => Some(module.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(modules, vec![".mesh", ".lib.sim", "core"]);
+    }
+
+    #[test]
     fn lexes_comprehension_and_membership_ops() {
         let t = toks("[e.to for e in xs if not (e == y)]");
         assert!(
@@ -596,27 +617,16 @@ pub fn parse_schema_expr(src: &str) -> Result<SchemaExpr, ParseError> {
 /// **relative to that file's own directory** (so a library can import a sibling
 /// regardless of who the entry is), recursively.
 ///
-/// This entry point knows NO native module names, so a single-segment `from X
-/// import` resolves to a sibling `X.ys` whenever one exists — correct when no
-/// native module shares a name with a sibling file. When a host's natives CAN
-/// collide with sibling demos (spatio-flux's `diffusion`/`kinetics`), use
-/// [`parse_file_with_natives`] so the native wins (std-module-first, #50).
+/// A BARE single segment (`core`, `integrators`) is a native/registry import,
+/// left as a `Def::Use` for the compile stage. A dotted/relative path (`.mesh`,
+/// `lib.x`, `pkg.sub.x`) is a file, resolved against the importer's directory —
+/// the explicit-origin rule, so a sibling and a native can never collide.
 /// Modules are loaded once (memoized); import cycles are reported, not looped.
 pub fn parse_file(path: impl AsRef<std::path::Path>) -> Result<Program, ParseError> {
-    parse_file_with_natives(path, &std::collections::HashSet::new())
-}
-
-/// [`parse_file`] aware of the host's native module names: a single-segment
-/// import whose name is a native module binds the native (std-module-first),
-/// even if a same-named sibling `.ys` exists. Pass `registry.module_names()`.
-pub fn parse_file_with_natives(
-    path: impl AsRef<std::path::Path>,
-    natives: &std::collections::HashSet<String>,
-) -> Result<Program, ParseError> {
     let mut cache: std::collections::HashMap<std::path::PathBuf, Program> =
         std::collections::HashMap::new();
     let mut stack: Vec<std::path::PathBuf> = Vec::new();
-    load_file(path.as_ref(), natives, &mut cache, &mut stack)
+    load_file(path.as_ref(), &mut cache, &mut stack)
 }
 
 /// Like [`parse_file`], but for a program already in memory: resolve its
@@ -625,18 +635,16 @@ pub fn parse_file_with_natives(
 /// resolve against a real package directory — no temp file, no path rewriting.
 pub fn parse_program_in(src: &str, dir: impl AsRef<std::path::Path>) -> Result<Program, ParseError> {
     let raw = parse_program(src)?;
-    let natives = std::collections::HashSet::new();
     let mut cache: std::collections::HashMap<std::path::PathBuf, Program> =
         std::collections::HashMap::new();
     let mut stack: Vec<std::path::PathBuf> = Vec::new();
-    resolve_file_modules(raw, dir.as_ref(), &natives, &mut cache, &mut stack)
+    resolve_file_modules(raw, dir.as_ref(), &mut cache, &mut stack)
 }
 
 /// Load + fully resolve one file's program (memoized by path). The returned
 /// program is self-contained: its own file-module imports are already merged in.
 fn load_file(
     path: &std::path::Path,
-    natives: &std::collections::HashSet<String>,
     cache: &mut std::collections::HashMap<std::path::PathBuf, Program>,
     stack: &mut Vec<std::path::PathBuf>,
 ) -> Result<Program, ParseError> {
@@ -656,7 +664,7 @@ fn load_file(
     let raw = parse_program(&src)?;
     let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
     stack.push(path.to_path_buf());
-    let resolved = resolve_file_modules(raw, dir, natives, cache, stack);
+    let resolved = resolve_file_modules(raw, dir, cache, stack);
     stack.pop();
     let resolved = resolved?;
     cache.insert(path.to_path_buf(), resolved.clone());
@@ -672,7 +680,6 @@ fn load_file(
 fn resolve_file_modules(
     raw: Program,
     dir: &std::path::Path,
-    natives: &std::collections::HashSet<String>,
     cache: &mut std::collections::HashMap<std::path::PathBuf, Program>,
     stack: &mut Vec<std::path::PathBuf>,
 ) -> Result<Program, ParseError> {
@@ -686,18 +693,20 @@ fn resolve_file_modules(
                 continue;
             }
         };
-        // FILE-module iff it has a backing `.ys`. A dotted package path always
-        // is one. A single segment is a file only when it is NOT a known native
-        // module (std-module-first) AND the sibling `.ys` exists — otherwise it's
-        // a native host import (`core`, `integrators`, …) left for compile.
-        let file = module_file(&module, dir);
-        let is_file_module =
-            module.contains('.') || (!natives.contains(module.as_str()) && file.exists());
-        if !is_file_module {
-            kept.push(def);
+        // Explicit-origin resolution: a path containing a dot is a FILE module —
+        // relative (`.mesh` ⇒ sibling `mesh.ys`, `.lib.x` ⇒ `lib/x.ys`) or
+        // package-rooted (`pkg.sub.x`). A BARE single segment is a native /
+        // registry import, left as a `Def::Use` for compile to resolve. The
+        // name's SHAPE decides — no file-existence probe, no native-name
+        // precedence — so a sibling can never silently shadow a native (nor a
+        // native a sibling). This DELETES the old std-module-first tie-break (the
+        // retired #50): the ambiguity it arbitrated no longer exists.
+        if !module.contains('.') {
+            kept.push(def); // bare ⇒ native/registry import, resolved at compile
             continue;
         }
-        let imported = load_file(&file, natives, cache, stack)?;
+        let file = module_file(&module, dir);
+        let imported = load_file(&file, cache, stack)?;
         merge_named(&imported, &names, &mut prefix);
     }
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -1035,11 +1044,20 @@ impl Parser {
     // `from <module> import <name> (, <name>)*` — pull native processes /
     // functions into scope (replaces `extern`). `from`/the module/the names are
     // identifiers; `import` is the keyword token.
-    /// A module path: `ident (("-" | ".") ident)*` — package names may contain `-`
-    /// (`spatio-flux`) and submodules are dotted (`spatio-flux.composites`); the
-    /// lexer splits these, so reassemble into one string.
+    /// A module path: `"."? ident (("-" | ".") ident)*` — package names may
+    /// contain `-` (`spatio-flux`) and submodules are dotted
+    /// (`spatio-flux.composites`); the lexer splits these, so reassemble into one
+    /// string. A LEADING dot marks a RELATIVE FILE import — `from .mesh import …`
+    /// is the sibling `mesh.ys`, `from .lib.x import …` is `lib/x.ys` — the
+    /// explicit-origin counterpart to a BARE name, which is a native/registry
+    /// module. (Dotted/relative ⇒ file; bare ⇒ registry. No path search, no
+    /// precedence — this is what replaced the old std-module-first tie-break.)
     fn parse_module_path(&mut self) -> Result<String, ParseError> {
-        let mut module = self.ident()?;
+        let mut module = String::new();
+        if self.accept(&Tok::Dot) {
+            module.push('.'); // leading dot ⇒ relative file (sibling/subdir)
+        }
+        module.push_str(&self.ident()?);
         loop {
             if self.accept(&Tok::Minus) {
                 module.push('-');

@@ -14,7 +14,7 @@
 # stays conserved.
 
 from meta import compile_value
-from ast import
+from .ast import
   float, bool, var, record, parallel, keyed,
   term_with_args, named_arg, ports,
   float_port, bool_port, port_with_default,

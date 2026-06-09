@@ -350,8 +350,10 @@ ParallelPool, stream-concurrent) · #20 parallel stream cells from env.ys · #21
 rest-concurrent + `flush_pending` (batched ray = open #25) · #45 unify process
 instantiation through the protocol-aware Core (`Core::instantiate`;
 local/rest/parallel/stream drive identically) · #47 unify chrysalis node-spec
-(flat envelope everywhere) · #50 unify the import forms (ONE `from dotted import
-Name`; explicit named selection, std-module-first) · **#40** cross-composite redex
+(flat envelope everywhere) · #50 unify the import forms (ONE `from … import
+Name`; explicit named selection — later flipped to EXPLICIT-ORIGIN: bare = native/
+registry, leading-dot `.name` = relative file; std-module-first/#50 precedence retired,
+see `project_ys_import_explicit_origin`) · **#40** cross-composite redex
 syntax resolved as a LINK-GRAPH op (`?west ~{edge:~e} | ?east ~{edge:~e}`) ·
 **#43** cross-composite reactor (place-graph delta reactor + link-graph matcher +
 `|` unification + in-place modify + DISTRIBUTED over a live rest bridge + LIVE via
