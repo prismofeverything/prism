@@ -446,9 +446,22 @@ impl Process for BigraphicalReactiveSystem {
     }
 }
 
-/// A reaction-value as data: `Value::Foreign(FOREIGN_REACTION, ReactionRule)` —
-/// the SAME wire form #42 uses across bridges. Pushes the cloned rule if `v` is
-/// one.
+/// Eval a state value into an active rule — the BRS rule boundary's "DATA →
+/// runnable" step, symmetric with how `discover_processes` evals a transparent
+/// process spec into a running node (homoiconic-unification.md Stage 4c). Two
+/// carriers, both lowering to a `ReactionRule`:
+///   - the RUNNABLE carrier `Value::Foreign(FOREIGN_REACTION, ReactionRule)` —
+///     the #42 in-process / re-wrapped form (a computed reactum / guard / rate
+///     closure rides here; it has no wire form). Downcast it directly.
+///   - the TRANSPARENT DATA carrier `{_pat: "Rule", redex, reactum, …}` — a
+///     structural (closure-free) reaction at rest: the `to_data_value` form that
+///     crosses a `rest:`/`stream:` bridge or lives in a `map[Reaction]` link as
+///     plain JSON. EVAL it via the schema-algebra codec [`ReactionRule::from_data_value`].
+/// So a reaction need NOT be pre-wrapped as a `Foreign` to be active — a
+/// constructor that emits pure DATA (the homoiconic face) is picked up here,
+/// exactly as a process spec is by node discovery. `from_data_value` is precise:
+/// only a `_pat:"Rule"` map lowers; molecular state (`_type`-tagged) returns
+/// `Err` and is ignored, so the scan never mistakes a cell for a rule.
 fn push_reaction(v: &Value, out: &mut Vec<ReactionRule>) {
     if let Value::Foreign(f) = v {
         if f.type_name == FOREIGN_REACTION {
@@ -456,11 +469,18 @@ fn push_reaction(v: &Value, out: &mut Vec<ReactionRule>) {
                 out.push(r.clone());
             }
         }
+        // A `Foreign` is never transparent data — short-circuit either way.
+        return;
+    }
+    if let Ok(rule) = ReactionRule::from_data_value(v) {
+        out.push(rule);
     }
 }
 
 /// Reaction-values living in a wired value become ACTIVE rules — rules-as-state,
-/// the load-bearing form of "a rule IS state" (#60). Two shapes, both read:
+/// the load-bearing form of "a rule IS state" (#60). Each value is EVAL'd by
+/// [`push_reaction`] (the runnable `Foreign` carrier OR transparent `{_pat:
+/// "Rule"}` data, Stage 4c). Two shapes of WHERE they live, both read:
 ///   - reaction-values **directly under** the map — the *pool / link* form (a
 ///     `rules` port wired to a shared `link reactions :: map[Reaction]`, so a
 ///     reaction born in one reactor is read by every reactor on the link);

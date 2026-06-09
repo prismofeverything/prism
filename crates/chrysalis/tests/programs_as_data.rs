@@ -92,6 +92,39 @@ fn grow_divide_runs_identically_as_data_and_as_program() {
 }
 
 #[test]
+fn definer_equals_its_quote_then_eval() {
+    // GAP-proof (homoiconic-unification "Constructor face" review): the per-kind
+    // uniformity made EXECUTABLE, not asserted. A process / step / composite /
+    // reaction definer ≡ its `quote ↔ reify ↔ run`: quote the WHOLE program's
+    // definers to data (`Program::to_value` — Axis A, definition-as-data, which is
+    // uniform across EVERY kind), reify them back (`Program::from_value`), compile
+    // the reconstructed program, and run — it reaches the SAME state as running the
+    // original. This is `program` ≡ `eval(quote(program))` at the definer level,
+    // which is what makes "constructor = quote of definer" real for the RICH kinds
+    // (whose quote is the structured `EntityDef` form, not a flat bracket).
+    use chrysalis::ast::Program;
+
+    let prog = parse_program(GROW_DIVIDE).expect("parse");
+    let direct = run(&prog, std_registry(), std_methods(), std_modules(), 5.0).expect("direct run");
+
+    // quote → reify the program's definers, then compile + run the reconstruction.
+    let quoted = prog.to_value();
+    let reified = Program::from_value(&quoted).expect("reify the quoted program");
+    let from_quote =
+        run(&reified, std_registry(), std_methods(), std_modules(), 5.0).expect("run reified");
+
+    assert_eq!(
+        cell_ids(&direct),
+        cell_ids(&from_quote),
+        "a definer (incl. the RICH composite/process kinds) ≡ quote ↔ reify ↔ run"
+    );
+    assert!(
+        cell_ids(&from_quote).is_some(),
+        "the reified-from-quote program actually ran (produced a cells map)"
+    );
+}
+
+#[test]
 fn document_preserves_the_program_shape() {
     // The Document's `schema` field carries the program's runtime schema; its
     // `state` field carries the initial state. Both are present — making the

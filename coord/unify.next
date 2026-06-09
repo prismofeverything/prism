@@ -35,10 +35,15 @@ overall; the deep docs hold the content.
   UNIFICATION** (Stages 1/2/4 of `docs/homoiconic-unification.md`): close the
   quote/reify round-trip, collapse the N instantiate-builders into one, dissolve
   `compile_reaction`, then the one-eval close.
-- `simplify` → `coord/simplify.next` — REDUCE; **booting** to own Stage 3 (the
-  one-instantiate build-failing guard + the homoiconic-surface duplication audit #46).
-- *(future, add a `<agent>.ys`+`.next` pair when booted: `bio`, `quantum`, `spatial`,
-  `core` — see ROSTER for the role map.)*
+- `simplify` → `coord/simplify.next` — REDUCE; owns Stage 3 (the one-instantiate
+  build-failing guard + the homoiconic-surface duplication audit #46). Invariant-#2
+  (round-trip totality) guard landed.
+- `core` → `coord/core.next` — the substrate (schema algebra + engine + BRS); **booting**
+  for **Stage 4 — THE LINCHPIN**: eval DATA→runnable at every consumer boundary
+  (`discover_processes`/`collect_reactions`/`find_matches`) — the move that dissolves the
+  FLAT/RICH constructor seam.
+- *(future, add a `<agent>.ys`+`.next` pair when booted: `bio`, `quantum`, `spatial` —
+  see ROSTER for the role map.)*
 
 ## Overall roadmap (M0–M5 — depth in `grand-synthesis.md`)
 - **M1 (the mesh)** — ✅ DONE.

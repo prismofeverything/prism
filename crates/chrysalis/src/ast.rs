@@ -949,8 +949,22 @@ impl EntityDef {
         if self.context.is_some() {
             slots.push(Value::String("context".into()));
         }
-        if self.binding.is_some() {
+        if let Some((schema, value)) = &self.binding {
             slots.push(Value::String("binding".into()));
+            // Emit the binding's VALUE (and optional type) — not just the slot
+            // name. A trailing `Environment[…]` entry parses to `def main = …`
+            // (a binding), so dropping the value here loses a program's entry /
+            // initial state through `quote` (the bug the `definer_equals_its_
+            // quote_then_eval` proof drove out). Mirrors the `function` slot.
+            let mut bmap: IndexMap<Key, Value> = IndexMap::new();
+            bmap.insert(Key::from("value"), value.to_value());
+            if let Some(s) = schema {
+                bmap.insert(
+                    Key::from("schema"),
+                    Value::String(crate::unparse::unparse_schema(s)),
+                );
+            }
+            fields.insert(Key::from("binding"), Value::Map(bmap));
         }
         fields.insert(Key::from("slots"), Value::List(slots));
         Value::Map(fields)
@@ -2450,7 +2464,18 @@ impl Program {
             if let Some(c) = ent.composite {
                 prog.push(Def::Composite(c));
             }
-            // Reaction / Function / etc. — add as needed.
+            // A value binding — incl. a program's trailing `main` entry, which
+            // carries the initial state. Without this a whole program's entry is
+            // lost through `quote ↔ reify` (the `definer_equals_its_quote_then_eval`
+            // proof). Reaction / Function / unit / … — add as their slot
+            // serializations round-trip.
+            if let Some((schema, value)) = ent.binding {
+                prog.push(Def::Binding {
+                    name: ent.name.clone(),
+                    schema,
+                    value,
+                });
+            }
         }
         Ok(prog)
     }
@@ -2508,6 +2533,25 @@ impl EntityDef {
                 interface,
                 body,
             });
+        }
+        // A value binding (`def X = expr`, incl. a program's trailing `main`
+        // entry). Reconstructing it is what lets a whole program — its definers
+        // AND its entry/initial-state — survive `quote ↔ reify ↔ run`
+        // (`definer_equals_its_quote_then_eval`). The inverse of `to_value`'s
+        // `binding` emission.
+        if let Some(b) = map.get("binding") {
+            let bm = b.as_map().ok_or_else(|| err("EntityDef.binding must be a Map"))?;
+            let value = Expr::from_value(
+                bm.get("value").ok_or_else(|| err("binding.value missing"))?,
+            )?;
+            let schema = match bm.get("schema").and_then(|v| v.as_str()) {
+                Some(s) => Some(
+                    crate::parse::parse_schema_expr(s)
+                        .map_err(|e| err(&format!("binding.schema: {e:?}")))?,
+                ),
+                None => None,
+            };
+            ent.binding = Some((schema, value));
         }
         Ok(ent)
     }

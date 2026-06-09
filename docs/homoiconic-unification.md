@@ -192,6 +192,39 @@ This tightens §7: the "two evals" are `discover_processes` (DATA → running no
 runnable). Stage 4 promotes BOTH; "eval = `discover_processes` promoted" generalizes to
 rules too.
 
+### Constructor face — the FLAT/RICH seam is PROVISIONAL (review w/ human, 2026-06-09)
+
+lang's 2b landed `Reaction[…]` / `Pattern( … )` (flat kinds) as bracket constructors but
+deliberately gave **no** bracket to process/step/composite (rich kinds), on a Felleisen
+argument. Reviewed against the code, that split is **not a permanent design law — it is the
+Stage-2 reaction exception surfacing in the constructor**, and must be framed as provisional:
+
+- **Two axes were conflated.** *Axis A* — the **definition** as data (`EntityDef::to_value`/
+  `from_value`/`compile_value`) — is **already uniform across every kind**. *Axis B* — the
+  **instance/runnable** as a value — is where the split lives: process/composite → transparent
+  DATA (`build_spec_value` map), reaction/pattern → opaque `Foreign(FOREIGN_RULE/REACTION/
+  PATTERN)`. The "`Process[…]` would duplicate `to_value`" argument conflates A (definition)
+  with B (instance); a constructor that is *sugar for quote* (same value as `to_value`) is the
+  **duality** we want, not duplication.
+- **It dissolves at Stage 4.** When the consumer boundaries — `discover_processes` (nodes),
+  `collect_reactions` (rules), `find_matches` (patterns) — all **eval DATA → runnable**, every
+  constructor can produce DATA (quote) uniformly and the Foreign-vs-data asymmetry is gone. So
+  FLAT/RICH is a *pre-Stage-4 state*, not a type law. **Correct the framing** in
+  `chrysalis-design.md` (Naming note) + `lang.next`.
+- **The bracket is sugar for quote**, offered where inline construction is ergonomic
+  (reactions/patterns are built inline in reactums/BRS lists; processes are usually named) — a
+  presentation choice, not a kind-distinction. Invariant to hold: `Kind[…]` ≡ `quote(kind
+  definer)`.
+
+**Two gaps to close NOW (so 2b is actually done, not just the flat family):**
+1. **Parameterization.** `def X = Reaction[…]` is a *value*, so `X[args]` errors
+   (`eval.rs:758`) — the `def`≡definer equivalence holds **only for parameterless** entities.
+   A parameterized `reaction X[p](…)` must desugar to a **callable** (`def X(p) = Reaction[…]`,
+   or `[]`-callable bindings) — lang to design, reconciling the `[]`-definer vs `()`-function
+   call convention. Until then the "drop-in" claim is parameterless-only.
+2. **Uniformity proof.** The `process X` ≡ its `quote ↔ eval` round-trip test must land —
+   today it is asserted, not demonstrated (no-half-measures).
+
 ### Stage 3 — the one-door guard · `simplify`
 - A build-failing test: **"exactly one function instantiates an entity spec"** — the
   generalization of `closure_guard` + #45 (the existing one-door guards). Gate: a second
@@ -213,6 +246,11 @@ rules too.
   `ReactionRule` on load (via 1b's `eval_rule_expr`) — symmetric with 4a. This is what lets
   Stage 2's `build_reaction_value` finally produce pure data (the last constructor to become
   uniform); the "two evals" (node-discovery + rule-collection) unify here.
+- **4d.** Same for the pattern boundary: a `Pattern(…)`/redex DATA value becomes a matcher at
+  `find_matches` time. With 4a/4c/4d, **every** constructor produces DATA and the FLAT/RICH
+  seam is gone — *this* is the move that forges the uniform face (see "Constructor face"
+  above). **Stage 4 is therefore the linchpin of the whole unification, not a tail** → it is
+  why `core` should boot.
 - Gate: cash out **only** where it deletes a special case (the `meta`-eval ⟂ engine-eval
   split; the metacircular orchestrator). *Honest note:* this is the most M5-ish rung
   (`categorical-core.md §3`/`§7`, the M/R-closure = reflection identity); keep it last

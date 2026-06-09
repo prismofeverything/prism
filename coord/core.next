@@ -1,0 +1,48 @@
+# core.next — durable resume for the `core` agent
+
+<!-- The fractal of NEXT-SESSION.md, per agent. DURABLE (survives reboot);
+     coord/core.ys is the LIVE heartbeat, rebuilt from here on boot.
+     Edit ONLY your own core.ys + core.next (monotone, per-source). -->
+
+## ⏯️ ON BOOT
+You are `core` — the SUBSTRATE everyone builds on (the schema algebra + the engine + the
+reaction/BRS machinery). Read this + `coord/ROSTER.md` + `coord/board.ys` +
+**`docs/homoiconic-unification.md`** (esp. **Stage 4** + the **"Constructor face"** section)
++ `docs/schema-algebra.md`. Own `coord/core.ys` (live heartbeat) and this file (durable).
+Create `coord/core.ys` from your first heartbeat. Resume from **Now / next**.
+**Hard rules:** `feedback_schema_algebra` — schema/state ops are the closed algebra; a new op
+= a NAMED op + laws + property tests, never ad-hoc munging. `feedback_consult_upstream` — prism
+is a faithful port; when unsure read `../process-bigraph` / `../bigraph-schema` / `../spatio-flux`.
+
+## Domain
+`prism-schema` (the algebra) + `prism-bigraph` (engine, BRS, protocols). Standing purview:
+#5 (law generators) · #15 (schema-as-state meta-schema) · #30 (entity registry) · #60
+(reaction/delta basis) — cat E. For THIS push you own **Stage 4 of the homoiconic
+unification — THE LINCHPIN** (with `lang` + `unify`).
+
+## Now / next — Stage 4: the consumer-boundary eval unification (THE LINCHPIN)
+The thesis (`homoiconic-unification.md` Stage 4 + Constructor face): **one eval = eval
+DATA → runnable at EVERY consumer boundary.** Today three boundaries handle data→runnable
+differently (or not at all) — unify them; *this is what dissolves the FLAT/RICH constructor
+seam* (lets reaction/pattern constructors produce DATA like process/composite):
+- [ ] **nodes** — `discover_processes` (`engine.rs:1486`/`:1449`): process-DATA spec → running
+      node. EXISTS; expose as a first-class `.ys` `eval` (4a), unify with the `meta`-import
+      `eval`/`load` (4b).
+- [ ] **rules** — `collect_reactions`/`push_reaction` (`brs.rs:472`/`:452`): TODAY accepts
+      ONLY `Foreign(ReactionRule)`; add an EVAL step so a reaction-DATA value in state lowers
+      to a `ReactionRule` (via lang's `eval_rule_expr` = `compile_reaction = eval∘quote`) (4c).
+- [ ] **patterns** — `find_matches` (`prism_schema::reaction`): a `Pattern(…)`/redex DATA value
+      → a matcher (4d).
+- [ ] Unify the three as ONE "eval data→runnable" op/pattern. Thin-layer: chrysalis CALLS this;
+      the eval lives HERE in core.
+
+## Coordinate
+`prism-schema` + `prism-bigraph` are SHARED crates everyone builds on — a public-API or
+BRS/reaction-boundary change is **NON-MONOTONE** → **coordinate-FIRST** (read `board.ys`,
+claim it in `touching`, drop a `note` so lang/domains rebuild). Gated on `lang`'s Stage-2b
+completion (the reframe + param desugaring + uniformity proof) + `simplify`'s Stage-3 guard;
+**prep now** — survey the three boundaries + design the unified op while lang finishes 2b.
+Pair with `unify` on the design, `lang` on the chrysalis↔prism seam.
+
+## Done (this arc)
+- (fresh agent — none yet)

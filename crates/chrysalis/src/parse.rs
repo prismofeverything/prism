@@ -221,25 +221,40 @@ pub fn lex(src: &str) -> Result<Vec<Spanned>, ParseError> {
                     push(Tok::Int(v), line, &mut out);
                 }
             }
-            // strings (single or double quoted; raw content for now)
+            // strings (single or double quoted). Content is raw EXCEPT a
+            // doubled delimiter, which is an escaped delimiter (SQL-style:
+            // `'it''s'` → `it's`, `"a""b"` → `a"b`). This is the only escape, so
+            // prose — apostrophes, contractions — can live in a single-quoted
+            // string without a backslash. Inverse of `unparse_string`'s `'` → `''`.
             '\'' | '"' => {
                 let quote = c;
                 i += 1;
-                let start = i;
-                while i < n && chars[i] != quote {
-                    if chars[i] == '\n' {
+                let mut s = String::new();
+                loop {
+                    if i >= n {
+                        return Err(ParseError {
+                            message: "unterminated string".into(),
+                            line,
+                        });
+                    }
+                    let ch = chars[i];
+                    if ch == quote {
+                        // A doubled delimiter inside the string is one literal
+                        // delimiter; a lone delimiter closes the string.
+                        if i + 1 < n && chars[i + 1] == quote {
+                            s.push(quote);
+                            i += 2;
+                            continue;
+                        }
+                        i += 1; // closing quote
+                        break;
+                    }
+                    if ch == '\n' {
                         line += 1;
                     }
+                    s.push(ch);
                     i += 1;
                 }
-                if i >= n {
-                    return Err(ParseError {
-                        message: "unterminated string".into(),
-                        line,
-                    });
-                }
-                let s: String = chars[start..i].iter().collect();
-                i += 1; // closing quote
                 push(Tok::Str(s), line, &mut out);
             }
             // multi- and single-char operators
@@ -352,6 +367,18 @@ mod lex_tests {
                 Tok::Eof,
             ]
         );
+    }
+
+    #[test]
+    fn lexes_doubled_quote_as_escaped_apostrophe() {
+        // `''` inside a single-quoted string is ONE literal apostrophe (SQL-style),
+        // so prose with contractions survives — the coord-board heartbeats use it
+        // (`unify''s`), which previously misparsed and wedged the whole board.
+        assert_eq!(toks("'it''s a test'"), vec![Tok::Str("it's a test".into()), Tok::Eof]);
+        assert_eq!(toks("'unify''s §4'"), vec![Tok::Str("unify's §4".into()), Tok::Eof]);
+        // Works for `"` in a double-quoted string; an empty string still lexes.
+        assert_eq!(toks("\"a\"\"b\""), vec![Tok::Str("a\"b".into()), Tok::Eof]);
+        assert_eq!(toks("''"), vec![Tok::Str(String::new()), Tok::Eof]);
     }
 
     #[test]

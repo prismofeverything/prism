@@ -49,15 +49,22 @@ a new instantiate op is a NAMED algebra op + laws + tests, not ad-hoc munging.
       `def_bound_reaction_constructor_is_a_drop_in_for_the_definer`).
       `Pattern( fragment )` DONE — `build_pattern_constructor` → `Foreign(FOREIGN_PATTERN,
       prism Pattern)` via `eval_pattern_top` (the matchable-redex form, `find_matches`-able);
-      test `pattern_constructor_is_a_first_class_matcher`. RICH kinds
-      (process/step/composite) do NOT get a bracket — their constructor=quote is the
-      STRUCTURED form (`EntityDef::to_value` ↔ `from_value`/`compile_value`, #32/#34, already
-      round-trips); a `Process[inputs:{},outputs:{},body:]` bracket would DUPLICATE it
-      (Felleisen). The doc's `ProcessDef[expr, schema]` = tier-2 body-as-value
-      (`ProcessDef.from_expr`, #30 tier-2), a deeper separate capability.
-      **Remaining 2b tail:** (a) a test showing `process X(…)` ≡ its structured quote↔eval
-      (per-kind uniformity); (b) query builtins `count(…)`/`.matches(…)` consuming a
-      `FOREIGN_PATTERN` (the doc's awaited `count(MEK)`).
+      test `pattern_constructor_is_a_first_class_matcher`.
+      **FLAT/RICH is PROVISIONAL, NOT a Felleisen law** (unify review w/ human — correcting my
+      earlier framing). Two axes: Axis A (definition-as-data, `EntityDef::to_value`/`from_value`/
+      `compile_value`) is ALREADY UNIFORM for every kind; Axis B (the instance/runnable value)
+      is where the split lives today — process/composite → transparent spec-DATA, reaction/
+      pattern → opaque `Foreign`. That is the **Stage-2 reaction-opacity exception** in the
+      constructor, and it **dissolves at Stage 4** (every consumer boundary —
+      `discover_processes`/`collect_reactions`/`find_matches` — evals DATA→runnable). So a
+      `Process[…]` bracket is Axis B (an instance) and would NOT duplicate `to_value` (Axis A) —
+      my earlier "would duplicate" conflated the axes. Invariant: `Kind[…]` ≡ `quote(definer)`;
+      the bracket is sugar offered where inline construction is ergonomic (presentation choice).
+      **2b NOT complete — two GAPS:** (1) PARAM — `def X = Reaction[…]` is parameterless
+      (`X[args]` errors, `eval.rs:758`); a parameterized `reaction X[p](…)` must desugar to a
+      CALLABLE (reconcile `[]`-instantiation vs `()`-call) — lang to design+land. (2) PROOF —
+      land the `process X` ≡ `quote↔eval` uniformity test (asserted, not yet demonstrated).
+      (Plus the later query builtins `count(…)`/`.matches(…)` over a `FOREIGN_PATTERN`.)
 - [ ] **Stage 4** (gated on 1–3, with `unify`) — expose the engine rung
       (`discover_processes`/`Core::instantiate`, `engine.rs:1486`/`:1449`) as a
       first-class `.ys` `eval`; unify with the `meta`-import `eval`/`load`. Thin-layer:
@@ -86,6 +93,23 @@ the Stage-3 one-door guard (don't let your N→1 collapse regress).
   matcher (`eval_pattern_top` form, `find_matches`-able). Found the parser already supports
   sites in constructor args. Doc'd in `chrysalis-design.md` (Naming-table status note).
   27 tests green across the 7 touched files.
+- **Acted on unify's human-reviewed 2b feedback** — (1) REFRAMED FLAT/RICH as the provisional
+  Stage-2 reaction-opacity exception (Axis A vs B; dissolves at Stage 4; invariant
+  `Kind[…] ≡ quote(definer)`), corrected in `chrysalis-design.md` + this file. (3) GAP-proof
+  LANDED (`programs_as_data::definer_equals_its_quote_then_eval`) — and it drove out a REAL
+  bug: a program's trailing `main` entry (a `Def::Binding`) was dropped through
+  `quote ↔ reify` (`EntityDef::to_value` listed `"binding"` as a slot name but never emitted
+  its value; `from_value`/`Program::from_value` rebuilt only process/step/composite). FIXED
+  the binding round-trip — a whole program now ≡ `quote ↔ reify ↔ run`.
+
+## ⚠️ Finding — Axis A is NOT yet uniform across every kind (for unify/core)
+The GAP-proof exposed that `EntityDef`/`Program` `to_value`↔`from_value` only fully round-trips
+**process / step / composite / binding** today. `reaction` + `function` are *serialized but not
+reconstructed* by `from_value`; `unit` / `type` / `contract` / `protocol` / `context` are *not
+serialized at all* (slot-name only). So the "definition-as-data is uniform across every kind"
+premise — which the Stage-4 dissolution of FLAT/RICH leans on — needs a **from_value /
+to_value completeness pass** before it's real. (GROW_DIVIDE's proof passes because it uses
+process/step/composite/binding + a non-load-bearing `unit`.) A clean follow-up task.
 - **Build hygiene** — added `[profile.dev]` `debug = "line-tables-only"` + `incremental = false`
   to root `Cargo.toml` (the full 93-binary suite at default `debug = 2` filled the disk). Rule:
   `cargo check -p <crate>` / `cargo test -p <crate> --test <one>` — NEVER bare

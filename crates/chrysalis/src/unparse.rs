@@ -689,7 +689,7 @@ fn unparse_field_key(name: &str) -> String {
     if is_bare_ident(name) {
         name.to_string()
     } else {
-        format!("'{name}'")
+        format!("'{}'", name.replace('\'', "''"))
     }
 }
 
@@ -706,7 +706,9 @@ fn unparse_string(s: &StringLit) -> String {
     let mut out = String::from("'");
     for seg in &s.segments {
         match seg {
-            StringSeg::Lit(t) => out.push_str(t),
+            // A literal `'` is escaped by doubling — the inverse of the lexer's
+            // `''` → `'` (so a string holding an apostrophe re-parses).
+            StringSeg::Lit(t) => out.push_str(&t.replace('\'', "''")),
             StringSeg::Expr(e) => out.push_str(&format!("{{{}}}", unparse_expr(e))),
         }
     }
