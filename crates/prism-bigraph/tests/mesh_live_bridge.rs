@@ -115,3 +115,34 @@ fn a_mesh_link_converges_over_a_live_rest_bridge() {
     push(to_bob.as_ref(), Value::tree([("alice", Value::float(1.0))]));
     assert_eq!(*bob_slot.lock().unwrap(), b, "re-delivery is idempotent");
 }
+
+#[test]
+fn one_gossip_round_converges_both_peers_over_the_live_bridge() {
+    // The self-driven runtime primitive: Alice's local replica `gossip`s with Bob
+    // (a client onto Bob's rest-hosted replica). ONE round pushes Alice's state to
+    // Bob (Bob merges it server-side) and pulls Bob's converged state back (Alice
+    // merges it) — so BOTH peers hold the union after a single round. No coordinator.
+    let alice_slot: Arc<Mutex<Value>> =
+        Arc::new(Mutex::new(Value::tree([("alice", Value::float(1.0))])));
+    let bob_slot: Arc<Mutex<Value>> =
+        Arc::new(Mutex::new(Value::tree([("bob", Value::float(2.0))])));
+    let bob = peer_node(Arc::clone(&bob_slot));
+    std::thread::sleep(Duration::from_millis(50));
+
+    let alice =
+        MeshReplica::shared(link_schema(), Arc::clone(&alice_slot), Arc::new(TypeRegistry::new()))
+            .expect("mesh-safe");
+    let to_bob = link_to(bob.port());
+    alice.gossip(to_bob.as_ref());
+
+    let a = alice_slot.lock().unwrap().clone();
+    let b = bob_slot.lock().unwrap().clone();
+    assert_eq!(a, b, "one gossip round converged both: alice={a:?} bob={b:?}");
+    assert_eq!(a.get_field("alice").and_then(|v| v.as_f64()), Some(1.0));
+    assert_eq!(a.get_field("bob").and_then(|v| v.as_f64()), Some(2.0));
+
+    // Anti-entropy: a second round changes nothing (idempotent).
+    alice.gossip(to_bob.as_ref());
+    assert_eq!(*alice_slot.lock().unwrap(), a, "repeated gossip is idempotent");
+    assert_eq!(*bob_slot.lock().unwrap(), b);
+}

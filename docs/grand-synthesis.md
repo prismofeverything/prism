@@ -106,13 +106,19 @@ mode. Slices (in order):
    per-source pools are safe; naive additive + LWW are not (CALM). Laws in
    `crdt_laws.rs`; in the `schema-algebra.md` op table.
 2. 🚧 **The `peer:` / `mesh:` protocol + a CRDT shared-link realization** —
-   *landed:* the first-class `mesh:` protocol (`MeshProtocol`/`MeshReplica`) gates
-   instantiation through `mesh_safety` and merges replicas via the schema `merge`
-   (the state-based CRDT join); two replicas **converge over a LIVE rest bridge**
-   with no coordinator (`mesh_live_bridge.rs`). **Remaining:** the `link name :: T
-   mesh` `.ys` surface (declare a mesh link in chrysalis), continuous gossip /
-   anti-entropy (vs one-shot exchange), and the δ-state CRDT (ship *deltas* via
-   `apply`, needs rest delta-in #5) as a bandwidth refinement.
+   *landed:* the first-class `mesh:` protocol (`MeshProtocol`/`MeshReplica`) gated at
+   construction, merging replicas via the schema `merge` (the state-based CRDT join);
+   two replicas **converge over a LIVE rest bridge** with no coordinator
+   (`mesh_live_bridge.rs`); the **`link name :: T mesh` `.ys` surface** with a
+   **compile-time** `mesh_safety` gate (`mesh_link_surface.rs` — an unsafe replicated
+   link is a compile error); the **RUNTIME** — `MeshReplica::gossip` (push-pull CRDT
+   round) + `mesh_links` reflection converge a `.ys`-declared mesh link across engines,
+   in-process (`mesh_link_runtime.rs`) AND **distributed over a LIVE rest bridge**
+   (`mesh_link_distributed.rs` — each peer hosts its slot as a rest replica, gossips
+   over a real socket). **Remaining:** continuous gossip / anti-entropy as an
+   engine-driven step (vs the explicit round) + a long-lived per-engine mesh agent,
+   and the δ-state CRDT (ship *deltas* via `apply`, needs rest delta-in #5) as a
+   bandwidth refinement.
 3. **Continuous gossip / anti-entropy** — per-tick convergence (vs slice-1's
    one-shot), with tombstone/metadata GC budgeted (no auto-DGC — bigraph links
    cycle → explicit lease/epoch).

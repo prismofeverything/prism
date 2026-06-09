@@ -1,0 +1,86 @@
+# Kuramoto phase oscillators — manifold's first demo on the prism substrate.
+# ──────────────────────────────────────────────────────────────────────────
+# N phase oscillators couple through a SHARED LINK and synchronize. This is
+# `../manifold`'s Kuramoto model expressed as a process-bigraph — the first
+# proof that "an adaptive / dynamical network is a prism theory, not new
+# engine" (docs/categorical-core.md §9, the M5 manifold domain). It reuses,
+# unchanged, the exact mechanisms that run grow-divide-glucose:
+#
+#   • each oscillator's phase θ is an ADDITIVE scalar on its OWN node — it
+#     accumulates dθ each tick, exactly like a cell's mass accumulates growth;
+#   • the coupling is a MEAN FIELD on a shared link `field` — the running sum
+#     Σⱼ [cosθⱼ, sinθⱼ]. Each oscillator emits the DELTA of its own phase-vector
+#     and the engine's ADDITIVE fold on `array[[2]]` accumulates them, so the
+#     link always holds the current sum (the same Δposition model the spatial
+#     movers use: the additive fold IS the reduction — no new primitive). This
+#     is field↔glucose, θ↔mass: a shared pool read fresh each tick + own state.
+#
+# The order parameter R = |field| / N measures coherence. All oscillators start
+# in phase (θ=0, so the pool seeds at [N,0], R=1) but have SPREAD natural
+# frequencies ω. With NO coupling (k=0) they drift apart and R decays toward 0;
+# with strong coupling (k=4) they entrain and R stays near 1. Two convergences
+# stack (categorical-core.md §5): `field` is a shared replica (→ a `mesh:` link
+# in Demo 2) and synchronization is the dynamical attractor reading it.
+# Asserted in crates/chrysalis/tests/kuramoto_sync.rs.
+#
+# Run: `chrysalis run kuramoto.ys --time 20`   (strong coupling by default)
+
+# One oscillator's dynamics. Read the mean-field sum [sx,sy] and own phase θ;
+# advance θ by ω plus the Kuramoto pull toward the mean field; emit (dθ, the Δ
+# of [cosθ,sinθ]). The mean-field pull K·R·sin(Ψ−θ) is, with the raw sum
+# [sx,sy] = N·R·[cosΨ,sinΨ], exactly (K/N)·(sy·cosθ − sx·sinθ) — and the self
+# term cancels (sinθ·cosθ − cosθ·sinθ = 0), so summing over ALL oscillators
+# (the whole pool, self included) is correct. `dt` is the integration step —
+# small and fixed for Euler stability, and DECOUPLED from the engine tick (the
+# per-oscillator composite ticks at the default rate, so a self-wired `interval`
+# would be overridden too coarse; first-class multi-scale composite intervals
+# are task #70). `interval` stays only so the engine schedules the Spin.
+process Spin[omega :: Float = 1.0, k :: Float = 4.0, n :: Float = 8.0, dt :: Float = 0.05]
+  ~{theta :: Float, field :: array[[2], float], interval :: Float = 1.0}
+  ->{theta :: Float, field :: array[[2], float]}
+(
+  sx       = field.at(0) |
+  sy       = field.at(1) |
+  c        = theta.cos() |
+  s        = theta.sin() |
+  coupling = (k / n) * (sy * c - sx * s) |
+  dtheta   = (omega + coupling) * dt |
+  next     = theta + dtheta |
+  {theta: dtheta, field: [next.cos() - c, next.sin() - s]}
+)
+
+# An oscillator carries its own phase θ and attaches to the shared mean-field
+# link (mirror of grow-divide-glucose's Cell: θ↔mass, field↔glucose).
+composite Oscillator[theta0 :: Float = 0.0, omega :: Float = 1.0, k :: Float = 4.0, n :: Float = 8.0]
+  ~{field :: array[[2], float] @ field = [0.0, 0.0]}
+  ->{theta :: Float @ theta, field :: array[[2], float] @ field}
+(
+  theta: theta0 |
+  field: field |
+  spin: Spin[omega: omega, k: k, n: n] ~{theta: theta, field: field} ->{theta: theta, field: field}
+)
+
+# A tile of N=8 oscillators on ONE shared mean-field link. All start in phase
+# (θ=0) so the pool seeds at [N,0]; `omegas` gives each a different natural
+# frequency (the disorder pressure coupling must overcome). `field` (the pool)
+# is exposed so the test reads the order parameter R = |field| / N.
+composite Tile[
+  omegas :: map[Float] = {
+    '0': 0.6, '1': 0.7, '2': 0.8, '3': 0.9,
+    '4': 1.1, '5': 1.2, '6': 1.3, '7': 1.4
+  },
+  k :: Float = 4.0,
+  n :: Float = 8.0,
+  field0 :: array[[2], float] = [8.0, 0.0]
+]
+  ->{field :: array[[2], float] @ field, oscillators :: map[Oscillator] @ oscillators}
+(
+  # the pool seeds at Σ of the initial phase-vectors = [N, 0] (all θ0 = 0)
+  link field :: array[[2], float] = field0 |
+  oscillators: {
+    # '{id}' is a COMPUTED (interpolated) key — a bare `id:` is a literal field
+    # name, which would collapse every oscillator into one entry keyed "id".
+    '{id}': Oscillator[theta0: 0.0, omega: w, k: k, n: n] ~{field: ~field} ->{field: ~field}
+    for id, w in omegas
+  }
+)

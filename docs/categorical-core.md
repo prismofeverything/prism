@@ -177,6 +177,39 @@ as a deliberate conservative extension per `generative-core.md`, since it extend
 the vocabulary `[[type_methods_delta_model]]`; quantum currently encodes ℂ as
 `map[float]` pairs, which this unifies.)
 
+## 6b. The fundamental-type catalog — shared representation, per-domain methods
+
+The deepest design principle here ([[type_methods_delta_model]], #7): **a type is a
+representation + its methods, and the methods ARE the type** — the data is often
+trivial (an oscillator is "just" a phase), the *behaviour* is the type. So the right
+move is **share representations across domains and vary the method-sets** — exactly
+the categorical reading (one object, different morphisms). The catalog to land in the
+Core (#68), organized that way:
+
+| Type | Representation | Methods (the algebra) | Shared by |
+|---|---|---|---|
+| **`Complex`** | `array[[2]]` (re,im) — additive fold = ℂ addition | `re`/`im`/`abs`/`arg`/`conj`/`mul`/`scale`/`rotate`/`from_phase` | quantum (amplitudes), manifold (phase+amp), synth (analytic signal) |
+| **`Vec[n]`** | `array[[n]]` | `at`/`add`/`scale`/`dot`/`norm`/`normalize` | everything spatial/field/signal (Demo 1's pool is `Vec2`) |
+| **`Quaternion`** | `array[[4]]` | `mul`/`conj`/`normalize`/`rotate`/`slerp` | spatial (3D rotation), quantum (SU(2)) |
+| **`Matrix`/`Tensor`** | `array[[shape]]` | `matmul`/`transpose`/`apply` | quantum gates, transforms, linear maps |
+| **`Transform`** | `{pos: Vec3, rot: Quaternion}` | `compose`/`inverse`/`apply` | spatial (parsimony `Placement`) |
+| **`Mesh`** | triangle soup + BVH (Foreign) | `contains`/`raycast`/`coarsen`/`render` | spatial |
+| **`Aabb`/`Sphere`/`Capsule`** | analytic bounds | `contains`/`signed_distance`/`sample_surface` | spatial (parsimony `Compartment` = place graph) |
+| **`Octree`/`VoxelField`** | sparse hierarchical grid (Foreign) | `insert`/`query`/`sample` | spatial **= the #27 distributed octree** |
+| **`Oscillator`** | `{theta, omega}` | `rotate`/`phase`/`couple` — *the type IS the methods* | manifold (Demo 1's `Spin` lifted to a type) |
+| **`PlasticSynapse`** | `weight` (a `link` value) | `hebbian`/`stdp` (Δ-producers, via `reconcile`) | manifold |
+| **`Signal[ℂ]`** | `array` | `mix`/`filter`/`gain` | synth, manifold |
+| *(exist)* `Qubits` | `map[float]` → should become `map[Complex]` | gates/`tensor`/`factorize`/`measure` | quantum |
+| *(exist)* `CRN`,`TimeSeries`,`Figure`,`Trace`,`BRS`,`Reaction`,`Pattern`,`Path` | various | their domain algebras | biology/tooling |
+
+Most representations are `array`-backed, so the **additive fold of the algebra is the
+shared arithmetic** (no per-type summation code). The discipline is the wei-qi/axiomatic
+floor: add only the methods a consumer needs, on the structural sort, and lift to a
+named type when the method-set coheres. **Demo 1 seeds the catalog** with the first
+entries — `Float.sin`/`cos`/`sqrt` and the axiomatic `List.at` (richer array algebra —
+slicing `a[i:j]`, `dot`/`matmul`, numpy-style ops — is deferred to the `Vec`/array-type
+work, #69, not bolted on now). `Oscillator` and `Complex` are the first two named lifts.
+
 ## 7. The reflection upgrade: `quote` / `eval`
 
 The closed structure of §3, made surface. `eval` is `discover_processes` ("prism's
@@ -255,10 +288,19 @@ transport-generalization clause: address+auth = **capability refs** (self-authen
 promise-pipelined), transport pluggable (QUIC/Noise/relay), **Tailscale demoted to
 one backend, not a dependency**.
 
-**Graded demos** (the manifold-over-bigraphs ask): **Demo 1** — a Kuramoto tile as a
-composite of oscillator processes synchronizing through one shared `map[id→ℂ]` link;
-runs on **today's** substrate; `R → 1` is the resonance. **Demo 2** — two tiles on
-two peers weakly coupled over a `mesh:` link, phase-locking across the boundary
+**Graded demos** (the manifold-over-bigraphs ask): **Demo 1 — DONE ✅**
+(`crates/chrysalis/ys/kuramoto.ys` + `tests/kuramoto_sync.rs`): a Kuramoto tile of
+oscillator processes synchronizing through one shared **additive `array[[2]]` link** —
+the mean field Σⱼ[cosθⱼ,sinθⱼ], each oscillator emitting the *delta* of its
+phase-vector so the engine's additive fold IS the reduction (the particle Δposition
+model — no new primitive). Coupled **R=0.998** (phase-locked) vs uncoupled **R=0.380**
+(drifted), on the same engine that grows a cell colony. Two lessons worth keeping: a
+comprehension needs a *computed* key `'{id}'` (a bare `id:` is a literal field name, so
+all oscillators collapse into one entry); and the integration step must be a fixed `dt`
+config *decoupled* from the engine tick, because the per-oscillator composite ticks at
+the default rate (→ **#70**, first-class multi-scale composite intervals). It also
+seeded the shared math floor (`Float.sin/cos/sqrt`, `List.at`). **Demo 2** — two tiles
+on two peers weakly coupled over a `mesh:` link, phase-locking across the boundary
 (needs M1; stresses the CRDT law *and* the optimistic-converge frontier in one).
 **Demo 3** — plastic topology learning as a topology-rewriting BRS: Hebbian
 co-activation fires a reaction that strengthens/prunes a link; the network rewrites

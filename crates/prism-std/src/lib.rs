@@ -5,6 +5,7 @@
 //! particular demo.
 
 pub mod mass_action;
+pub mod math;
 pub mod process_runner;
 pub mod simulate;
 

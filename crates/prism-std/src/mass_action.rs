@@ -435,6 +435,10 @@ pub fn stochastic(method: &str) -> Value {
 /// composes the integrators merges this into the method registry so ys-native
 /// bodies can call them.
 pub fn register_methods(reg: &mut MethodRegistry) {
+    // Axiomatic scalar + list methods shared across every domain (manifold,
+    // spatial, synth, quantum) — registered first so the std bundle carries them.
+    crate::math::register_math(reg);
+
     // `rk4.integrate(network, state, interval)` — one explicit step of the
     // method named by the receiver, returning `{state: <next>}` (the output
     // port shape `RunProcess` feeds back in). Mirrors `MassActionProcess`.

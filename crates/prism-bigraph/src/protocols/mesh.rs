@@ -99,6 +99,46 @@ impl MeshReplica {
         *slot = algebra::merge(&self.schema, &slot, contribution);
         slot.clone()
     }
+
+    /// One GOSSIP round with a peer — a client onto the peer's replica (e.g. a
+    /// `rest:` `MeshReplica` at another host): PUSH our replica as the peer's
+    /// `contribution` (the peer merges it via its own schema `merge`), PULL the
+    /// peer's converged replica back from its `link` output, and MERGE that into
+    /// ours. Because the join is an idempotent CRDT semilattice (the schema is
+    /// mesh-safe), one round leaves BOTH replicas holding the union — no
+    /// coordinator, and safe to repeat (anti-entropy = repeated rounds). Returns
+    /// our converged replica.
+    ///
+    /// Drive this EXPLICITLY (per gossip interval), never from `update`: a peer's
+    /// receive path IS its `update`, so gossiping inside `update` would re-enter
+    /// across the live bridge (a peer pushing back while we're mid-push).
+    pub fn gossip(&self, peer: &dyn Process) -> Value {
+        let push = Value::tree([(CONTRIBUTION_PORT, self.replica())]);
+        let response = peer.update(&push, 0.0);
+        if let Some(link) = response.into_value().and_then(|v| v.get_field(LINK_PORT).cloned()) {
+            self.merge(&link);
+        }
+        self.replica()
+    }
+}
+
+/// The names of the `mesh` links declared in a composite's state — the `_links`
+/// scope entries marked `"mesh"` (a plain `#56` link records `true` instead). A
+/// mesh runtime scans for these to attach a [`MeshReplica`] to each link slot and
+/// drive [`MeshReplica::gossip`]. The marker value is otherwise inert (the engine's
+/// `resolve_link` reads only presence), so this reflection is the one consumer of
+/// the `"mesh"` tag.
+pub fn mesh_links(state: &Value) -> Vec<String> {
+    state
+        .get_field("_links")
+        .and_then(|v| v.as_map())
+        .map(|m| {
+            m.iter()
+                .filter(|(_, v)| v.as_str() == Some("mesh"))
+                .map(|(k, _)| k.to_string())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 impl Process for MeshReplica {

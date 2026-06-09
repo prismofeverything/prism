@@ -15,7 +15,7 @@
 
 ---
 
-## ⏯️ CURRENT STATUS (2026-06-08e — task list reorganized + the grand-synthesis roadmap; #62 mesh M1 slices 1–4 landed: the CRDT closure invariant + the first-class `mesh:` protocol + live-bridge convergence + the `.ys` mesh surface w/ compile-time gate)
+## ⏯️ CURRENT STATUS (2026-06-08e — task list reorganized + grand-synthesis roadmap; #62 mesh M1 slices 1–6 landed: closure invariant + `mesh:` protocol + live-bridge convergence + `.ys` surface w/ compile gate + the RUNTIME, distributed over the live bridge)
 
 > This file was reorganized (was ~2034 lines): the durable task list is now
 > **Remaining work — by category** + a **✅ Completed** archive + a 1-line **session
@@ -62,14 +62,36 @@
 > shared link locally today. Full chrysalis suite green.
 > `chrysalis/tests/mesh_link_surface.rs`.
 >
-> **NEXT (continue M1):** (a) WIRE THE RUNTIME — a `mesh` `.ys` link lowers to a live
-> `MeshReplica` (a `mesh:` node co-located with the link slot) that gossips with a peer
-> (scan `_links` for `"mesh"` entries → attach the replica → exchange over the live
-> bridge), turning slice-3's hand-wired convergence into a declared-in-`.ys` one; (b)
-> continuous gossip / anti-entropy + SWIM membership; (c) N-peer; then reactions /
-> AlChemy / quantum over the mesh; **Demo 1→2** (Kuramoto tiles phase-locking over a
-> `mesh:` link — `categorical-core.md` §9, the CRDT+dynamical convergence *stack*); the
-> δ-state CRDT (#5). **See [`grand-synthesis.md`](grand-synthesis.md) M1.**
+> **Slice 5 — the runtime: a `.ys` `mesh` link REPLICATES across engines.** Two
+> runtime primitives: `MeshReplica::gossip(peer)` — one push-pull round (push our
+> replica to the peer's `contribution`, pull theirs back, `merge`), converging BOTH
+> in one round, idempotent (driven EXPLICITLY, never in `update` — a peer's receive
+> path *is* its `update`, so in-`update` gossip re-enters across the bridge); and
+> `mesh_links(state)` — the reflection scanning `_links` for the `"mesh"` marker.
+> Composed: a mesh runtime scans a running engine for mesh links, attaches a gated
+> `MeshReplica` to each slot, gossips, and writes the converged value back through
+> `Engine::state_mut`. `chrysalis/tests/mesh_link_runtime.rs`: two `.ys` engines
+> declaring `link shared :: map[float] mesh` (different per-source keys) CONVERGE to
+> the union, no coordinator — the surface→runtime loop closed. (Transport in-process
+> here; over a LIVE rest bridge it's `mesh_live_bridge.rs` + its new
+> `one_gossip_round_converges_both_peers` test — composing the two is the distributed
+> mesh.)
+>
+> **Slice 6 — the DISTRIBUTED `.ys` mesh (over the live bridge).** Composed the two
+> transports: each peer HOSTS its mesh slot as a `MeshReplica` at a rest server,
+> gossips over a REAL socket (`gossip` push-pull), and the converged value is written
+> back into each `.ys` engine. `chrysalis/tests/mesh_link_distributed.rs`: two
+> `.ys`-declared mesh links CONVERGE over the live bridge — no new mechanism, just the
+> `.ys` runtime (slice 5) + the rest transport (`mesh_live_bridge.rs`). The mesh is an
+> ADDRESS: the `.ys` is byte-identical to the in-process run. Deployable by pointing
+> each peer at the other's Tailscale IP.
+>
+> **NEXT (continue M1):** (a) continuous gossip / anti-entropy as an engine-driven
+> step (vs the explicit round) + a long-lived per-engine mesh agent (host once, gossip
+> per interval); (b) SWIM membership + discovery; (c) N-peer; then **Demo 2** (Kuramoto
+> tiles phase-locking over a `mesh:` link — `categorical-core.md` §9, the CRDT+dynamical
+> convergence *stack*) and reactions / AlChemy / quantum over the mesh; the δ-state CRDT
+> (#5). **See [`grand-synthesis.md`](grand-synthesis.md) M1.**
 
 ---
 
@@ -97,13 +119,22 @@ is the same schema-algebra codec.
   protocol** (`MeshProtocol`/`MeshReplica`) — gated at construction, merges replicas
   via the schema `merge` (state-based CRDT join), registered in every chrysalis
   Core; **live-bridge convergence** (two `mesh:` replicas converge over a LIVE rest
-  bridge, no coordinator — `mesh_live_bridge.rs`). **NEXT:** (a) the **`link :: T
-  mesh`** chrysalis surface (declare + gate at compile); (b) continuous gossip /
-  anti-entropy + SWIM membership; (c) N-peer; then reactions / AlChemy / quantum
-  over the mesh; the δ-state CRDT (#5); **transport generalized** — address+auth =
-  capability refs, transport pluggable (QUIC/Noise/relay), **Tailscale one backend,
-  not a dependency** (`categorical-core.md` §4/§9). (= grand-synthesis M1.)
-  [[mesh_as_protocol]]
+  bridge, no coordinator — `mesh_live_bridge.rs`); **the `.ys` mesh surface +
+  compile-time gate** (`link name :: T mesh = d`, gated by `mesh_safety` in
+  `validate_connections` — an additive/LWW/untyped replicated link is a COMPILE
+  error; `mesh_link_surface.rs`); **the RUNTIME** — `MeshReplica::gossip` (push-pull
+  CRDT round) + `mesh_links` reflection compose into a mesh sync that converges a
+  `.ys`-declared mesh link across engines, IN-PROCESS (`mesh_link_runtime.rs`) AND
+  **DISTRIBUTED over a LIVE rest bridge** (`mesh_link_distributed.rs` — each peer
+  hosts its slot as a rest `MeshReplica`, gossips over a real socket, converged value
+  written back). **NEXT:** (a) continuous gossip / anti-entropy as an engine-driven
+  step + a long-lived per-engine mesh agent (host once, gossip per interval); (b) SWIM
+  membership + discovery; (c) N-peer; then reactions / AlChemy / quantum over the mesh
+  + **Demo 2** (Kuramoto phase-lock over a `mesh:` link, `categorical-core.md` §9); the
+  δ-state CRDT (#5); **transport generalized** — address+auth = capability refs,
+  transport pluggable (QUIC/Noise/relay), **Tailscale one backend, not a dependency**
+  (`categorical-core.md`
+  §4/§9). (= grand-synthesis M1.) [[mesh_as_protocol]]
 - **#25 distributed phase 1** — batched `ray:` protocol (`flush_pending`, one
   packet/shard). Also the last open bit of #21. *Low-effort; proves the batching
   seam.*
@@ -217,6 +248,14 @@ is the same schema-algebra codec.
   expression.
 - **#6 explicit bridge conduits** — make conduits explicit (today inferred by
   inner-slot absence). *Cleanup.*
+- **#68 fundamental-type catalog** — a first-class catalog of base sorts / a shared
+  type vocabulary (incl. the `Complex` / `Signal[ℂ]` sort, `categorical-core.md` §6,
+  unifying quantum amplitudes / manifold phase / synth audio). *Surfaced by the
+  manifold domain (#66); see `categorical-core.md` §6/§6b — manifold agent to detail.*
+- **#69 Vec / array schema-algebra** — complete the algebra (`apply`/`merge`/`divide`/
+  `tensor`) for `Array` / vector sorts (the Kuramoto mean-field is `array[[2], float]`;
+  the additive-array reduction is the mean-field fold). *Surfaced by #66; manifold
+  agent to detail.*
 
 ### F. Surface language & tooling — *chrysalis DX*
 - **#10 comment-preserving parse/unparse** — extern fully retired; **REMAINING:**
@@ -233,6 +272,11 @@ is the same schema-algebra codec.
   **REMAINING:** an inner-wire-typed `interval` whose `default` is `%.port`,
   retiring the engine's `[name,"interval"]` side-channel (so a process can wire its
   interval to a shared clock).
+- **#70 composite intervals** — a composite's inner processes should tick at a
+  controllable interval; today a nested composite under-integrates at the default
+  rate (the Kuramoto Demo-1 symptom). Generalize #16's overridable-`interval`-default
+  wire to the composite boundary (a shared clock driving an inner sub-engine).
+  *Surfaced by #66; relates to #16; manifold agent to detail.*
 - **#17 enforce `::`=type / `:`=value / `fulfills`-contract** — lenient phase live;
   **REMAINING:** migrate every `.ys` + GUIDE/design to canonical `::`/`fulfills`,
   then tighten the parser.
