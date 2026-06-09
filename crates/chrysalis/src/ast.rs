@@ -906,17 +906,23 @@ impl EntityDef {
         if let Some(r) = &self.reaction {
             slots.push(Value::String("reaction".into()));
             let mut rmap: IndexMap<Key, Value> = IndexMap::new();
+            // Full params (schema + default), not name-only — so `reaction
+            // X[rate :: Float](…)` round-trips its typed params (Axis-A faithfulness).
             rmap.insert(
                 Key::from("params"),
-                Value::List(
-                    r.params
-                        .iter()
-                        .map(|p| Value::String(p.name.clone()))
-                        .collect(),
-                ),
+                Value::List(r.params.iter().map(param_to_value).collect()),
             );
             rmap.insert(Key::from("redex"), r.redex.to_value());
             rmap.insert(Key::from("reactum"), r.reactum.to_value());
+            // The optional `where` guard + `rate` close the reaction's data form —
+            // dropping them (the old shape did) lost a guarded/rated reaction
+            // through `quote`.
+            if let Some(g) = &r.guard {
+                rmap.insert(Key::from("guard"), g.to_value());
+            }
+            if let Some(rate) = &r.rate {
+                rmap.insert(Key::from("rate"), rate.to_value());
+            }
             fields.insert(Key::from("reaction"), Value::Map(rmap));
         }
         if let Some(f) = &self.function {
@@ -924,24 +930,77 @@ impl EntityDef {
             let mut fmap: IndexMap<Key, Value> = IndexMap::new();
             fmap.insert(
                 Key::from("params"),
-                Value::List(
-                    f.params
-                        .iter()
-                        .map(|p| Value::String(p.name.clone()))
-                        .collect(),
-                ),
+                Value::List(f.params.iter().map(param_to_value).collect()),
             );
             fmap.insert(Key::from("body"), f.body.to_value());
             fields.insert(Key::from("function"), Value::Map(fmap));
         }
-        if self.type_def.is_some() {
+        if let Some(pat) = &self.pattern {
+            slots.push(Value::String("pattern".into()));
+            // Same `{params, body}` shape as `function` — a pattern definer is a
+            // named fragment. (Was previously not serialized at all.)
+            let mut pmap: IndexMap<Key, Value> = IndexMap::new();
+            pmap.insert(
+                Key::from("params"),
+                Value::List(pat.params.iter().map(param_to_value).collect()),
+            );
+            pmap.insert(Key::from("body"), pat.body.to_value());
+            fields.insert(Key::from("pattern"), Value::Map(pmap));
+        }
+        if let Some(t) = &self.type_def {
             slots.push(Value::String("type".into()));
+            let mut tmap: IndexMap<Key, Value> = IndexMap::new();
+            tmap.insert(
+                Key::from("params"),
+                Value::List(t.params.iter().map(param_to_value).collect()),
+            );
+            // The representation is a surface `SchemaExpr`; it round-trips through
+            // `unparse_schema` ↔ `parse_schema_expr`, exactly as a port/param schema
+            // does (the established chrysalis schema-as-data path). The lowered
+            // PRISM `Schema` would use `schema_codec`; here the entity holds the
+            // surface form.
+            tmap.insert(
+                Key::from("representation"),
+                Value::String(crate::unparse::unparse_schema(&t.representation)),
+            );
+            tmap.insert(
+                Key::from("methods"),
+                Value::List(t.methods.iter().map(method_def_to_value).collect()),
+            );
+            fields.insert(Key::from("type"), Value::Map(tmap));
         }
-        if self.contract.is_some() {
+        if let Some(c) = &self.contract {
             slots.push(Value::String("contract".into()));
+            let axes: IndexMap<Key, Value> = c
+                .axes
+                .iter()
+                .map(|(k, v)| (Key::from(k.as_str()), Value::String(v.clone())))
+                .collect();
+            fields.insert(
+                Key::from("contract"),
+                Value::Map(IndexMap::from([(Key::from("axes"), Value::Map(axes))])),
+            );
         }
-        if self.protocol.is_some() {
+        if let Some(p) = &self.protocol {
             slots.push(Value::String("protocol".into()));
+            let field_list: Vec<Value> = p
+                .fields
+                .iter()
+                .map(|(n, e)| {
+                    Value::Map(IndexMap::from([
+                        (Key::from("name"), Value::String(n.clone())),
+                        (Key::from("value"), e.to_value()),
+                    ]))
+                })
+                .collect();
+            fields.insert(
+                Key::from("protocol"),
+                Value::Map(IndexMap::from([
+                    (Key::from("protocol"), Value::String(p.protocol.clone())),
+                    (Key::from("wrapped"), Value::String(p.wrapped.clone())),
+                    (Key::from("fields"), Value::List(field_list)),
+                ])),
+            );
         }
         if self.unit.is_some() {
             slots.push(Value::String("unit".into()));
@@ -1028,6 +1087,21 @@ fn slot_def_to_value(params: &[Param], iface: &Interface, body: &Expr) -> prism_
     m.insert(Key::from("outputs"), ports_to_value(&iface.outputs));
     m.insert(Key::from("body"), body.to_value());
     Value::Map(m)
+}
+
+/// Serialize a `MethodDef` (`name`, `params`, `body`) — a user type's operation.
+/// Inverse: [`method_def_from_value`].
+fn method_def_to_value(m: &MethodDef) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    let mut map: IndexMap<Key, Value> = IndexMap::new();
+    map.insert(Key::from("name"), Value::String(m.name.clone()));
+    map.insert(
+        Key::from("params"),
+        Value::List(m.params.iter().map(param_to_value).collect()),
+    );
+    map.insert(Key::from("body"), m.body.to_value());
+    Value::Map(map)
 }
 
 fn param_to_value(p: &Param) -> prism_schema::Value {
@@ -2464,11 +2538,32 @@ impl Program {
             if let Some(c) = ent.composite {
                 prog.push(Def::Composite(c));
             }
+            // reaction / function / type now round-trip (Axis-A completeness):
+            // their slot serializations reconstruct, so a program's reactions,
+            // helper functions, and user types survive `quote ↔ reify`.
+            if let Some(r) = ent.reaction {
+                prog.push(Def::Reaction(r));
+            }
+            if let Some(f) = ent.function {
+                prog.push(Def::Function(f));
+            }
+            if let Some(pat) = ent.pattern {
+                prog.push(Def::Pattern(pat));
+            }
+            if let Some(t) = ent.type_def {
+                prog.push(Def::Type(t));
+            }
+            if let Some(c) = ent.contract {
+                prog.push(Def::Contract(c));
+            }
+            if let Some(p) = ent.protocol {
+                prog.push(Def::Protocol(p));
+            }
             // A value binding — incl. a program's trailing `main` entry, which
             // carries the initial state. Without this a whole program's entry is
             // lost through `quote ↔ reify` (the `definer_equals_its_quote_then_eval`
-            // proof). Reaction / Function / unit / … — add as their slot
-            // serializations round-trip.
+            // proof). unit / context — add as their slot serializations round-trip
+            // (each needs its sub-type codec: Dimension/UnitExpr, ContextRule).
             if let Some((schema, value)) = ent.binding {
                 prog.push(Def::Binding {
                     name: ent.name.clone(),
@@ -2482,11 +2577,13 @@ impl Program {
 }
 
 impl EntityDef {
-    /// Materialize an `EntityDef` from its [`Self::to_value`] shape. Inverse
-    /// of `to_value` over the slots that have round-trippable serializations
-    /// today: `process`, `step`, `composite`. Other slots are recognized but
-    /// not yet round-trippable (`from_value` ignores them; full coverage
-    /// expands as needed).
+    /// Materialize an `EntityDef` from its [`Self::to_value`] shape — the inverse
+    /// of `to_value`. `process`, `step`, `composite`, `reaction`, `function`,
+    /// `pattern`, `type`, `contract`, `protocol`, and `binding` all round-trip
+    /// (Axis-A completeness, homoiconic-unification gap 3). The two remaining
+    /// kinds (`unit`, `context`) emit a slot-name marker only and are not yet
+    /// reconstructed — each needs a `Dimension`/`UnitExpr`/`Ratio` codec (core
+    /// flagged Ratio-serde) and expands here as that lands.
     pub fn from_value(v: &prism_schema::Value) -> Result<EntityDef, ExprFromValueError> {
         let map = v
             .as_map()
@@ -2532,6 +2629,115 @@ impl EntityDef {
                 using: Vec::new(),
                 interface,
                 body,
+            });
+        }
+        // reaction / function / type — the inverse of `to_value`'s slot
+        // emissions. Closing these makes definition-as-data uniform across the
+        // value-form kinds (Axis-A completeness, homoiconic-unification gap 3):
+        // `quote ↔ reify` now round-trips a reaction's redex/reactum/guard/rate,
+        // a function's params/body, and a type's representation/methods.
+        if let Some(r) = map.get("reaction") {
+            let rm = r.as_map().ok_or_else(|| err("EntityDef.reaction must be a Map"))?;
+            let redex =
+                Expr::from_value(rm.get("redex").ok_or_else(|| err("reaction.redex missing"))?)?;
+            let reactum = Expr::from_value(
+                rm.get("reactum").ok_or_else(|| err("reaction.reactum missing"))?,
+            )?;
+            ent.reaction = Some(ReactionDef {
+                name: name.clone(),
+                params: params_from_value_list(rm.get("params"))?,
+                redex,
+                reactum,
+                guard: rm.get("guard").map(Expr::from_value).transpose()?,
+                rate: rm.get("rate").map(Expr::from_value).transpose()?,
+            });
+        }
+        if let Some(f) = map.get("function") {
+            let fm = f.as_map().ok_or_else(|| err("EntityDef.function must be a Map"))?;
+            let body =
+                Expr::from_value(fm.get("body").ok_or_else(|| err("function.body missing"))?)?;
+            ent.function = Some(FunctionDef {
+                name: name.clone(),
+                params: params_from_value_list(fm.get("params"))?,
+                body,
+            });
+        }
+        if let Some(pat) = map.get("pattern") {
+            let pm = pat.as_map().ok_or_else(|| err("EntityDef.pattern must be a Map"))?;
+            let body =
+                Expr::from_value(pm.get("body").ok_or_else(|| err("pattern.body missing"))?)?;
+            ent.pattern = Some(PatternDef {
+                name: name.clone(),
+                params: params_from_value_list(pm.get("params"))?,
+                body,
+            });
+        }
+        if let Some(t) = map.get("type") {
+            let tm = t.as_map().ok_or_else(|| err("EntityDef.type must be a Map"))?;
+            let rep_src = tm
+                .get("representation")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| err("type.representation must be a string"))?;
+            let representation = crate::parse::parse_schema_expr(rep_src)
+                .map_err(|e| err(&format!("type.representation parse: {e:?}")))?;
+            let methods = match tm.get("methods").and_then(|v| v.as_list()) {
+                Some(list) => list
+                    .iter()
+                    .map(method_def_from_value)
+                    .collect::<Result<Vec<_>, _>>()?,
+                None => Vec::new(),
+            };
+            ent.type_def = Some(TypeDef {
+                name: name.clone(),
+                params: params_from_value_list(tm.get("params"))?,
+                representation,
+                methods,
+            });
+        }
+        if let Some(c) = map.get("contract") {
+            let cm = c.as_map().ok_or_else(|| err("EntityDef.contract must be a Map"))?;
+            let mut axes: indexmap::IndexMap<Name, Name> = indexmap::IndexMap::new();
+            if let Some(am) = cm.get("axes").and_then(|v| v.as_map()) {
+                for (k, v) in am {
+                    let val = v
+                        .as_str()
+                        .ok_or_else(|| err("contract.axes value must be a string"))?;
+                    axes.insert(k.to_string(), val.to_string());
+                }
+            }
+            ent.contract = Some(ContractDef { name: name.clone(), axes });
+        }
+        if let Some(p) = map.get("protocol") {
+            let pm = p.as_map().ok_or_else(|| err("EntityDef.protocol must be a Map"))?;
+            let protocol = pm
+                .get("protocol")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| err("protocol.protocol missing"))?
+                .to_string();
+            let wrapped = pm
+                .get("wrapped")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| err("protocol.wrapped missing"))?
+                .to_string();
+            let mut fields_out: Vec<(Name, Expr)> = Vec::new();
+            if let Some(list) = pm.get("fields").and_then(|v| v.as_list()) {
+                for f in list {
+                    let fm = f.as_map().ok_or_else(|| err("protocol.field must be a Map"))?;
+                    let fname = fm
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| err("protocol.field.name missing"))?
+                        .to_string();
+                    let fval =
+                        Expr::from_value(fm.get("value").ok_or_else(|| err("protocol.field.value missing"))?)?;
+                    fields_out.push((fname, fval));
+                }
+            }
+            ent.protocol = Some(ProtocolDef {
+                name: name.clone(),
+                protocol,
+                wrapped,
+                fields: fields_out,
             });
         }
         // A value binding (`def X = expr`, incl. a program's trailing `main`
@@ -2581,6 +2787,34 @@ fn slot_def_from_value(
         .map(Expr::from_value)
         .unwrap_or(Ok(Expr::Unit))?;
     Ok((params, Interface { inputs, outputs }, body))
+}
+
+/// Reconstruct a `Vec<Param>` from a serialized list (inverse of mapping
+/// [`param_to_value`]). Absent / non-list → empty. Shared by the reaction /
+/// function / type / method reify arms.
+fn params_from_value_list(
+    v: Option<&prism_schema::Value>,
+) -> Result<Vec<Param>, ExprFromValueError> {
+    match v.and_then(|v| v.as_list()) {
+        Some(list) => list.iter().map(param_from_value).collect(),
+        None => Ok(Vec::new()),
+    }
+}
+
+/// Reconstruct a `MethodDef` — the inverse of [`method_def_to_value`].
+fn method_def_from_value(v: &prism_schema::Value) -> Result<MethodDef, ExprFromValueError> {
+    let m = v.as_map().ok_or_else(|| err("MethodDef must be a Map"))?;
+    let name = m
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| err("MethodDef.name missing"))?
+        .to_string();
+    let body = Expr::from_value(m.get("body").ok_or_else(|| err("MethodDef.body missing"))?)?;
+    Ok(MethodDef {
+        name,
+        params: params_from_value_list(m.get("params"))?,
+        body,
+    })
 }
 
 fn param_from_value(v: &prism_schema::Value) -> Result<Param, ExprFromValueError> {

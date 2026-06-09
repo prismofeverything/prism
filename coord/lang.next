@@ -70,10 +70,30 @@ a new instantiate op is a NAMED algebra op + laws + tests, not ad-hoc munging.
       completeness pass (reaction/function/unit/type don't round-trip yet — Axis A not uniform);
       a guard reading a matched site's FIELD (`?c.mass`) — likely-pre-existing binding gap; the
       query builtins `count(…)`/`.matches(…)` over a `FOREIGN_PATTERN`.
-- [ ] **Stage 4** (gated on 1–3, with `unify`) — expose the engine rung
-      (`discover_processes`/`Core::instantiate`, `engine.rs:1486`/`:1449`) as a
-      first-class `.ys` `eval`; unify with the `meta`-import `eval`/`load`. Thin-layer:
-      call prism. The metacircular close.
+- [x] **Stage 4a — NODE RUNG DONE.** New surface builtin `instantiate(state, time?)` in
+      `eval_call` (eval.rs, beside `core_processes`/`compile_reaction`): brings a spec-bearing
+      STATE to life + runs it for `time`, returning the evolved state. THIN call to prism —
+      `Engine::from_state` + `discover_all_processes` + `run` (the surface exposure of
+      `discover_processes`); one instantiate door (`ProtocolRegistry::instantiate`). Lives in
+      the **Evaluator** so it runs against the PROGRAM Core — a built `local:Tick` resolves to
+      this program's `process Tick`. With `meta::eval` (UPPER rung) → `run(p) =
+      instantiate(surface_eval(quote(p)))` is callable. Consumer: `tests/metacircular_node_rung.rs`
+      (3 green: runs a built spec to count 5.0; `instantiate(spec-as-data) == run(spec-as-body)`;
+      non-map rejected). **4b CLOSED** (no-op, confirmed w/ core: different rungs, nothing to delete).
+- [x] **Axis-A `from_value`-completeness — 10/12 kinds DONE.** `EntityDef`/`Program`
+      `to_value`↔`from_value` now round-trips process/step/composite/reaction/function/pattern/
+      type/contract/protocol/binding (total `quote∘reify∘quote == quote`, `tests/
+      entity_roundtrip_complete.rs`). Made `to_value` faithful (reaction/function params name-only→
+      full; reaction guard/rate were dropped; type/contract/protocol/pattern weren't serialized).
+      Only **unit + context** remain — need a `Dimension`/`UnitExpr`/`Ratio` + `ContextRule` codec
+      (pair w/ core's #71 Ratio-serde). Closes the DATA side of simplify's pattern-definer finding.
+- [ ] **Stage 4 — remaining** (consumer-driven, with `unify`/`core`): (a) the metacircular
+      *orchestrator* north star — a `.ys` program that builds + `instantiate`s a whole sub-program;
+      (b) `unit`/`context` reify (gated on core #71's `Ratio` serde — coordinate the shared
+      `Dimension` codec); (c) cleanups — retire `ReactionType::realize`; settle the pattern-definer
+      EVAL-arm (no `entity.pattern` arm in `eval_term_value` — simplify's finding; the DATA side is
+      now done). NOTE #71 units-in-schema is non-monotone (Schema-enum change) — coordinate the
+      chrysalis match-site batch before it lands.
 
 ## Coordinate
 `crates/chrysalis` is YOUR crate → monotone, act freely, sync via the board. BUT
@@ -127,14 +147,33 @@ the Stage-3 one-door guard (don't let your N→1 collapse regress).
   KEPT (harmless — re-wraps a crossed data reaction to `Foreign` at a typed slot; retiring
   ripples to `reaction_type`+`distributed_alchemy` — a separate cleanup). Board brace-break fixed.
 
-## ⚠️ Finding — Axis A is NOT yet uniform across every kind (for unify/core)
-The GAP-proof exposed that `EntityDef`/`Program` `to_value`↔`from_value` only fully round-trips
-**process / step / composite / binding** today. `reaction` + `function` are *serialized but not
-reconstructed* by `from_value`; `unit` / `type` / `contract` / `protocol` / `context` are *not
-serialized at all* (slot-name only). So the "definition-as-data is uniform across every kind"
-premise — which the Stage-4 dissolution of FLAT/RICH leans on — needs a **from_value /
-to_value completeness pass** before it's real. (GROW_DIVIDE's proof passes because it uses
-process/step/composite/binding + a non-load-bearing `unit`.) A clean follow-up task.
+- **Stage 4a node rung LANDED + 4b CLOSED** — the metacircular close, callable from `.ys`.
+  Added the surface builtin `instantiate(state, time?)` in `eval_call` (eval.rs) — a THIN call to
+  prism's `Engine::from_state` + `discover_all_processes` + `run` (the surface exposure of
+  `discover_processes`, one `ProtocolRegistry::instantiate` door). It lives in the Evaluator so it
+  runs against the PROGRAM Core (a built `local:Tick` resolves to this program's factory — what a
+  core-less `meta::` HostFn can't do). With `meta::eval` (UPPER rung), `run(p) =
+  instantiate(surface_eval(quote(p)))` is now callable. Consumer `tests/metacircular_node_rung.rs`
+  (3 green) proves `instantiate(spec-as-data) == run(spec-as-body)`. Full chrysalis suite 228 pass /
+  3 ign. 4b confirmed a no-op w/ core (meta::eval vs engine rung are different rungs). Docs:
+  homoiconic-unification.md (4a/4b) + chrysalis-design.md (Stage 4a note).
+- **Axis-A `from_value`-completeness LANDED (10/12 kinds)** — `EntityDef`/`Program`
+  `to_value`↔`from_value` now round-trips process/step/composite/reaction/function/pattern/type/
+  contract/protocol/binding. Total `quote∘reify∘quote == quote` witness over a 10-kind program
+  (`tests/entity_roundtrip_complete.rs`, 3 green). Made `to_value` faithful: reaction/function
+  params name-only→full (schema+default); reaction guard/rate were dropped; type/contract/protocol/
+  pattern weren't serialized at all. Used the existing schema-as-data path (`unparse_schema`↔
+  `parse_schema_expr`, `Expr::to_value/from_value`) — no core change. Full suite 233 pass. Docs:
+  homoiconic-unification gap-3 + chrysalis-design + EntityDef::from_value doc. Only unit + context
+  remain (Dimension/UnitExpr/Ratio + ContextRule codec — pair w/ core #71 Ratio-serde).
+
+## ✅ RESOLVED (10/12) — Axis-A now uniform across the value/declarative kinds
+The earlier finding ("`from_value` rebuilds only process/step/composite/binding") is **closed for
+10 of 12 kinds** (above). The premise the Stage-4 FLAT/RICH dissolution leans on — definition-as-
+data uniform across kinds — is now TRUE for process/step/composite/reaction/function/pattern/type/
+contract/protocol/binding. Remaining: **unit + context** (each needs a recursive `Dimension`/
+`UnitExpr`/`Ratio` (+`ContextRule`) codec; core flagged Ratio-serde — pair on #71). GROW_DIVIDE's
+proof still uses a non-load-bearing `unit`, now the lone gap there.
 - **Build hygiene** — added `[profile.dev]` `debug = "line-tables-only"` + `incremental = false`
   to root `Cargo.toml` (the full 93-binary suite at default `debug = 2` filled the disk). Rule:
   `cargo check -p <crate>` / `cargo test -p <crate> --test <one>` — NEVER bare

@@ -21,33 +21,65 @@ is a faithful port; when unsure read `../process-bigraph` / `../bigraph-schema` 
 unification — THE LINCHPIN** (with `lang` + `unify`).
 
 ## Now / next — Stage 4: the consumer-boundary eval unification (THE LINCHPIN)
+**CORE SUBSTRATE COMPLETE + PROVEN (2026-06-09, tick 5).** All three boundaries eval
+state-DATA → runnable, each backed by a GREEN consumer. The remaining Stage-4 work is the
+SURFACE eval (lang 4a, now LIVE) + the recognition (unify 4b) + the `realize` retirement
+(lang) — core has handed off and is **available to pair**, not blocked.
 The thesis (`homoiconic-unification.md` Stage 4 + Constructor face): **one eval = eval
-DATA → runnable at EVERY consumer boundary.** Today three boundaries handle data→runnable
-differently (or not at all) — unify them; *this is what dissolves the FLAT/RICH constructor
+DATA → runnable at EVERY consumer boundary.** *This is what dissolves the FLAT/RICH constructor
 seam* (lets reaction/pattern constructors produce DATA like process/composite):
-- [ ] **nodes** — `discover_processes` (`engine.rs:1486`/`:1449`): process-DATA spec → running
-      node. EXISTS; expose as a first-class `.ys` `eval` (4a), unify with the `meta`-import
-      `eval`/`load` (4b).
+- [x] **nodes** — SUBSTRATE DONE. `Core::instantiate_spec` (`core.rs:165`) reads the
+      `{_type,address,config}` envelope → `ProcessNode` (the single-node surface entry); the
+      engine's `discover_processes` (`engine.rs:1486`) evals a spec the same way. PROVEN
+      end-to-end: `reaction_creates_process.rs` — a reactum `_add`s a process/composite SPEC and
+      the engine evals it into a LIVE ticking node (process AND composite). 4a SURFACE is lang's
+      and **LIVE** (lang tick 11, planned `metacircular_node_rung` test, building against core-green).
+      Seam handed off: surface `eval` calls `instantiate_spec` (single node) or
+      `Engine::from_state`+`discover_all_processes` (whole program). 4b (unify the `meta`
+      `eval`/`load` with the engine rung) — I see NO real duplication (different rungs); unify to confirm/close.
 - [x] **rules** — `collect_reactions`/`push_reaction` (`brs.rs`): DONE (4c). `push_reaction`
       now evals a TRANSPARENT reaction-DATA map (`_pat="Rule"`) via the existing
       `ReactionRule::from_data_value`, additive beside the `Foreign` carrier — symmetric with
       `discover_processes`. Consumer: `prism-bigraph/tests/reaction_data_as_state.rs` (3 green).
-      This is the substrate that lets `build_reaction_value` emit pure DATA (FLAT/RICH dissolves)
-      + lets chrysalis's `ReactionType::realize` re-wrap retire (lang's flip, gated on this).
-- [ ] **patterns** — `find_matches` (`prism_schema::reaction`): a `Pattern(…)`/redex DATA value
-      → a matcher (4d).
-- [ ] Unify the three as ONE "eval data→runnable" op/pattern. Thin-layer: chrysalis CALLS this;
-      the eval lives HERE in core.
+      lang's flip is DONE (every producer emits DATA; FLAT/RICH dissolved); `ReactionType::realize`
+      retirement is lang's deferred cleanup (ripples to reaction_type + distributed_alchemy tests).
+- [x] **patterns** — SUBSTRATE DONE. `Pattern::from_value` (`prism_schema::reaction`) is total +
+      lawed (`reaction_data.rs`) and reused *inside* `from_data_value`, so 4c already carries it.
+      A standalone `find_matches`-from-DATA entry (4d) is consumer-driven — only if lang's
+      `count()`/`.matches()` want it.
+- [x] **Unify the three as ONE "eval data→runnable" op/pattern** — DONE IN SPIRIT. The
+      recognition lives in `schema-algebra.md` § "Eval: state-data → runnable" (the shared shape:
+      *scan state for a typed value, eval to runnable, collect*), each boundary an EXISTING codec.
+      A LITERAL single function would be a FALSE unification: 3 distinct runnable types
+      (`ProcessNode`/`ReactionRule`/matcher) consumed by 3 distinct machineries
+      (`engine.nodes`/BRS ruleset/`find_matches`) — it would just re-split. "Not a new operation,
+      a shared shape" (the doc) is the correct closure.
 
 ## Coordinate
 `prism-schema` + `prism-bigraph` are SHARED crates everyone builds on — a public-API or
 BRS/reaction-boundary change is **NON-MONOTONE** → **coordinate-FIRST** (read `board.ys`,
-claim it in `touching`, drop a `note` so lang/domains rebuild). Gated on `lang`'s Stage-2b
-completion (the reframe + param desugaring + uniformity proof) + `simplify`'s Stage-3 guard;
-**prep now** — survey the three boundaries + design the unified op while lang finishes 2b.
-Pair with `unify` on the design, `lang` on the chrysalis↔prism seam.
+claim it in `touching`, drop a `note` so lang/domains rebuild). The Stage-4 gate is **LIFTED**
+(lang 2b green @ tick 10–11, simplify Stage-3 green @ tick 6). lang is **LIVE on 4a** (the
+surface `eval` / `metacircular_node_rung`), building against core's published GREEN
+(schema+bigraph @ green_tick 5). Core's role now: **pair the seam** (substrate is ready, no
+edits needed) + be the green watermark lang/simplify build on. **Do NOT** start the next
+non-monotone core arc (#71 units-in-schema — a `Schema`-enum change) in-tree mid-push; it
+would break lang's 4a build. It lands as ONE coordinated/isolated arc at the post-push green
+checkpoint. Pair with `unify` on the recognition, `lang` on the chrysalis↔prism seam.
 
 ## Done (this arc)
+- **Tick 5 — VERIFY + HANDOFF + board boot (no code edits).** Confirmed the Stage-4 core
+  substrate is COMPLETE + green: `prism-schema` 75 pass (1 ign) + `prism-bigraph` 193 pass
+  (suite binaries, 1.1s). Verified the node loop is PROVEN end-to-end (`reaction_creates_process`
+  — a reactum `_add`s a spec, the engine evals it to a live ticking process AND composite), and
+  that the one-instantiate invariant HOLDS (no node-boundary door to merge: `scan_for_processes`,
+  `Core::instantiate`, `Core::instantiate_spec` all bottom out in `ProtocolRegistry::instantiate`
+  — `instantiate_spec` is the envelope-reader, not a second door). Booted the heartbeat:
+  `chrysalis run coord/board.ys --time 1` converges (6 peers, no wedge; core @ tick 5). Published
+  the `build:` GREEN watermark (schema+bigraph @ green_tick 5). Handed the 4a seam to lang (now
+  LIVE on it). Surveyed + teed up #71 (`docs/units-in-the-schema.md`): every slice is gated on the
+  non-monotone `Schema`-enum change (serde-on-units + a dimension-check fn are both consumer-less
+  until the schema carries the dimension), so it lands as ONE isolated arc post-push, not dribbled in.
 - **Stage 4c (THE LINCHPIN)** — `push_reaction` (brs.rs) evals transparent reaction-DATA
   (`_pat="Rule"` map → `ReactionRule` via the existing `from_data_value`), additive beside the
   `Foreign` carrier. Tests: `reaction_data_as_state.rs` (3) + `rules_as_state` regression. The
@@ -82,16 +114,31 @@ Pair with `unify` on the design, `lang` on the chrysalis↔prism seam.
     (`Const`/`Quote` wrap an inner schema), so `unit`/`context` def-as-data is chrysalis AST
     serialization, not a core gap (units types lack serde — a gated add if lang's `UnitDef` needs it).
 
-## Next (resume here) — mostly lang/unify + simplify
-- **Stage 4a/4b (lang + unify)** — the surface `.ys` `eval` rung (calls `Core::instantiate_spec`)
-  + unify the `meta` `eval`/`load` with the engine rung. The metacircular close.
-- **Axis-A completeness (lang, core supports)** — `EntityDef::from_value` rebuilds only
-  process/step/composite/binding; make it total (reaction/function rebuild; type via the codec
-  above; unit/context AST). The "definition-as-data uniform" premise Stage 4 leans on.
-- **4c flip (lang)** — `build_reaction_value` emits DATA; the `ReactionType::realize` BRS re-wrap retires.
-- **Stage-3 guard (simplify)** — re-run + extend the one-instantiate guard now that lang 2b is green.
+## Next (resume here)
+**Stage-4 finish (others own; core PAIRS):**
+- **4a (lang LIVE) — pair the seam.** lang is building the surface `.ys` `eval` / its
+  `metacircular_node_rung` test against core-green. Substrate ready: `Core::instantiate_spec`
+  (single node) · `Engine::from_state`+`discover_all_processes` (whole program) · `meta::eval`
+  (the Expr→data upper rung). Respond to any core gap lang surfaces; otherwise no core edit.
+- **4b (unify) — confirm/close.** I see NO real duplication between `meta::eval`/`load` and the
+  engine rung (different rungs: Expr→data vs data→running; `load` = parse+compile, `from_state` =
+  engine-build). unify to confirm it is a no-op deletion, or flag what is real.
+- **Axis-A from_value completeness (lang; core supplied the codec)** — `EntityDef::from_value`
+  rebuilds only process/step/composite/binding; the type arm wires through
+  `schema_codec::{schema_to_value,value_to_schema}` (round-trip-pinned TOTAL). The units half is #71 ↓.
+- **invariant #3 guard (simplify) — pair when 4a lands.** "No second eval": pin that `meta::eval`
+  and the engine rung route through the SAME `instantiate_spec`/`from_state`, no third path.
+- **`realize` retirement (lang)** — deferred cleanup; substrate does not need it.
+
+**THE next CORE arc — #71 units-in-schema** (`docs/units-in-the-schema.md`; owner core; the
+Axis-A units half + first refinement of #68). Carry `Dimension` in the TYPE, erased from the
+VALUE (zero-cost), so `check` (wiring) · the boundary codec (conversion) · `serialize` consult it
+— subsuming the chrysalis baked-factor / `thread_factor_inputs` workaround. **It is NON-MONOTONE**
+(the `Schema` enum gains a dimension → the workspace will not compile until every match site
+updates) and **every slice is gated on that change** (serde-on-`prism-schema::units` — the types
+are all plain data, no closures, so a clean derive once `Ratio` gets one — and a dimension-mismatch
+`check` fn are both consumer-less until the schema carries the dimension). So there is **no clean
+monotone slice to dribble in**; it lands as ONE coordinated/isolated arc at the post-push green
+checkpoint, with its consumer (`type Mass = Quantity[…]` round-trips; a mismatched wire is a
+`check` error; gram→kg via the codec). Discipline: laws-first (`schema-algebra.md`), build-the-consumer.
 - If lang's `count()`/`.matches()` lands, a `find_matches`-from-DATA convenience (else `Pattern::from_value`).
-- **#71 units as a schema refinement** (`docs/units-in-the-schema.md`) — captured, not started.
-  Units are compile-time-erased today (dimension dropped → `Delta`/`Float`), which is the units
-  half of the Axis-A gap. Carry `Dimension` in the schema (erased from the value, zero-cost), so
-  `check`/codec/`serialize` consult it. Core-heavy (schema + algebra + units serde); first refinement of #68.

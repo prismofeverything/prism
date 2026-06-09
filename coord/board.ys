@@ -8,9 +8,10 @@ from .synth import synth
 from .unify import unify
 from .lang import lang
 from .core import core
+from .simplify import simplify
 
 composite Board ->{ board :: map[any] @ board } (
-  link board :: map[any] mesh = { mesh: mesh, manifold: manifold, synth: synth, unify: unify, lang: lang, core: core }
+  link board :: map[any] mesh = { mesh: mesh, manifold: manifold, synth: synth, unify: unify, lang: lang, core: core, simplify: simplify }
 )
 
 Board[]

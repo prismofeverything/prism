@@ -884,8 +884,35 @@ in `brs.rs` — core; `brs_rules` in chrysalis — both via `ReactionRule::from_
 So a reaction is now plain data, **uniform with a process spec**, and crosses every
 boundary (link / bridge / rest / JSON wire) as JSON. A COMPUTED reaction (guard / computed
 reactum / rate closure) keeps the in-process `Foreign(FOREIGN_RULE)` carrier (its closures
-need the evaluator at fire time). Remaining Stage-4 work: the `Pattern(…)` / node-spec /
-`eval`-tower rungs (4a/4d) + the `to_value`/`from_value` Axis-A completeness pass.
+need the evaluator at fire time).
+
+**Stage 4a landed — the node rung as a surface builtin.** The reflective tower's LOWER
+rung is now first-class in `.ys`: **`instantiate(state, time?)`** (a core-reflection
+builtin in `eval_call`, beside `core_processes` / `compile_reaction`) brings a
+spec-bearing STATE to life and runs it for `time` (default 0 = instantiate + settle),
+returning the evolved state. It is a **thin** call to prism — `Engine::from_state` +
+`discover_all_processes` + `run` — the surface exposure of `discover_processes`; it never
+clones engine logic, and instantiation bottoms out in the SAME
+`ProtocolRegistry::instantiate` door the engine, `Core::instantiate`, and
+`Core::instantiate_spec` use. Crucially it lives in the **Evaluator**, so it runs against
+the program's OWN `Core` — a built spec's `local:Tick` address resolves to *this program's*
+`process Tick` factory (a core-less `meta::` host fn could not). Paired with `meta::eval`
+(the UPPER rung, `Expr → spec data`), it makes the metacircular identity
+**`run(p) = instantiate(surface_eval(quote(p)))`** a callable loop — `instantiate(spec-as-data)
+≡ run(spec-as-body)` (`tests/metacircular_node_rung.rs`).
+
+**Axis-A `from_value` completeness landed (10/12 kinds).** `EntityDef`/`Program`
+`to_value` ↔ `from_value` now round-trips **process / step / composite / reaction /
+function / pattern / type / contract / protocol / binding** — the strong witness is the
+total identity *quote ∘ reify ∘ quote == quote* over a program touching all ten
+(`tests/entity_roundtrip_complete.rs`). Along the way `to_value` was made faithful where
+it had been lossy: reaction + function params went from name-only to full params (schema +
+default), reaction `guard` / `rate` were being dropped, and `type` / `contract` / `protocol`
+/ `pattern` weren't serialized at all. Only **`unit`** and **`context`** remain — each needs
+a recursive sub-type codec (`Dimension` / `UnitExpr` / `Ratio` for units, `ContextRule` for
+contexts; core flagged `Ratio` serde as a small gated core-side add) — and reify to nothing
+until that lands. Remaining Stage-4 work: the 4a metacircular *orchestrator* north star
+(build + eval a whole sub-program) + `unit` / `context` reify.
 
 ### Evaluation: every name a value, every value composes
 

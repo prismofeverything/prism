@@ -535,6 +535,25 @@ impl Evaluator {
             if name == "compile_reaction" && arg_vals.len() == 1 {
                 return self.compile_reaction_value(&arg_vals[0], env);
             }
+            // 1e. `instantiate(state, time?)` — the LOWER rung of the reflective
+            // tower (homoiconic-unification §3 / Stage 4a, the metacircular close).
+            // Bring a spec-bearing STATE to life and run it for `time` (default 0 =
+            // instantiate + settle), returning the evolved state. This is the
+            // surface counterpart of `meta::eval` (the UPPER rung, `Expr → spec
+            // data`): together they make `run(p) = instantiate(eval(quote(p)))`
+            // a callable identity. It runs against the PROGRAM's OWN Core (read
+            // through the shared handle — the same one the engine + nodes hold), so
+            // a state referencing this program's `process`/`composite`/`type`
+            // definitions resolves; a core-less `meta::` host fn could not. A user
+            // `def instantiate(…)` shadows it (checked above), like the other
+            // reflection builtins.
+            if name == "instantiate" && (1..=2).contains(&arg_vals.len()) {
+                let time = arg_vals
+                    .get(1)
+                    .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
+                    .unwrap_or(0.0);
+                return self.eval_instantiate(&arg_vals[0], time);
+            }
         }
         // 2. Indirect: `func` evaluates to a first-class function value — a
         // function passed as an argument, returned, or stored. Resolve it to its
@@ -553,6 +572,49 @@ impl Evaluator {
                 _ => "call target is not a function".into(),
             },
         })
+    }
+
+    /// The LOWER rung of the reflective tower (homoiconic-unification §3 / Stage
+    /// 4a, the metacircular close): bring a spec-bearing STATE to life and run it
+    /// for `time`, returning the evolved state. The surface exposure of prism's
+    /// engine `discover_processes`. Pairs with `meta::eval` (the UPPER rung,
+    /// `Expr → spec data`) to close the metacircular identity
+    /// `run(p) = instantiate(surface_eval(quote(p)))`.
+    ///
+    /// THIN LAYER (`feedback_chrysalis_thin_layer`): it CALLS prism — `Engine::
+    /// from_state` + `discover_all_processes` (the discover rung) + `run` — never
+    /// clones engine logic. Discovery + instantiation bottom out in the SAME
+    /// `ProtocolRegistry::instantiate` door that `scan_for_processes` /
+    /// `Core::instantiate` / `Core::instantiate_spec` use, so this is one
+    /// instantiate, not a second one (invariant #1). The proven node loop it
+    /// exposes is `crates/prism-bigraph/tests/reaction_creates_process.rs`.
+    ///
+    /// It runs against the program's OWN [`Core`] (read through the shared handle,
+    /// per the Core-threading rule) — so a `local:Tick` address resolves to this
+    /// program's `process Tick` factory. `Schema::Any` + the spec `_type` hints
+    /// drive discovery (the battle-tested path); per-node apply (Float/Delta
+    /// accumulation) is governed by each node's OUTPUT-PORT schema, not the root,
+    /// so `Any` at the root is faithful.
+    fn eval_instantiate(&self, state: &Value, time: f64) -> Result<Value, EvalError> {
+        if !matches!(state, Value::Map(_)) {
+            return Err(EvalError::InvalidForm {
+                context: "instantiate".into(),
+                message: "instantiate expects a spec-bearing state — a map like \
+                          `{slot: …, node: {_type, address, …}}` (got a non-map value)"
+                    .into(),
+            });
+        }
+        let core = self.core().cloned().ok_or_else(|| {
+            EvalError::Other(
+                "instantiate: the runtime Core is not bound yet (no engine context)".into(),
+            )
+        })?;
+        let mut engine =
+            prism_bigraph::Engine::from_state(prism_schema::Schema::Any, state.clone(), core)
+                .map_err(EvalError::Other)?;
+        engine.discover_all_processes();
+        engine.run(time);
+        Ok(engine.state().clone())
     }
 
     /// Evaluate a function body with `params` bound positionally to `args`.
@@ -1308,8 +1370,7 @@ impl Evaluator {
         // the FLAT/RICH seam dissolves; a COMPUTED rule (guard / computed reactum /
         // rate closure) keeps the in-process `Foreign(FOREIGN_RULE)` carrier, whose
         // closures need THIS evaluator at fire time.
-        Ok(crate::runtime::rule::to_data_value(&rule)
-            .unwrap_or_else(|| Value::Foreign(prism_schema::value::Foreign::new(FOREIGN_RULE, rule))))
+        Ok(crate::runtime::rule::carry_rule(rule))
     }
 
     /// Compile a REACTION assembled as DATA into the runnable, transmittable
@@ -1429,8 +1490,7 @@ impl Evaluator {
     ) -> Result<Value, EvalError> {
         let rule =
             self.build_rule("assembled".into(), redex, reactum, None, None, IndexMap::new(), env)?;
-        Ok(crate::runtime::rule::to_data_value(&rule)
-            .unwrap_or_else(|| Value::Foreign(prism_schema::value::Foreign::new(FOREIGN_RULE, rule))))
+        Ok(crate::runtime::rule::carry_rule(rule))
     }
 
     /// The capitalized `Reaction[redex: <pat>, reactum: <pat>, rate: <expr>?]`
@@ -1475,8 +1535,7 @@ impl Evaluator {
         // computed rule stays `Foreign(FOREIGN_RULE)` and keeps this closure —
         // `to_structural_rule` returns `None` for it.)
         let rule = self.build_rule("Reaction".into(), redex, reactum, guard, rate, env.clone(), env)?;
-        Ok(crate::runtime::rule::to_data_value(&rule)
-            .unwrap_or_else(|| Value::Foreign(prism_schema::value::Foreign::new(FOREIGN_RULE, rule))))
+        Ok(crate::runtime::rule::carry_rule(rule))
     }
 
     /// The capitalized `Pattern( fragment )` constructor — the VALUE form of the

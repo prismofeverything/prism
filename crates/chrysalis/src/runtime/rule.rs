@@ -412,6 +412,22 @@ pub fn to_data_value(rule: &Rule) -> Option<Value> {
     to_structural_rule(rule).and_then(|pr| pr.to_data_value())
 }
 
+/// The at-rest Value a freshly-built chrysalis [`Rule`] is emitted as — the ONE
+/// place the Stage-4c carrier policy lives. A STRUCTURAL rule becomes transparent
+/// `_pat:"Rule"` DATA (via [`to_data_value`]) that the BRS evals directly
+/// (`push_reaction` / `brs_rules` → `ReactionRule::from_data_value`), uniform with
+/// a process spec; a COMPUTED rule (guard / computed reactum / rate closure) keeps
+/// the in-process `Foreign(FOREIGN_RULE)` carrier, whose closures need *this*
+/// evaluator at fire time. Every reaction producer (`build_reaction_value`,
+/// `eval_rule_expr`, `build_reaction_constructor`) emits through here, so the
+/// structural-vs-computed decision cannot re-fork per-site — pinned by
+/// `chrysalis/tests/rule_carrier_one_door_guard.rs` (the carrier construction must
+/// occur exactly once). The total sibling of the partial codecs [`to_data_value`]
+/// (structural→data) and [`to_bigraph_value`] (structural→`FOREIGN_REACTION` wire).
+pub fn carry_rule(rule: Rule) -> Value {
+    to_data_value(&rule).unwrap_or_else(|| Value::Foreign(Foreign::new(FOREIGN_RULE, rule)))
+}
+
 /// The `reaction` TYPE — a reaction *at rest*, as transmittable / storable DATA.
 ///
 /// Its `realize` REIFIES a chrysalis [`Rule`] value (`FOREIGN_RULE`) into the

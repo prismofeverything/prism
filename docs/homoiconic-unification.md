@@ -14,14 +14,26 @@
 > engine's `discover_processes` are the two rungs of **one** reflective tower.
 >
 > **STATUS (2026-06-09, multi-agent push — `unify`/`lang`/`core`/`simplify`):** Stages
-> **1, 2, 3, 4c DONE + PINNED.** `quote` total; one `build_rule` lowering core; the
-> capitalized constructors are `quote` of their definers; the param-gap closed (`X[args]`
-> calls a function); **all reaction producers now emit transparent DATA — FLAT/RICH dissolved
-> for reactions** — and the one-door guards (invariants #1+#2) fail the build if it re-forks.
-> **Remaining:** **4a** (the metacircular close — a `.ys` `eval` calling
-> `Core::instantiate_spec`; substrate ready), the Axis-A `from_value`-completeness (reify
-> reaction/function/type), and cleanups (retire `ReactionType::realize`; the `pattern`-definer
-> value form). See §4 + the "Constructor face" section.
+> **1, 2, 3, 4c DONE + PINNED, and 4a's NODE RUNG LANDED.** `quote` total; one `build_rule`
+> lowering core; the capitalized constructors are `quote` of their definers; the param-gap
+> closed (`X[args]` calls a function); **all reaction producers now emit transparent DATA —
+> FLAT/RICH dissolved for reactions** — and the one-door guards (invariants #1+#2) fail the
+> build if it re-forks. **4a (`lang`):** the LOWER rung is now a first-class `.ys` builtin —
+> `instantiate(state, time)` brings a spec-bearing state to life and runs it against the
+> program's OWN Core (the surface exposure of `discover_processes`), pairing with `meta::eval`
+> (the UPPER rung) to make `run(p) = instantiate(surface_eval(quote(p)))` a *callable* loop.
+> Consumer: `tests/metacircular_node_rung.rs` (a `.ys` program builds a `Tick` spec as data,
+> instantiates it, and reaches the same count as running it directly). **4b confirmed a no-op**
+> (`core` + `lang`: `meta::eval`/`load` and the engine rung are genuinely different rungs —
+> `Expr→data` vs `data→running`, parse+compile vs engine-build — no duplication to delete).
+> **Axis-A `from_value`-completeness LANDED (`lang`, 10/12 kinds):** `EntityDef`/`Program`
+> `from_value` now reconstructs process/step/composite/reaction/function/pattern/type/contract/
+> protocol/binding — the *quote ∘ reify ∘ quote == quote* total round-trip holds over a program
+> touching all ten (`tests/entity_roundtrip_complete.rs`). Reaction `guard`/`rate`/typed-params,
+> a `type`'s methods, and schemaless function params all survive. Only **`unit` + `context`**
+> remain (each needs a `Dimension`/`UnitExpr`/`Ratio` codec — core flagged Ratio-serde as a gated
+> core add). **Remaining:** the 4a metacircular *orchestrator* north star (consumer-driven);
+> `unit`/`context` reify; cleanups (retire `ReactionType::realize`). See §4 + "Constructor face".
 
 ## 1. The diagnosis — the vision vs. the code (2026-06-09 survey)
 
@@ -238,15 +250,19 @@ Stage-2 reaction exception surfacing in the constructor**, and must be framed as
    process/step/composite — so a program's trailing `main` (a `Def::Binding` holding the initial
    state) was **LOST through quote** (the reified program ran with no cells). Binding round-trip
    now fixed. The proof discipline earned its keep.
-3. **Axis-A reify completeness** (⚠️ NEW, `lang`, 2026-06-09 — corrects the "uniform across every
-   kind" premise above). `EntityDef::from_value` rebuilds **only** process/step/composite;
-   reaction/function are *serialized but not rebuilt*, and unit/type/contract/protocol/context
-   aren't serialized at all. So the *quote* (`to_value`) is broad but the *reify* (`from_value`)
-   is partial — the "definition-as-data uniform across every kind" premise the Stage-4 dissolution
-   leans on is **not yet true**. A **`from_value`-completeness pass** (the reify side of the entity
-   round-trip) is the honest prerequisite. *(The reaction-as-DATA dissolution itself rides the
-   `Expr::from_value` / `ReactionRule::from_data_value` paths, which ARE total — so 4c / the
-   seam-dissolution isn't blocked; but the broad Axis-A claim was overstated.)*
+3. **Axis-A reify completeness** (✅ SUBSTANTIALLY DONE, `lang`, 2026-06-09 — 10/12 kinds).
+   `EntityDef`/`Program` `from_value` now reconstruct **process/step/composite/reaction/function/
+   pattern/type/contract/protocol/binding**, and `to_value` was made faithful where it was lossy
+   (reaction/function params went name-only → full params; reaction `guard`/`rate` were dropped;
+   `type`/`contract`/`protocol`/`pattern` weren't serialized at all). The total round-trip
+   *quote ∘ reify ∘ quote == quote* now holds over a program touching all ten
+   (`tests/entity_roundtrip_complete.rs`) — so the "definition-as-data uniform across every kind"
+   premise the Stage-4 dissolution leans on is **true for these ten**. The two remaining kinds —
+   **`unit`** (needs a `Dimension`/`UnitExpr`/`Ratio` codec; core flagged Ratio-serde) and
+   **`context`** (needs a `ContextRule` codec) — emit a slot-name marker only and reify to nothing;
+   they expand in `EntityDef::from_value` when their sub-type codec lands. *(The reaction-as-DATA
+   dissolution rides the total `Expr::from_value` / `ReactionRule::from_data_value` paths, so it was
+   never blocked; this pass makes the broad Axis-A claim honest.)*
 
 ### Stage 3 — the one-door guard · `simplify`
 - A build-failing test: **"exactly one function instantiates an entity spec"** — the
@@ -268,13 +284,29 @@ thin-layer discipline honest. **Sequencing:** (1) the **4c handoff** — lang fl
 `build_reaction_value`→DATA now (core's substrate is live + 2b is green) — *this is what
 dissolves FLAT/RICH*, so first; (2) **4a** (the metacircular close) in parallel; (3) the
 `from_value`-completeness prereq (gap 3); then 4b / 4d / the recognition doc.
-- **4a.** Expose the engine-level rung as a first-class `.ys` operation: a `.ys` program
-  can `eval` a spec it built into a running node. **Must call** prism's
-  `discover_processes` / `Core::instantiate` (thin layer — `engine.rs:1486`/`:1449`),
-  never clone. This makes the surface `eval` and `discover_processes` the same operator
-  at the object level.
-- **4b.** Unify the `meta` import's `eval`/`load` (`prelude.rs:329`/`:317`) with the
-  engine rung where they coincide — delete the duplication if it is real.
+- **4a. ✅ NODE RUNG DONE (`lang`, 2026-06-09).** The engine-level rung is now a
+  first-class `.ys` builtin: **`instantiate(state, time?)`** (`eval.rs`, in `eval_call`
+  beside the `core_processes` / `compile_reaction` reflection builtins) brings a
+  spec-bearing STATE to life and runs it for `time` (default 0 = instantiate + settle),
+  returning the evolved state. It **calls** prism — `Engine::from_state` +
+  `discover_all_processes` + `run` (`engine.rs:1449`) — never clones; discovery bottoms
+  out in the SAME `ProtocolRegistry::instantiate` door `scan_for_processes` /
+  `Core::instantiate` / `Core::instantiate_spec` use (one instantiate, invariant #1). It
+  lives in the **Evaluator** (not a core-less `meta::` host fn) precisely so it runs
+  against the program's OWN `Core` — a built spec's `local:Tick` address resolves to *this
+  program's* `process Tick` factory. With `meta::eval` (the UPPER rung, `Expr → spec data`),
+  the surface `eval` and `discover_processes` are now the two named rungs of one tower at
+  the object level (invariant #3). Consumer: `tests/metacircular_node_rung.rs` —
+  `run(spec-as-body) == instantiate(spec-as-data)`. *(Remaining 4a: the metacircular
+  orchestrator north star — a `.ys` program that builds + evals a whole sub-program; the
+  node rung is the primitive it stands on.)*
+- **4b. ✅ CONFIRMED NO-OP (`core` + `lang`, 2026-06-09).** No real duplication between the
+  `meta` import's `eval`/`load` (`prelude.rs:329`/`:317`) and the engine rung: they are
+  different rungs — `meta::eval` is `Expr → spec data` (the UPPER rung), the engine rung is
+  `data → running` (the LOWER, now `instantiate`); `load` is parse+compile (file → Document),
+  `Engine::from_state` is engine-build. Nothing to delete; the "two evals" of §1 are unified
+  by *recognition + a shared instantiate door*, not by collapsing two functions into one
+  (which would re-split — see core's note: 3 runnable types, 3 consumers).
 - **4c. ✅ DONE (core, 2026-06-09) — the BRS rule boundary evals data.**
   `collect_reactions`/`push_reaction` (`brs.rs`) now lowers a transparent reaction-DATA value
   in state to a `ReactionRule` via **`ReactionRule::from_data_value`** — the prism-side

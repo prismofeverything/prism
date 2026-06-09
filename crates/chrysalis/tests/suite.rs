@@ -30,6 +30,8 @@ mod composite_interval;
 mod contract_enforcement;
 #[path = "contract_query.rs"]
 mod contract_query;
+#[path = "coord_heartbeats_parse.rs"]
+mod coord_heartbeats_parse;
 #[path = "cross_composite_firing.rs"]
 mod cross_composite_firing;
 #[path = "cross_composite_link_redex.rs"]
@@ -44,6 +46,8 @@ mod distributed_cross_composite;
 mod effects_first_slice;
 #[path = "entity_as_data.rs"]
 mod entity_as_data;
+#[path = "entity_roundtrip_complete.rs"]
+mod entity_roundtrip_complete;
 #[path = "entity_view.rs"]
 mod entity_view;
 #[path = "export_import.rs"]
@@ -104,6 +108,8 @@ mod mesh_link_distributed;
 mod mesh_link_runtime;
 #[path = "mesh_link_surface.rs"]
 mod mesh_link_surface;
+#[path = "metacircular_node_rung.rs"]
+mod metacircular_node_rung;
 #[path = "mr.rs"]
 mod mr;
 #[path = "nested_composite.rs"]
@@ -176,6 +182,8 @@ mod reaction_type;
 mod reflective_reaction;
 #[path = "repl_coherence.rs"]
 mod repl_coherence;
+#[path = "rule_carrier_one_door_guard.rs"]
+mod rule_carrier_one_door_guard;
 #[path = "scaffold.rs"]
 mod scaffold;
 #[path = "schlogl.rs"]

@@ -19,21 +19,30 @@ existing guards are the template: `closure_guard` ("nothing manipulates schema/s
 outside the algebra") and **#45** ("one `address → process` instantiation path"). For
 THIS push you own **Stage 3** of the homoiconic unification.
 
-## Now / next — homoiconic unification, Stage 3 (the guard; gated on `lang`'s Stage 2)
-- [ ] **The one-instantiate guard** — a build-failing test asserting **exactly one
-      function turns an entity (definer OR constructor) into a spec Value**, after `lang`
-      collapses the N `build_X_value` builders into `instantiate` (Stage 2a). Model it on
-      `closure_guard` / #45 (a sealed seam / single-`match` / grep-or-AST test). This is
-      the generalization that keeps the unified face from re-forking.
-- [ ] **Homoiconic-surface duplication audit (#46-scoped)** — sweep the
-      definer ↔ constructor ↔ `to_value`/`from_value` ↔ `compile_reaction` surface for
-      remaining multiplicity; spin off one consolidation per confirmed duplicate. Verify
-      the Stage-1/2 collapses actually deleted the old paths (no dead `build_brs_value` /
-      `compile_reaction_value` left behind).
+## Now / next — homoiconic unification, Stage 3 (the guards) + the #46 audit tail
+- [x] **The one-instantiate guard** — DONE (prior arc): `instantiate_one_door_guard.rs`
+      pins the LOWERING core (`build_rule`) across reactions ×3 surfaces + patterns
+      (`eval_pattern_top`). Green through the 4c flip.
+- [x] **Homoiconic-surface duplication audit (#46-scoped)** — DONE this arc. Swept the
+      reaction-producer surface post-4c. **Found + consolidated one duplicate:** lang's 4c
+      flip TRIPLICATED the rule-carrier decision (`to_data_value(rule)` else
+      `Foreign(FOREIGN_RULE)`) across `build_reaction_value`/`eval_rule_expr`/
+      `build_reaction_constructor` → folded into ONE `runtime::rule::carry_rule`, pinned by
+      `rule_carrier_one_door_guard.rs` (carrier construction == 1 site). **Dead-path check:**
+      none — `compile_reaction_value` is live + correctly slimmed (Stage-1b re-parse gone);
+      `build_brs_value` is live (dispatched). **One flag (lang's call, NOT acted on):**
+      `build_brs_value` ≈ `build_native_spec` (differ only in `_type`/address/port-helper) —
+      the doc's Stage-2a "BRS→native fold" never landed.
+- [ ] **Invariant #3 guard ("no second eval")** — GATED on lang's 4a (the `.ys` `eval`
+      rung). **Now imminent:** lang is ON 4a (tick 11 — the `instantiate(spec,time)` builtin
+      in `eval_call`); core's Stage-4 substrate is complete (tick 5). When the surface `eval`
+      lands, pin that surface-eval and `discover_processes` are named rungs of ONE tower, not
+      two parallel mechanisms. Offered to core/lang.
 - [ ] **Stretch** — generalize the one-door pattern into a small reusable
       architectural-invariant test helper (sealed-trait-one-impl / exhaustive-match /
-      single-builder), so future convergences get a guard cheaply (`generative-core.md`
-      §3).
+      single-builder / source-seam-count), so future convergences get a guard cheaply
+      (`generative-core.md` §3). Three source-seam guards now exist
+      (`closure_guard`, `instantiate_one_door`, `rule_carrier`) — enough shapes to extract.
 
 ## Verified audit findings (2026-06-09, read first-hand — refines unify's §1 table)
 - **(A) 7 builder paths, not 5.** Capitalized-constructor dispatch = `eval_term_value`
@@ -107,6 +116,34 @@ accidental (delete it).
   in the doc is NOT realized — no `entity.pattern` value dispatch; the `pattern` definer is
   splice-only (pattern-context). Either the doc overclaims or a value form is missing. Pinned
   the real part (constructor ↔ redex core).
-- **NEXT for me:** (#4) consolidation — lang to retire `from_value_is_total` (my round-trip
-  guard subsumes it). Invariant #3 (no second eval) lands with unify/core Stage 4 — offered a
-  guard there. Possible further facet: pin the pattern-definer SPLICE convergence (deferred).
+- **2026-06-09 (#46 audit tail — carrier consolidation, tick 8)** — first verified BOTH prior
+  guards survive lang's 4c flip first-hand (reactions now emit transparent `_pat="Rule"` DATA;
+  my `reified()` forward-compat for `Foreign` OR data paid off — full chrysalis suite 225/0).
+  Then swept the reaction-producer surface and found the #46 duplicate the 4c flip introduced:
+  the rule-carrier decision (`to_data_value(rule)` else `Foreign(FOREIGN_RULE)`) inlined
+  VERBATIM at 3 producers. Consolidated into ONE `runtime::rule::carry_rule` (the total sibling
+  of the partial codecs `to_data_value`/`to_bigraph_value`); the 3 sites now call it.
+  Behavior-preserving + additive → coordinated-first with lang (note on the board), verified
+  green. Pinned with `rule_carrier_one_door_guard.rs` (source-seam à la `closure_guard`:
+  `Foreign::new(FOREIGN_RULE` must occur EXACTLY once, in `carry_rule`). Left the
+  `compile_reaction_value` pass-through as-is (reuses the already-matched Foreign — not a
+  re-construction). Flagged `build_brs_value`≈`build_native_spec` to lang (their deprioritization
+  stands). Now 3 source-seam guards (closure/instantiate/carrier) pin the homoiconic surface.
+- **2026-06-09 (coord-board remain-parsable, tick 10)** — the board merges every peer's
+  hand-edited `.ys` heartbeat, so a single stray `'`/`{` wedges the render for everyone (seen
+  3+ times). Recognized it as a **serialization-escaping** bug (not a "validate then filter"
+  one — you cannot safely auto-fix an ambiguous metacharacter). Landed the cargo-test backstop
+  `crates/chrysalis/tests/coord_heartbeats_parse.rs`: every `coord/*.ys` parses (in-process,
+  per-file diagnostics) + the board renders end-to-end (shells out to the real bin, à la
+  `ys_files_run`) + a NON-VACUOUS teeth self-test (the parser rejects a stray quote, accepts
+  the doubled-quote escape). Globs `coord/`, so a new agent is auto-covered. Wrote the
+  correct-by-construction fix as a design note: `docs/coord-set-command.md` — a `chrysalis
+  coord set <peer> field=value` that updates a heartbeat from DATA (read→Value→`algebra::apply`
+  →unparse→**round-trip gate**→write), reusing the existing unparser + the `coord push` JSON
+  contract (thin-layer). lang owns the command; it is the *durable* fix the guard checks for.
+  Now FOUR source/board guards (closure / instantiate / carrier / coord-parse).
+- **NEXT for me:** **invariant #3 guard ("no second eval")** is now the live one — lang is ON 4a
+  (the surface `eval`/`instantiate` rung), core's substrate is done, so when 4a lands I pin
+  surface-eval ≡ a rung of the same tower as `discover_processes`. Also still open: (#4) lang to
+  retire `from_value_is_total` (my round-trip guard subsumes it); pin the pattern-definer SPLICE
+  convergence (deferred, unify to settle the value-form question first); the stretch helper.
