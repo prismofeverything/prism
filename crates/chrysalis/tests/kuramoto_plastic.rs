@@ -1,10 +1,11 @@
 //! Demo 3 — plastic Kuramoto: the network learns its own wiring. Each oscillator
 //! has a Hebbian-updated coupling `weight` tracking its coherence with the mean
-//! field, so the synchronized core self-strengthens and drifting outliers
-//! decouple — the dynamics reshape the soft topology (categorical-core §9, the
-//! M/R-closure payoff). With MODERATE coupling the core (ω near the mean) entrains
-//! and the outliers (ω far) drift; plasticity must then learn that structure:
-//! core weight ↑, outlier weight ↓.
+//! field; the synchronized core self-strengthens and drifting outliers decouple,
+//! so the dynamics reshape the soft topology (categorical-core §9, the M/R-closure
+//! payoff). The learned weights are SURFACED through a shared per-key `weights`
+//! link (child inner state is otherwise encapsulated). With moderate coupling the
+//! CORE (ω near the mean) entrains and the OUTLIERS (ω far) drift; plasticity must
+//! learn that: core weight ↑, outlier weight ↓.
 
 use prism_bigraph::Engine;
 use prism_schema::Value;
@@ -31,55 +32,28 @@ fn run(k: f64, duration: f64) -> Value {
     engine.state().clone()
 }
 
-/// Each oscillator's learned `weight`, by id — read at its real path inside the
-/// child composite (`config.state.weight`).
+/// Each oscillator's learned `weight`, by id — surfaced through the shared link.
 fn weights(state: &Value) -> std::collections::HashMap<String, f64> {
-    let mut out = std::collections::HashMap::new();
-    if let Some(oscs) = state.get_field("oscillators").and_then(|v| v.as_map()) {
-        for (id, v) in oscs.iter().filter(|(k, _)| !k.starts_with('_')) {
-            let w = v
-                .get_field("weight")
-                .and_then(Value::as_f64)
-                .or_else(|| {
-                    v.get_field("config")
-                        .and_then(|c| c.get_field("state"))
-                        .and_then(|s| s.get_field("weight"))
-                        .and_then(Value::as_f64)
-                });
-            if let Some(w) = w {
-                out.insert(id.to_string(), w);
-            }
-        }
-    }
-    out
+    state
+        .get_field("weights")
+        .and_then(|v| v.as_map())
+        .map(|m| {
+            m.iter()
+                .filter(|(k, _)| !k.starts_with('_'))
+                .filter_map(|(k, v)| v.as_f64().map(|w| (k.to_string(), w)))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[test]
-fn probe_weight_path() {
-    let state = run(3.0, 100.0);
-    eprintln!(
-        "TOP KEYS: {:?}",
-        state.as_map().map(|m| m.keys().map(|k| format!("{k:?}")).collect::<Vec<_>>())
-    );
-    if let Some(oscs) = state.get_field("oscillators").and_then(|v| v.as_map()) {
-        if let Some((id, first)) = oscs.iter().find(|(k, _)| !k.starts_with('_')) {
-            eprintln!("OSC '{id}' = {first:#?}");
-        }
-    }
-}
-
-#[test]
-#[ignore]
 fn plasticity_learns_the_coupling_structure() {
     // ω by id: 0:0.2 1:0.5 2:0.9 3:1.0 4:1.0 5:1.1 6:1.5 7:1.8
     // CORE (near the mean) = 2,3,4,5 ; OUTLIERS (far) = 0,1,6,7.
-    let state = run(3.0, 200.0);
-    let w = weights(&state);
-    eprintln!("learned weights: {:?}", {
-        let mut v: Vec<_> = w.iter().collect();
-        v.sort_by(|a, b| a.0.cmp(b.0));
-        v
-    });
+    let w = weights(&run(2.0, 400.0));
+    let mut sorted: Vec<_> = w.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(b.0));
+    eprintln!("learned weights: {sorted:?}");
 
     let mean = |ids: &[&str]| -> f64 {
         ids.iter().filter_map(|i| w.get(*i)).sum::<f64>() / ids.len() as f64
@@ -88,9 +62,9 @@ fn plasticity_learns_the_coupling_structure() {
     let outlier = mean(&["0", "1", "6", "7"]);
     eprintln!("core weight = {core:.3}   outlier weight = {outlier:.3}");
 
-    assert_eq!(w.len(), 8, "read all 8 oscillator weights");
+    assert_eq!(w.len(), 8, "read all 8 oscillator weights (surfaced)");
     // The network LEARNED its structure: it strengthened the entrained core and
-    // decoupled the drifting outliers (the dynamics rewrote the soft topology).
+    // decoupled the drifting outliers — the dynamics rewrote the soft topology.
     assert!(
         core > outlier + 0.2,
         "plasticity should differentiate: core={core:.3} vs outlier={outlier:.3}"
