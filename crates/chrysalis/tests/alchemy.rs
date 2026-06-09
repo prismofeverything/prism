@@ -77,3 +77,37 @@ fn a_ys_reaction_installs_a_reaction_that_fires() {
         "the installed Grow consumed the seed: {brew:?}"
     );
 }
+
+const DEF_REACTION_SUGAR: &str = r#"
+def Grow = Reaction[redex: ?s :: Seed, reactum: Sprout]
+
+composite Lab ->{ brew :: any @ brew } (
+  brew: { seed: Seed[] } |
+  rxn: BRS[rules: [Grow]] ~{state: brew} ->{state: brew}
+)
+
+Lab[]
+"#;
+
+#[test]
+fn def_bound_reaction_constructor_is_a_drop_in_for_the_definer() {
+    // Stage 2b — the definer-as-sugar drop-in: `def Grow = Reaction[redex: …,
+    // reactum: …]` is INTERCHANGEABLE with `reaction Grow ( … => … )`. The
+    // capitalized constructor evaluates to a reaction value, and `brs_rules`
+    // accepts it directly in a `BRS[rules: […]]` list (both the `FOREIGN_RULE` a
+    // definer produces AND the `FOREIGN_REACTION` the constructor produces). No
+    // `reaction` keyword, no `compile_reaction` — just `def NAME = Reaction[…]`,
+    // and it fires Seed→Sprout. The "constructor IS the definer" made real.
+    let s = run(DEF_REACTION_SUGAR, 3.0);
+    let brew = s.get_field("brew").expect("brew slot");
+    let mut kinds = Vec::new();
+    collect_types(brew, &mut kinds);
+    assert!(
+        kinds.iter().any(|t| t == "Sprout"),
+        "the def-bound Reaction[…] fired Seed→Sprout: {brew:?}"
+    );
+    assert!(
+        !kinds.iter().any(|t| t == "Seed"),
+        "the seed was consumed: {brew:?}"
+    );
+}

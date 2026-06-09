@@ -5,9 +5,11 @@
 from mesh import mesh
 from manifold import manifold
 from synth import synth
+from unify import unify
+from lang import lang
 
 composite Board ->{ board :: map[any] @ board } (
-  link board :: map[any] mesh = { mesh: mesh, manifold: manifold, synth: synth }
+  link board :: map[any] mesh = { mesh: mesh, manifold: manifold, synth: synth, unify: unify, lang: lang }
 )
 
 Board[]

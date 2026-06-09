@@ -1,4 +1,5 @@
 /target
+/.cargo/
 /dna
 perf.data*
 out/

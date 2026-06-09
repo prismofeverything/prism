@@ -297,6 +297,166 @@ process Grow[rate :: Float = 0.6] ~{mass :: Float} ->{mass :: Float} (
 }
 
 #[test]
+fn from_value_is_total_over_every_expr_variant() {
+    // Homoiconic-unification Stage 1a (docs/homoiconic-unification.md, invariant
+    // #2): `quote`/`reify` (`to_value`/`from_value`) must be a TOTAL inverse iso
+    // over EVERY `Expr` variant — *partial homoiconicity isn't homoiconicity*.
+    // One instance of each variant (plus a few alternate shapes that hit distinct
+    // `from_value` branches); for each, `to_value ∘ from_value ∘ to_value ≡
+    // to_value` (Value-level identity, since `Expr` has no `Eq`). The
+    // `Comprehension` entries are the regression guard for the arm this stage
+    // added — it used to fall through to the catch-all and error; the rest pin
+    // that no variant silently regresses there. Adding an `Expr` variant means
+    // adding it here, its `to_value` arm, and its `from_value` arm together.
+    use chrysalis::ast::{BinOp, Block, Expr, PathRoot, PlacePath, StringLit, StringSeg, UnaryOp};
+    use indexmap::IndexMap;
+
+    let b = |e: Expr| Box::new(e);
+    let atom = || Expr::int(1);
+
+    let mut record = IndexMap::new();
+    record.insert("f".to_string(), atom());
+
+    let corpus: Vec<(&str, Expr)> = vec![
+        ("Unit", Expr::Unit),
+        ("Bool", Expr::Bool(true)),
+        ("Int", Expr::int(7)),
+        ("Float", Expr::float(2.5)),
+        ("Str(plain)", Expr::string("hi")),
+        (
+            "Str(template)",
+            Expr::Str(StringLit::template(vec![
+                StringSeg::Lit("id-".into()),
+                StringSeg::Expr(Expr::var("x")),
+            ])),
+        ),
+        ("Var", Expr::var("x")),
+        (
+            "Path(Local)",
+            Expr::Path(PlacePath {
+                root: PathRoot::Local("mass".into()),
+                segments: vec!["sub".into()],
+            }),
+        ),
+        (
+            "Path(Here)",
+            Expr::Path(PlacePath { root: PathRoot::Here, segments: vec![] }),
+        ),
+        (
+            "Term",
+            Expr::term("Cell").arg_named("mass", Expr::float(1.0)).build(),
+        ),
+        ("Parallel", Expr::parallel(vec![atom(), Expr::var("y")])),
+        (
+            "KeyedEntry",
+            Expr::KeyedEntry { key: StringLit::plain("k"), value: b(atom()) },
+        ),
+        ("Map", Expr::Map(vec![(StringLit::plain("k"), atom())])),
+        ("Record", Expr::Record(record)),
+        ("List", Expr::List(vec![atom(), Expr::Bool(false)])),
+        ("Site", Expr::site("?c")),
+        ("Site(typed)", Expr::site_typed("?c", Expr::term("Cell").build())),
+        ("Unbound", Expr::Unbound),
+        ("LinkVar", Expr::LinkVar("e".into())),
+        (
+            "LinkDecl",
+            Expr::LinkDecl {
+                name: "shared".into(),
+                schema: None,
+                mesh: true,
+                default: b(atom()),
+            },
+        ),
+        (
+            "Rule",
+            Expr::Rule { redex: b(Expr::site("?c")), reactum: b(Expr::site("?c")) },
+        ),
+        (
+            "Let",
+            Expr::Let {
+                bindings: vec![("x".to_string(), atom())],
+                body: b(Expr::var("x")),
+            },
+        ),
+        (
+            "Block",
+            Expr::Block(Block::from_parts(
+                vec![("x".to_string(), atom())],
+                Expr::var("x"),
+            )),
+        ),
+        (
+            "If",
+            Expr::If {
+                cond: b(Expr::Bool(true)),
+                then_: b(atom()),
+                else_: Some(b(Expr::int(2))),
+            },
+        ),
+        (
+            "If(no-else)",
+            Expr::If { cond: b(Expr::Bool(true)), then_: b(atom()), else_: None },
+        ),
+        (
+            "BinOp",
+            Expr::BinOp { op: BinOp::Add, lhs: b(atom()), rhs: b(Expr::int(2)) },
+        ),
+        (
+            "UnaryOp",
+            Expr::UnaryOp { op: UnaryOp::Not, operand: b(Expr::Bool(true)) },
+        ),
+        ("Method", Expr::method(Expr::var("xs"), "at", vec![Expr::int(0)])),
+        (
+            "Field",
+            Expr::Field { base: b(Expr::var("cfg")), name: "bridge".into() },
+        ),
+        ("Call", Expr::Call { func: b(Expr::var("f")), args: vec![atom()] }),
+        (
+            "Comprehension(list)",
+            Expr::Comprehension {
+                key_var: None,
+                var: "v".into(),
+                source: b(Expr::var("xs")),
+                filter: None,
+                body: b(Expr::var("v")),
+                key: None,
+            },
+        ),
+        (
+            "Comprehension(map+key_var+filter)",
+            Expr::Comprehension {
+                key_var: Some("k".into()),
+                var: "v".into(),
+                source: b(Expr::var("m")),
+                filter: Some(b(Expr::var("v"))),
+                body: b(Expr::var("v")),
+                key: Some(b(Expr::var("k"))),
+            },
+        ),
+        (
+            "ReplaceWith",
+            Expr::ReplaceWith { id: b(Expr::var("old")), with: b(atom()) },
+        ),
+        (
+            "Where",
+            Expr::Where { inner: b(Expr::site("?c")), predicate: b(Expr::Bool(true)) },
+        ),
+    ];
+
+    for (label, expr) in &corpus {
+        let v1 = expr.to_value();
+        let reparsed = Expr::from_value(&v1)
+            .unwrap_or_else(|e| panic!("from_value failed for `{label}`: {e}"));
+        let v2 = reparsed.to_value();
+        assert_eq!(&v1, &v2, "round-trip is not identity for `{label}`");
+    }
+
+    // All 29 `Expr` variants + 5 alternate shapes. If you add a variant, add it
+    // above with its `to_value`/`from_value` arms and bump this count.
+    assert_eq!(corpus.len(), 34, "corpus must cover every variant");
+}
+
+#[test]
 fn eval_with_env_resolves_var_references() {
     // The chrysalis `eval(expr, env)` — Lisp's `(eval form env)`. A hand-
     // built expression with a `Var("x")` finds its value through the env

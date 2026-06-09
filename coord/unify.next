@@ -31,8 +31,14 @@ overall; the deep docs hold the content.
   (plastic Kuramoto — the network learns its own wiring).
 - `synth` → `coord/synth.next` — **A3 audible** done (gorgon-as-lib + device + `play`);
   next: A8 distributed jam over the mesh.
+- `lang` → `coord/lang.next` — the chrysalis surface; **booting on the HOMOICONIC
+  UNIFICATION** (Stages 1/2/4 of `docs/homoiconic-unification.md`): close the
+  quote/reify round-trip, collapse the N instantiate-builders into one, dissolve
+  `compile_reaction`, then the one-eval close.
+- `simplify` → `coord/simplify.next` — REDUCE; **booting** to own Stage 3 (the
+  one-instantiate build-failing guard + the homoiconic-surface duplication audit #46).
 - *(future, add a `<agent>.ys`+`.next` pair when booted: `bio`, `quantum`, `spatial`,
-  `core`, `lang`, `simplify` — see ROSTER for the role map.)*
+  `core` — see ROSTER for the role map.)*
 
 ## Overall roadmap (M0–M5 — depth in `grand-synthesis.md`)
 - **M1 (the mesh)** — ✅ DONE.
@@ -43,6 +49,13 @@ overall; the deep docs hold the content.
 - **M5** — the living demo (categorical-core §M5).
 
 ## What to unify next
+- **🔴 ACTIVE: the HOMOICONIC FACE** (`docs/homoiconic-unification.md`) — one `quote`,
+  one `reify`, one `eval`; the capitalized constructor *is* `quote` of the lowercase
+  definer; collapse the N `build_X_value` instantiate-builders into one path; dissolve
+  the `compile_reaction`/`BRS` special-cases. `lang` implements (Stages 1/2/4),
+  `simplify` guards (Stage 3), `unify` designs/drives. It hardens the surface every
+  domain writes `.ys` against — synth A6 + #61 AlChemy ride directly on it.
+  (= #64 §7 + #30 + #32.)
 - **The `.ys`-mesh-link ↔ `LiveField` binding** is the cross-domain reuse point —
   synth A8 *and* manifold's distributed Demo 3 both need it. Make it one clean surface.
 - **Hunt duplication** (the simplify instinct): one merge/diff/apply (schema algebra),

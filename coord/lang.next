@@ -1,0 +1,103 @@
+# lang.next — durable resume for the `lang` agent
+
+<!-- The fractal of NEXT-SESSION.md, per agent. DURABLE (survives reboot);
+     coord/lang.ys is the LIVE heartbeat, rebuilt from here on boot.
+     Edit ONLY your own lang.ys + lang.next (monotone, per-source). -->
+
+## ⏯️ ON BOOT
+You are `lang` — the chrysalis SURFACE agent (parse / eval / compile / check, language
+semantics, diagnostics). Read this + `coord/ROSTER.md` + `coord/board.ys` (the live
+cross-agent view) + **`docs/homoiconic-unification.md`** (the shared design you
+implement, stewarded by `unify`). Own `coord/lang.ys` (live heartbeat) and this file
+(durable). Create `coord/lang.ys` from your first heartbeat. Resume from **Now / next**.
+
+## Domain
+The chrysalis crate: `crates/chrysalis/src/{parse.rs, ast.rs, eval.rs, compile.rs}` +
+the `check`/diagnostics path. You own cat-F surface tasks (#10 comment-preserving
+unparse, #14 diagnostics, #16 interval defaults, #17 `::`/`:`/`fulfills` migration)
+AND, for THIS push, the **homoiconic-unification implementation** (#64 §7 + #30 + #32).
+**Hard rules:** `feedback_chrysalis_thin_layer` — chrysalis is a THIN layer; `instantiate`
+and any eval rung **CALL** prism (`Core::instantiate`, `discover_processes`,
+`prism_schema::reaction`), never clone a runtime algorithm. `feedback_schema_algebra` —
+a new instantiate op is a NAMED algebra op + laws + tests, not ad-hoc munging.
+`feedback_no_half_measures` — every slice ships with its consuming test.
+
+## Now / next — homoiconic unification (you own Stages 1, 2, 4; `simplify` owns Stage 3)
+- [x] **Stage 1a** — DONE. `Comprehension` arm added to `Expr::from_value` (`ast.rs`);
+      `Expr ↔ Value` now TOTAL. Consumer: `from_value_is_total_over_every_expr_variant`
+      (corpus of all 29 variants + alt shapes) in `tests/entity_as_data.rs`.
+- [x] **Stage 1b** — DONE. `eval_value(Expr::Rule)` now BUILDS the reaction (was an
+      error); `compile_reaction_value` routes through `eval` (its bespoke
+      `eval_pattern` re-parse deleted). Consumer:
+      `eval_of_a_quoted_reaction_builds_the_runnable_form` in `tests/reaction_as_data.rs`.
+- [x] **Stage 2a** — DONE (refined). Extracted `build_rule` — the ONE reaction-lowering
+      core, shared by `build_reaction_value` (definer, keeps `Foreign(FOREIGN_RULE)` for a
+      local BRS) + `eval_rule_expr` (anon/data, reifies). FINDING: the node-spec family was
+      ALREADY DRY — `build_composite_outer` + `build_pure_spec` funnel through ONE
+      `build_spec_value`, and `build_protocol_outer` DELEGATES to them; the only real
+      duplication was the reaction lowering. So the doc's "N builders" = 1 spec assembler +
+      per-kind config + the (now unified) reaction lowering.
+- [~] **Stage 2b** — FLAT family DONE (human chose full definer-as-sugar). Findings:
+      (1) the parser ALREADY accepts `Reaction[redex: ?s :: Seed, reactum: Sprout]` — sites
+      `?s` / `!` / `~e` parse as ordinary primaries, no special case. (2) `Reaction[…]`
+      constructor added (eval `build_reaction_constructor` → `build_rule`, reifies like
+      `eval_rule_expr`). (3) `extract_rules` → `brs_rules`: a `BRS[rules: […]]` list now
+      accepts BOTH `FOREIGN_RULE` (definer) and `FOREIGN_REACTION` (constructor) — same
+      both-forms acceptance the dynamic `:: reaction` slot has. (4) capitalized value-defs
+      now resolve (entity.binding branch in `eval_term_value`) → `def Grow = Reaction[…]` is
+      a verified DROP-IN for `reaction Grow(…)` (`alchemy.rs`
+      `def_bound_reaction_constructor_is_a_drop_in_for_the_definer`).
+      `Pattern( fragment )` DONE — `build_pattern_constructor` → `Foreign(FOREIGN_PATTERN,
+      prism Pattern)` via `eval_pattern_top` (the matchable-redex form, `find_matches`-able);
+      test `pattern_constructor_is_a_first_class_matcher`. RICH kinds
+      (process/step/composite) do NOT get a bracket — their constructor=quote is the
+      STRUCTURED form (`EntityDef::to_value` ↔ `from_value`/`compile_value`, #32/#34, already
+      round-trips); a `Process[inputs:{},outputs:{},body:]` bracket would DUPLICATE it
+      (Felleisen). The doc's `ProcessDef[expr, schema]` = tier-2 body-as-value
+      (`ProcessDef.from_expr`, #30 tier-2), a deeper separate capability.
+      **Remaining 2b tail:** (a) a test showing `process X(…)` ≡ its structured quote↔eval
+      (per-kind uniformity); (b) query builtins `count(…)`/`.matches(…)` consuming a
+      `FOREIGN_PATTERN` (the doc's awaited `count(MEK)`).
+- [ ] **Stage 4** (gated on 1–3, with `unify`) — expose the engine rung
+      (`discover_processes`/`Core::instantiate`, `engine.rs:1486`/`:1449`) as a
+      first-class `.ys` `eval`; unify with the `meta`-import `eval`/`load`. Thin-layer:
+      call prism. The metacircular close.
+
+## Coordinate
+`crates/chrysalis` is YOUR crate → monotone, act freely, sync via the board. BUT
+Stage 2 reshapes `eval.rs` term dispatch (a shared internal seam) and Stage 4 touches
+the chrysalis↔prism boundary — if you change a **public** chrysalis API or a shared
+`.ys` vocabulary, `touching:` it + drop a board `note` first (CALM / ROSTER §regimes).
+Pair with `unify` on the Stage-2 factoring and the Stage-4 design; with `simplify` on
+the Stage-3 one-door guard (don't let your N→1 collapse regress).
+
+## Done (this arc)
+- **Booted as `lang`**, surveyed the homoiconicity code reality, registered (`coord/lang.ys`
+  + on the board; added the missing `unify` to `coord/board.ys` too).
+- **Stage 1a** — `Expr::from_value` total (`Comprehension`); round-trip pinned over all variants.
+- **Stage 1b** — `compile_reaction` dissolved into `eval ∘ quote` (`eval_value(Expr::Rule)`
+  builds the reaction; bespoke re-parse deleted); new consumer test.
+- **Stage 2a** — `build_rule` extracted (one reaction-lowering core); node-spec family found
+  already DRY. All green via targeted runs.
+- **Stage 2b (flat family)** — `Reaction[…]` constructor (= quote of the definer, via
+  `build_rule`); `brs_rules` accepts both `FOREIGN_RULE` + `FOREIGN_REACTION`; capitalized
+  value-defs resolve (`entity.binding` branch) → `def Grow = Reaction[…]` ≡ `reaction Grow(…)`
+  (verified end-to-end in a BRS). Plus `Pattern( fragment )` → `FOREIGN_PATTERN` first-class
+  matcher (`eval_pattern_top` form, `find_matches`-able). Found the parser already supports
+  sites in constructor args. Doc'd in `chrysalis-design.md` (Naming-table status note).
+  27 tests green across the 7 touched files.
+- **Build hygiene** — added `[profile.dev]` `debug = "line-tables-only"` + `incremental = false`
+  to root `Cargo.toml` (the full 93-binary suite at default `debug = 2` filled the disk). Rule:
+  `cargo check -p <crate>` / `cargo test -p <crate> --test <one>` — NEVER bare
+  `cargo test -p chrysalis`. (Future structural win: consolidate the 93 `tests/*.rs` into a few
+  binaries — coordinate w/ core+simplify.)
+
+## Key gotchas (durable)
+- **Build = disk.** One shared `target/` (no worktrees) — cargo's lock serializes agents, so the
+  pain is SIZE (debug symbols × 93 test binaries) + cross-agent rebuilds of shared crates. Lean
+  profile + targeted `--test` keep it bounded. `cargo clean` on the shared target forces EVERYONE
+  to full-rebuild — prefer `cargo clean -p <crate>` or `rm -rf target/debug/{incremental,examples}`.
+- **Two reaction wrappings (don't conflate):** `build_reaction_value` returns the chrysalis `Rule`
+  (`Foreign(FOREIGN_RULE)`) so a LOCAL BRS binds this evaluator (computed reactums + closure);
+  `eval_rule_expr`/`compile_reaction` REIFY to `Foreign(FOREIGN_REACTION)` (transmittable, rules-as-
+  state). `build_rule` is the shared LOWERING; the wrapping is the caller's choice.

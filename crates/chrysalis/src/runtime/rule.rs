@@ -32,6 +32,13 @@ use crate::eval::Evaluator;
 /// `reaction` definer call, deposited into a `BRS[rules: […]]`).
 pub const FOREIGN_RULE: &str = "ChrysalisRule";
 
+/// `Value::Foreign` type tag for a first-class [`prism_schema::reaction::Pattern`]
+/// — the VALUE form of a `pattern` definer / the `Pattern[…]` constructor (the
+/// flat-kind parallel to [`FOREIGN_RULE`]). A pattern is a redex FRAGMENT, so its
+/// value is a runnable matcher: `find_matches(state, pattern, None)` (the future
+/// `count(…)` / `.matches(…)` query builtins) and composition into a reaction.
+pub const FOREIGN_PATTERN: &str = "ChrysalisPattern";
+
 /// How to look up a chrysalis variable's value from a [`Bindings`]
 /// produced by a successful match.
 #[derive(Clone, Debug)]
@@ -137,28 +144,41 @@ pub fn bind_environment(
     env
 }
 
-/// Decode the `rules` list from a BRS config `Value` into chrysalis
-/// [`Rule`]s. Each rode in as a `Value::Foreign(FOREIGN_RULE, Rule)`,
-/// produced by a `reaction` definer call.
-pub fn extract_rules(config: &Value) -> Vec<Rule> {
-    let mut rules = Vec::new();
+/// Decode the static `BRS[rules: […]]` list into prism [`ReactionRule`]s,
+/// accepting BOTH carriers a rule can arrive as — exactly like the dynamic
+/// rules-as-state path ([`ReactionType`]): a chrysalis [`Rule`]
+/// (`Foreign(FOREIGN_RULE)`, from a `reaction` definer — closed over the
+/// evaluator via [`to_prism_rule`] so computed reactums / guards / rates fire),
+/// AND an already-reified `Foreign(FOREIGN_REACTION)` (from the `Reaction[…]`
+/// constructor, or a wire-arrived reaction). So `reaction X (…)` and
+/// `def X = Reaction[…]` are INTERCHANGEABLE in a rules list — the definer-as-
+/// sugar drop-in. (Supersedes the old `extract_rules`, which saw only
+/// `FOREIGN_RULE`.) Non-rule items are skipped.
+pub fn brs_rules(config: &Value, evaluator: &Arc<Evaluator>) -> Vec<ReactionRule> {
     let Some(list) = config
         .as_map()
         .and_then(|m| m.get("rules"))
         .and_then(|v| v.as_list())
     else {
-        return rules;
+        return Vec::new();
     };
-    for item in list {
-        if let Value::Foreign(f) = item {
+    list.iter()
+        .filter_map(|item| {
+            let Value::Foreign(f) = item else { return None };
             if f.type_name == FOREIGN_RULE {
-                if let Some(rule) = f.downcast_ref::<Rule>() {
-                    rules.push(rule.clone());
-                }
+                // A chrysalis `Rule` (from a `reaction` definer) — close its
+                // computed reactum / guard / rate over the evaluator.
+                f.downcast_ref::<Rule>()
+                    .map(|r| to_prism_rule(r, Arc::clone(evaluator)))
+            } else if f.type_name == FOREIGN_REACTION {
+                // An already-reified reaction (from the `Reaction[…]` constructor
+                // or a wire-arrived reaction) — runnable as-is.
+                f.downcast_ref::<ReactionRule>().cloned()
+            } else {
+                None
             }
-        }
-    }
-    rules
+        })
+        .collect()
 }
 
 /// Adapt a chrysalis [`Rule`] (the reaction-as-value data carrier) into a

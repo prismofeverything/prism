@@ -2200,10 +2200,31 @@ impl Expr {
                 )?);
                 Ok(Expr::Where { inner, predicate })
             }
-            // Comprehension is the one remaining rare variant (list/map iteration);
-            // not reaction-defining, left until a consumer needs it.
+            // The list/map iteration construct. Closing it makes `quote`/`reify`
+            // (`to_value`/`from_value`) a TOTAL inverse iso over every `Expr`
+            // variant — the keystone of homoiconic-unification Stage 1a: with the
+            // round-trip total, `eval(quote(e)) = eval(e)` for *every* `e`, so a
+            // quoted comprehension (and any program/reaction containing one)
+            // survives the data round-trip. Mirrors the `to_value` arm (`:1784`).
+            "Comprehension" => {
+                let var = field_str(map, "var")?;
+                let source = Box::new(Expr::from_value(
+                    field_of(map, "source").ok_or_else(|| err("Comprehension.source missing"))?,
+                )?);
+                let body = Box::new(Expr::from_value(
+                    field_of(map, "body").ok_or_else(|| err("Comprehension.body missing"))?,
+                )?);
+                let key_var = map.get("key_var").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let filter = field_of(map, "filter")
+                    .map(|f| Expr::from_value(f).map(Box::new))
+                    .transpose()?;
+                let key = field_of(map, "key")
+                    .map(|k| Expr::from_value(k).map(Box::new))
+                    .transpose()?;
+                Ok(Expr::Comprehension { key_var, var, source, filter, body, key })
+            }
             other => Err(err(&format!(
-                "variant `{other}` not yet supported via Expr::from_value"
+                "unknown `_type` `{other}` in Expr::from_value"
             ))),
         }
     }

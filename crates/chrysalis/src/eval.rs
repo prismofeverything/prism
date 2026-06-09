@@ -29,7 +29,7 @@ use crate::ast::{
     BinOp, Block, Def, Expr, Name, PathRoot, PlacePath, PortBindings, Program, ReactionDef,
     StringLit, StringSeg, TermArg, UnaryOp,
 };
-use crate::runtime::rule::{BindingSource, FOREIGN_RULE, Reactum, Rule, RuleBindings};
+use crate::runtime::rule::{BindingSource, FOREIGN_PATTERN, FOREIGN_RULE, Reactum, Rule, RuleBindings};
 
 #[derive(Debug, Error)]
 pub enum EvalError {
@@ -447,10 +447,14 @@ impl Evaluator {
                     message: format!("`~{name}` is not a bound link here (only a redex binds it)"),
                 })
             }
-            Expr::Rule { .. } => Err(EvalError::InvalidForm {
-                context: "value".into(),
-                message: "`=>` is only valid inside a reaction body".into(),
-            }),
+            // `redex => reactum` in VALUE position is an anonymous reaction. The
+            // homoiconic unification (Stage 1b): `eval` of a quoted `=>` builds
+            // the runnable reaction value via the SAME `eval_rule_expr` core that
+            // `compile_reaction_value` (a reaction assembled as data) routes
+            // through — so `compile_reaction` is `eval ∘ quote`, no bespoke
+            // lowering. (Named reactions take the `build_reaction_value` path,
+            // which additionally carries the definer's guard / rate / closure.)
+            Expr::Rule { redex, reactum } => self.eval_rule_expr(redex, reactum, env),
             // `where` in value context: ignore predicate, return inner.
             Expr::Where { inner, .. } => self.eval_value(inner, env),
         }
@@ -744,6 +748,25 @@ impl Evaluator {
                 let def = def.clone();
                 return self.build_protocol_outer(&def, args, ports, env);
             }
+            // A value binding (`def X = expr`): a bare reference evaluates to its
+            // value — so a CAPITALIZED binding like `def Grow = Reaction[…]`
+            // resolves the same as a lowercase var would (every name is a value,
+            // decision #15; the lowercase path goes through the `Var` arm). This is
+            // what makes `def X = Reaction[…]` a drop-in for `reaction X (…)` even
+            // with the conventional capitalized reaction name. With `[args]` it is
+            // not callable — a bound value is not parameterized.
+            if let Some((_schema, value)) = entity.binding {
+                if args.is_empty() {
+                    let value = value.clone();
+                    return self.eval_value(&value, env);
+                }
+                return Err(EvalError::InvalidForm {
+                    context: "value-term".into(),
+                    message: format!(
+                        "`{control}` is a value (`def {control} = …`); it takes no `[…]` args"
+                    ),
+                });
+            }
             if entity.function.is_some() {
                 return Err(EvalError::InvalidForm {
                     context: "value-term".into(),
@@ -766,6 +789,15 @@ impl Evaluator {
         }
         match control.as_str() {
             "BRS" => self.build_brs_value(args, ports, env),
+            // The capitalized `Reaction[redex:…, reactum:…, rate:…]` constructor —
+            // the VALUE form of the `reaction` definer (Stage 2b), lowering through
+            // the same `build_rule` core: `reaction X (r => x)` ≡ `Reaction[redex:
+            // r, reactum: x]`. (A program-defined entity named `Reaction` would
+            // shadow it via the entity dispatch above, exactly like `BRS`.)
+            "Reaction" => self.build_reaction_constructor(args, env),
+            // The `Pattern( fragment )` constructor — the value form of the
+            // `pattern` definer (a first-class matcher). Same shadow rule as above.
+            "Pattern" => self.build_pattern_constructor(args, body, env),
             _ => self.build_plain_map_value(control, args, body, env),
         }
     }
@@ -1233,62 +1265,38 @@ impl Evaluator {
             rule_env.insert(k.clone(), v.clone());
         }
 
-        let mut bindings = RuleBindings::new();
-        let redex = self.eval_pattern_top(&def.redex, &rule_env, &mut bindings)?;
-
-        // Classify the reactum. One that lowers to a prism Pattern is a
-        // STRUCTURAL rewrite (MAPK-style link/rest rewrites, fired by
-        // prism's native `instantiate`); one that doesn't (a method call or
-        // computed expression like `?cell.divide(?cid)`) is COMPUTED,
-        // evaluated against the match bindings at fire time.
-        // Classify the reactum by STRUCTURE, not by catching a lowering error: a
-        // pure template (controls/sites/links) is a STRUCTURAL rewrite (prism's
-        // native `instantiate` — MAPK-style link/rest); one containing
-        // computation (`?cell.divide(?cid)`, `?f.blueprint`, arithmetic) is
-        // COMPUTED, evaluated against the match at fire time. A malformed
-        // structural reactum now reports a real error (the `?`) instead of
-        // silently mis-routing to a broken computed one.
-        let reactum = if reactum_is_structural(&def.reactum) {
-            let mut reactum_bindings = RuleBindings::new();
-            let pat = self.eval_pattern(&def.reactum, &rule_env, &mut reactum_bindings)?;
-            Reactum::Structural {
-                reactum: pat,
-                instantiation: IndexMap::new(),
-            }
-        } else {
-            Reactum::Computed(def.reactum.clone())
-        };
-
-        let rule = Rule {
-            label: def.name.clone(),
-            redex,
-            reactum,
-            guard: def.guard.clone(),
-            rate: def.rate.clone(),
-            bindings,
-            closure: Arc::new(resolved),
-        };
-
-        Ok(Value::Foreign(prism_schema::value::Foreign::new(
-            FOREIGN_RULE,
-            rule,
-        )))
+        // Lower redex + reactum into the chrysalis `Rule` via the one shared core
+        // (`build_rule`), carrying the definer's guard / rate and the resolved
+        // params as the closure. The result stays a chrysalis `Rule`
+        // (`Foreign(FOREIGN_RULE)`) — NOT reified — so a local BRS binds THIS
+        // evaluator at fire time (computed reactums + the param closure); the
+        // anonymous / data path (`eval_rule_expr`) reifies instead.
+        let rule = self.build_rule(
+            def.name.clone(),
+            &def.redex,
+            &def.reactum,
+            def.guard.clone(),
+            def.rate.clone(),
+            resolved,
+            &rule_env,
+        )?;
+        Ok(Value::Foreign(prism_schema::value::Foreign::new(FOREIGN_RULE, rule)))
     }
 
     /// Compile a REACTION assembled as DATA into the runnable, transmittable
-    /// form — the "eval for reactions" (the reaction analog of `eval(ast)`).
+    /// form — `eval ∘ quote` for reactions (the reaction analog of `eval(ast)`).
     ///
     /// A reaction is a pair of bigraphs sharing a site-set: `{_type:"Rule",
-    /// redex:{…}, reactum:{…}}`. `Expr::from_value` round-trips that data to an
-    /// `Expr::Rule` (the `?c` sites / `=>` split / guard now round-trip, #61);
-    /// this lowers the redex (`eval_pattern_top`) and reactum, builds the chrysalis
-    /// `Rule`, and reifies it via `to_bigraph_value` to `Foreign(FOREIGN_REACTION,
-    /// ReactionRule)` — the exact value the BRS reads as a rule (rules-as-state)
-    /// and that crosses a `:: bigraph` bridge. So a reaction can be ASSEMBLED from
-    /// map literals, inspected, serialized, and run — the reaction analog of the
-    /// hand-built cell. A structural reaction reifies closure-free; a computed
-    /// reactum (its closures need *this* evaluator at fire time) is kept as the
-    /// chrysalis `Rule` form.
+    /// redex:{…}, reactum:{…}}`. An already-reified reaction is idempotent under
+    /// `eval`: a definer REFERENCE (`Grow` → `Foreign(FOREIGN_RULE, chrysalis
+    /// Rule)`) reifies via `to_bigraph_value`, and an already-transmittable
+    /// `Foreign(FOREIGN_REACTION)` passes through. Otherwise the value is a
+    /// reaction assembled as data: `Expr::from_value` (quote⁻¹) reconstructs the
+    /// `Expr` (the `?c` sites / `=>` split / guard round-trip, #61), and
+    /// `eval_value` lowers it — an `Expr::Rule` routes to `eval_rule_expr`, the one
+    /// lowering core (Stage 1b). So a reaction can be ASSEMBLED from map literals,
+    /// inspected, serialized across a `:: bigraph` bridge, and run — the reaction
+    /// analog of the hand-built cell.
     pub fn compile_reaction_value(
         &self,
         data: &Value,
@@ -1315,38 +1323,152 @@ impl Evaluator {
             context: "compile_reaction".into(),
             message: e.to_string(),
         })?;
-        let Expr::Rule { redex, reactum } = expr else {
-            return Err(EvalError::InvalidForm {
-                context: "compile_reaction".into(),
-                message: "expected a reaction `{_type: \"Rule\", redex, reactum}`".into(),
-            });
-        };
+        // A reaction assembled as data: `eval ∘ quote`. The bespoke
+        // `eval_pattern` re-parse that used to live here is GONE (Stage 1b) — an
+        // `Expr::Rule` routes through `eval_value` to `eval_rule_expr`, the one
+        // lowering core, so `compile_reaction` is just `eval` of a quoted form.
+        self.eval_value(&expr, env)
+    }
+
+    /// Lower a `redex => reactum` (both `Expr`s) into a chrysalis [`Rule`] — the
+    /// ONE place a reaction's pattern lowering lives (Stage 2a). The redex lowers
+    /// via `eval_pattern_top`; the reactum is classified by STRUCTURE — a pure
+    /// template (controls / sites / links) is a `Structural` rewrite (prism's
+    /// native `instantiate`, MAPK-style link/rest), one containing computation
+    /// (`?cell.divide(?cid)`, `?f.blueprint`, arithmetic, a method call) is
+    /// `Computed` and evaluated against the match at fire time. (A malformed
+    /// structural reactum reports a real error rather than silently mis-routing to
+    /// a broken computed one.) Callers supply `label` / `guard` / `rate` /
+    /// `closure` and choose the WRAPPING: a named-definer instantiation
+    /// (`build_reaction_value`) keeps the chrysalis `Rule` (`Foreign(FOREIGN_RULE)`)
+    /// so a local BRS binds this evaluator; an anonymous / data reaction
+    /// (`eval_rule_expr`) reifies to the transmittable `Foreign(FOREIGN_REACTION)`
+    /// when structural. Both — and the capitalized `Reaction[…]` constructor
+    /// (Stage 2b) — share THIS lowering.
+    fn build_rule(
+        &self,
+        label: Name,
+        redex: &Expr,
+        reactum: &Expr,
+        guard: Option<Expr>,
+        rate: Option<Expr>,
+        closure: IndexMap<Name, Value>,
+        env: &IndexMap<Name, Value>,
+    ) -> Result<Rule, EvalError> {
         let mut bindings = RuleBindings::new();
-        let redex_pat = self.eval_pattern_top(&redex, env, &mut bindings)?;
-        let reactum_form = if reactum_is_structural(&reactum) {
+        let redex_pat = self.eval_pattern_top(redex, env, &mut bindings)?;
+        let reactum_form = if reactum_is_structural(reactum) {
             let mut rb = RuleBindings::new();
-            let pat = self.eval_pattern(&reactum, env, &mut rb)?;
+            let pat = self.eval_pattern(reactum, env, &mut rb)?;
             Reactum::Structural {
                 reactum: pat,
                 instantiation: IndexMap::new(),
             }
         } else {
-            Reactum::Computed((*reactum).clone())
+            Reactum::Computed(reactum.clone())
         };
-        let rule = Rule {
-            label: "assembled".to_string(),
+        Ok(Rule {
+            label,
             redex: redex_pat,
             reactum: reactum_form,
-            guard: None,
-            rate: None,
+            guard,
+            rate,
             bindings,
-            closure: Arc::new(IndexMap::new()),
-        };
-        // Reify to the transmittable form when structural (closure-free);
-        // otherwise keep the chrysalis `Rule` (computed reactum needs this
-        // evaluator at fire time — a host reifies it with `to_prism_rule`).
+            closure: Arc::new(closure),
+        })
+    }
+
+    /// Lower a quoted `redex => reactum` into a runnable, transmittable reaction
+    /// value — an ANONYMOUS reaction (no guard / rate / closure) over the shared
+    /// `build_rule` core. Both the `=>`-in-value path (`eval_value`) and a reaction
+    /// assembled as data (`compile_reaction_value`, after `from_value`) route here.
+    /// A STRUCTURAL reactum reifies closure-free via `to_bigraph_value` (the
+    /// transmittable `Foreign(FOREIGN_REACTION)`); a COMPUTED reactum keeps the
+    /// chrysalis `Rule` (its closures need *this* evaluator at fire time).
+    fn eval_rule_expr(
+        &self,
+        redex: &Expr,
+        reactum: &Expr,
+        env: &IndexMap<Name, Value>,
+    ) -> Result<Value, EvalError> {
+        let rule =
+            self.build_rule("assembled".into(), redex, reactum, None, None, IndexMap::new(), env)?;
         Ok(crate::runtime::rule::to_bigraph_value(&rule)
             .unwrap_or_else(|| Value::Foreign(prism_schema::value::Foreign::new(FOREIGN_RULE, rule))))
+    }
+
+    /// The capitalized `Reaction[redex: <pat>, reactum: <pat>, rate: <expr>?]`
+    /// constructor — the VALUE form of the `reaction` definer (Stage 2b). Its
+    /// redex / reactum args are pattern `Expr`s (sites `?s`, links `~e`, `!`, and
+    /// `|` all parse as ordinary primaries, so the parser needs no special case);
+    /// they lower through the SAME `build_rule` core the definer uses, and the
+    /// result reifies exactly like an anonymous reaction (`eval_rule_expr`). So
+    /// `reaction X (r => x)` ≡ `Reaction[redex: r, reactum: x]` — the constructor
+    /// is `quote` of the definer made runnable. A reactum can therefore `_add` an
+    /// inline `Reaction[…]` (rules-as-state / #61 AlChemy) with no pre-declared
+    /// `reaction`. (Guard is via a `where` carried in the redex or a future
+    /// `guard:` arg; today: redex / reactum / optional rate.)
+    fn build_reaction_constructor(
+        &self,
+        args: &[TermArg],
+        env: &IndexMap<Name, Value>,
+    ) -> Result<Value, EvalError> {
+        let missing = |field: &str| EvalError::InvalidForm {
+            context: "Reaction".into(),
+            message: format!(
+                "`Reaction[redex: …, reactum: …]` requires a `{field}` (got: {})",
+                args.iter()
+                    .filter_map(|a| match a {
+                        TermArg::Named { name, .. } => Some(name.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        };
+        let redex = named_arg(args, "redex").ok_or_else(|| missing("redex"))?;
+        let reactum = named_arg(args, "reactum").ok_or_else(|| missing("reactum"))?;
+        let rate = named_arg(args, "rate").cloned();
+        let rule = self.build_rule("Reaction".into(), redex, reactum, None, rate, IndexMap::new(), env)?;
+        Ok(crate::runtime::rule::to_bigraph_value(&rule)
+            .unwrap_or_else(|| Value::Foreign(prism_schema::value::Foreign::new(FOREIGN_RULE, rule))))
+    }
+
+    /// The capitalized `Pattern( fragment )` constructor — the VALUE form of the
+    /// `pattern` definer (the flat-kind parallel to `Reaction[…]`). The fragment
+    /// (sites `?s`, controls, `~e` links, maps, `|` parallels) lowers through the
+    /// SAME `eval_pattern_top` core a reaction's REDEX uses (so a bare site/atom
+    /// becomes a matchable container, not a free-floating `Bind`), and is reified
+    /// to `Foreign(FOREIGN_PATTERN, prism Pattern)` — a first-class matcher
+    /// (`prism_schema::reaction::find_matches`; the future `count(…)` /
+    /// `.matches(…)` query builtins). So `pattern X (frag)` ≡ `def X =
+    /// Pattern( frag )` — `quote` of the definer, in the same lowered form a redex
+    /// takes.
+    fn build_pattern_constructor(
+        &self,
+        args: &[TermArg],
+        body: Option<&Expr>,
+        env: &IndexMap<Name, Value>,
+    ) -> Result<Value, EvalError> {
+        // The fragment is the body `Pattern( frag )`, or a single positional
+        // `Pattern[ frag ]` — both read naturally. (Named args are config, not a
+        // fragment; a `pattern` definer's `[params]` substitution is a separate,
+        // pattern-context mechanism — `eval_pattern_term`.)
+        let fragment = body
+            .or(match args {
+                [TermArg::Positional(e)] => Some(e),
+                _ => None,
+            })
+            .ok_or_else(|| EvalError::InvalidForm {
+                context: "Pattern".into(),
+                message: "`Pattern( fragment )` requires a redex fragment (its body)".into(),
+            })?;
+        let mut bindings = RuleBindings::new();
+        let pattern = self.eval_pattern_top(fragment, env, &mut bindings)?;
+        Ok(Value::Foreign(prism_schema::value::Foreign::new(
+            FOREIGN_PATTERN,
+            pattern,
+        )))
     }
 
     /// Build a BRS process spec from the surface form
@@ -1940,6 +2062,16 @@ fn subst_ports(
             .map(|(k, v)| (k.clone(), substitute_vars(v, subs)))
             .collect(),
     }
+}
+
+/// The `Expr` of a named `K[name: value, …]` argument, if present — the raw
+/// (un-evaluated) value, since a constructor like `Reaction[redex: ?s, …]` wants
+/// its args as pattern templates, not evaluated values.
+fn named_arg<'a>(args: &'a [TermArg], want: &str) -> Option<&'a Expr> {
+    args.iter().find_map(|a| match a {
+        TermArg::Named { name, value } if name.as_str() == want => Some(value),
+        _ => None,
+    })
 }
 
 /// Is this reactum a pure STRUCTURAL template (controls / sites / links /

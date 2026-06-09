@@ -840,6 +840,25 @@ registered under the name `X`. Same content, two surface forms — the
 lowercase/capitalized distinction is what makes it readable that those
 *are* the same thing.
 
+**Status (homoiconic-unification Stage 2b — `docs/homoiconic-unification.md`):**
+the FLAT-kind capitalized constructors are now **implemented** as real values that
+route through the same lowering core as their definers:
+- **`Reaction[redex: …, reactum: …, rate: …]`** → the runnable reaction value (via
+  `build_rule`, the one reaction-lowering core; reifies like `eval_rule_expr`). A
+  `BRS[rules: […]]` accepts both a `reaction` definer (`FOREIGN_RULE`) and a
+  `Reaction[…]` value (`FOREIGN_REACTION`), so **`def X = Reaction[…]` is a verified
+  drop-in for `reaction X (…)`** — and a capitalized value-`def` now resolves as a
+  value (the `entity.binding` dispatch), which is what makes that drop-in work with
+  the conventional capitalized name.
+- **`Pattern( fragment )`** → a first-class matcher value (`FOREIGN_PATTERN` wrapping
+  a `prism Pattern`, lowered via `eval_pattern_top` — the same form a reaction redex
+  takes), usable with `find_matches` (the substrate for `count(…)` / `.matches(…)`).
+
+The RICH kinds (`process`/`step`/`composite`) intentionally keep the **structured**
+quote — `EntityDef::to_value` ↔ `from_value` / `compile_value` (programs-as-data,
+#32/#34) — rather than a flat bracket, which would duplicate it (the Felleisen gate).
+The deeper `ProcessDef[expr, schema]` (tier-2, body-as-value) is a separate capability.
+
 ### Evaluation: every name a value, every value composes
 
 The REPL (and eval generally) follows one rule — **read → AST → eval → Value →

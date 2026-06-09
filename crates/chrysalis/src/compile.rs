@@ -44,7 +44,7 @@ use crate::ast::{
 use crate::eval::{EvalError, Evaluator};
 use crate::runtime::expr_process::ExprProcess;
 use crate::runtime::expr_step::ExprStep;
-use crate::runtime::rule::{extract_rules, to_prism_rule};
+use crate::runtime::rule::brs_rules;
 use crate::units::UnitEnv;
 
 /// Output of compiling a chrysalis [`Program`].
@@ -630,10 +630,10 @@ fn register_step_factory(registry: &mut ProcessRegistry, def: &StepDef, evaluato
 /// chrysalis-side BRS — prism owns matching, firing, and diffing.
 fn register_brs_factory(registry: &mut ProcessRegistry, evaluator: Arc<Evaluator>) {
     registry.register("Brs", move |config| {
-        let rules = extract_rules(&config)
-            .iter()
-            .map(|r| to_prism_rule(r, Arc::clone(&evaluator)))
-            .collect();
+        // Both a `reaction` definer (`FOREIGN_RULE`) and the `Reaction[…]`
+        // constructor / a wire-arrived reaction (`FOREIGN_REACTION`) are accepted
+        // — so `reaction X (…)` and `def X = Reaction[…]` are interchangeable here.
+        let rules = brs_rules(&config, &evaluator);
         ProcessNode::Process(Box::new(BigraphicalReactiveSystem::from_config(
             rules, &config,
         )))

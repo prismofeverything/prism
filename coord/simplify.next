@@ -1,0 +1,97 @@
+# simplify.next — durable resume for the `simplify` agent
+
+<!-- The fractal of NEXT-SESSION.md, per agent. DURABLE (survives reboot);
+     coord/simplify.ys is the LIVE heartbeat, rebuilt from here on boot.
+     Edit ONLY your own simplify.ys + simplify.next (monotone, per-source). -->
+
+## ⏯️ ON BOOT
+You are `simplify` — REDUCE: remove redundant paths, find the unifying mechanism, "one
+way to do each thing" (the wei-qi / Felleisen gate). `/simplify` + `/code-review` as a
+standing role. Read this + `coord/ROSTER.md` + `coord/board.ys` + **`docs/homoiconic-unification.md`**
+(the shared design, stewarded by `unify`) + [`generative-core.md`](../docs/generative-core.md)
+(the one-door discipline). Own `coord/simplify.ys` (live heartbeat) and this file
+(durable). Resume from **Now / next**.
+
+## Domain
+Cross-tree reduction: the duplication audit (**#46**) + the **one-door build-failing
+guards** that pin a converged capability so a second door can't silently reappear. The
+existing guards are the template: `closure_guard` ("nothing manipulates schema/state
+outside the algebra") and **#45** ("one `address → process` instantiation path"). For
+THIS push you own **Stage 3** of the homoiconic unification.
+
+## Now / next — homoiconic unification, Stage 3 (the guard; gated on `lang`'s Stage 2)
+- [ ] **The one-instantiate guard** — a build-failing test asserting **exactly one
+      function turns an entity (definer OR constructor) into a spec Value**, after `lang`
+      collapses the N `build_X_value` builders into `instantiate` (Stage 2a). Model it on
+      `closure_guard` / #45 (a sealed seam / single-`match` / grep-or-AST test). This is
+      the generalization that keeps the unified face from re-forking.
+- [ ] **Homoiconic-surface duplication audit (#46-scoped)** — sweep the
+      definer ↔ constructor ↔ `to_value`/`from_value` ↔ `compile_reaction` surface for
+      remaining multiplicity; spin off one consolidation per confirmed duplicate. Verify
+      the Stage-1/2 collapses actually deleted the old paths (no dead `build_brs_value` /
+      `compile_reaction_value` left behind).
+- [ ] **Stretch** — generalize the one-door pattern into a small reusable
+      architectural-invariant test helper (sealed-trait-one-impl / exhaustive-match /
+      single-builder), so future convergences get a guard cheaply (`generative-core.md`
+      §3).
+
+## Verified audit findings (2026-06-09, read first-hand — refines unify's §1 table)
+- **(A) 7 builder paths, not 5.** Capitalized-constructor dispatch = `eval_term_value`
+  (`eval.rs:709`). *Entity door* (Stage 2a collapses): `build_composite_outer` (`:723`),
+  `build_pure_spec`→`build_spec_value` (process/step, `:729`/`:735`→`:1117`),
+  `build_reaction_value` (`:1202`), `build_protocol_outer` (`:743`). *Built-in*:
+  `build_brs_value` (`"BRS"` string-match, `:768`/`:1354`). *Two DISTINCT doors* (decide
+  with lang/unify whether they also funnel through `instantiate`): `build_native_spec`
+  (wholesale native imports, `:777`) and `build_plain_map_value` (free-control fallback,
+  `:1388` — **this is where missing `Reaction[…]`/`Pattern[…]` constructors currently
+  mis-route**, so Stage 2b must intercept here).
+- **(B) The Stage-2a crux (the headline).** `build_reaction_value` returns a **runnable**
+  `Foreign(FOREIGN_RULE, Rule)`; the node builders return **data** spec-maps
+  `{_type,address,config,inputs,outputs}`. The §7 quote/eval split resolves the
+  inconsistency: a constructor should produce **DATA (= quote of the definer)**, the
+  runnable produced by **eval** (`compile_reaction = eval∘quote`, Stage 1b). So the
+  collapse target is *one instantiate → quote-consistent data*, with eval as the separate
+  2nd rung. The reaction builder is the lone odd-one-out conflating quote+eval.
+- **(C) Dismissed false positive (verified).** `reaction.rs::Pattern::{to_value,from_value}`
+  (lossless **pattern-as-data**, keeps holes via `_pat` tags) vs
+  `assembly.rs::{to_value,from_value}` (**ground-state rendering**, errors on holes) are
+  DISTINCT ops that coexist *by design* (`reaction.rs:380`) — NOT a duplicate; no
+  consolidation. (Minor clarity nit, not a task: assembly's pair could be named
+  `to_ground_value`/`from_ground_value` to retire the shared-name confusion.)
+- **Offer to lang:** the no-wildcard **exhaustiveness witness** mechanism for the Stage-1a
+  round-trip test — makes "total over all variants" build-FAILING (a new `Expr` variant
+  can't compile until covered), properly pinning invariant #2 instead of sample-testing it.
+
+## Coordinate
+Your guards are NEW test files → monotone, go. But a one-door guard CONSTRAINS everyone
+(it can fail their `cargo test`) → before landing a guard that could break in-flight
+work, read the board + drop a `note` so `lang`/others rebuild against it (CALM /
+ROSTER §regimes). Pair with `lang` on what the canonical one door actually is; with
+`unify` on whether a found duplicate is essential (a logged conservative extension) or
+accidental (delete it).
+
+## Done (this arc)
+- **2026-06-09 (boot)** — read the shared design (`homoiconic-unification.md`) + spine
+  docs; built `coord/simplify.ys`. **Verified unify's §1 diagnosis first-hand** and
+  resolved it finer (findings A/B/C above) — fed to lang/unify via the heartbeat note.
+  Confirmed the Stage-3 guards are correctly GATED (door not yet singular): cannot land
+  the round-trip-exhaustiveness guard until lang's 1a is green, nor the one-instantiate
+  guard until lang's 2a collapses the 7 builders. Staged both; offered lang the
+  exhaustiveness-witness mechanism.
+- **2026-06-09 (build)** — landed the **round-trip totality guard** (invariant #2):
+  `crates/chrysalis/tests/homoiconic_roundtrip_guard.rs`, green. A macro is the single
+  source of truth → a no-wildcard `variant_tag` witness (build-failing: a new `Expr`
+  variant can't compile until covered + sampled) + a round-trip sample per variant.
+  **Handshake with lang complete:** lang landed Stage 1a (Comprehension reify,
+  `ast.rs:2209`) → emptied `PENDING_REIFY` → all 29 variants enforced for identity, no
+  exceptions. The reify direction (string-tag match) can no longer silently rot.
+- **2026-06-09 (post-disk-fix)** — found a confirmed #46 multiplicity: lang's Stage-1a
+  `from_value_is_total_over_every_expr_variant` (`entity_as_data.rs:300`) and my guard
+  BOTH assert round-trip totality. Mine enforces exhaustiveness by a compiler-checked
+  no-wildcard witness; lang's by a manual `corpus.len()==34` (can rot). **Absorbed lang's
+  5 alternate shapes into my guard** (`alternate_shapes()`) so it strictly subsumes
+  lang's; proposed lang retire theirs (task #4, their file/their call). One exhaustiveness
+  door. Guard green via the relocated `/mnt/data` target.
+- **NEXT for me:** the one-instantiate guard (invariant #1) the moment lang's Stage 2a
+  collapses the 7 builders — reuse this guard's witness mechanism. Flagged dead code to
+  lang (`ast.rs` `interface_summary`/`slot_with_body`) as a Stage-2 #46 cleanup.

@@ -118,3 +118,96 @@ fn a_reaction_assembled_as_data_runs() {
         "the A was consumed: {after:?}"
     );
 }
+
+#[test]
+fn eval_of_a_quoted_reaction_builds_the_runnable_form() {
+    // Stage 1b (docs/homoiconic-unification.md): `compile_reaction` DISSOLVES
+    // into `eval ∘ quote`. A quoted reaction (`{_type:"Rule", …}`) fed to the
+    // GENERAL evaluator — `eval_value(from_value(data))`, the SAME `eval` path
+    // `eval(ast)` (#32) uses — now builds the runnable, transmittable reaction,
+    // because `eval_value(Expr::Rule)` routes through the one `eval_rule_expr`
+    // core. Previously a `=>` in value position errored and only the special-
+    // cased `compile_reaction` could lower it; that bolt-on is gone. The
+    // unification made visible: there is no reaction-only door, just `eval`.
+    let src = "reaction Convert ( (?a :: A) => (B) )";
+    let program = chrysalis::parse::parse_program(src).expect("parse");
+    let rd = program
+        .defs
+        .iter()
+        .find_map(|d| match d {
+            Def::Reaction(r) => Some(r),
+            _ => None,
+        })
+        .expect("a reaction def");
+    let data = Expr::Rule {
+        redex: Box::new(rd.redex.clone()),
+        reactum: Box::new(rd.reactum.clone()),
+    }
+    .to_value();
+
+    let result = chrysalis::compile::compile(&program).expect("compile");
+    let env = indexmap::IndexMap::new();
+
+    // The GENERAL eval path — `eval ∘ quote⁻¹`, no `compile_reaction` in sight.
+    let expr = Expr::from_value(&data).expect("from_value");
+    let compiled = result.evaluator.eval_value(&expr, &env).expect("eval");
+    let Value::Foreign(f) = &compiled else {
+        panic!("eval of a quoted reaction is a Foreign reaction: {compiled:?}")
+    };
+    assert_eq!(
+        f.type_name, FOREIGN_REACTION,
+        "eval ∘ quote produces the transmittable reaction form: {compiled:?}"
+    );
+    let rule: ReactionRule = f
+        .downcast_ref::<ReactionRule>()
+        .expect("a prism ReactionRule")
+        .clone();
+
+    // And it fires: A → B, identically to the `compile_reaction_value` door.
+    let brs = BigraphicalReactiveSystem::new(vec![rule]);
+    let after = drive(&brs, Value::tree([("a0", ion("A"))]), 2);
+    let mut kinds = Vec::new();
+    collect_types(&after, &mut kinds);
+    assert!(kinds.iter().any(|t| t == "B"), "the eval'd reaction fired: {after:?}");
+    assert!(!kinds.iter().any(|t| t == "A"), "the A was consumed: {after:?}");
+}
+
+#[test]
+fn reaction_constructor_equals_the_definer() {
+    // Stage 2b: the capitalized `Reaction[redex:…, reactum:…]` constructor is the
+    // VALUE form of the `reaction` definer — `reaction X (r => x)` ≡
+    // `Reaction[redex: r, reactum: x]`, both lowering through the one `build_rule`
+    // core. Sites parse as ordinary primaries, so the surface
+    // `Reaction[redex: ?a :: A, reactum: B]` needs no special parser case; here we
+    // build it directly and run it: it fires A→B identically to a `reaction`
+    // definer. "Constructor = quote of definer" made runnable — the foundation a
+    // reactum uses to `_add` an inline reaction (rules-as-state / #61 AlChemy).
+    let program = chrysalis::parse::parse_program("reaction Convert ( (?a :: A) => (B) )")
+        .expect("parse");
+    let result = chrysalis::compile::compile(&program).expect("compile");
+    let env = indexmap::IndexMap::new();
+
+    let ctor = Expr::term("Reaction")
+        .arg_named("redex", Expr::site_typed("?a", Expr::term("A").build()))
+        .arg_named("reactum", Expr::term("B").build())
+        .build();
+    let compiled = result.evaluator.eval_value(&ctor, &env).expect("eval Reaction[…]");
+    let Value::Foreign(f) = &compiled else {
+        panic!("Reaction[…] is a Foreign reaction: {compiled:?}")
+    };
+    assert_eq!(
+        f.type_name, FOREIGN_REACTION,
+        "Reaction[…] reifies to the transmittable form: {compiled:?}"
+    );
+    let rule: ReactionRule = f
+        .downcast_ref::<ReactionRule>()
+        .expect("a prism ReactionRule")
+        .clone();
+
+    let brs = BigraphicalReactiveSystem::new(vec![rule]);
+    let after = drive(&brs, Value::tree([("a0", ion("A"))]), 2);
+    let mut kinds = Vec::new();
+    collect_types(&after, &mut kinds);
+    assert!(kinds.iter().any(|t| t == "B"), "Reaction[…] fired A→B: {after:?}");
+    assert!(!kinds.iter().any(|t| t == "A"), "the A was consumed: {after:?}");
+}

@@ -44,3 +44,17 @@ highs = "2.0"
 highs-sys = "1.12"
 compact_str = { version = "0.9", features = ["serde"] }
 rapier2d = { version = "0.22", features = [] }
+
+# ── Build profile — multi-agent disk hygiene ──────────────────────────────────
+# prism builds MANY binaries (93 chrysalis integration-test files alone, each a
+# separate binary linking the whole workspace) into ONE shared target/ that several
+# agents fill at once. The default `debug = 2` (full DWARF symbols) is the bulk of
+# each binary's size — at 93+ test binaries it ballooned target/ to 64G and filled
+# the disk. `line-tables-only` keeps panic/backtrace LINE NUMBERS while cutting
+# binary size ~50%+; incremental is dropped (~6G of cache that doesn't help across
+# agents — one agent's edit to a shared crate invalidates it anyway). test/example
+# builds inherit this. NOT a rustflags/linker override, so it won't trigger repeated
+# whole-tree rebuilds — only editing this block does.
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
