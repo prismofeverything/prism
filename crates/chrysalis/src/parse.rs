@@ -2158,7 +2158,7 @@ impl Parser {
         enum Item {
             Entry(String, Expr),
             Bind(String, Expr),
-            Link(String, Option<SchemaExpr>, Expr),
+            Link(String, Option<SchemaExpr>, bool, Expr),
             Value(Expr),
         }
         let mut items = Vec::new();
@@ -2179,8 +2179,15 @@ impl Parser {
                     } else {
                         None
                     };
+                    // optional `mesh` modifier — a REPLICATED (CRDT) link (#62):
+                    // gated by `mesh_safety` at compile, replicated across peers.
+                    // Contextual: `mesh` stays usable as an ordinary name elsewhere.
+                    let mesh = matches!(self.peek(), Tok::Ident(s) if s == "mesh");
+                    if mesh {
+                        self.bump();
+                    }
                     self.expect(&Tok::Eq)?;
-                    Item::Link(name, schema, self.parse_expr()?)
+                    Item::Link(name, schema, mesh, self.parse_expr()?)
                 } else if matches!(self.peek(), Tok::Ident(_)) && *self.peek2() == Tok::Colon {
                     let name = self.ident()?;
                     self.expect(&Tok::Colon)?;
@@ -2200,11 +2207,13 @@ impl Parser {
         }
 
         // A `link` declaration desugars to an `Expr::LinkDecl` body element.
-        let link_decl = |name: String, schema: Option<SchemaExpr>, default: Expr| Expr::LinkDecl {
-            name,
-            schema,
-            default: Box::new(default),
-        };
+        let link_decl =
+            |name: String, schema: Option<SchemaExpr>, mesh: bool, default: Expr| Expr::LinkDecl {
+                name,
+                schema,
+                mesh,
+                default: Box::new(default),
+            };
         let has_bind = items.iter().any(|i| matches!(i, Item::Bind(..)));
         // A `link` makes the body map-building (a Parallel), like an entry.
         let has_entry = items
@@ -2218,7 +2227,7 @@ impl Parser {
                 match item {
                     Item::Bind(n, e) => bindings.push((n, e)),
                     Item::Value(e) | Item::Entry(_, e) => value = e,
-                    Item::Link(n, s, e) => value = link_decl(n, s, e),
+                    Item::Link(n, s, m, e) => value = link_decl(n, s, m, e),
                 }
             }
             Ok(Expr::Block(crate::ast::Block::from_parts(bindings, value)))
@@ -2228,7 +2237,7 @@ impl Parser {
                 .into_iter()
                 .map(|i| match i {
                     Item::Entry(n, e) => Expr::entry(n, e),
-                    Item::Link(n, s, e) => link_decl(n, s, e),
+                    Item::Link(n, s, m, e) => link_decl(n, s, m, e),
                     Item::Value(e) => e,
                     Item::Bind(_, e) => e,
                 })
@@ -2237,7 +2246,7 @@ impl Parser {
         } else if items.len() == 1 {
             Ok(match items.pop().unwrap() {
                 Item::Value(e) | Item::Entry(_, e) | Item::Bind(_, e) => e,
-                Item::Link(n, s, e) => link_decl(n, s, e),
+                Item::Link(n, s, m, e) => link_decl(n, s, m, e),
             })
         } else {
             Ok(Expr::parallel(
@@ -2245,7 +2254,7 @@ impl Parser {
                     .into_iter()
                     .map(|i| match i {
                         Item::Value(e) | Item::Entry(_, e) | Item::Bind(_, e) => e,
-                        Item::Link(n, s, e) => link_decl(n, s, e),
+                        Item::Link(n, s, m, e) => link_decl(n, s, m, e),
                     })
                     .collect(),
             ))

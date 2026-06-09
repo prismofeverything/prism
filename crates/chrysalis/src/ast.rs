@@ -1237,6 +1237,9 @@ pub enum Expr {
     LinkDecl {
         name: Name,
         schema: Option<SchemaExpr>,
+        /// A `mesh` modifier → a REPLICATED (CRDT) link (#62): gated by
+        /// `mesh_safety` at compile, replicated across peers at runtime.
+        mesh: bool,
         default: Box<Expr>,
     },
 
@@ -1700,7 +1703,7 @@ impl Expr {
             }
             Expr::Unbound => tag("Unbound", &[]),
             Expr::LinkVar(n) => tag("LinkVar", &[("name", Value::String(n.clone()))]),
-            Expr::LinkDecl { name, schema, default } => {
+            Expr::LinkDecl { name, schema, mesh, default } => {
                 let mut fields: Vec<(&str, Value)> = vec![
                     ("name", Value::String(name.clone())),
                     ("default", default.to_value()),
@@ -1710,6 +1713,9 @@ impl Expr {
                         "schema",
                         Value::String(crate::unparse::unparse_schema(s)),
                     ));
+                }
+                if *mesh {
+                    fields.push(("mesh", Value::Bool(true)));
                 }
                 tag("LinkDecl", &fields)
             }
@@ -2151,7 +2157,8 @@ impl Expr {
                     ),
                     None => None,
                 };
-                Ok(Expr::LinkDecl { name, schema, default })
+                let mesh = map.get("mesh").and_then(|v| v.as_bool()).unwrap_or(false);
+                Ok(Expr::LinkDecl { name, schema, mesh, default })
             }
             // Pattern / reaction-defining variants — `?c` sites, the `=>` rule
             // split, the guard. Closing these is what makes a REACTION fully

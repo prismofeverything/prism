@@ -618,10 +618,20 @@ impl Evaluator {
                         let v = self.eval_value(value, env)?;
                         map.insert(Key::from(key_str.as_str()), v);
                     }
-                    Expr::LinkDecl { name, default, .. } => {
+                    Expr::LinkDecl { name, default, mesh, .. } => {
                         let v = self.eval_value(default, env)?;
                         map.insert(Key::from(name.as_str()), v);
-                        links.insert(Key::from(name.as_str()), Value::Bool(true));
+                        // The `_links` marker records the link's PRESENCE (the engine
+                        // `resolve_link`s `~name` by presence). A `mesh` link records
+                        // "mesh" so the replication wiring (#62 next slice) can find
+                        // it; the value is otherwise inert (presence is all resolve
+                        // reads), so this stays backward-compatible.
+                        let marker = if *mesh {
+                            Value::String("mesh".into())
+                        } else {
+                            Value::Bool(true)
+                        };
+                        links.insert(Key::from(name.as_str()), marker);
                     }
                     _ => unreachable!("all_keyed guarantees KeyedEntry | LinkDecl"),
                 }
@@ -1880,10 +1890,12 @@ fn substitute_vars(expr: &Expr, subs: &IndexMap<Name, Expr>) -> Expr {
         LinkDecl {
             name,
             schema,
+            mesh,
             default,
         } => LinkDecl {
             name: name.clone(),
             schema: schema.clone(),
+            mesh: *mesh,
             default: Box::new(substitute_vars(default, subs)),
         },
         Unit | Bool(_) | Int(_) | Float(_) | Str(_) | Path(_) | Unbound | LinkVar(_) => {

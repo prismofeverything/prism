@@ -174,6 +174,38 @@ fn check_body(
                 }
             }
         }
+        // A `mesh` link (#62) is REPLICATED across peers; it converges with no
+        // coordinator iff its merge is a CRDT (a join-semilattice). Gate it through
+        // `algebra::mesh_safety` HERE, at compile, so an unsafe replicated link
+        // (additive scalar, last-writer-wins, sequence) is a compile error — illegal
+        // distributed states are unrepresentable, not a runtime divergence.
+        Expr::LinkDecl { name, schema, mesh: true, .. } => match schema {
+            Some(s) => {
+                let lowered = crate::schema::lower_schema_in_program(s, program);
+                if let Err(unsafe_) = prism_schema::algebra::mesh_safety(&lowered) {
+                    errors.push(ConnectionError {
+                        composite: composite.to_string(),
+                        child: name.clone(),
+                        port: "mesh".into(),
+                        message: format!(
+                            "mesh link `{name}` is not CRDT-safe ({}). A replicated \
+                             link must converge with no coordinator — its merge must be \
+                             a join-semilattice.",
+                            unsafe_.reason
+                        ),
+                    });
+                }
+            }
+            None => errors.push(ConnectionError {
+                composite: composite.to_string(),
+                child: name.clone(),
+                port: "mesh".into(),
+                message: format!(
+                    "mesh link `{name}` must declare its value-schema \
+                     (`link {name} :: T mesh = …`) so its CRDT-safety can be checked."
+                ),
+            }),
+        },
         _ => {}
     }
 }

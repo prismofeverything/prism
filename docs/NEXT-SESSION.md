@@ -15,7 +15,7 @@
 
 ---
 
-## ⏯️ CURRENT STATUS (2026-06-08e — task list reorganized + the grand-synthesis roadmap; #62 mesh M1 slices 1–3 landed: the CRDT closure invariant + the first-class `mesh:` protocol + live-bridge convergence)
+## ⏯️ CURRENT STATUS (2026-06-08e — task list reorganized + the grand-synthesis roadmap; #62 mesh M1 slices 1–4 landed: the CRDT closure invariant + the first-class `mesh:` protocol + live-bridge convergence + the `.ys` mesh surface w/ compile-time gate)
 
 > This file was reorganized (was ~2034 lines): the durable task list is now
 > **Remaining work — by category** + a **✅ Completed** archive + a 1-line **session
@@ -52,13 +52,24 @@
 > existing boundary codec carries the state (`realize_with`) — no delta-in (#5)
 > needed. Deployable by pointing each peer at the other's Tailscale IP.
 >
-> **NEXT (continue M1):** (a) the **`link :: T mesh`** chrysalis surface (declare a
-> mesh link in `.ys`, lower to a `mesh:` node, gate at compile); (b) continuous
-> gossip / anti-entropy (vs slice-3's one-shot exchange) + SWIM membership; (c)
-> N-peer; then reactions / AlChemy / quantum over the mesh (≈ free given the uniform
-> codec); the δ-state CRDT (ship deltas via `apply`, needs rest delta-in #5) as a
-> bandwidth refinement; transport over Tailscale.
-> **See [`grand-synthesis.md`](grand-synthesis.md) M1.**
+> **Slice 4 — the `.ys` mesh surface + COMPILE-TIME gate.** `link name :: T mesh =
+> default` declares a replicated link in chrysalis; `validate_connections` (run in
+> `compile.rs`) gates it through `algebra::mesh_safety` — an additive / LWW / untyped
+> mesh link is a COMPILE ERROR (the M1 checkpoint: the algebra refuses an unsafe merge
+> at compile time). The `mesh` modifier threads parse→AST→eval→unparse (round-trips);
+> the `_links` marker records `"mesh"` for the replication wiring (resolve_link reads
+> only presence, so it's backward-compatible). A `mesh` link runs identically to a #56
+> shared link locally today. Full chrysalis suite green.
+> `chrysalis/tests/mesh_link_surface.rs`.
+>
+> **NEXT (continue M1):** (a) WIRE THE RUNTIME — a `mesh` `.ys` link lowers to a live
+> `MeshReplica` (a `mesh:` node co-located with the link slot) that gossips with a peer
+> (scan `_links` for `"mesh"` entries → attach the replica → exchange over the live
+> bridge), turning slice-3's hand-wired convergence into a declared-in-`.ys` one; (b)
+> continuous gossip / anti-entropy + SWIM membership; (c) N-peer; then reactions /
+> AlChemy / quantum over the mesh; **Demo 1→2** (Kuramoto tiles phase-locking over a
+> `mesh:` link — `categorical-core.md` §9, the CRDT+dynamical convergence *stack*); the
+> δ-state CRDT (#5). **See [`grand-synthesis.md`](grand-synthesis.md) M1.**
 
 ---
 
