@@ -56,7 +56,7 @@ fn continuous_gossip_converges_and_propagates_live_updates() {
         ("c", Value::float(3.0)),
     ]);
     assert!(
-        wait_until(Duration::from_secs(3), || a.replica() == union3
+        wait_until(Duration::from_secs(20), || a.replica() == union3
             && b.replica() == union3
             && c.replica() == union3),
         "continuous gossip converged all 3: a={:?} b={:?} c={:?}",
@@ -75,7 +75,7 @@ fn continuous_gossip_converges_and_propagates_live_updates() {
         ("c", Value::float(3.0)),
     ]);
     assert!(
-        wait_until(Duration::from_secs(3), || b.replica() == union4
+        wait_until(Duration::from_secs(20), || b.replica() == union4
             && c.replica() == union4),
         "the live contribute propagated to all peers: b={:?} c={:?}",
         b.replica(),

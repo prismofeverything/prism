@@ -1,0 +1,91 @@
+# manifold.next — durable resume for the `manifold` agent
+
+<!-- DURABLE resume (survives reboot); coord/manifold.ys is the LIVE heartbeat,
+     rebuilt from here on boot. Edit ONLY your own <agent>.ys + <agent>.next
+     (monotone, per-source). The per-agent fractal of NEXT-SESSION.md. -->
+
+## ⏯️ ON BOOT
+You are `manifold` — the adaptive / dynamical-networks agent (`../manifold`; the
+Kuramoto demos toward M5; #66 manifold domain + #70 composite intervals). Read this +
+`coord/ROSTER.md` + `coord/board.ys` (the live cross-agent view). Own `coord/manifold.ys`
+(live heartbeat) and this file (durable). Resume from **Now / next**.
+(Note: `#65 spatial` — geometry / octree / `../parsimony` — is a SEPARATE role, not mine
+unless I take it on.)
+
+## Domain
+The dynamical / adaptive-networks layer: the `kuramoto*.ys` + `kuramoto*.rs` demos (sync,
+mesh, plastic), `prism-std/src/math.rs` (the shared math floor), composite intervals
+(#70, multi-rate time-transparency), `../manifold` (the sibling library to fold in, #66).
+The spine: `docs/categorical-core.md` §5 (convergence = the fixpoint), §6b (the
+fundamental-type catalog), §9 (the demos + M/R-closure / reflection made dynamical).
+Adjacent: `mesh` (the runtime my distributed demos ride), `synth` (the audio twin of the
+same M/R closure), `unify` (the type catalog / functors).
+
+## Now / next (priority order)
+- [ ] **Demo 3 slice 2 — DISCRETE topology rewrite.** Slice 1 (soft plastic weights) is
+      DONE. Next: Hebbian co-activation that FIRES A REACTION adding/pruning an actual link
+      (a topology-rewriting BRS, #43) — structural, not a soft weight. Reuse
+      `prism_schema::reaction` (Pattern / find_matches / fire_rule_at); mirror the cell
+      `Divide` reaction. The network rewrites its DISCRETE wiring from its own dynamics.
+- [ ] **Distribute Demo 3 over the mesh** — pair with `mesh`: each peer's network learns
+      locally; the learned topology (the per-source `weights` map) gossips via the same
+      `.ys`-mesh-link ↔ `MeshReplica`/`LiveField` binding as Demo 2. (Honest: a *learning*
+      link is NOT CRDT-safe in general — Hebbian isn't idempotent → optimistic-fire-then-
+      converge; but the per-source weights map IS safe, single-writer-per-key.)
+- [ ] **#68 type-catalog lift (with `unify`)** — lift `Spin` → an `Oscillator` TYPE + a
+      shared `Complex` / `Signal[ℂ]` sort (quantum = unitary, manifold = dissipative — one
+      ℂ-linear dagger category; categorical-core §6b). "The type is the methods."
+- [ ] **#66 — port the rest of `../manifold`** — sigmoid/bistable competition, STDP,
+      lateral inhibition/excitation, the complex substrate. Each module = a process; its
+      dynamics = the body; learning = topology reactions.
+- [ ] **#70 slice 2 (with `core`)** — a leaf process's declared `interval` input should set
+      its scheduling front (it currently doesn't → the `dt` workaround in every demo). Plus
+      the research thread: "partition by mutual causality / coupling timescale" = the
+      implicit-composite ↔ timestep-hierarchy unification (categorical-core §9 footnote).
+
+## Done (this arc — all green)
+- **Demo 1** (`kuramoto.ys` + `kuramoto_sync.rs`) — local Kuramoto phase-lock, R 0.998/0.380.
+  Manifold IS a prism theory: oscillator = a `process`, θ↔mass, mean field↔glucose pool.
+- **#70** (`eval.rs` slice 1 + `composite_interval.rs`) — a composite declares its own
+  `interval` (config→front), and the TIME-TRANSPARENCY INVARIANT is pinned as a law:
+  inner dynamics ⊥ outer tick frequency (run the outer 1×60 = 60×1, identical interior).
+- **Demo 2** (`kuramoto-mesh.ys` + `kuramoto_mesh.rs` + `kuramoto_mesh_distributed.rs`) —
+  Kuramoto over a CRDT-safe per-source `map[id→array[[2]]] mesh` link: local (R 0.998/0.380,
+  identical to Demo 1 → coupling rides a mesh link unchanged), distributed over a live rest
+  bridge (R_a=R_b 0.964), and LIVE-stream via `MeshAgent::start_gossip` (R 0.980, 1.25s).
+  Two pairings with `mesh`.
+- **Demo 3 slice 1** (`kuramoto-plastic.ys` + `kuramoto_plastic.rs`) — plastic coupling:
+  Hebbian `dw=η·(align−w)` learns each weight; they end MONOTONIC in frequency-distance
+  (core ω≈1.0 → 0.955, outliers ω 0.2/1.8 → 0.824) = the network learned its own wiring
+  (the M/R closure made dynamical).
+- **The math floor** (`prism-std/src/math.rs`) — axiomatic `Float.sin/cos/sqrt`, `List.at`,
+  `sum`. Shared by every domain.
+- **The categorical spine** (`docs/categorical-core.md`) — wrote it (the through-line:
+  domains = theories, couplings = functors, fold/unfurl = cup/cap = M/R-closure = reflection,
+  convergence = the fixpoint) + §6b type catalog + §9 the demos/M5.
+
+## Key gotchas (durable — these cost real iterations)
+- **Compile with methods:** `compile_with_methods(std_registry(), std_methods())`, NOT bare
+  `compile()` (empty MethodRegistry → `.sin`/`.at`/`.sum` not found).
+- **Comprehension computed key:** `{ id: X for id in m }` keys EVERY entry by the literal
+  `"id"` → all collapse into one. Use `'{id}'` (interpolated → a computed Map key).
+- **Composite child state is ENCAPSULATED:** the parent's children-map slot holds the static
+  SPEC (config/inputs/outputs), NOT live state; `config.state.X` is the INITIAL value. To
+  read a learned per-child quantity, SURFACE it via a shared per-key `link` (each child writes
+  its delta to its own key — the Demo 2 / Demo 3 `weights` pattern).
+- **Mean field as an additive `array[[2]]` pool** (each oscillator emits Δ of its phase-vector;
+  the engine's additive fold IS the reduction). For the MESH carrier use a per-source
+  `map[id→array[[2]]]` (key-union = CRDT-safe) + `sum()` on read.
+- **Distributed gossip:** re-host each engine's authoritative field into the replica slot
+  BEFORE each gossip → no double-count (single-writer + local refresh = optimistic-converge).
+- **`dt` vs `interval`:** every demo integrates with a fixed `dt` config decoupled from the
+  engine tick, because the composite interval is outer bookkeeping (#70 invariant) and a leaf
+  `interval` input default doesn't set the front (the #70 slice-2 gap).
+
+## Files
+- Demos: `crates/chrysalis/ys/{kuramoto, kuramoto-mesh, kuramoto-plastic}.ys`
+- Tests: `crates/chrysalis/tests/{kuramoto_sync, kuramoto_mesh, kuramoto_mesh_distributed,
+  composite_interval, kuramoto_plastic}.rs`
+- Core: `crates/prism-std/src/math.rs`; `crates/chrysalis/src/eval.rs` (#70)
+- Docs/memory: `docs/categorical-core.md`; memories `manifold_demo1_kuramoto`,
+  `categorical_core_spine`.

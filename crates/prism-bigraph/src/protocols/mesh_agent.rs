@@ -78,7 +78,9 @@ impl MeshAgent {
             MeshReplica::shared(self.schema.clone(), Arc::clone(&self.slot), Arc::clone(&self.types))
                 .expect("schema gated mesh-safe at host()");
         for &port in peer_ports {
-            local.gossip(peer_client(port, &self.schema, &self.types).as_ref());
+            if let Some(client) = peer_client(port, &self.schema, &self.types) {
+                local.gossip(client.as_ref());
+            }
         }
     }
 
@@ -118,7 +120,9 @@ impl MeshAgent {
                     if run.load(Ordering::SeqCst) {
                         break;
                     }
-                    local.gossip(peer_client(port, &schema, &types).as_ref());
+                    if let Some(client) = peer_client(port, &schema, &types) {
+                        local.gossip(client.as_ref());
+                    }
                 }
                 std::thread::sleep(interval);
             }
@@ -135,7 +139,7 @@ impl MeshAgent {
 
 /// A rest client onto a peer agent's hosted `Link` replica, for the given link
 /// `schema`/`types`. Built per round; a continuous agent could cache one per peer.
-fn peer_client(port: u16, schema: &Schema, types: &Arc<TypeRegistry>) -> Box<dyn Process> {
+fn peer_client(port: u16, schema: &Schema, types: &Arc<TypeRegistry>) -> Option<Box<dyn Process>> {
     let (sch, ty) = (schema.clone(), Arc::clone(types));
     let mut processes = ProcessRegistry::new();
     processes.register("Link", move |_| {
@@ -150,9 +154,13 @@ fn peer_client(port: u16, schema: &Schema, types: &Arc<TypeRegistry>) -> Box<dyn
         ("host".into(), Value::String("127.0.0.1".into())),
         ("port".into(), Value::Int(port as i64)),
     ]));
-    match RestProtocol.instantiate(&addr, Value::None, &core).expect("rest Link") {
-        ProcessNode::Process(p) => p,
-        _ => panic!("expected a Process"),
+    // A peer that is down (or not yet up) fails to connect — SKIP it this round, never
+    // panic (the failure detector reaps a peer that stays unreachable). `rest:`'s
+    // `update` is itself a no-op on a dead socket, but `instantiate` eagerly POSTs
+    // `initialize`, so the connection error surfaces here; swallow it gracefully.
+    match RestProtocol.instantiate(&addr, Value::None, &core) {
+        Ok(ProcessNode::Process(p)) => Some(p),
+        _ => None,
     }
 }
 

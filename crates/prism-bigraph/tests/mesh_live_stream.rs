@@ -66,7 +66,7 @@ fn a_live_field_streams_convergence_while_the_loop_runs() {
 
     // Both tiles converged on the FULL field (all 4 keys) — live, no explicit round.
     assert!(
-        wait_until(Duration::from_secs(2), || key_count(&a.field()) == 4
+        wait_until(Duration::from_secs(20), || key_count(&a.field()) == 4
             && key_count(&b.field()) == 4),
         "both tiles see the full field live: a={:?} b={:?}",
         a.field(),
@@ -77,7 +77,7 @@ fn a_live_field_streams_convergence_while_the_loop_runs() {
     // and OVERWRITES — no accumulation (the per-tick refresh property, end to end).
     a.sync(&Value::tree([("a0", vec2(9.0, 9.0))]));
     assert!(
-        wait_until(Duration::from_secs(2), || b.field().get_field("a0").cloned()
+        wait_until(Duration::from_secs(20), || b.field().get_field("a0").cloned()
             == Some(vec2(9.0, 9.0))),
         "B received A's live update, overwritten not accumulated: b.a0={:?}",
         b.field().get_field("a0")

@@ -88,3 +88,25 @@ MONOTONE.** Two kinds of change, two disciplines:
 Rule of thumb: **if your change can break someone else's `cargo test`, it is
 non-monotone → keep it green, or coordinate-first. If it touches only your own
 files, it is monotone → go.**
+
+## Persistence — the fractal (`coord/<agent>.next`)
+
+`NEXT-SESSION.md`, fractalized: each agent keeps a durable `coord/<agent>.next`
+alongside its live `coord/<agent>.ys`. The pair mirrors the project's own convention
+(`NEXT-SESSION.md : harness-panel`):
+
+- **`<agent>.ys`** — the LIVE heartbeat (`task`/`touching`/`status`/`note`/`tick`),
+  gossiped through the board, overwritten each tick. The ephemeral "now."
+- **`<agent>.next`** — the DURABLE resume (⏯️ ON BOOT · Domain · Now/next · Done).
+  Survives reboot; **on boot you rebuild your `.ys` from it.**
+
+Own **only your own pair** — monotone, per-source, no collision. The structure grows
+to arbitrary N: a new agent = a new `(.ys, .next)` pair, nothing shared.
+
+**The overall lives in `coord/unify.next`** — the unify agent stewards the whole: the
+cross-agent index (a line + pointer per agent), the convergence map (how the domains
+are one engine), and the M0–M5 state. It is the fractal's ROOT / front door, backed by
+the deep docs (`docs/grand-synthesis.md`, `docs/categorical-core.md`,
+`docs/NEXT-SESSION.md`). It is in `unify` — not a shared file everyone edits — because
+the overall is just unify's domain, so it stays single-writer/per-source: the same
+monotone discipline, applied to the overall itself.

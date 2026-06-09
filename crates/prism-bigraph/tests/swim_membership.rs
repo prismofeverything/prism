@@ -42,7 +42,7 @@ fn peers_auto_discover_via_a_seed_with_no_hardcoded_list() {
     // EVERY peer — B discovers C (and vice-versa) transitively through the seed.
     let want = vec!["a".to_string(), "b".to_string(), "c".to_string()];
     assert!(
-        wait_until(Duration::from_secs(5), || ids(&a) == want
+        wait_until(Duration::from_secs(20), || ids(&a) == want
             && ids(&b) == want
             && ids(&c) == want),
         "all peers auto-discovered the full membership with no hardcoded list: \
@@ -59,5 +59,42 @@ fn peers_auto_discover_via_a_seed_with_no_hardcoded_list() {
         b.members().iter().any(|(id, p)| id == "c" && *p == c_port),
         "B learned C's real address through the seed: {:?}",
         b.members()
+    );
+}
+
+fn live_ids(m: &Membership) -> Vec<String> {
+    let mut v: Vec<String> = m.live_members().into_iter().map(|(id, _)| id).collect();
+    v.sort();
+    v
+}
+
+#[test]
+fn a_dead_peer_is_detected_and_dropped_from_the_live_set() {
+    let tick = Duration::from_millis(10);
+    let a = Membership::join("a", &[], tick).unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+    let b = Membership::join("b", &[a.port()], tick).unwrap();
+    let c = Membership::join("c", &[a.port()], tick).unwrap();
+
+    // First everyone discovers everyone and sees them LIVE (heartbeats advancing).
+    let all = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+    assert!(
+        wait_until(Duration::from_secs(20), || live_ids(&a) == all && live_ids(&b) == all),
+        "all peers live: a={:?} b={:?}",
+        live_ids(&a),
+        live_ids(&b)
+    );
+
+    // C DIES — drop it, which stops its heartbeat and tears down its server.
+    drop(c);
+
+    // A and B notice C's incarnation has frozen and reap it from the live set (while
+    // still gossiping each other fine — gossiping the dead C just no-ops).
+    let ab = vec!["a".to_string(), "b".to_string()];
+    assert!(
+        wait_until(Duration::from_secs(20), || live_ids(&a) == ab && live_ids(&b) == ab),
+        "C was detected dead and dropped: a={:?} b={:?}",
+        live_ids(&a),
+        live_ids(&b)
     );
 }

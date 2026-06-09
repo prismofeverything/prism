@@ -316,9 +316,20 @@ between the field replicas differs (the mesh is an *address*, not a mode). The c
 the round-trip "double-count" risk dissolves because each key is single-writer and the
 local tick refreshes it (optimistic-fire-then-converge). A two-agent build: the manifold
 dynamics on the mesh agent's CRDT runtime, coordinated through the per-source board.
-**Demo 3** — plastic topology learning as a topology-rewriting BRS: Hebbian
-co-activation fires a reaction that strengthens/prunes a link; the network rewrites
-itself (#43; local-first; the closure payoff).
+**Demo 3 — slice 1 DONE ✅** (`kuramoto-plastic.ys` + `kuramoto_plastic.rs`): plastic
+coupling. A Hebbian rule `dw = η·(align − w)` makes each oscillator's coupling weight
+track its coherence with the mean field; the entrained core strengthens and the
+drifting outliers weaken — **monotonically by frequency-distance** (core ω≈1.0 → w=0.955,
+outliers ω∈{0.2,1.8} → w=0.824). The dynamics rewrote the soft topology (`w→0` = a pruned
+coupling) — the **M/R closure made dynamical**, the reflection/self-production payoff:
+the network reshaping its own structure from its own state. (The learned weights are
+surfaced through a shared per-key link — the Demo 2 pattern — since child inner state is
+encapsulated.) **Next slice:** the *discrete* topology-rewriting BRS — Hebbian co-activation
+*fires a reaction* that adds/prunes an actual link (#43), structural rather than soft.
+
+The full M5 manifold arc is now green: **Demo 1** (local sync) → **Demo 2** (mesh: local +
+distributed + live-stream) → **Demo 3** (self-rewiring) — a dynamical network demonstrated
+on the engine, across the mesh, and rewriting its own wiring, all on one substrate.
 
 ## 10. References
 

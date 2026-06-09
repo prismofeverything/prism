@@ -12,6 +12,12 @@
 > provenance, not panel tasks). Continue from the **NEXT** items in CURRENT STATUS.
 > The harness panel is EPHEMERAL — THIS file + MEMORY + grand-synthesis are the
 > durable record; the `#N` IDs are stable so reconstruction stays faithful.
+>
+> **Multi-agent runs:** this doc is the single-agent boot. For a PARALLEL run, the
+> front door is [`coord/unify.next`](../coord/unify.next) (the overall / cross-agent
+> index) + [`coord/ROSTER.md`](../coord/ROSTER.md) (roles + protocol). Each agent boots
+> from its own `coord/<agent>.next` (durable resume) and lives in `coord/<agent>.ys`
+> (the gossiped board). This file remains the deep durable record they navigate into.
 
 ---
 

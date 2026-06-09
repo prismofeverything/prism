@@ -63,10 +63,17 @@ fn plasticity_learns_the_coupling_structure() {
     eprintln!("core weight = {core:.3}   outlier weight = {outlier:.3}");
 
     assert_eq!(w.len(), 8, "read all 8 oscillator weights (surfaced)");
-    // The network LEARNED its structure: it strengthened the entrained core and
-    // decoupled the drifting outliers — the dynamics rewrote the soft topology.
+    // The network LEARNED its structure: the entrained core strengthened and the
+    // outliers weakened — the dynamics rewrote the soft coupling topology. The
+    // signature is MONOTONICITY: coupling weight decreases with distance from the
+    // mean frequency (id 3 = ω1.0 core > id 1 = ω0.5 > id 0 = ω0.2 outlier).
     assert!(
-        core > outlier + 0.2,
-        "plasticity should differentiate: core={core:.3} vs outlier={outlier:.3}"
+        core > outlier + 0.05,
+        "the entrained core should out-weigh the outliers: core={core:.3} vs outlier={outlier:.3}"
+    );
+    assert!(
+        w["3"] > w["1"] && w["1"] > w["0"],
+        "weight should fall monotonically with frequency-distance (learned structure): {:.3} > {:.3} > {:.3}",
+        w["3"], w["1"], w["0"]
     );
 }

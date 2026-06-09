@@ -1,0 +1,124 @@
+# synth.next — durable resume for the `synth` agent
+
+<!-- DURABLE resume (survives reboot); coord/synth.ys is the LIVE heartbeat,
+     rebuilt from here on boot. Edit ONLY your own synth.ys + synth.next
+     (monotone, per-source). The per-agent fractal of NEXT-SESSION.md. -->
+
+## ⏯️ ON BOOT
+You are `synth` — the streaming-synthesizers agent (#63, cat D). Read this +
+`coord/ROSTER.md` + `coord/board.ys` (the live cross-agent view) + `coord/unify.next`
+(the overall / convergence map). Own `coord/synth.ys` (live heartbeat) and this file
+(durable). Resume from **Now / next**. Depth: `docs/synthesis-bigraphs.md`, memory
+`synthesizer_project`.
+
+## Domain
+Audio as a prism domain. A synth patch IS a bigraph — module = a `process` with signal
+ports, patch cable = a link, voice = a composite — so generative synthesis = a **BRS
+rewriting that bigraph**. The AUDIBLE twin of quantum in the one-engine thesis. Code:
+`crates/prism-audio` + `../gorgon` (the realtime audio/CV/ring library, folded in as a
+lib). DSP kernels are native (Rust); `.ys`/Rust specs are the THIN layer — never clone
+prism's BRS / engine / schema algebra. Adjacent agents: `unify` (the `functor` definer +
+the shared `Complex`/`Signal[ℂ]` sort that make cross-domain audio natural), `manifold`
+(the audio twin of the same M/R closure; shares the ℂ sort + the mesh binding), `mesh`
+(the A8 transport), `core` (#15 schema-as-state, for InsertFilter), `lang` (the `.ys`
+patch/reaction surface).
+
+## Now / next (priority order)
+- [ ] **Sound QUALITY pass (NEW — from first listen).** The `play` demo SOUNDS (great!),
+      but the fifth isn't clean: two summed voices beat, the env/levels color it, and two
+      voices at 0.4 peak flirt with clipping. First pass: gain staging + a master limiter,
+      envelope tuning, band-limited oscillators (PolyBLEP saw/square; the sine is fine — the
+      "unclean" is the SUM + levels). Add a deterministic spectral test (Goertzel SNR / THD)
+      so quality is MEASURED, not guessed. *This is the gate to "next-level sounds."*
+- [ ] **InsertFilter (#15)** — the last A5 rule: splice a LowPass + a NEW shared bus into a
+      flat chain. The one rewrite the composite trick does NOT cover (a spliced bus is a
+      cable, not composite-internal) → the genuine schema-as-state case. Pair with `core`.
+- [ ] **A4 — control rate + modulation.** LFO / Sequencer / SampleHold at k-rate
+      (heterogeneous `interval`); CV ≡ audio (same `Signal`); the units pack
+      (Hz/dB/semitone/MIDI/V) as contexts. *Where the expressivity — the actual "sounds" — lives.*
+- [ ] **A8 — distributed jam** (pair with `mesh` + `manifold`). Each voice a peer over the
+      mesh: reuse `mesh`'s `LiveField` + the `.ys` `mesh:` link ↔ `MeshReplica` binding (the
+      same one manifold's Demo 2/3 ride); audio crosses the schema-algebra codec UNCHANGED;
+      outer-linked voices = a CRDT-safe `mesh:` carrier. They're building the binding NOW.
+- [ ] **A6 — homoiconic module factory** (with `lang`/`core`) — a reactum authors a NEW
+      module TYPE (AlChemy on synth bigraphs; the #61 mechanism exists). The synth writes synths.
+- [ ] **A7 — merge/split voices** — `fold`/`unfurl` + `tensor`/`divide` on audio; couple =
+      "voices share a link" → one composite; un-patch → factorize. The audio twin of quantum.
+- [ ] A3 polish — `AudioIn` (input/duplex), multichannel ES-9 fan-out (per-voice panning).
+
+## ★ Cross-domain horizon — audio as the ORGAN of the whole organism
+The exciting direction (the human's ask): synth is not a silo — it is the **audible
+channel** of every other domain. Each coupling is a **functor** (`categorical-core.md` §4,
+unify's `functor` definer) from a domain prop → the audio (signal-flow) prop, carried by a
+shared **link** or a **cross-composite reaction** (#43 — existing mechanisms, new
+consumers; not new engine). The keystone enabler is the shared **`Complex` / `Signal[ℂ]`**
+base sort (#68; unify+manifold): a quantum amplitude, a manifold phase, and an audio
+analytic-signal sample are ONE ℂ-sort — so a coupling is *reading one domain's value as
+another's*, not bespoke glue. Build each as a small functor + a "you HEAR domain X" demo:
+- **manifold → synth** (closest twin; do FIRST with `manifold`): the order parameter R
+  (coherence) modulates a filter cutoff / a swell; a Kuramoto oscillator IS an audio
+  oscillator at a different rate (same ℂ sort, U(1)); a plastic synapse weight = a send
+  level. *Sonify the network learning its own wiring (Demo 3).*
+- **quantum → synth** (the literal "audio twin of quantum", `quantum-bigraphs.md`): Born-rule
+  amplitudes → mix/pan levels; a `measure` collapse → a voice gate/handoff; entanglement →
+  two voices forced into one composite (= A7 merge); teleportation across the mesh = a panned
+  handoff between machines. *Sonify Bell / GHZ.*
+- **bio → synth**: a cell colony's growth/division drives a generative drone — each cell a
+  voice, `divide` = `spawn_voice`, population = texture density, mass/glucose → amp/pitch.
+  *You hear the colony grow and divide.*
+- **spatial → synth** (with `spatial`): voice position in 3D → panning over the ES-9's 16
+  outs (a real speaker array); the octree → spatial-audio LOD; `render` is a functor to
+  geometry — its sibling is a functor to sound.
+- **THE ENDGAME (M4/A9, `grand-synthesis.md`):** the distributed mesh jam with bio + quantum
+  + synth on ONE tick, coupled by outer links + topology reactions, converging via CRDT mesh
+  links, streamed out — and you HEAR all of it. Synth makes the one-engine thesis *audible.*
+(The overall convergence map is stewarded in `coord/unify.next`. Propose the `functor`
+definer + the `Complex` sort THERE with `unify`; build the per-domain demos HERE.)
+
+## Done (this arc — all green)
+- **A1/A2** — offline `Signal` (Array repr, additive-mix reconcile, REPLACE apply) + the
+  module library (Oscillator/LowPass/Vca/Envelope over native kernels) + **patch-as-data**
+  (a patch is a `Value` the engine discovers; data-patch ≡ hand-wired, proven).
+- **A5 — reactions rewrite a LIVE patch** (the self-reconfiguring synth), on the SAME BRS a
+  cell colony divides by, ZERO clone: **Prune** (`_remove` a running oscillator), **spawn**
+  (`_add` a self-contained Voice COMPOSITE carrying its own schema — solves schema-on-add),
+  **Detune** (match a voice → spawn a pitch-shifted copy, NAC-bounded, no runaway). Goertzel-
+  verified. `reactions.rs` + `voice.rs` + `tests/reactions.rs`.
+- **A3 — FIRST AUDIBLE (confirmed by the human: it plays!).** `gorgon` → a library (lib.rs +
+  thin main.rs; lib AND bin build); `prism-audio` device boundary (`device.rs` `run_realtime`
+  runs the engine ahead of a cpal device over the gorgon lock-free ring, back-pressured,
+  underrun→silence; feature `realtime`) + `examples/play.rs` + a pure-Rust ring/interleave
+  seam test. **Hear it:** `cargo run -p prism-audio --features realtime --example play`
+  (220 Hz; ~2 s in, a Detune reaction forks it up a fifth).
+
+## Key gotchas (durable — these cost real iterations)
+- **Spawn = a self-contained COMPOSITE carrying its own `config.schema`** (the cell-division
+  mechanism). A bare `_add`ed stateful slot infers WRONG (additive → accumulates); phase/z1
+  must be `overwrite`, buses `Signal`. InsertFilter is the case the composite trick does NOT
+  cover (the spliced bus is external) → schema-as-state (#15).
+- **`Signal` ≠ `Array`:** same Array repr + additive reconcile (the mix bus falls straight out
+  of the algebra), but `Signal`'s apply REPLACES (this frame) while Array ACCUMULATES. Keep
+  them distinct — don't "unify" by changing Array.
+- **A Voice composite MUST tick at block-rate** (`interval = block/rate`): audio IS the
+  per-tick output, so a coarse composite interval bridges out only the LAST inner block per
+  tick → dropped blocks. #70's "outer dt 1 vs 10 → identical" is about inner DYNAMICS, NOT the
+  sampled audio. (Corrected with `manifold`.)
+- **Reactions must be BOUNDED** (NAC + in-place flag; a fixed-key `_add` also self-bounds):
+  unbounded spawning = exponential runaway = the grow/divide bug.
+- **Thin layer:** drive `prism_schema::reaction` (Pattern/find_matches/fire_rule_at) +
+  `BigraphicalReactiveSystem` + the engine apply + discovery — NEVER clone. DSP kernels native.
+- **Realtime is feature-gated** (`realtime` → cpal/gorgon, needs ALSA); the offline path
+  never needs audio libs. **KEEP THE WORKSPACE GREEN** (ROSTER §"Two regimes" — non-monotone
+  shared invariant): stub a `[[example]]`/member file BEFORE declaring it, fix dep paths before
+  saving (`gorgon` is at `code/gorgon` → `../../../gorgon` from crates/prism-audio). My missing-
+  example-file + wrong path once broke the whole manifest for every agent (`manifold` fixed it).
+- **Sound quality is not free:** naive osc + summed voices beat / can clip — band-limiting +
+  gain staging + a limiter + a spectral test are the quality pass (first listen confirmed it).
+
+## Files
+- `crates/prism-audio/src/{signal,oscillator,lowpass,vca,envelope,wave,patch,voice,reactions,render,device,wav}.rs`
+- `crates/prism-audio/tests/{offline_render,modules,mix_bus,patch,reactions,device}.rs`
+- `crates/prism-audio/examples/play.rs`
+- `../gorgon/src/lib.rs` (+ `audio`/`packet`/`jitter`/`network`/`osc_msg`/… modules)
+- Docs/memory: `docs/synthesis-bigraphs.md`; memory `synthesizer_project`; spine
+  `docs/categorical-core.md` §4 (functor) / §6·§6b (the `Complex` sort + type catalog).

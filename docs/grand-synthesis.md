@@ -123,13 +123,15 @@ mode. Slices (in order):
    background loop) + `::contribute`: the mesh self-converges and propagates live
    updates with no explicit calls (`mesh_continuous.rs`). Remaining within: tombstone/
    metadata GC budgeted (no auto-DGC — bigraph links cycle → explicit lease/epoch).
-4. 🚧 **SWIM membership + discovery** — *slice 1 (auto-discovery) done:* membership
-   is itself a per-source `map[id → addr]` **mesh link**; a peer joins via a SEED and
-   the gossip disseminates it infection-style, so peers self-organize with NO hardcoded
-   ports, the gossip set growing dynamically (`prism-bigraph/src/protocols/swim.rs`,
-   `swim_membership.rs`). *Remaining (slice 2):* failure detection — ping/ack/indirect →
-   suspect → dead, with incarnation refutation (`status`/`incarnation` per-member fields
-   the same map carries).
+4. ✅ **SWIM membership + discovery** *(done — both slices)* — membership is itself a
+   per-source `map[id → {port, inc}]` **mesh link**. *Auto-discovery:* a peer joins via
+   a SEED, the gossip disseminates it infection-style, so peers self-organize with NO
+   hardcoded ports (the gossip set grows dynamically). *Failure detection:* `inc` is an
+   incarnation HEARTBEAT each peer bumps per round; a peer whose `inc` freezes for
+   `DEAD_AFTER` rounds is reaped from the live set — and gossiping a dead peer is graceful
+   (`peer_client → Option`, no panic). `prism-bigraph/src/protocols/swim.rs`,
+   `swim_membership.rs`. *(Refinements: ping/indirect-ping for scale; tombstone-GC of dead
+   entries; incarnation refutation of a false suspicion.)*
 5. ✅ **N-peer** *(done)* — `MeshAgent` + `sync_round`; 3 peers converge over the
    live bridge with no coordinator (`mesh_npeer.rs`). Holds at N.
 6. **Transport over Tailscale** — rest/stream over tailnet IPs; authenticated ⇒

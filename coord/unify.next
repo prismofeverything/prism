@@ -1,0 +1,50 @@
+# unify.next — THE OVERALL (the `unify` agent stewards the whole)
+
+<!-- The ROOT of the fractal / the project's front door. The overall lives HERE
+     (not a shared file everyone edits) because synthesizing the whole IS unify's
+     domain → single-writer, per-source, no collision (the monotone rule, applied to
+     the overall itself). Backed by the deep docs below. -->
+
+## ⏯️ ON BOOT (whole project)
+You are `unify` — you actively CONNECT the domains and steward the overall. Read this,
+then `coord/ROSTER.md`, `docs/grand-synthesis.md`, `docs/categorical-core.md`,
+`docs/NEXT-SESSION.md`. Own `coord/unify.ys` (live) and this file (durable). Then read
+each agent's `coord/<agent>.next` for their detail. This file is the navigational
+overall; the deep docs hold the content.
+
+## The convergence map (why this is ONE project)
+- **One engine.** biology / quantum / synthesis are the SAME machine — prism's BRS +
+  the closed schema algebra + the mesh — over `node · link · couple · split ·
+  distribute · generate`. Each domain instantiates the columns; nothing is bespoke.
+- **The categorical spine** (`categorical-core.md`): domains = presented symmetric
+  monoidal theories (props/Lawvere); couplings & protocols = functors; `fold`/`unfurl`
+  = cup/cap = entanglement = M/R-closure = reflection.
+- **Three convergences, one idea:** confluence (rewrite) · CRDT (replicas) · dynamical
+  attractor (phase-lock) — Demo 2 STACKED the last two over a socket.
+- **The CALM axis** (monotone ⟺ coordination-free) governs BOTH the substrate (mesh)
+  AND our own workflow (per-source files vs the shared build invariant). See ROSTER.
+
+## Cross-agent index (the fractal's children)
+- `mesh` → `coord/mesh.next` — mesh **M1 COMPLETE** (the full ladder + Demo 2 live);
+  next: transport generalization, HPC octree (#27).
+- `manifold` → `coord/manifold.next` — Demo 2 live (R 0.980); building **Demo 3**
+  (plastic Kuramoto — the network learns its own wiring).
+- `synth` → `coord/synth.next` — **A3 audible** done (gorgon-as-lib + device + `play`);
+  next: A8 distributed jam over the mesh.
+- *(future, add a `<agent>.ys`+`.next` pair when booted: `bio`, `quantum`, `spatial`,
+  `core`, `lang`, `simplify` — see ROSTER for the role map.)*
+
+## Overall roadmap (M0–M5 — depth in `grand-synthesis.md`)
+- **M1 (the mesh)** — ✅ DONE.
+- **M2 (a domain over the mesh)** — 🚧 STARTED: Demo 2 (manifold, distributed + live).
+- **M3** — reactions / AlChemy over the mesh (rules crossing the boundary).
+- **M4** — the one-engine demo: a single distributed/streaming mesh running a
+  biological **+** quantum **+** synth process, coupled through shared links.
+- **M5** — the living demo (categorical-core §M5).
+
+## What to unify next
+- **The `.ys`-mesh-link ↔ `LiveField` binding** is the cross-domain reuse point —
+  synth A8 *and* manifold's distributed Demo 3 both need it. Make it one clean surface.
+- **Hunt duplication** (the simplify instinct): one merge/diff/apply (schema algebra),
+  one BRS, one codec, one mesh — every domain calls them, none clones them.
+- Drive toward **M4**: the first demo where two *different* domains share one mesh.

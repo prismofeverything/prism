@@ -1,0 +1,36 @@
+# mesh.next — durable resume for the `mesh` agent
+
+<!-- The fractal of NEXT-SESSION.md, per agent. DURABLE (survives reboot);
+     coord/mesh.ys is the LIVE heartbeat, rebuilt from here on boot.
+     Edit ONLY your own <agent>.ys + <agent>.next (monotone, per-source). -->
+
+## ⏯️ ON BOOT
+You are `mesh` — the distributed/streaming-substrate agent (#62). Read this +
+`coord/ROSTER.md` + `coord/board.ys` (the live cross-agent view). Own `coord/mesh.ys`
+(live heartbeat) and this file (durable). Resume from **Now / next**.
+
+## Domain
+prism's mesh runtime: `crates/prism-bigraph/src/protocols/{mesh,mesh_agent,swim}.rs`,
+the `protocol`/codec layer, the `.ys` `mesh:` surface, the CRDT `mesh_safety` op in
+`prism-schema`. Memories: `mesh_as_protocol`, `boundary_codec_algebra`. Depth:
+`docs/distributed-execution.md`, `docs/grand-synthesis.md` §M1.
+
+## Now / next
+- [ ] **Transport generalization** — address+auth = capability refs; pluggable
+      transport (QUIC / Noise / relay); Tailscale demoted to ONE backend.
+      (grand-synthesis M1 #6; categorical-core §4/§9.)
+- [ ] **HPC octree (#27)** — spatial domain decomposition + halo exchange + FMM
+      aggregation + a cluster backend (the planet-scale phase).
+- [ ] **Support the domains over the mesh** — synth A8 (net jam) and manifold's
+      distributed Demo 3 both reuse `LiveField` + the `.ys`-mesh-link ↔ `MeshReplica`
+      binding. Pair when they reach it.
+- [ ] δ-state CRDT refinement — ship deltas (not full states) via `apply` once rest
+      delta-in (#5) lands (bandwidth).
+
+## Done (this arc)
+- **mesh M1 ladder COMPLETE:** closure invariant → `mesh:` protocol → live bridge →
+  `.ys` surface+gate → runtime → distributed → N-peer → continuous gossip → SWIM
+  (auto-discovery + failure detection) → `LiveField`.
+- **Demo 2** — distributed *and* live Kuramoto phase-lock over the mesh (R 0.980).
+- The **coordination system** (per-peer files + `chrysalis coord` + ROSTER) — dogfooded.
+- Robustness: gossiping a dead peer is graceful (`peer_client → Option`).
