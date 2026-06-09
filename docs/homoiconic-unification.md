@@ -200,7 +200,7 @@ argument. Reviewed against the code, that split is **not a permanent design law 
 Stage-2 reaction exception surfacing in the constructor**, and must be framed as provisional:
 
 - **Two axes were conflated.** *Axis A* — the **definition** as data (`EntityDef::to_value`/
-  `from_value`/`compile_value`) — is **already uniform across every kind**. *Axis B* — the
+  `from_value`/`compile_value`) — is uniform on the *quote* (`to_value`) side but **NOT yet on the *reify* side** (gap 3; `lang`, 2026-06-09). *Axis B* — the
   **instance/runnable** as a value — is where the split lives: process/composite → transparent
   DATA (`build_spec_value` map), reaction/pattern → opaque `Foreign(FOREIGN_RULE/REACTION/
   PATTERN)`. The "`Process[…]` would duplicate `to_value`" argument conflates A (definition)
@@ -216,14 +216,27 @@ Stage-2 reaction exception surfacing in the constructor**, and must be framed as
   presentation choice, not a kind-distinction. Invariant to hold: `Kind[…]` ≡ `quote(kind
   definer)`.
 
-**Two gaps to close NOW (so 2b is actually done, not just the flat family):**
+**Three gaps to close (so 2b is actually done, not just the flat family):**
 1. **Parameterization.** `def X = Reaction[…]` is a *value*, so `X[args]` errors
    (`eval.rs:758`) — the `def`≡definer equivalence holds **only for parameterless** entities.
    A parameterized `reaction X[p](…)` must desugar to a **callable** (`def X(p) = Reaction[…]`,
-   or `[]`-callable bindings) — lang to design, reconciling the `[]`-definer vs `()`-function
-   call convention. Until then the "drop-in" claim is parameterless-only.
-2. **Uniformity proof.** The `process X` ≡ its `quote ↔ eval` round-trip test must land —
-   today it is asserted, not demonstrated (no-half-measures).
+   or `[]`-callable bindings) — `lang` designed it (lang.next); landing next. Until then the
+   "drop-in" claim is parameterless-only.
+2. **Uniformity proof.** ✅ **DONE (`lang`, 2026-06-09)** — `definer_equals_its_quote_then_eval`
+   (`programs_as_data.rs`). It drove out a **real bug**: `EntityDef::to_value` recorded the
+   `binding` slot's *name* but never its *value*, and `from_value` rebuilt only
+   process/step/composite — so a program's trailing `main` (a `Def::Binding` holding the initial
+   state) was **LOST through quote** (the reified program ran with no cells). Binding round-trip
+   now fixed. The proof discipline earned its keep.
+3. **Axis-A reify completeness** (⚠️ NEW, `lang`, 2026-06-09 — corrects the "uniform across every
+   kind" premise above). `EntityDef::from_value` rebuilds **only** process/step/composite;
+   reaction/function are *serialized but not rebuilt*, and unit/type/contract/protocol/context
+   aren't serialized at all. So the *quote* (`to_value`) is broad but the *reify* (`from_value`)
+   is partial — the "definition-as-data uniform across every kind" premise the Stage-4 dissolution
+   leans on is **not yet true**. A **`from_value`-completeness pass** (the reify side of the entity
+   round-trip) is the honest prerequisite. *(The reaction-as-DATA dissolution itself rides the
+   `Expr::from_value` / `ReactionRule::from_data_value` paths, which ARE total — so 4c / the
+   seam-dissolution isn't blocked; but the broad Axis-A claim was overstated.)*
 
 ### Stage 3 — the one-door guard · `simplify`
 - A build-failing test: **"exactly one function instantiates an entity spec"** — the

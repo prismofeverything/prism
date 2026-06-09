@@ -767,13 +767,36 @@ impl Evaluator {
                     ),
                 });
             }
-            if entity.function.is_some() {
-                return Err(EvalError::InvalidForm {
-                    context: "value-term".into(),
-                    message: format!(
-                        "`{control}` is a function — call it as `{control}(args)`, not `{control}[args]`"
-                    ),
-                });
+            if let Some(f) = entity.function {
+                // `X[args]` on a function CALLS it — the `[]`-instantiation and
+                // `()`-call conventions unified (GAP-param). This is what gives a
+                // PARAMETERIZED entity a `def`-form: a parameterized
+                // `reaction X[p](…)` is sugar for `def X(p) = Reaction[…]`, and
+                // `X[threshold: 2.0]` (the conventional bracket-instantiation)
+                // invokes it. Args bind by NAME to params (the definer-config
+                // convention), each param's default as the fallback. (`X(args)`
+                // positional still works via `eval_call`.)
+                let f = f.clone();
+                let mut arg_vals: Vec<Value> = Vec::with_capacity(f.params.len());
+                for param in &f.params {
+                    let supplied = args.iter().find_map(|a| match a {
+                        TermArg::Named { name, value } if name == &param.name => Some(value),
+                        _ => None,
+                    });
+                    let v = match (supplied, &param.default) {
+                        (Some(e), _) => self.eval_value(e, env)?,
+                        (None, Some(d)) => self.eval_value(d, env)?,
+                        (None, None) => {
+                            return Err(EvalError::Arity {
+                                control: control.clone(),
+                                expected: format!("param `{}` (no default)", param.name),
+                                got: "missing".into(),
+                            });
+                        }
+                    };
+                    arg_vals.push(v);
+                }
+                return self.eval_function_body(&f.body, &f.params, &arg_vals);
             }
             return Err(EvalError::InvalidForm {
                 context: "value-term".into(),
@@ -1429,7 +1452,16 @@ impl Evaluator {
         let redex = named_arg(args, "redex").ok_or_else(|| missing("redex"))?;
         let reactum = named_arg(args, "reactum").ok_or_else(|| missing("reactum"))?;
         let rate = named_arg(args, "rate").cloned();
-        let rule = self.build_rule("Reaction".into(), redex, reactum, None, rate, IndexMap::new(), env)?;
+        let guard = named_arg(args, "guard").cloned();
+        // Capture the eval env as the rule's CLOSURE — the constructor's analog of
+        // a `reaction` definer's resolved params (`build_reaction_value`). So when
+        // `Reaction[…]` is built inside a parameterized `def X(p) = Reaction[…]`
+        // (GAP-param), the param `p` is available at FIRE time to a guard / rate /
+        // computed reactum. (A purely structural redex/reactum reifies via
+        // `to_bigraph_value`, baking any param at build time; a guarded/rated/
+        // computed rule stays `Foreign(FOREIGN_RULE)` and keeps this closure —
+        // `to_structural_rule` returns `None` for it.)
+        let rule = self.build_rule("Reaction".into(), redex, reactum, guard, rate, env.clone(), env)?;
         Ok(crate::runtime::rule::to_bigraph_value(&rule)
             .unwrap_or_else(|| Value::Foreign(prism_schema::value::Foreign::new(FOREIGN_RULE, rule))))
     }

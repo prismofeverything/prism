@@ -111,3 +111,84 @@ fn def_bound_reaction_constructor_is_a_drop_in_for_the_definer() {
         "the seed was consumed: {brew:?}"
     );
 }
+
+const PARAM_REACTION: &str = r#"
+def Grow(threshold) = Reaction[redex: ?s :: Seed, reactum: Sprout]
+
+composite Lab ->{ brew :: any @ brew } (
+  brew: { seed: Seed[] } |
+  rxn: BRS[rules: [Grow[threshold: 2.0]]] ~{state: brew} ->{state: brew}
+)
+
+Lab[]
+"#;
+
+#[test]
+fn parameterized_reaction_via_callable_def() {
+    // GAP-param: a parameterized reaction has a `def`-form — `def Grow(threshold)
+    // = Reaction[…]` — instantiated with the conventional bracket
+    // `Grow[threshold: 2.0]` (the `[]`-call reconciliation: `X[args]` invokes a
+    // function). It fires Seed→Sprout — a parameterized reaction is a callable
+    // returning the constructor.
+    let s = run(PARAM_REACTION, 3.0);
+    let brew = s.get_field("brew").expect("brew");
+    let mut kinds = Vec::new();
+    collect_types(brew, &mut kinds);
+    assert!(
+        kinds.iter().any(|t| t == "Sprout"),
+        "the parameterized reaction fired: {brew:?}"
+    );
+    assert!(
+        !kinds.iter().any(|t| t == "Seed"),
+        "the seed was consumed: {brew:?}"
+    );
+}
+
+const PARAM_GUARD_ON: &str = r#"
+def Maybe(go) = Reaction[redex: ?s :: Seed, reactum: Sprout, guard: go]
+
+composite GoLab ->{ brew :: any @ brew } (
+  brew: { seed: Seed[] } |
+  rxn: BRS[rules: [Maybe[go: true]]] ~{state: brew} ->{state: brew}
+)
+
+GoLab[]
+"#;
+
+const PARAM_GUARD_OFF: &str = r#"
+def Maybe(go) = Reaction[redex: ?s :: Seed, reactum: Sprout, guard: go]
+
+composite GoLab ->{ brew :: any @ brew } (
+  brew: { seed: Seed[] } |
+  rxn: BRS[rules: [Maybe[go: false]]] ~{state: brew} ->{state: brew}
+)
+
+GoLab[]
+"#;
+
+#[test]
+fn parameterized_reaction_uses_its_param_at_fire_time() {
+    // GAP-param CLOSURE: the param is captured into the rule's closure, so a GUARD
+    // using it is consulted at FIRE time. `Maybe(go)` fires Seed→Sprout only when
+    // `go` is true. DIFFERENT args → DIFFERENT firing (go:true sprouts, go:false
+    // doesn't) ⇒ the param reached the guard at fire time — the closure-capture is
+    // real, not a stub. (A param-only guard isolates this from matched-site field
+    // access, e.g. `?c.mass`, which is an orthogonal binding concern.)
+    let kinds = |src| {
+        let s = run(src, 3.0);
+        let brew = s.get_field("brew").expect("brew").clone();
+        let mut k = Vec::new();
+        collect_types(&brew, &mut k);
+        (k, brew)
+    };
+    let (on, on_brew) = kinds(PARAM_GUARD_ON);
+    let (off, off_brew) = kinds(PARAM_GUARD_OFF);
+    assert!(
+        on.iter().any(|t| t == "Sprout"),
+        "go:true → the guarded reaction fired: {on_brew:?}"
+    );
+    assert!(
+        !off.iter().any(|t| t == "Sprout"),
+        "go:false → the guard suppressed firing (the param reached fire time): {off_brew:?}"
+    );
+}

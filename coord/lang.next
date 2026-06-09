@@ -37,7 +37,7 @@ a new instantiate op is a NAMED algebra op + laws + tests, not ad-hoc munging.
       `build_spec_value`, and `build_protocol_outer` DELEGATES to them; the only real
       duplication was the reaction lowering. So the doc's "N builders" = 1 spec assembler +
       per-kind config + the (now unified) reaction lowering.
-- [~] **Stage 2b** — FLAT family DONE (human chose full definer-as-sugar). Findings:
+- [x] **Stage 2b** — COMPLETE (all of unify's human-reviewed asks closed; see below + Done).
       (1) the parser ALREADY accepts `Reaction[redex: ?s :: Seed, reactum: Sprout]` — sites
       `?s` / `!` / `~e` parse as ordinary primaries, no special case. (2) `Reaction[…]`
       constructor added (eval `build_reaction_constructor` → `build_rule`, reifies like
@@ -60,11 +60,16 @@ a new instantiate op is a NAMED algebra op + laws + tests, not ad-hoc munging.
       `Process[…]` bracket is Axis B (an instance) and would NOT duplicate `to_value` (Axis A) —
       my earlier "would duplicate" conflated the axes. Invariant: `Kind[…]` ≡ `quote(definer)`;
       the bracket is sugar offered where inline construction is ergonomic (presentation choice).
-      **2b NOT complete — two GAPS:** (1) PARAM — `def X = Reaction[…]` is parameterless
-      (`X[args]` errors, `eval.rs:758`); a parameterized `reaction X[p](…)` must desugar to a
-      CALLABLE (reconcile `[]`-instantiation vs `()`-call) — lang to design+land. (2) PROOF —
-      land the `process X` ≡ `quote↔eval` uniformity test (asserted, not yet demonstrated).
-      (Plus the later query builtins `count(…)`/`.matches(…)` over a `FOREIGN_PATTERN`.)
+      **Both GAPS now CLOSED:** (1) PARAM — `X[args]` now CALLS a function (named args→params,
+      `eval.rs`), so a parameterized `reaction X[p](…)` has a def-form `def X(p) = Reaction[…]`
+      instantiated `X[p: v]`; `build_reaction_constructor` captures the eval env as the rule
+      CLOSURE (+ a `guard:` arg) so the param reaches a guard/rate/computed-reactum at FIRE time
+      (`alchemy::parameterized_reaction_{via_callable_def,uses_its_param_at_fire_time}`). (2)
+      PROOF — `programs_as_data::definer_equals_its_quote_then_eval` (+ fixed the binding
+      round-trip bug it exposed). **Follow-ups (NOT 2b-blocking):** #8 the to_value/from_value
+      completeness pass (reaction/function/unit/type don't round-trip yet — Axis A not uniform);
+      a guard reading a matched site's FIELD (`?c.mass`) — likely-pre-existing binding gap; the
+      query builtins `count(…)`/`.matches(…)` over a `FOREIGN_PATTERN`.
 - [ ] **Stage 4** (gated on 1–3, with `unify`) — expose the engine rung
       (`discover_processes`/`Core::instantiate`, `engine.rs:1486`/`:1449`) as a
       first-class `.ys` `eval`; unify with the `meta`-import `eval`/`load`. Thin-layer:
@@ -101,6 +106,12 @@ the Stage-3 one-door guard (don't let your N→1 collapse regress).
   `quote ↔ reify` (`EntityDef::to_value` listed `"binding"` as a slot name but never emitted
   its value; `from_value`/`Program::from_value` rebuilt only process/step/composite). FIXED
   the binding round-trip — a whole program now ≡ `quote ↔ reify ↔ run`.
+- **GAP-param closed (Stage 2b done)** — `X[args]` now CALLS a function (the `[]`/`()`
+  reconciliation), so a parameterized `reaction X[p](…)` has a def-form
+  `def X(p) = Reaction[…]` instantiated `X[p: v]`; `build_reaction_constructor` captures the
+  eval env as the rule closure (+ a `guard:` arg) → a param reaches a guard/rate/computed
+  reactum at FIRE time. Tests: `alchemy::parameterized_reaction_via_callable_def` +
+  `…_uses_its_param_at_fire_time`. (`functions`/`mr` green — the `[]`-call change is additive.)
 
 ## ⚠️ Finding — Axis A is NOT yet uniform across every kind (for unify/core)
 The GAP-proof exposed that `EntityDef`/`Program` `to_value`↔`from_value` only fully round-trips
