@@ -15,16 +15,18 @@
 //! (`prism-bigraph/tests/reaction_creates_process.rs`). The synth is a new
 //! consumer of that substrate, not new substrate.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
+use prism_bigraph::composite::Composite;
 use prism_bigraph::factory::ProcessRegistry;
 use prism_bigraph::process::ProcessNode;
-use prism_bigraph::{BigraphicalReactiveSystem, Core, Engine, Schema, Value};
+use prism_bigraph::{BigraphicalReactiveSystem, Core, Engine, Key, Schema, StateMap, Value};
 use prism_schema::reaction::{Bindings, Pattern, ReactionRule, ReactumFn};
 
 use crate::patch::register_audio;
 use crate::render::render_path;
 use crate::signal::signal_registry;
+use crate::voice::voice_composite_node;
 
 /// The registered address of the patch-BRS factory. A patch node addressed
 /// `local:PatchBrs` is instantiated as a [`BigraphicalReactiveSystem`] carrying
@@ -110,8 +112,22 @@ pub fn render_patch_brs(
     block: usize,
     n_blocks: usize,
 ) -> Vec<f32> {
+    // The Composite factory needs the whole Core (a spawned voice subengine
+    // inherits types/processes); the Core holds the registry that holds this
+    // factory — the cycle is resolved by a OnceLock set once everything is built
+    // (the spatio-flux / chrysalis prelude pattern).
+    let handle: Arc<OnceLock<Core>> = Arc::new(OnceLock::new());
     let mut reg = ProcessRegistry::new();
     register_audio(&mut reg);
+    {
+        let handle = Arc::clone(&handle);
+        reg.register("Composite", move |config| {
+            let core = handle.get().expect("core handle initialized");
+            ProcessNode::Process(Box::new(
+                Composite::from_config(&config, core).expect("Composite::from_config"),
+            ))
+        });
+    }
     let rules = Arc::new(rules);
     reg.register(PATCH_BRS, move |c| {
         ProcessNode::Process(Box::new(BigraphicalReactiveSystem::from_config(
@@ -122,8 +138,41 @@ pub fn render_patch_brs(
     let core = Core::new()
         .with_processes(Arc::new(reg))
         .with_types(signal_registry(block));
+    let _ = handle.set(core.clone());
     let mut engine =
         Engine::from_state(schema, state, core).expect("build patch+brs engine from state");
     engine.discover_all_processes();
     render_path(&mut engine, out_path, n_blocks)
+}
+
+/// **Spawn a voice** — a reaction that brings a new [`voice_composite_node`] to
+/// life on a running rack. The redex consumes a `VoiceSeed` marker (the
+/// fire-once trigger, à la `reaction_creates_process.rs`); the computed reactum
+/// `_remove`s the seed and `_add`s a Voice composite at `freq`, its `out` wired
+/// to `out_slot` (the rack mix bus). Discovery instantiates the voice subengine
+/// next tick — its inner `phase`/`level`/buses correctly typed because the spec
+/// carries its own schema — and the new partial mixes in. The audio image of a
+/// cell colony adding a daughter; the spawn half of **Detune** (`Detune` =
+/// spawn at a pitch offset of an existing voice).
+pub fn spawn_voice(freq: f64, out_slot: &str, block: usize, rate: f64) -> ReactionRule {
+    let no_fields: [(&str, Pattern); 0] = [];
+    let redex = Pattern::map([("seed", Pattern::sort("VoiceSeed", no_fields))]);
+    let out_slot = out_slot.to_string();
+    let reactum_fn: ReactumFn = Arc::new(move |b: &Bindings| {
+        let seed_key = b
+            .key_map
+            .get("seed")
+            .map(|k| k.to_string())
+            .unwrap_or_default();
+        let voice = voice_composite_node(freq, 1200.0, 1.0, 0.5, block, rate, &out_slot);
+        let mut add = StateMap::new();
+        add.insert(Key::from("voice_spawn"), voice);
+        Value::tree([
+            ("_remove", Value::List(vec![Value::String(seed_key)])),
+            ("_add", Value::Map(add)),
+        ])
+    });
+    ReactionRule::new(redex, Pattern::Site)
+        .with_label("spawn_voice")
+        .with_reactum_fn(reactum_fn)
 }

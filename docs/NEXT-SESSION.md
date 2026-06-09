@@ -127,11 +127,16 @@ is the same schema-algebra codec.
   `.ys`-declared mesh link across engines, IN-PROCESS (`mesh_link_runtime.rs`) AND
   **DISTRIBUTED over a LIVE rest bridge** (`mesh_link_distributed.rs` — each peer
   hosts its slot as a rest `MeshReplica`, gossips over a real socket, converged value
-  written back). **NEXT:** (a) continuous gossip / anti-entropy as an engine-driven
-  step + a long-lived per-engine mesh agent (host once, gossip per interval); (b) SWIM
-  membership + discovery; (c) N-peer; then reactions / AlChemy / quantum over the mesh
-  + **Demo 2** (Kuramoto phase-lock over a `mesh:` link, `categorical-core.md` §9); the
-  δ-state CRDT (#5); **transport generalized** — address+auth = capability refs,
+  written back); **N-PEER** (`MeshAgent` host-once/gossip-per-round; `mesh_npeer.rs`);
+  **CONTINUOUS gossip / anti-entropy** (`MeshAgent::start_gossip` background loop +
+  `::contribute` — the mesh self-converges + propagates live updates; `mesh_continuous.rs`);
+  and a **live coordination form** (`chrysalis coord` serve/push/pull — the agents
+  building the mesh coordinate over it). **NEXT:** (a) SWIM membership + discovery (peers
+  auto-find, no hardcoded ports); (b) **Demo 2** (Kuramoto tiles phase-lock over a `mesh:`
+  link — manifold is building it on this mesh; the carrier is a per-source
+  `map[id → array[[2]]] mesh`; `categorical-core.md` §9 — the CRDT+dynamical stack) +
+  reactions / AlChemy / quantum over the mesh; the δ-state CRDT (#5); **transport
+  generalized** — address+auth = capability refs,
   transport pluggable (QUIC/Noise/relay), **Tailscale one backend, not a dependency**
   (`categorical-core.md`
   §4/§9). (= grand-synthesis M1.) [[mesh_as_protocol]]

@@ -1,0 +1,62 @@
+# kuramoto-mesh.ys — Kuramoto over a CRDT-safe MESH link (Demo 2, local slice).
+# ──────────────────────────────────────────────────────────────────────────
+# Demo 1's coupling, re-expressed so it DISTRIBUTES. The mean field is no longer
+# a single additive pool (that merge is NOT idempotent → not mesh-safe); it is a
+# PER-SOURCE map `map[id -> array[[2]]] mesh` — each oscillator OWNS its key (a
+# single writer), accumulates the delta of its own phase-vector there, and the
+# mean field = `field.sum()` over the keys. A per-source map is key-union =
+# join-semilattice = exactly what `mesh_safety` blesses (the same shape as
+# coord/board.ys). So the coupling is CRDT-safe by construction and the identical
+# program runs across peers once each oscillator lives on its own machine
+# (distributed slice next) — convergence stacks: CRDT replication of the field +
+# the dynamical attractor (phase-lock) reading it (categorical-core.md §5).
+#
+# Same physics as Demo 1: all start in phase (θ=0), spread natural frequencies;
+# strong coupling (k=4) entrains (R stays ~1), no coupling (k=0) drifts (R→0).
+# `dt` is the fixed integration step (decoupled from the engine tick, #70).
+
+process SpinMesh[id :: string = '0', omega :: Float = 1.0, k :: Float = 4.0, n :: Float = 8.0, dt :: Float = 0.05]
+  ~{theta :: Float, field :: map[array[[2], float]], interval :: Float = 1.0}
+  ->{theta :: Float, field :: map[array[[2], float]]}
+(
+  total    = field.sum() |                 # [Σcos, Σsin] over every oscillator's key
+  sx       = total.at(0) |
+  sy       = total.at(1) |
+  c        = theta.cos() |
+  s        = theta.sin() |
+  coupling = (k / n) * (sy * c - sx * s) |
+  dtheta   = (omega + coupling) * dt |
+  next     = theta + dtheta |
+  # accumulate the DELTA of MY phase-vector into MY key (single-writer; the seed
+  # holds the initial [1,0], so my key tracks my current vector — Demo 1's trick,
+  # per-key).
+  {theta: dtheta, field: {'{id}': [next.cos() - c, next.sin() - s]}}
+)
+
+composite OscillatorMesh[id :: string = '0', omega :: Float = 1.0, k :: Float = 4.0, n :: Float = 8.0]
+  ~{field :: map[array[[2], float]] @ field = {}}
+  ->{theta :: Float @ theta, field :: map[array[[2], float]] @ field}
+(
+  theta: 0.0 |
+  field: field |
+  spin: SpinMesh[id: id, omega: omega, k: k, n: n] ~{theta: theta, field: field} ->{theta: theta, field: field}
+)
+
+composite TileMesh[
+  omegas :: map[Float] = {
+    '0': 0.6, '1': 0.7, '2': 0.8, '3': 0.9,
+    '4': 1.1, '5': 1.2, '6': 1.3, '7': 1.4
+  },
+  k :: Float = 4.0,
+  n :: Float = 8.0
+]
+  ->{field :: map[array[[2], float]] @ field, oscillators :: map[OscillatorMesh] @ oscillators}
+(
+  # the shared mean field as a CRDT-safe mesh link; seeded with each key's
+  # initial phase-vector (all θ0=0 → [1,0]), so field.sum() starts at [N,0].
+  link field :: map[array[[2], float]] mesh = { '{id}': [1.0, 0.0] for id, w in omegas } |
+  oscillators: {
+    '{id}': OscillatorMesh[id: id, omega: w, k: k, n: n] ~{field: ~field} ->{field: ~field}
+    for id, w in omegas
+  }
+)

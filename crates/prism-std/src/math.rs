@@ -34,6 +34,46 @@ pub fn register_math(reg: &mut MethodRegistry) {
             .cloned()
             .unwrap_or(Value::None))
     });
+
+    // #69 sum: the axiomatic reduction — fold a collection's values additively
+    // (scalar for numbers, element-wise for vector/array values). Empty -> none.
+    // The mean-field / aggregate primitive Demo 2's mesh coupling needs (a
+    // `map[id -> array[[2]]]` summed to one mean vector).
+    reg.register("List", "sum", |recv, _| {
+        Ok(fold_sum(recv.as_list().unwrap_or(&[]).iter()))
+    });
+    reg.register("Map", "sum", |recv, _| {
+        Ok(match recv.as_map() {
+            Some(m) => fold_sum(m.iter().filter(|(k, _)| !k.starts_with('_')).map(|(_, v)| v)),
+            None => Value::None,
+        })
+    });
+}
+
+/// Element-wise additive fold over a collection's values (`sum`): scalar for
+/// numbers, recursive element-wise for vectors. Empty -> `none`.
+fn fold_sum<'a>(items: impl Iterator<Item = &'a Value>) -> Value {
+    let mut acc: Option<Value> = None;
+    for v in items {
+        acc = Some(match acc {
+            None => v.clone(),
+            Some(a) => add_values(&a, v),
+        });
+    }
+    acc.unwrap_or(Value::None)
+}
+
+/// Add two values: `Float`/`Int` numerically, `List` element-wise (recursively).
+fn add_values(a: &Value, b: &Value) -> Value {
+    match (a, b) {
+        (Value::List(xs), Value::List(ys)) => {
+            Value::List(xs.iter().zip(ys).map(|(x, y)| add_values(x, y)).collect())
+        }
+        _ => match (a.as_f64(), b.as_f64()) {
+            (Some(x), Some(y)) => Value::float(x + y),
+            _ => a.clone(),
+        },
+    }
 }
 
 #[cfg(test)]

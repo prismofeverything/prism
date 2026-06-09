@@ -9,7 +9,10 @@
 //! one untouched — proof that prism's BRS rewired a running patch, with no audio
 //! machinery of its own (the cell-colony mechanism, applied to sound).
 
-use prism_audio::{module_node, prune_oscillator, render_patch_brs, signal_type, silence};
+use prism_audio::{
+    module_node, prune_oscillator, render_patch_brs, signal_type, silence, spawn_voice,
+    voice_composite_node,
+};
 use prism_bigraph::{Schema, Value};
 
 const RATE: f64 = 48_000.0;
@@ -128,5 +131,78 @@ fn prune_removes_a_running_partial() {
     assert!(
         e330_pruned < 0.1 * e330_both,
         "pruned: 330 removed ({e330_pruned} vs control {e330_both}) — the reaction rewired the live patch"
+    );
+}
+
+/// A rack of `Voice` composites + a `VoiceSeed`. The reaction `spawn_voice(330)`
+/// consumes the seed and `_add`s a self-contained 330 Hz Voice composite — its
+/// inner phase/level/buses correctly typed because the spec carries its own
+/// schema. The new voice spins up and mixes in: a partial APPEARS in the live
+/// rack. (A5.2 — the audio image of a cell colony adding a daughter; the spawn
+/// half of Detune.)
+fn rack(with_seed: bool) -> (Value, Schema) {
+    let mut rack_entries = vec![
+        ("mix".to_string(), silence(BLOCK)),
+        (
+            "voice_a".to_string(),
+            voice_composite_node(220.0, 1200.0, 1.0, 0.5, BLOCK, RATE, "mix"),
+        ),
+    ];
+    if with_seed {
+        rack_entries.push((
+            "seed".to_string(),
+            Value::tree([("_type", Value::String("VoiceSeed".into()))]),
+        ));
+    }
+
+    let mut root = vec![("rack".to_string(), Value::tree(rack_entries))];
+    if with_seed {
+        root.push((
+            "brs".to_string(),
+            prism_audio::patch_brs_node("rack", BLOCK as f64 / RATE),
+        ));
+    }
+    let schema = Schema::tree([("rack", Schema::tree([("mix", signal_type())]))]);
+    (Value::tree(root), schema)
+}
+
+#[test]
+fn spawn_voice_adds_an_audible_partial() {
+    // With the seed + BRS: a 330 Hz voice is spawned onto the running rack.
+    let (sstate, sschema) = rack(true);
+    let spawned = render_patch_brs(
+        sstate,
+        sschema,
+        vec![spawn_voice(330.0, "mix", BLOCK, RATE)],
+        &["rack", "mix"],
+        BLOCK,
+        N,
+    );
+
+    // Control: the same rack with no seed — only the original 220 Hz voice.
+    let (cstate, cschema) = rack(false);
+    let control = render_patch_brs(cstate, cschema, vec![], &["rack", "mix"], BLOCK, N);
+
+    assert_eq!(spawned.len(), N * BLOCK, "N blocks rendered");
+
+    let lo = (N / 2) * BLOCK;
+    let (e220_c, e330_c) = (
+        goertzel(&control[lo..], 220.0, RATE),
+        goertzel(&control[lo..], 330.0, RATE),
+    );
+    let (e220_s, e330_s) = (
+        goertzel(&spawned[lo..], 220.0, RATE),
+        goertzel(&spawned[lo..], 330.0, RATE),
+    );
+
+    // The original voice plays in both; only the control LACKS the 330 voice.
+    assert!(e220_c > 0.05, "control: original 220 voice present ({e220_c})");
+    assert!(e330_c < 0.02, "control: no 330 voice ({e330_c})");
+
+    // After the reaction fires: 220 still plays, and a 330 voice has appeared.
+    assert!(e220_s > 0.05, "spawned: 220 still present ({e220_s})");
+    assert!(
+        e330_s > 0.05 && e330_s > 5.0 * e330_c.max(1e-6),
+        "spawned: a 330 Hz voice was added to the live rack ({e330_s} vs control {e330_c})"
     );
 }

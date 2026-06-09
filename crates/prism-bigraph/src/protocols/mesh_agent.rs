@@ -12,7 +12,9 @@
 //! union — order-, duplication-, and partition-independent. Three agents are the
 //! mesh at the scale of `coordination.ys`'s three peers.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use indexmap::IndexMap;
 use prism_schema::{algebra, Schema, TypeRegistry, Value};
@@ -61,6 +63,12 @@ impl MeshAgent {
         self.slot.lock().unwrap().clone()
     }
 
+    /// The shared replica slot — so a reader (e.g. SWIM's dynamic-peer closure)
+    /// can observe the live replica each gossip round.
+    pub fn slot_arc(&self) -> Arc<Mutex<Value>> {
+        Arc::clone(&self.slot)
+    }
+
     /// One anti-entropy round: gossip (push-pull) with each peer agent at `ports`.
     /// After every agent has run a round against the others, all replicas hold the
     /// union — order- and duplication-independent (the CRDT property). Repeat per
@@ -70,30 +78,96 @@ impl MeshAgent {
             MeshReplica::shared(self.schema.clone(), Arc::clone(&self.slot), Arc::clone(&self.types))
                 .expect("schema gated mesh-safe at host()");
         for &port in peer_ports {
-            local.gossip(self.peer_client(port).as_ref());
+            local.gossip(peer_client(port, &self.schema, &self.types).as_ref());
         }
     }
 
-    /// A rest client onto a peer agent's hosted `Link` replica. (Built per round
-    /// here; a continuous agent would cache one client per known peer.)
-    fn peer_client(&self, port: u16) -> Box<dyn Process> {
-        let (sch, ty) = (self.schema.clone(), Arc::clone(&self.types));
-        let mut processes = ProcessRegistry::new();
-        processes.register("Link", move |_| {
-            ProcessNode::Process(Box::new(
-                MeshReplica::shared(sch.clone(), Arc::new(Mutex::new(Value::None)), Arc::clone(&ty))
-                    .expect("mesh-safe"),
-            ))
+    /// Apply this peer's OWN local update to its replica (its per-source key), for
+    /// the next gossip round to propagate. The mesh-safe `merge` keeps it
+    /// conflict-free — a peer only ever writes its own key, so updates never clash.
+    pub fn contribute(&self, contribution: &Value) {
+        let mut slot = self.slot.lock().unwrap();
+        *slot = algebra::merge(&self.schema, &slot, contribution);
+    }
+
+    /// Spawn a CONTINUOUS gossip loop with a DYNAMIC peer set: every `interval`,
+    /// `peers()` is re-evaluated and a `sync_round` runs against it. The mesh
+    /// converges and STAYS converged with no explicit calls — anti-entropy: a
+    /// [`MeshAgent::contribute`] on ANY peer propagates to all within a few rounds.
+    /// Because the peer set is re-read each round, it can GROW as membership is
+    /// discovered (SWIM — see [`crate::protocols::swim`]). Dropping the returned
+    /// [`GossipHandle`] stops + joins the loop.
+    pub fn start_gossip_dynamic(
+        &self,
+        peers: impl Fn() -> Vec<u16> + Send + 'static,
+        interval: Duration,
+    ) -> GossipHandle {
+        let stop = Arc::new(AtomicBool::new(false));
+        let (schema, slot, types, run) = (
+            self.schema.clone(),
+            Arc::clone(&self.slot),
+            Arc::clone(&self.types),
+            Arc::clone(&stop),
+        );
+        let thread = std::thread::spawn(move || {
+            while !run.load(Ordering::SeqCst) {
+                let local =
+                    MeshReplica::shared(schema.clone(), Arc::clone(&slot), Arc::clone(&types))
+                        .expect("mesh-safe");
+                for port in peers() {
+                    if run.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    local.gossip(peer_client(port, &schema, &types).as_ref());
+                }
+                std::thread::sleep(interval);
+            }
         });
-        let core = Core::from(Arc::new(processes));
-        let addr = Value::Map(IndexMap::from_iter([
-            ("process".into(), Value::String("Link".into())),
-            ("host".into(), Value::String("127.0.0.1".into())),
-            ("port".into(), Value::Int(port as i64)),
-        ]));
-        match RestProtocol.instantiate(&addr, Value::None, &core).expect("rest Link") {
-            ProcessNode::Process(p) => p,
-            _ => panic!("expected a Process"),
+        GossipHandle { stop, thread: Some(thread) }
+    }
+
+    /// Continuous gossip over a FIXED peer set (the common case;
+    /// [`start_gossip_dynamic`](MeshAgent::start_gossip_dynamic) for SWIM's growing set).
+    pub fn start_gossip(&self, peers: Vec<u16>, interval: Duration) -> GossipHandle {
+        self.start_gossip_dynamic(move || peers.clone(), interval)
+    }
+}
+
+/// A rest client onto a peer agent's hosted `Link` replica, for the given link
+/// `schema`/`types`. Built per round; a continuous agent could cache one per peer.
+fn peer_client(port: u16, schema: &Schema, types: &Arc<TypeRegistry>) -> Box<dyn Process> {
+    let (sch, ty) = (schema.clone(), Arc::clone(types));
+    let mut processes = ProcessRegistry::new();
+    processes.register("Link", move |_| {
+        ProcessNode::Process(Box::new(
+            MeshReplica::shared(sch.clone(), Arc::new(Mutex::new(Value::None)), Arc::clone(&ty))
+                .expect("mesh-safe"),
+        ))
+    });
+    let core = Core::from(Arc::new(processes));
+    let addr = Value::Map(IndexMap::from_iter([
+        ("process".into(), Value::String("Link".into())),
+        ("host".into(), Value::String("127.0.0.1".into())),
+        ("port".into(), Value::Int(port as i64)),
+    ]));
+    match RestProtocol.instantiate(&addr, Value::None, &core).expect("rest Link") {
+        ProcessNode::Process(p) => p,
+        _ => panic!("expected a Process"),
+    }
+}
+
+/// Handle to a running [`MeshAgent::start_gossip`] loop; dropping it stops + joins
+/// the background gossip thread (so the mesh quiesces cleanly).
+pub struct GossipHandle {
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for GossipHandle {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
         }
     }
 }

@@ -299,9 +299,16 @@ comprehension needs a *computed* key `'{id}'` (a bare `id:` is a literal field n
 all oscillators collapse into one entry); and the integration step must be a fixed `dt`
 config *decoupled* from the engine tick, because the per-oscillator composite ticks at
 the default rate (→ **#70**, first-class multi-scale composite intervals). It also
-seeded the shared math floor (`Float.sin/cos/sqrt`, `List.at`). **Demo 2** — two tiles
-on two peers weakly coupled over a `mesh:` link, phase-locking across the boundary
-(needs M1; stresses the CRDT law *and* the optimistic-converge frontier in one).
+seeded the shared math floor (`Float.sin/cos/sqrt`, `List.at`, `sum`). **Demo 2 —
+local slice DONE ✅** (`kuramoto-mesh.ys` + `kuramoto_mesh.rs`): the mean field is now
+a per-source `map[id → array[[2]]] mesh` link (each oscillator owns its key, accumulating
+its phase-vector delta there; mean field = `field.sum()`). Key-union = join-semilattice
+= exactly what `mesh_safety` blesses — *the same shape as the agent coordination board* —
+so the coupling is CRDT-safe by construction. Result: **R = 0.998 / 0.380, identical to
+Demo 1**, proving local coupling rides a `mesh`-declared link *unchanged* (the one-engine
+thesis). The distributed slice — tiles on separate peers with the map replicating over
+the live mesh bridge (each peer owns its keys → key-union, no coordinator) — is next, on
+the mesh runtime.
 **Demo 3** — plastic topology learning as a topology-rewriting BRS: Hebbian
 co-activation fires a reaction that strengthens/prunes a link; the network rewrites
 itself (#43; local-first; the closure payoff).

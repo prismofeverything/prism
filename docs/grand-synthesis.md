@@ -119,13 +119,22 @@ mode. Slices (in order):
    engine-driven step (vs the explicit round) + a long-lived per-engine mesh agent,
    and the δ-state CRDT (ship *deltas* via `apply`, needs rest delta-in #5) as a
    bandwidth refinement.
-3. **Continuous gossip / anti-entropy** — per-tick convergence (vs slice-1's
-   one-shot), with tombstone/metadata GC budgeted (no auto-DGC — bigraph links
-   cycle → explicit lease/epoch).
-4. **SWIM membership + discovery** — peers join/leave; failure detection.
-5. **N-peer** — beyond two; the convergence holds at N.
+3. ✅ **Continuous gossip / anti-entropy** *(done)* — `MeshAgent::start_gossip` (a
+   background loop) + `::contribute`: the mesh self-converges and propagates live
+   updates with no explicit calls (`mesh_continuous.rs`). Remaining within: tombstone/
+   metadata GC budgeted (no auto-DGC — bigraph links cycle → explicit lease/epoch).
+4. 🚧 **SWIM membership + discovery** — *slice 1 (auto-discovery) done:* membership
+   is itself a per-source `map[id → addr]` **mesh link**; a peer joins via a SEED and
+   the gossip disseminates it infection-style, so peers self-organize with NO hardcoded
+   ports, the gossip set growing dynamically (`prism-bigraph/src/protocols/swim.rs`,
+   `swim_membership.rs`). *Remaining (slice 2):* failure detection — ping/ack/indirect →
+   suspect → dead, with incarnation refutation (`status`/`incarnation` per-member fields
+   the same map carries).
+5. ✅ **N-peer** *(done)* — `MeshAgent` + `sync_round`; 3 peers converge over the
+   live bridge with no coordinator (`mesh_npeer.rs`). Holds at N.
 6. **Transport over Tailscale** — rest/stream over tailnet IPs; authenticated ⇒
-   not Byzantine.
+   not Byzantine. *(Also: a live coordination form — `chrysalis coord` — ships; the
+   agents building the mesh coordinate over it.)*
 
 **Checkpoint:** N engines converge a shared `mesh` link with no coordinator;
 members join and leave; the algebra refuses an unsafe merge at compile time.
