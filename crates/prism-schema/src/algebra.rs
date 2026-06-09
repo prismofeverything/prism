@@ -26,6 +26,7 @@
 //! | [`resolve`]   | `(s, s) → s`   | schema **join** (least sort refining both) |
 //! | [`promote`]   | `(lib, sparse) → s` | **local** resolve over sparse's paths |
 //! | [`generalize`]| `(s, s) → s`   | schema **meet** (greatest sort both refine) |
+//! | [`mesh_safety`]| `s → ok/err`  | is the merge a join-**semilattice** (CRDT)? — the mesh closure invariant |
 //! | [`serialize`] / [`deserialize`] | `(s, v) ↔ json` | codec across boundaries |
 //!
 //! The laws these satisfy are the executable axioms in
@@ -43,6 +44,13 @@ use crate::value::Value;
 // live in `crate::resolve`; re-exported here so the lattice is reached only
 // through the algebra surface.
 pub use crate::resolve::{generalize, promote, refines, resolve};
+
+// ── Mesh-safety (the CRDT closure invariant) ───────────────────────────
+//
+// `mesh_safety(s)` decides whether `s`'s reconcile is a join-semilattice, so a
+// replicated `mesh`/`peer` link over it converges coordination-free. The dual
+// of `divide_by_schema`'s extensivity; rejects additive/LWW/sequence merges.
+pub use crate::mesh::{is_mesh_safe, mesh_safety, mesh_safety_with, MeshUnsafe};
 
 // ── Update combination ─────────────────────────────────────────────────
 //

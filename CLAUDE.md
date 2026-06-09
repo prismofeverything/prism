@@ -13,10 +13,17 @@ application domain.
   inconsistent) state / schema / node representations and the plan to
   unify them into one schema-always-present, algebraic core. Read before
   any engine/core work; schema and state are inseparable.
-- **`docs/NEXT-SESSION.md`** — **READ FIRST on boot.** Top has the `⏯️ ON BOOT`
-  prompt + the **durable canonical task list** (rebuild the ephemeral harness panel
-  from it) + dated `⏯️ NEXT-SESSION PROMPT`s (latest = current status) + the task
-  tracker + long-run milestones. The durable record of where we are and what's next.
+- **`docs/NEXT-SESSION.md`** — **READ FIRST on boot.** Lean tracker: the `⏯️ ON BOOT`
+  prompt + a single **`⏯️ CURRENT STATUS`** block (latest session) + **Remaining work —
+  by category** (A Distribution/Mesh · B Biology · C Quantum · D Synthesizers · E
+  Unification/Fundamentals · F Tooling · G Performance; rebuild the ephemeral harness
+  panel from the `#N` entries here) + a **`✅ Completed`** archive + a 1-line-per-session
+  archive + long-run milestones. The durable record of where we are and what's next.
+- **`docs/grand-synthesis.md`** — the **roadmap to the ultimate demo**: one
+  distributed/streaming mesh-network simulation running biology + quantum +
+  synthesizers at once. The one-engine thesis (three domains = three specializations
+  of the same substrate) + the M0→M4 milestone path + which tasks feed each. Read
+  with NEXT-SESSION.md for the *why* and the *order*.
 - **`docs/execution-model.md`** — how prism runs + parallelizes: the BSP tick and
   the one seam (`invoke() → Defer → flush → collect`) that makes
   `local`/`parallel`/`rest`/`stream`/batched-`ray` all parallelize through the same

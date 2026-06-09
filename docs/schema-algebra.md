@@ -63,6 +63,8 @@ origin in `bigraph_schema/methods/`.
 | `generalize` | `(s, s) → s` | schema **meet** — greatest sort both refine |
 | `coerce` | `(s, v) → v` | fit a value to a sort |
 | `divide` | `(s, v, ctx) → [v]` | split a value (extensive splits, intensive copies) |
+| `tensor` | `(s, v, v) → v` | the dual of `divide` — recombine the split parts |
+| `mesh_safety` | `s → ok / err` | is `s`'s reconcile a join-**semilattice** (CRDT)? — the mesh closure invariant |
 | `serialize` / `deserialize` | `(s, v) ↔ json` | codec across boundaries |
 | `project` / `view` | `(s, wires, state) → ports` | a Composite's bridge I/O, *defined via* `apply`/`merge` |
 
@@ -71,6 +73,20 @@ walks the whole library schema (set **union** — every branch), `promote`
 walks only the sparse update's keys and substitutes the library's typed
 node there (set **restriction**). Per-tick `apply` uses `promote`; merging
 two declarations uses `resolve`.
+
+`mesh_safety` is the **closure invariant for the mesh** (`mesh.rs`): a
+`mesh`/`peer` link is replicated per peer and must converge with **no
+coordinator**, which holds iff its schema-`reconcile` (the δ-CRDT join) is a
+**join-semilattice** — commutative + associative + **idempotent** (CALM:
+monotone ⇒ coordination-free). It is the structural dual of `divide`'s
+extensivity question, classifying each reconcile strategy: key-union
+(`Map`/`RecursiveTree`) and immutable (`Const`) are safe; `Tree`/`Tuple`
+recurse per field; additive (`Float`/`Integer`/`Delta`/`Array`) and
+last-writer-wins (`Overwrite`/`Bool`/`String`/`Any`/…) and sequence (`List`)
+are rejected (the footguns). The `mesh:` protocol calls it at instantiation, so
+a non-convergent link is refused before any replica can diverge — *illegal
+distributed states are unrepresentable*. Laws: `tests/crdt_laws.rs` (each
+verdict cross-checked against actual `apply` idempotence/commutativity).
 
 ## Deltas and reactions — the basis (#60)
 

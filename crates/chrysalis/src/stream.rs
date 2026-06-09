@@ -327,14 +327,16 @@ impl Protocol for StreamProtocol {
 }
 
 /// The [`ProtocolRegistry`] every chrysalis `Core` carries: `local` (default) +
-/// `stream` + `rest`, so a `stream:`- or `rest:`-addressed node in state (or a
-/// rest-addressed proc like `CopasiCvode` → a process-server) is built by
-/// `Core::instantiate` and stepped like any local process. Without `rest` here,
-/// a rest proc silently fails to instantiate. (Name kept for now; it provides
-/// all transports, not just stream — a rename is due, unification audit #16.)
+/// `stream` + `rest` + `mesh`, so a `stream:`-, `rest:`-, or `mesh:`-addressed
+/// node in state (a rest-addressed proc like `CopasiCvode` → a process-server, or
+/// a `mesh:` shared-link replica) is built by `Core::instantiate` and stepped like
+/// any local process. Without a transport here, such a node silently fails to
+/// instantiate. (Name kept for now; it provides all transports, not just stream —
+/// a rename is due, unification audit #16.)
 pub fn stream_protocols() -> ProtocolRegistry {
     let mut registry = ProtocolRegistry::new();
     registry.register(Arc::new(StreamProtocol::default()));
     registry.register(Arc::new(prism_bigraph::protocols::RestProtocol));
+    registry.register(Arc::new(prism_bigraph::protocols::MeshProtocol));
     registry
 }

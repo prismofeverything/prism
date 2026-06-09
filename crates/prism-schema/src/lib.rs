@@ -3,6 +3,7 @@ pub mod assembly;
 pub mod diff;
 pub mod fold;
 pub mod merge;
+pub mod mesh;
 pub mod method;
 pub mod reaction;
 pub mod reconcile;
@@ -28,6 +29,7 @@ pub use fold::{
     cross_fire_delta, fire_across_composites, fold, fold_at, refold_fire_update, refuse_links,
     unfurl, unfurl_into, CrossFireDelta, CrossFireResult, UnfurlAt, COMPOSITE_TYPE, UNFURLED_TYPE,
 };
+pub use mesh::{is_mesh_safe, mesh_safety, mesh_safety_with, MeshUnsafe};
 pub use reconcile::reconcile;
 pub use registry::{
     divide_by_schema, tensor_by_schema, BigraphTypeMethods, DivideContext, TypeRegistry,

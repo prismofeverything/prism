@@ -24,6 +24,8 @@ fn grow_only_map_join_is_a_semilattice_so_mesh_safe() {
     // A `map[T]` reconciled by `_add` (key-union, a G-Set / grow-only OR-Map) is
     // the easy, mesh-safe case: each peer contributes distinct keys.
     let schema = Schema::Map { value: Box::new(Schema::Any) };
+    // The CLOSURE INVARIANT agrees up-front: a map-union link is admissible.
+    assert!(algebra::mesh_safety(&schema).is_ok(), "map-union is a semilattice");
     let s0 = Value::tree([("alice", Value::Int(1))]);
     let from_bob = Value::tree([("_add", Value::tree([("bob", Value::Int(2))]))]);
     let from_carol = Value::tree([("_add", Value::tree([("carol", Value::Int(3))]))]);
@@ -47,6 +49,9 @@ fn bare_additive_join_is_not_idempotent_so_not_mesh_safe() {
     // DOUBLE-COUNTS on re-delivery — NOT idempotent, NOT a semilattice, NOT a
     // CRDT. A scalar additive link cannot be replicated coordination-free.
     let schema = Schema::float();
+    // The closure invariant REJECTS it up-front — the algebra refuses to
+    // replicate a bare additive scalar (it cannot converge coordination-free).
+    assert!(algebra::mesh_safety(&schema).is_err(), "additive scalar is rejected");
     let s0 = Value::float(0.0);
     let delta = Value::float(5.0);
 
@@ -66,6 +71,7 @@ fn per_source_pool_recovers_mesh_safety_for_quantities() {
     // pool's total is the sum of the per-source keys, but the MERGE across peers
     // is a key-union (idempotent), so the quantity converges coordination-free.
     let schema = Schema::Map { value: Box::new(Schema::Any) };
+    assert!(algebra::mesh_safety(&schema).is_ok(), "per-source pool is admissible");
     let s0 = Value::tree([("alice", Value::float(3.0))]); // alice's contribution
     let bob_says = Value::tree([("_add", Value::tree([("bob", Value::float(7.0))]))]);
 
@@ -80,4 +86,64 @@ fn per_source_pool_recovers_mesh_safety_for_quantities() {
         .filter_map(|v| v.as_f64())
         .sum();
     assert_eq!(total, 10.0, "the pool total is the sum of per-source contributions");
+}
+
+#[test]
+fn the_closure_invariant_classifies_every_sort_by_its_reconcile() {
+    // `mesh_safety` is SOUND over the reconcile strategy: it accepts exactly the
+    // join-semilattices and rejects additive / last-writer-wins / sequence /
+    // process-node merges. This is the table the `mesh:` protocol gates on — a
+    // link declared `mesh` is admissible iff its value-schema passes here.
+    use indexmap::IndexMap;
+
+    // Safe — key-union, immutable, or records/options built from safe parts.
+    for s in [
+        Schema::map(Schema::float()), // per-source pool
+        Schema::RecursiveTree { leaf: Box::new(Schema::float()) },
+        Schema::const_of(Schema::string()), // immutable
+        Schema::maybe(Schema::map(Schema::float())), // option of a pool
+        Schema::Tree {
+            branches: IndexMap::from([
+                ("peers".into(), Schema::map(Schema::float())),
+                ("pinned".into(), Schema::const_of(Schema::float())),
+            ]),
+        },
+    ] {
+        assert!(algebra::is_mesh_safe(&s), "{s:?} should be mesh-safe");
+    }
+
+    // Unsafe — additive, last-writer-wins, sequence, or a record with such a field.
+    for s in [
+        Schema::float(),
+        Schema::integer(),
+        Schema::delta(), // additive
+        Schema::Array { shape: vec![4], element: Box::new(Schema::float()) },
+        Schema::overwrite(Schema::float()), // LWW
+        Schema::bool(),
+        Schema::string(), // atomic LWW
+        Schema::Any,       // opaque LWW
+        Schema::List { element: Box::new(Schema::float()) }, // sequence
+        Schema::maybe(Schema::float()),                      // option of additive
+        Schema::Tree { branches: IndexMap::from([("mass".into(), Schema::float())]) },
+    ] {
+        assert!(algebra::mesh_safety(&s).is_err(), "{s:?} should be rejected");
+    }
+}
+
+#[test]
+fn last_writer_wins_is_rejected_because_it_is_not_commutative() {
+    // The OTHER failure mode (besides additive's non-idempotence): an Overwrite
+    // link is idempotent but NOT commutative — concurrent writes from two peers
+    // converge to whichever arrived last, so replicas DIVERGE by arrival order.
+    let schema = Schema::overwrite(Schema::Any);
+    let s0 = Value::String("init".into());
+    let from_a = Value::String("a".into());
+    let from_b = Value::String("b".into());
+
+    let ab = apply(&schema, &apply(&schema, &s0, &from_a), &from_b); // "b"
+    let ba = apply(&schema, &apply(&schema, &s0, &from_b), &from_a); // "a"
+    assert_ne!(ab, ba, "overwrite is order-dependent → replicas diverge");
+
+    // …so the closure invariant refuses it as a mesh link.
+    assert!(algebra::mesh_safety(&schema).is_err());
 }
