@@ -4,6 +4,11 @@ description = "Composable multi-scale simulation engine based on process bigraph
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autotests = false
+
+[[test]]
+name = "suite"
+path = "tests/suite.rs"
 
 [dependencies]
 prism-schema = { workspace = true }

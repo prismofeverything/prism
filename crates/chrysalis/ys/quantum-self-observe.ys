@@ -14,7 +14,7 @@
 #
 # Run: `chrysalis run quantum-self-observe.ys --time 1`
 
-from quantum-system import QuantumSystem
+from .quantum-system import QuantumSystem
 
 # Reads its `Qubits` input and writes the factorization record — a real
 # `{separable, a, b}`, NOT `any`.

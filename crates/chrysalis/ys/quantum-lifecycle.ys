@@ -13,7 +13,7 @@
 # split, `a.tensor(b)` to merge — emitting `_remove`/`_add` structural
 # intents. See docs/merge-protocol.md + docs/quantum-bigraphs.md.
 
-from quantum-system import QuantumSystem
+from .quantum-system import QuantumSystem
 
 process Lifecycle ~{systems :: map[QuantumSystem]} ->{systems :: map[QuantumSystem]}
 (

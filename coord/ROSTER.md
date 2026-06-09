@@ -89,6 +89,79 @@ Rule of thumb: **if your change can break someone else's `cargo test`, it is
 non-monotone → keep it green, or coordinate-first. If it touches only your own
 files, it is monotone → go.**
 
+## Build coordination — CALM applied to `target/` (the build channel)
+
+The shared `target/` is itself a **non-monotone resource**, so the same CALM rule
+governs it — and the build's own structure says how. **cargo serializes on the
+`target/` lock** (a second `cargo` just blocks), and a change to an upstream crate
+invalidates every downstream crate's artifacts. So two agents can't truly build in
+parallel; the cost is wasted serial waiting + redundant downstream rebuilds.
+Coordination's job: **don't rebuild downstream against an in-flight upstream, and don't
+fire a build into someone else's lock.**
+
+**The dependency DAG induces an agent order — "green" flows ONE way, downstream:**
+
+```
+prism-schema → prism-bigraph → chrysalis (src/lib) → chrysalis (tests) → spatio-flux …
+   [core]          [core]           [lang]               [simplify]        (domains)
+```
+
+Each agent owns a layer; **"green" is a monotone watermark** (a tick that only
+advances), and reading a monotone counter needs no lock — that *is* CALM. The agreement:
+
+> **Build against your upstream's last GREEN; publish your own GREEN for your downstream.**
+
+**The build channel — a `build:` field on each `coord/<agent>.ys` heartbeat** (monotone;
+write only your own):
+
+```
+build: { state: 'green', layer: 'schema+bigraph', green_tick: 14,
+         cmd: 'cargo test -p prism-bigraph --test suite',
+         note: 'BRS public API unchanged — lang/simplify safe to pull' }
+```
+
+`state ∈ { idle | building | green | broken }`. Three rules — **advisory** (the cargo
+lock enforces correctness; the channel saves wall-clock):
+
+1. **Build against upstream-green.** Before a downstream build, read your upstream's
+   `build.state`. If `building`/`broken`, *don't* — do design, write tests that don't
+   need to run yet, or batch edits. When it flips to `green @ tick N`, pull + rebuild
+   **once**.
+2. **Lease while building.** Set `state: 'building'` before a heavy build so downstream
+   batches instead of blocking on your lock. Upstream never waits on downstream.
+3. **Broadcast green/broken** the instant it changes. `broken` on a shared crate is a
+   global STOP for downstream; `green` is the GO. Keep-it-green, made *observable*.
+
+**The channel must not depend on the build.** The rendered board needs the `chrysalis`
+binary (`chrysalis run coord/board.ys`) — the very artifact being rebuilt — so read the
+build channel from the **raw text**, never the rendered view:
+
+```
+grep -A1 'build:' coord/*.ys      # or just Read the files
+```
+
+This is the one part of the coordination layer that must degrade gracefully when the
+thing it coordinates is down — and it's free, because heartbeats are plain text.
+
+### Test layout — ONE `suite` binary per crate (consolidated 2026-06-09, pre-boot)
+
+Each crate links **one** integration-test binary instead of N: `autotests = false` +
+`[[test]] name = "suite"` + a generated `tests/suite.rs` that pulls every `tests/*.rs`
+in as a `#[path=…] mod`. This cut **153 test binaries → 7** (the dominant build cost is
+*linking* N binaries × debug symbols). The run syntax changes — a file is now a **module
+filter**, not a `--test` target:
+
+```
+# was:  cargo test -p chrysalis --test mesh_link_runtime
+# now:  cargo test -p chrysalis --test suite mesh_link_runtime   # filter by module name
+cargo test -p prism-schema --test suite        # the whole layer, one binary
+cargo check -p <crate>                          # "does it build" — cheapest, no link
+```
+
+**Adding a test file:** drop `tests/foo.rs` in, then add `#[path="foo.rs"] mod foo;` to
+that crate's `tests/suite.rs` — **required**, or it silently won't run (`autotests =
+false` means only `suite.rs`'s modules compile).
+
 ## Persistence — the fractal (`coord/<agent>.next`)
 
 `NEXT-SESSION.md`, fractalized: each agent keeps a durable `coord/<agent>.next`

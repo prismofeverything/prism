@@ -40,8 +40,9 @@ overall; the deep docs hold the content.
 - `simplify` → `coord/simplify.next` — REDUCE. HOMOICONIC: **Stage 3 DONE** — invariants
   #1 (one instantiate/lowering core; reactions ×3 surfaces + patterns) + #2 (round-trip
   totality, build-failing witness) PINNED green. Finding: the `pattern`-definer *value* form
-  is missing (only `Pattern[]` constructor is a value) — doc overclaims or a TODO. Parked /
-  #46 consolidation tail open.
+  is missing (only `Pattern[]` constructor is a value) — doc overclaims or a TODO (unify to
+  settle). Next: **invariant #3 guard** ("no second eval", lands with 4a) + verify the
+  Stage-1/2 collapses left no dead builders + the #46 homoiconic-surface audit tail.
 - `core` → `coord/core.next` — the substrate. HOMOICONIC **Stage 4c DONE (THE LINCHPIN)**:
   the BRS evals transparent reaction-DATA (`push_reaction` → `ReactionRule::from_data_value`,
   symmetric w/ `discover_processes`); landed the **4a node rung** `Core::instantiate_spec` +
@@ -66,15 +67,34 @@ overall; the deep docs hold the content.
   uniform with process specs — FLAT/RICH dissolved** · the one-door guards (invariants #1+#2)
   PIN it against regression. Insight banked: FLAT/RICH was the *reaction-opacity exception*,
   not a law — it dissolves once the **consumer boundaries eval DATA→runnable** (core's 4c did
-  the rule boundary). **REMAINING (next session):** (a) **4a — the metacircular close**
-  (lang+core: a `.ys` `eval` op calling `Core::instantiate_spec`/`discover_processes` = the
-  node rung; substrate READY); (b) the **Axis-A `from_value`-completeness** (reify
-  reaction/function/type — core's `schema_codec` is the type primitive; the premise the broad
-  uniformity leans on); (c) cleanups — retire the `ReactionType::realize` re-wrap, add the
-  `pattern`-definer value form (simplify's finding), 4b/4d. Hardens the surface every domain
-  writes `.ys` against — synth A6 + #61 AlChemy ride on it. (= #64 §7 + #30 + #32.)
+  the rule boundary). **▶ THIS PUSH (roster CONFIRMED: lang + core + simplify, same trio) — three threads,
+  centered on 4a:** (a) **4a — the metacircular close** (the linchpin we kept last): lang
+  builds a first-class `.ys` `eval` that brings a `.ys`-built spec to life by **calling**
+  prism's `Core::instantiate_spec` (`core.rs:165`, live + tested) / `discover_processes`
+  (`engine.rs:1449`) — thin layer, never cloned — so surface-eval and `discover_processes`
+  are ONE operator (`run(p) = instantiate(surface_eval(quote(p)))`; cashes out invariant #3);
+  **4b** folds the `meta` `eval`/`load` (`prelude.rs:329`/`:295`) into that rung. (b) **Axis-A
+  `from_value`-completeness, IN PARALLEL** — `EntityDef::from_value` rebuilds only process/
+  step/composite/binding; make it total (reaction/function rebuild · `type` via core's
+  `schema_codec` · unit/context AST) so "definition-as-data uniform across every kind" is
+  TRUE not overstated; independent of 4a (4a rides the total `Expr::from_value`). (c)
+  **cleanups** — retire `ReactionType::realize` (`rule.rs:474`, after core verifies no other
+  prism consumer) + resolve the **pattern-definer** open Q (build `pattern X` ≡ `def X =
+  Pattern(…)` value form, OR correct the doc — I settle it with lang). Hardens the surface
+  every domain writes `.ys` against — synth A6 + #61 AlChemy are the next consumers (the
+  M4-ward move once the face closes). (= #64 §7 + #30 + #32.)
 - **The `.ys`-mesh-link ↔ `LiveField` binding** is the cross-domain reuse point —
   synth A8 *and* manifold's distributed Demo 3 both need it. Make it one clean surface.
 - **Hunt duplication** (the simplify instinct): one merge/diff/apply (schema algebra),
   one BRS, one codec, one mesh — every domain calls them, none clones them.
 - Drive toward **M4**: the first demo where two *different* domains share one mesh.
+- **Build coordination is on the board** (`coord/ROSTER.md` §Build coordination, added pre-boot):
+  the crate DAG induces the agent order **core → lang → simplify**; `build:` is a monotone
+  green-watermark each agent writes on its OWN heartbeat; read peers RAW (`grep build:
+  coord/*.ys`) since the channel can't depend on the binary it rebuilds. Tests **consolidated
+  153 → 7** (one `suite` binary per crate; `autotests = false` + `[[test]] suite` + a generated
+  `tests/suite.rs` of `#[path] mod`s) — runs are now `cargo test -p <crate> --test suite
+  <module>`. *(Consolidation surfaced + I fixed a pre-existing red: 8 quantum/effects `.ys`
+  files still used bare sibling imports after `core`'s explicit-origin flip — completed that
+  migration; full chrysalis suite green. LESSON: run the whole layer, not just targeted tests —
+  it's cheap now.)*

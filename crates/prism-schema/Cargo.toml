@@ -4,6 +4,11 @@ description = "Hierarchical type system for composable multi-scale simulation st
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autotests = false
+
+[[test]]
+name = "suite"
+path = "tests/suite.rs"
 
 [dependencies]
 serde = { workspace = true }

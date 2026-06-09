@@ -15,7 +15,7 @@
 # quantum bigraphs as an effect-handler composition).
 
 from meta import handle
-from ast  import float, var, add, call
+from .ast  import float, var, add, call
 
 # The expression: a Call to `choose` with two literal Float args. Built
 # from data; no parser sees `choose` as anything special.

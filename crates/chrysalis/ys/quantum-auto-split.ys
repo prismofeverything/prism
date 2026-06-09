@@ -14,7 +14,7 @@
 # = (|00⟩+|11⟩)/√2 is rank-2 → `.separable(1)` is false → stays one joint
 # composite. Each system is its own `--serve-process` stream child.
 
-from quantum-system import QuantumSystem
+from .quantum-system import QuantumSystem
 
 protocol StreamingQuantumSystem = stream<QuantumSystem, path: 'quantum-system.ys'>
 

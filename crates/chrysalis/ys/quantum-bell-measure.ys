@@ -17,7 +17,7 @@
 # roughly 50/50 across many seeds, NEVER `b01` or `b10`.
 
 from meta import handle, sample
-from ast  import var, call, float, add, sub, div, field, record
+from .ast  import var, call, float, add, sub, div, field, record
 
 # ── Build the Bell state (same as quantum-bell-state.ys). ───────────
 

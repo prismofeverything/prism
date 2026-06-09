@@ -21,7 +21,7 @@
 #   }
 
 from meta import handle
-from ast  import var, call, float, add, sub, div, field, record
+from .ast  import var, call, float, add, sub, div, field, record
 
 # The initial single-qubit state |0⟩ as an Expr-value: {amp_0: 1.0, amp_1: 0.0}.
 def initial_state = record({

@@ -12,7 +12,7 @@
 #
 #       t=0 { ab: |++⟩ }  →  t=1 { a: |+⟩, b: |+⟩ }  →  t=2+ { ab2: |++⟩ }
 
-from quantum-system import QuantumSystem
+from .quantum-system import QuantumSystem
 
 protocol StreamingQuantumSystem = stream<QuantumSystem, path: 'quantum-system.ys'>
 

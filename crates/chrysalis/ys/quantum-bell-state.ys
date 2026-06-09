@@ -21,7 +21,7 @@
 #   prob_same:  1.0   (measure-same-basis correlation)
 
 from meta import handle
-from ast  import var, call, float, add, sub, div, field, record
+from .ast  import var, call, float, add, sub, div, field, record
 
 # Initial state |00⟩ — amp 1.0 at 'b00', 0 elsewhere.
 def init_00 = record({
