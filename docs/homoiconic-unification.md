@@ -241,16 +241,27 @@ Stage-2 reaction exception surfacing in the constructor**, and must be framed as
   at the object level.
 - **4b.** Unify the `meta` import's `eval`/`load` (`prelude.rs:329`/`:317`) with the
   engine rung where they coincide — delete the duplication if it is real.
-- **4c.** Make the BRS rule boundary eval data too: `collect_reactions`/`push_reaction`
-  (`brs.rs:472`/`:452`) gains an eval step so a reaction-DATA value in state becomes a
-  `ReactionRule` on load (via 1b's `eval_rule_expr`) — symmetric with 4a. This is what lets
-  Stage 2's `build_reaction_value` finally produce pure data (the last constructor to become
-  uniform); the "two evals" (node-discovery + rule-collection) unify here.
-- **4d.** Same for the pattern boundary: a `Pattern(…)`/redex DATA value becomes a matcher at
-  `find_matches` time. With 4a/4c/4d, **every** constructor produces DATA and the FLAT/RICH
-  seam is gone — *this* is the move that forges the uniform face (see "Constructor face"
-  above). **Stage 4 is therefore the linchpin of the whole unification, not a tail** → it is
-  why `core` should boot.
+- **4c. ✅ DONE (core, 2026-06-09) — the BRS rule boundary evals data.**
+  `collect_reactions`/`push_reaction` (`brs.rs`) now lowers a transparent reaction-DATA value
+  in state to a `ReactionRule` via **`ReactionRule::from_data_value`** — the prism-side
+  structural codec, *not* chrysalis's `eval_rule_expr` (which is `Expr → Rule`, the wrong
+  layer: prism-bigraph can't call chrysalis). A `{_pat:"Rule"}` map (the closure-free
+  `to_data_value` form) is what crosses; a computed rule (guard/reactum/rate closure) keeps the
+  in-process `Foreign(FOREIGN_RULE)`. Additive beside the eager `Foreign` carrier, symmetric
+  with `discover_processes`. Consumer: `prism-bigraph/tests/reaction_data_as_state.rs` (3 green).
+  Recognized as one rung with nodes+patterns in `schema-algebra.md` ("Eval: state-data →
+  runnable"). **→ HANDOFF to `lang`:** the substrate is live, so (i) flip `build_reaction_value`
+  to emit pure DATA (the `to_data_value` form) — reaction becomes uniform with the node
+  constructors and the FLAT/RICH seam dissolves; (ii) the `ReactionType::realize` re-wrap
+  (`{_pat:"Rule"}` → `Foreign`, `runtime/rule.rs` ~461) existed ONLY because the BRS read
+  `Foreign`-alone — it can RETIRE for the BRS path (verify no other consumer needs it first).
+- **4d. (substrate ready — `Pattern::from_value`.)** The pattern boundary's eval is
+  `Pattern::from_value` (`reaction.rs`) — already total + lawed (`reaction_data.rs`) and reused
+  *inside* `from_data_value`, so 4c already carries it for the rules-as-state path. A standalone
+  `find_matches`-from-DATA entry is consumer-driven (only if lang's `count()`/`.matches()`
+  builtins want it). With 4a/4c/4d, **every** constructor produces DATA and the FLAT/RICH seam
+  is gone — *this* is the move that forges the uniform face (see "Constructor face" above).
+  **Stage 4 is therefore the linchpin of the whole unification, not a tail.**
 - Gate: cash out **only** where it deletes a special case (the `meta`-eval ⟂ engine-eval
   split; the metacircular orchestrator). *Honest note:* this is the most M5-ish rung
   (`categorical-core.md §3`/`§7`, the M/R-closure = reflection identity); keep it last

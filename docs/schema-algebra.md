@@ -128,6 +128,36 @@ reaction-value and have it fire on a later tick — the duality turned into the
 uniform across adding a process, a composite, or a reaction (topology + AlChemy
 are the same shape).
 
+## Eval: state-data → runnable (the lower rung)
+
+Three engine boundaries each read a **typed-data value out of state and bring it
+to life**. This is the *lower* rung of the reflective tower
+(`docs/homoiconic-unification.md` §3; the upper rung is the surface `eval`,
+`Expr → spec data`). It is **not a new operation** — each boundary is an EXISTING
+codec / instantiate, and they share one shape: *scan state for a typed value,
+eval it to its runnable form, collect.*
+
+| boundary | reads (state-data) | evals via | to |
+|---|---|---|---|
+| **nodes** | a spec `{_type, address, config, inputs, outputs}` | `discover_processes` → `Core::instantiate` (`engine.rs`) | a running `ProcessNode` |
+| **rules** | a reaction `{_pat: "Rule", redex, reactum, …}` (or eager `Foreign(FOREIGN_REACTION)`) | `collect_reactions`/`push_reaction` → `ReactionRule::from_data_value` (`brs.rs` · `reaction.rs`) | an active `ReactionRule` |
+| **patterns** | a pattern `{_pat: "Site" / "Map" / …}` | `Pattern::from_value` → `find_matches` (`reaction.rs`) | a matcher |
+
+The recognition only became *true* once **reaction joined nodes in reading
+transparent data**: `push_reaction` now evals `from_data_value` beside the eager
+`Foreign` carrier. Before, a reaction had to be a pre-built runnable `Foreign` to
+be active while a process spec was plain data — an asymmetry that forced the
+FLAT/RICH constructor seam (`homoiconic-unification.md`). With all three boundaries
+evaling data, a constructor can emit data uniformly.
+
+The governing axiom is the **codec round-trip** (Law 8, specialized): `from_value ∘
+to_value ≡ id` for patterns; `from_data_value ∘ to_data_value ≡ id` for rules —
+*modulo closures*: a computed `guard` / `reactum_fn` / `rate_fn` has no wire form,
+so `to_data_value → None` (the honest boundary, not a lossy encode), and such a
+rule stays the in-process `Foreign`. Pinned in `prism-schema/tests/reaction_data.rs`.
+So the rung is *in* the algebra, not beside it: the runnable is reconstructed by a
+lawed codec — the inverse of the `serialize`/`to_value` that put it in state.
+
 ## Laws (the axioms)
 
 Written as `≡` (must hold for all typed values of the sort). These become
