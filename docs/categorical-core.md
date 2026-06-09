@@ -306,9 +306,16 @@ its phase-vector delta there; mean field = `field.sum()`). Key-union = join-semi
 = exactly what `mesh_safety` blesses — *the same shape as the agent coordination board* —
 so the coupling is CRDT-safe by construction. Result: **R = 0.998 / 0.380, identical to
 Demo 1**, proving local coupling rides a `mesh`-declared link *unchanged* (the one-engine
-thesis). The distributed slice — tiles on separate peers with the map replicating over
-the live mesh bridge (each peer owns its keys → key-union, no coordinator) — is next, on
-the mesh runtime.
+thesis). **Distributed slice DONE ✅** (`kuramoto_mesh_distributed.rs`, on the mesh
+agent's runtime): two tiles on two *separate engines* (disjoint keys `a*`/`b*`, n=8
+global), the field map gossiped over a live rest bridge (`mesh_links` reflection +
+`MeshReplica::gossip`), phase-lock across the machine boundary — **R_a = R_b = 0.964,
+converged, no coordinator**. The `.ys` is byte-for-byte the local one; only the transport
+between the field replicas differs (the mesh is an *address*, not a mode). The convergence
+*stacks*: CRDT replication of the field map + the dynamical attractor reading it (§5) —
+the round-trip "double-count" risk dissolves because each key is single-writer and the
+local tick refreshes it (optimistic-fire-then-converge). A two-agent build: the manifold
+dynamics on the mesh agent's CRDT runtime, coordinated through the per-source board.
 **Demo 3** — plastic topology learning as a topology-rewriting BRS: Hebbian
 co-activation fires a reaction that strengthens/prunes a link; the network rewrites
 itself (#43; local-first; the closure payoff).

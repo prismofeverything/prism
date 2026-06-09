@@ -176,3 +176,64 @@ pub fn spawn_voice(freq: f64, out_slot: &str, block: usize, rate: f64) -> Reacti
         .with_label("spawn_voice")
         .with_reactum_fn(reactum_fn)
 }
+
+/// Insert `field: value` into a node `Value` (a map), returning it. Used to flag a
+/// spawned/matched voice as `detuned` so the Detune redex's NAC won't re-fire on it.
+fn with_flag(mut node: Value, field: &str, value: Value) -> Value {
+    if let Some(m) = node.as_map_mut() {
+        m.insert(Key::from(field), value);
+    }
+    node
+}
+
+/// **Detune** — a reaction that, for each running voice, spawns a copy shifted by
+/// `cents` and detunes-once.
+///
+/// The redex matches a `Voice` composite (its shallow `kind`/`freq` tags), binds
+/// the pitch as a site, and carries a **negative application condition**
+/// (`detuned: absent`) so it only fires on a voice not yet detuned. The reactum
+/// (a) `_add`s a copy at `freq · 2^(cents/1200)`, flagged `detuned`, and (b) flags
+/// the MATCHED voice `detuned` in place — so the NAC blocks any re-fire and the
+/// rule is **bounded** (each voice detunes exactly once; no runaway spawning).
+/// This is the #43 consume/produce-AND-modify-in-place pattern, on audio: the
+/// "Detune" capstone of synthesis-bigraphs.md §VI, made audible.
+pub fn detune_voice(cents: f64, out_slot: &str, block: usize, rate: f64) -> ReactionRule {
+    let redex = Pattern::map([(
+        "voice",
+        Pattern::map([
+            ("_type", Pattern::atom(Value::String("composite".into()))),
+            ("kind", Pattern::atom(Value::String("Voice".into()))),
+            ("freq", Pattern::site()),
+            ("detuned", Pattern::absent()),
+        ]),
+    )]);
+    let out_slot = out_slot.to_string();
+    let reactum_fn: ReactumFn = Arc::new(move |b: &Bindings| {
+        let voice_key = b
+            .key_map
+            .get("voice")
+            .map(|k| k.to_string())
+            .unwrap_or_default();
+        let freq = b.sites.get("freq").and_then(|v| v.as_f64()).unwrap_or(220.0);
+        let detuned_freq = freq * 2.0_f64.powf(cents / 1200.0);
+        let copy = with_flag(
+            voice_composite_node(detuned_freq, 1200.0, 1.0, 0.5, block, rate, &out_slot),
+            "detuned",
+            Value::Bool(true),
+        );
+        let mut add = StateMap::new();
+        add.insert(Key::from(format!("{voice_key}_dt").as_str()), copy);
+        // Localized delta at the rack: add the detuned copy + flag the source voice
+        // in place (so the NAC blocks any further fire on it).
+        let mut delta = StateMap::new();
+        delta.insert(Key::from("_add"), Value::Map(add));
+        delta.insert(
+            Key::from(voice_key.as_str()),
+            Value::tree([("detuned", Value::Bool(true))]),
+        );
+        Value::Map(delta)
+    });
+    ReactionRule::new(redex, Pattern::Site)
+        .with_label("detune")
+        .with_reactum_fn(reactum_fn)
+}

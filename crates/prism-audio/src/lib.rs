@@ -28,7 +28,9 @@ pub use envelope::Envelope;
 pub use lowpass::LowPass;
 pub use oscillator::Oscillator;
 pub use patch::{module_node, register_audio, render_patch, wire_map};
-pub use reactions::{patch_brs_node, prune_oscillator, render_patch_brs, spawn_voice, PATCH_BRS};
+pub use reactions::{
+    detune_voice, patch_brs_node, prune_oscillator, render_patch_brs, spawn_voice, PATCH_BRS,
+};
 pub use render::{render, render_kernel, render_mix, render_oscillator, render_path, render_voice};
 pub use voice::voice_composite_node;
 pub use signal::{

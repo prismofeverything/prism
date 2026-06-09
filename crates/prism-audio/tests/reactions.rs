@@ -10,8 +10,8 @@
 //! machinery of its own (the cell-colony mechanism, applied to sound).
 
 use prism_audio::{
-    module_node, prune_oscillator, render_patch_brs, signal_type, silence, spawn_voice,
-    voice_composite_node,
+    detune_voice, module_node, prune_oscillator, render_patch_brs, signal_type, silence,
+    spawn_voice, voice_composite_node,
 };
 use prism_bigraph::{Schema, Value};
 
@@ -204,5 +204,55 @@ fn spawn_voice_adds_an_audible_partial() {
     assert!(
         e330_s > 0.05 && e330_s > 5.0 * e330_c.max(1e-6),
         "spawned: a 330 Hz voice was added to the live rack ({e330_s} vs control {e330_c})"
+    );
+}
+
+#[test]
+fn detune_spawns_a_pitch_shifted_copy_bounded() {
+    let cents = 700.0; // a fifth — clearly separable from the base for Goertzel
+    let base = 220.0;
+    let detuned = base * 2.0_f64.powf(cents / 1200.0); // ~329.6 Hz
+
+    // A rack with ONE 220 Hz voice + the Detune BRS. Detune fires once: it matches
+    // the voice, spawns a copy a fifth up, and flags BOTH (source in place + copy),
+    // so the NAC blocks any re-fire — exactly one copy, no runaway.
+    let state = Value::tree([
+        (
+            "rack",
+            Value::tree([
+                ("mix", silence(BLOCK)),
+                (
+                    "voice_a",
+                    voice_composite_node(base, 1200.0, 1.0, 0.5, BLOCK, RATE, "mix"),
+                ),
+            ]),
+        ),
+        ("brs", prism_audio::patch_brs_node("rack", BLOCK as f64 / RATE)),
+    ]);
+    let schema = Schema::tree([("rack", Schema::tree([("mix", signal_type())]))]);
+    let out = render_patch_brs(
+        state,
+        schema,
+        vec![detune_voice(cents, "mix", BLOCK, RATE)],
+        &["rack", "mix"],
+        BLOCK,
+        N,
+    );
+
+    let lo = (N / 2) * BLOCK;
+    let e_base = goertzel(&out[lo..], base, RATE);
+    let e_detuned = goertzel(&out[lo..], detuned, RATE);
+
+    // Both the original and its detuned copy are sounding.
+    assert!(e_base > 0.05, "original {base} Hz present ({e_base})");
+    assert!(
+        e_detuned > 0.05,
+        "detuned ~{detuned:.0} Hz copy present ({e_detuned})"
+    );
+    // BOUNDED: the NAC flag stops re-firing, so exactly one copy. A runaway would
+    // pile many copies at the detuned pitch, blowing past one voice's level (~0.25).
+    assert!(
+        e_base < 0.6 && e_detuned < 0.6,
+        "bounded — one original + one copy, no runaway (base {e_base}, detuned {e_detuned})"
     );
 }

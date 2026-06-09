@@ -133,6 +133,13 @@ pub fn voice_composite_node(
     Value::tree([
         ("_type", Value::String("composite".into())),
         ("address", Value::String("local:Composite".into())),
+        // Shallow self-describing tags (ignored by discovery / `from_config`, which
+        // read only `_type`/`address`/`config`/`inputs`/`outputs`): `kind` marks a
+        // voice and `freq` exposes its pitch at the top level, so a reaction can
+        // MATCH a voice and read its frequency without descending into the spec —
+        // the Detune redex (`reactions::detune_voice`).
+        ("kind", Value::String("Voice".into())),
+        ("freq", Value::float(freq)),
         ("config", config),
         ("inputs", Value::map()),
         (
