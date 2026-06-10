@@ -7,14 +7,14 @@
 //! ```
 
 use chrysalis::parse::parse_program;
-use chrysalis::prelude::{std_methods, std_modules, std_registry};
+use chrysalis::prelude::{std_core, std_modules};
 
 const SRC: &str = include_str!("../ys/integrator-comparison.ys");
 
 fn main() {
     let prog = parse_program(SRC).expect("integrator-comparison.ys should parse");
     // Reaching past run() means compile (incl. contract checking) + run worked.
-    let state = chrysalis::runner::run(&prog, std_registry(), std_methods(), std_modules(), 2.0)
+    let state = chrysalis::runner::run(&prog, std_core(), std_modules(), 2.0)
         .expect("run: contracts enforced, std natives resolve");
     println!(
         "\u{2713} contract enforced: Rk4 and ForwardEuler both fulfill \

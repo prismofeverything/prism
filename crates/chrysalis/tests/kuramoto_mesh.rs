@@ -16,11 +16,7 @@ const KURAMOTO_MESH: &str = include_str!("../ys/kuramoto-mesh.ys");
 fn order_parameter(k: f64, duration: f64) -> f64 {
     let src = format!("{KURAMOTO_MESH}\nTileMesh[k: {k:?}]\n");
     let program = chrysalis::parse::parse_program(&src).expect("parse");
-    let result = chrysalis::compile::compile_with_methods(
-        &program,
-        chrysalis::prelude::std_registry(),
-        chrysalis::prelude::std_methods(),
-    )
+    let result = chrysalis::compile::compile_with_core(&program, chrysalis::prelude::std_core(), chrysalis::compile::ModuleRegistry::new())
     .expect("compile");
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),

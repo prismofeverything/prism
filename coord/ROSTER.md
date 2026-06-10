@@ -25,6 +25,7 @@ These are the anti-silo mechanism. They keep the convergence real.
 | **simplify** | REDUCE — remove redundant paths, find the unifying mechanism, "one way to do each thing" (wei-qi / Felleisen gate), the unification audit. `/simplify` + `/code-review` as a standing role. | the audit #46; cross-tree (cat E/G) |
 | **core** | the SUBSTRATE everyone builds on — the schema algebra + the engine + the reaction/BRS machinery. Builds new algebra ops / engine capabilities domains need. | `prism-schema`, `prism-bigraph` (engine, reaction). #5/#15/#30/#60 (cat E). *(may split: `reaction` = the BRS/AlChemy rewriting layer)* |
 | **lang** | the chrysalis SURFACE — parse / eval / compile / check, language semantics, diagnostics. The surface every domain writes `.ys` against. | `crates/chrysalis`; #10/#14/#16/#17 (cat F) |
+| **pkg** | the PACKAGES / dependency ecosystem (#67) — manifest, resolver, lockfile, registry, `chrysalis add`/`publish`, semver, transitive + native deps. *A package = a Core; linking = `Core::merge`; the registry of theories.* Owns the slice SOLO. | `crates/chrysalis` packaging (new manifest/resolver/registry modules) + the codegen path; #67/#13 (cat F) |
 
 ## Domain roles — the verticals (own an application / capability area)
 
@@ -44,6 +45,9 @@ These mirror `grand-synthesis.md` §1's table (one engine, many specializations)
 - **mesh** — #62 distribution + this coordination system. *(me)*
 - **manifold** — #70 composite multi-scale intervals.
 - **synth** — #63 A5 (a live BRS rewriting a synth patch).
+- **pkg** — *queued* — #67 the packages / dependency ecosystem; boots SOLO once the current
+  arcs land, to lay a principled foundation. Charter: `coord/pkg.next`; plan:
+  `docs/packages-ecosystem.md`.
 
 ## How it works
 

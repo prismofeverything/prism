@@ -203,6 +203,18 @@ the Stage-3 one-door guard (don't let your N→1 collapse regress).
   protocol door, a domain-native process reaching `.ys` through the one Core. chrysalis 241 +
   prism-bigraph suite 75 green. (`mesh_live_stream` red = an unrelated 20s-ceiling gossip-timing flake
   under multi-agent machine load, not the factory change.) UNBLOCKS synth `audio_core()` + A8 `net:`.
+- **CANONICAL RUN-CORE MIGRATION COMPLETE — the Felleisen gate CLOSED (ratchet `KNOWN_REMAINING = &[]`).**
+  Retired the ENTIRE 3-door split: `run`/`invoke`/`invoke_trace`/`invoke_driven`/`serve_stream`/
+  `serve_process`/`to_document` take ONE `Core`; `compile_with_modules`/`compile_with_registry`/
+  `compile_with_methods` DELETED; `compile_inner` FOLDED into `compile_with_core` (registries are
+  LOCALS decomposed from the Core — no `registry:` param door anywhere). Migrated every caller —
+  cli `run_command`, the bin, prelude (`load`/`compile_value`/`run_from_source`), codegen template
+  (`prelude::{core, modules}`), ~19 chrysalis+spatio-flux test files, spatio-flux prelude
+  (sf_registry/sf_methods/registry/methods DELETED → `sf_core()`/`core()`) + bin + 3 tests. Fixed
+  `std_core()` (was missing the Document+quantum methods `std_methods()` carries — dropped when
+  callers moved off the 3-door). Enabler `prism_bigraph::ProcessRegistry: Clone` (factory.rs
+  Box→Arc). GREEN: chrysalis 245 / spatio-flux 37 / prism-bigraph 75. A package = a Core is real.
+  (Also fixed an unrelated E0716 in another agent's new `coord_set.rs` that blocked the shared suite.)
 
 ## ✅ RESOLVED (12/12, TOTAL) — Axis-A uniform across EVERY entity kind
 The earlier finding ("`from_value` rebuilds only process/step/composite/binding") is **fully

@@ -7,9 +7,9 @@
 
 use std::path::PathBuf;
 
-use chrysalis::compile::compile_with_modules;
+use chrysalis::compile::compile_with_core;
 use chrysalis::parse::parse_file;
-use chrysalis::prelude::{std_methods, std_modules, std_registry};
+use chrysalis::prelude::{std_core, std_modules};
 use prism_schema::Value;
 
 const SRC: &str = include_str!("../ys/integrator-comparison.ys");
@@ -33,7 +33,7 @@ fn run_workflow(tag: &str) -> (Value, PathBuf) {
     let ys_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("ys");
     let prog = chrysalis::parse::parse_program_in(&src, &ys_dir)
         .expect("parse_program_in (imports resolve against ys/)");
-    let state = chrysalis::runner::run(&prog, std_registry(), std_methods(), std_modules(), 2.0)
+    let state = chrysalis::runner::run(&prog, std_core(), std_modules(), 2.0)
         .expect("run");
     (state, out)
 }
@@ -41,7 +41,7 @@ fn run_workflow(tag: &str) -> (Value, PathBuf) {
 #[test]
 fn compiles_with_std_natives() {
     let prog = parse_file(&ys_path("integrator-comparison.ys")).expect("parse_file");
-    let result = compile_with_modules(&prog, std_registry(), std_methods(), std_modules());
+    let result = compile_with_core(&prog, std_core(), std_modules());
     assert!(
         result.is_ok(),
         "should compile: contracts enforced, std natives resolve — got {:?}",

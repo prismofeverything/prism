@@ -6,16 +6,28 @@
 > domain exposes ONE `domain_core()`. Additive + small. Unblocks **synth A6 Phase 2** +
 > **A8 `net:`**; the foundation the package/dependency layer (#67) sits on.
 >
-> **STATUS (`lang`, 2026-06-09): the additive sibling + protocol door LANDED + GREEN.**
-> `compile_with_core(program, domain_core, modules)` + `run_with_core(…)` (chrysalis
-> `compile.rs`/`runner.rs`) thread one Core and use the Core's protocols (no hard-coded
-> `stream_protocols()`). Enabler: `prism_bigraph::ProcessRegistry` is now `Clone`
-> (`FactoryFn` Box→Arc, contained to `factory.rs`) so a domain registry clones + extends.
-> Proven by `tests/canonical_run_core.rs` (3): faithful sibling (`run_with_core(std_core())`
-> == 3-door `run`), the protocol door (domain protocols flow through), a domain-native
-> process reaching a `.ys` program through the one Core. **Remaining:** migrate the 3-door
-> callers (CLI + tests + spatio-flux's 6-fn prelude → `sf_core()`) then retire the split;
-> the `names()`-from-Core import-surface refinement is moot (`type_names()` already exists).
+> **STATUS (`lang`, 2026-06-09): ✅ COMPLETE + GREEN — the 3-door split is RETIRED.**
+> The canonical landed, ALL callers migrated, and the Felleisen gate is closed
+> (`tests/run_core_one_door_guard.rs` ratchet is now `KNOWN_REMAINING = &[]`). Specifically:
+> - `run` / `invoke` / `invoke_trace` / `invoke_driven` / `serve_stream` / `serve_process` /
+>   `to_document` (runner.rs) take ONE `Core`; `cli::run_command` + the bin + codegen
+>   template (`prelude::{core, modules}`) follow.
+> - `compile_with_modules` / `compile_with_registry` / `compile_with_methods` **deleted**;
+>   `compile_inner` **folded into `compile_with_core`** so the registries are LOCALS
+>   decomposed from the Core — there is no `registry: ProcessRegistry` door anywhere.
+> - The **protocol door** is real (a domain's protocols ride the Core; the hard-coded
+>   `stream_protocols()` is gone). Enabler: `prism_bigraph::ProcessRegistry` is `Clone`
+>   (`FactoryFn` Box→Arc, contained to `factory.rs`).
+> - **spatio-flux's 6-fn prelude workaround collapsed** to `sf_core()` + the codegen
+>   convention `core()` / `modules()` (a package = a Core); its bin + tests migrated.
+> - Fixed `std_core()` (it had been missing the `Document` + quantum methods that
+>   `std_methods()` carries — surfaced when callers moved off the 3-door).
+>
+> Green: chrysalis 245 / spatio-flux 37 / prism-bigraph 75. Proven by
+> `tests/canonical_run_core.rs` (one Core threads to the engine; the protocol door carries
+> the domain's protocols; a domain-native process reaches a `.ys` program through the one
+> Core) + the `&[]` ratchet. The `names()`-from-Core import-surface refinement remains moot
+> (`type_names()` already exists). **This unblocks synth A6 Phase 2 and A8 `net:`.**
 
 ## The diagnosis (verified 2026-06-09)
 

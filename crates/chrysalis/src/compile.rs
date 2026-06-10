@@ -277,61 +277,16 @@ fn resolve_imports(
 /// `main = <expr>` binding. `<expr>` evaluates to a [`Value::Map`]
 /// (typically a single process spec) that becomes the engine's
 /// initial state.
+/// Bare convenience — compile with NO host packages: the canonical one-Core door
+/// with an empty [`Core`] (the default stream protocols) and no module imports.
+/// A host that needs native processes / types / methods / protocols builds its
+/// own [`Core`] and calls [`compile_with_core`] (the retired `compile_with_registry`
+/// / `compile_with_methods` 3-door convenience is replaced by "build a Core").
 pub fn compile(program: &Program) -> Result<CompileResult, CompileError> {
-    compile_with_registry(program, ProcessRegistry::new())
-}
-
-/// Like [`compile`], but starts from a caller-provided `registry` — e.g. one
-/// pre-populated with NATIVE process factories that the program's native
-/// imports (`from <module> import Name`) reference (spatio-flux's numerical
-/// processes: diffusion, FBA, kinetics, particles). chrysalis registers its
-/// own factories on top, so a native `Name` resolves `local:Name` to the
-/// factory the caller supplied under `Name`.
-pub fn compile_with_registry(
-    program: &Program,
-    registry: ProcessRegistry,
-) -> Result<CompileResult, CompileError> {
-    compile_with_methods(program, registry, MethodRegistry::new())
-}
-
-/// Like [`compile_with_registry`], but also takes a pre-populated
-/// [`MethodRegistry`] of NATIVE value-methods — e.g. spatio-flux's `TimeSeries`
-/// `species_mse` / `overlay` — that the program's ys-native bodies dispatch to
-/// (`a.species_mse(b)`). The divide + user-`type` methods are registered on top.
-/// This is where the two process kinds meet: native processes via `registry`,
-/// native methods via `methods`, ys-native logic via the compiled bodies.
-pub fn compile_with_methods(
-    program: &Program,
-    registry: ProcessRegistry,
-    methods: MethodRegistry,
-) -> Result<CompileResult, CompileError> {
-    compile_with_modules(program, registry, methods, ModuleRegistry::new())
-}
-
-/// Like [`compile_with_methods`], but also takes a [`ModuleRegistry`] declaring
-/// the native modules a `.ys` may `from <module> import …` — the replacement for
-/// `extern`. A *process* import (`from core import RunProcess`) becomes a
-/// wholesale native control wired straight from its call site; an *object*
-/// import (`from integrators import rk4`) binds a value resolvable in bodies, so
-/// `rk4.integrate(network, state, interval)` dispatches via the `MethodRegistry`.
-///
-/// This is the 3-door form (separate process + method registries, native types
-/// via `modules`, protocols hard-coded to `stream_protocols()`). Prefer
-/// [`compile_with_core`] — ONE `Core` through the boundary, with the protocol
-/// door. Both funnel through `compile_inner`.
-pub fn compile_with_modules(
-    program: &Program,
-    registry: ProcessRegistry,
-    methods: MethodRegistry,
-    modules: ModuleRegistry,
-) -> Result<CompileResult, CompileError> {
-    compile_inner(
+    compile_with_core(
         program,
-        registry,
-        methods,
-        modules,
-        None,
-        Arc::new(crate::stream::stream_protocols()),
+        Core::new().with_protocols(Arc::new(crate::stream::stream_protocols())),
+        ModuleRegistry::new(),
     )
 }
 
@@ -342,42 +297,24 @@ pub fn compile_with_modules(
 /// its `type`s, its divide / user-type methods) and uses the Core's PROTOCOLS —
 /// no hard-coded default, so a domain injects its own (`rest:` / `net:`: the
 /// **protocol door**). `modules` stays — it is the import / `load` *name*
-/// surface, not a registry subset. Collapses the 3-door split of
-/// [`compile_with_modules`]; the program's factories share the domain's
-/// (`ProcessRegistry` is `Clone`).
+/// surface, not a registry subset. Collapses the old 3-door split (the retired
+/// `compile_with_modules` / hard-coded protocols); the program's factories share
+/// the domain's (`ProcessRegistry` is `Clone`).
 pub fn compile_with_core(
     program: &Program,
     domain_core: Core,
     modules: ModuleRegistry,
 ) -> Result<CompileResult, CompileError> {
-    // Start the mutable registries from the domain Core (clone the Arc'd
+    // Decompose the domain Core into the mutable working set (clone the Arc'd
     // registries so we EXTEND them with the program's defs, never mutate the
     // shared originals); the Core's types seed the type registry and its
-    // protocols ride the door.
-    let registry = (*domain_core.processes).clone();
-    let methods = (*domain_core.methods).clone();
-    compile_inner(
-        program,
-        registry,
-        methods,
-        modules,
-        Some(domain_core.types),
-        domain_core.protocols,
-    )
-}
-
-/// The shared compile body behind [`compile_with_modules`] (3-door) and
-/// [`compile_with_core`] (one Core). `base_types` seeds the program-aware type
-/// registry (the domain's types; `None` = fresh builtins) and `protocols` is the
-/// protocol door (the domain's, not a hard-coded default).
-fn compile_inner(
-    program: &Program,
-    mut registry: ProcessRegistry,
-    mut methods: MethodRegistry,
-    modules: ModuleRegistry,
-    base_types: Option<Arc<TypeRegistry>>,
-    protocols: Arc<ProtocolRegistry>,
-) -> Result<CompileResult, CompileError> {
+    // protocols ride the door. These are LOCALS, not a `registry`/`methods`
+    // parameter — there is NO registry-subset door into compile (the run-Core
+    // one-door invariant; `tests/run_core_one_door_guard.rs`).
+    let mut registry = (*domain_core.processes).clone();
+    let mut methods = (*domain_core.methods).clone();
+    let base_types: Option<Arc<TypeRegistry>> = Some(domain_core.types);
+    let protocols: Arc<ProtocolRegistry> = domain_core.protocols;
     // Resolve native host imports (`Def::Use`): object/process bindings + bare
     // native functions + synthetic `type` defs for imported native types.
     let ResolvedImports {

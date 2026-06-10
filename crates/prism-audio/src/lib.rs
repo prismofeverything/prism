@@ -19,6 +19,9 @@ pub mod instrument;
 pub mod lowpass;
 pub mod oscillator;
 pub mod patch;
+/// The audio domain's runnable Core (`audio_core`, chrysalis-free) + the `.ys`
+/// language facet (`audio_modules`, behind `ys`).
+pub mod prelude;
 pub mod reactions;
 pub mod render;
 pub mod signal;

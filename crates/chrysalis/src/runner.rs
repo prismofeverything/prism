@@ -12,13 +12,12 @@ use std::io::Read;
 
 use indexmap::IndexMap;
 use prism_bigraph::composite::Composite;
-use prism_bigraph::{Core, Document, Engine, Process, ProcessRegistry};
-use prism_schema::{Key, MethodRegistry, Schema, Value, algebra, schema_to_value, value_to_schema};
+use prism_bigraph::{Core, Document, Engine, Process};
+use prism_schema::{Key, Schema, Value, algebra, schema_to_value, value_to_schema};
 
 use crate::ast::{CompositeDef, Def, Expr, Name, PortDecl, Program, SchemaExpr};
 use crate::compile::{
     CompileError, CompileResult, ModuleRegistry, collect_top_level_bindings, compile_with_core,
-    compile_with_modules,
 };
 use crate::eval::Evaluator;
 use crate::schema::{composite_inner_schema, lower_schema_in_program};
@@ -49,40 +48,21 @@ pub fn run_state(schema: Schema, state: Value, core: Core, time: f64) -> Result<
     Ok(engine.state().clone())
 }
 
-/// Compile `program` against the host's native packages (`registry` process
-/// factories, `methods` value-methods, `modules` importable native modules) and
-/// run it for `time`, returning the final engine state. The program's own
-/// `Output` steps, if any, write artifacts during the run.
+/// Compile `program` against `core` (a domain's WHOLE [`Core`] — procs + types +
+/// methods + protocols; the program's own defs merge in) and run it for `time`,
+/// returning the final engine state. The program's own `Output` steps, if any,
+/// write artifacts during the run. This is the **canonical run-Core** (the #59
+/// Core-threading rule at the run boundary; `docs/canonical-run-core.md`): one
+/// Core, the protocol door (no hard-coded default), routed through the one
+/// [`run_state`] engine driver (invariant #3). `modules` is the import / `load`
+/// *name* surface, not a registry subset.
 pub fn run(
     program: &Program,
-    registry: ProcessRegistry,
-    methods: MethodRegistry,
+    core: Core,
     modules: ModuleRegistry,
     time: f64,
 ) -> Result<Value, RunError> {
-    let result = compile_with_modules(program, registry, methods, modules)?;
-    run_state(
-        result.topology.state_schema.clone(),
-        result.initial_state.clone(),
-        result.core.clone(),
-        time,
-    )
-}
-
-/// **Canonical run** — thread ONE [`Core`] through the boundary (the #59
-/// Core-threading rule reaching its last seam; `docs/canonical-run-core.md`). A
-/// domain passes its whole `domain_core` (procs + types + methods + protocols);
-/// the program's own defs merge in; the Core's PROTOCOLS ride the door (a
-/// domain's `rest:` / `net:` work, no hard-coded default). Collapses the 3-door
-/// [`run`]; routes through the one [`run_state`] driver, so the engine-driving
-/// stays one door (invariant #3).
-pub fn run_with_core(
-    program: &Program,
-    domain_core: Core,
-    modules: ModuleRegistry,
-    time: f64,
-) -> Result<Value, RunError> {
-    let result = compile_with_core(program, domain_core, modules)?;
+    let result = compile_with_core(program, core, modules)?;
     run_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
@@ -104,13 +84,10 @@ pub fn document_of(result: &CompileResult) -> Document {
 /// Compile `program` and render it as a [`Document`] (the `bigraph export` side).
 pub fn to_document(
     program: &Program,
-    registry: ProcessRegistry,
-    methods: MethodRegistry,
+    core: Core,
     modules: ModuleRegistry,
 ) -> Result<Document, RunError> {
-    Ok(document_of(&compile_with_modules(
-        program, registry, methods, modules,
-    )?))
+    Ok(document_of(&compile_with_core(program, core, modules)?))
 }
 
 /// Run a process-bigraph [`Document`] directly against `core` (the `bigraph
@@ -215,13 +192,12 @@ fn resolve_entry(program: &Program) -> Result<CompositeDef, RunError> {
 /// entry (for output extraction).
 fn engine_for(
     program: &Program,
-    registry: ProcessRegistry,
-    methods: MethodRegistry,
+    core: Core,
     modules: ModuleRegistry,
     args: &BTreeMap<String, String>,
 ) -> Result<(Engine, CompositeDef), RunError> {
     let entry = resolve_entry(program)?;
-    let result = compile_with_modules(program, registry, methods, modules)?;
+    let result = compile_with_core(program, core, modules)?;
     let ev = &result.evaluator;
 
     // Seed env with top-level bindings, then bind config params + input ports.
@@ -273,13 +249,12 @@ fn engine_for(
 /// round-trips as another run's input.
 pub fn invoke(
     program: &Program,
-    registry: ProcessRegistry,
-    methods: MethodRegistry,
+    core: Core,
     modules: ModuleRegistry,
     args: &BTreeMap<String, String>,
     duration: f64,
 ) -> Result<Value, RunError> {
-    let (mut engine, entry) = engine_for(program, registry, methods, modules, args)?;
+    let (mut engine, entry) = engine_for(program, core, modules, args)?;
     engine.run(duration);
     Ok(output_record(engine.state(), &entry, program))
 }
@@ -293,14 +268,13 @@ pub fn invoke(
 /// exactly this trace's final frame.
 pub fn invoke_trace(
     program: &Program,
-    registry: ProcessRegistry,
-    methods: MethodRegistry,
+    core: Core,
     modules: ModuleRegistry,
     args: &BTreeMap<String, String>,
     duration: f64,
     sample_dt: f64,
 ) -> Result<Value, RunError> {
-    let (mut engine, entry) = engine_for(program, registry, methods, modules, args)?;
+    let (mut engine, entry) = engine_for(program, core, modules, args)?;
     let element = output_schema(&entry, program);
 
     let mut samples: Vec<(f64, Value)> = vec![(0.0, output_raw(engine.state(), &entry))];
@@ -326,8 +300,7 @@ pub fn invoke_trace(
 /// pipe: `A.ys --trace | B.ys` is the composition `B ∘ A`.
 pub fn invoke_driven(
     program: &Program,
-    registry: ProcessRegistry,
-    methods: MethodRegistry,
+    core: Core,
     modules: ModuleRegistry,
     args: &BTreeMap<String, String>,
     input_trace: &Value,
@@ -355,7 +328,7 @@ pub fn invoke_driven(
         }
     }
 
-    let (mut engine, entry) = engine_for(program, registry, methods, modules, &seed)?;
+    let (mut engine, entry) = engine_for(program, core, modules, &seed)?;
     let element = output_schema(&entry, program);
 
     // Drive: advance by each frame's actual time-delta (dynamic dt — the input
@@ -413,8 +386,7 @@ fn drive_step(
 /// drives over OS pipes — proxying the program as a process.
 pub fn serve_stream(
     program: &Program,
-    registry: ProcessRegistry,
-    methods: MethodRegistry,
+    core: Core,
     modules: ModuleRegistry,
     args: &BTreeMap<String, String>,
     input: impl std::io::Read,
@@ -445,7 +417,7 @@ pub fn serve_stream(
                 .or_insert_with(|| serde_json::to_string(v).unwrap_or_default());
         }
     }
-    let (mut engine, entry) = engine_for(program, registry, methods, modules, &seed)?;
+    let (mut engine, entry) = engine_for(program, core, modules, &seed)?;
 
     let out_schema = output_schema(&entry, program);
     let mut writer =
@@ -526,8 +498,7 @@ pub fn serve_stream(
 /// server does (the parent engine already validated the wiring).
 pub fn serve_process(
     program: &Program,
-    registry: ProcessRegistry,
-    methods: MethodRegistry,
+    core: Core,
     modules: ModuleRegistry,
     args: &BTreeMap<String, String>,
     input: impl std::io::Read,
@@ -543,7 +514,7 @@ pub fn serve_process(
     // port (e.g. `:: Qubits`) the parent routed in — the bridge is a typed wire.
     let types = crate::compile::build_type_registry(&std::sync::Arc::new(program.clone()));
 
-    let composite = build_entry_composite(program, registry, methods, modules, args, &entry)?;
+    let composite = build_entry_composite(program, core, modules, args, &entry)?;
     let out_schema = output_schema(&entry, program);
     let mut writer =
         prism_trace::TraceWriter::new(output, &entry.name, &schema_to_value(&out_schema))
@@ -596,13 +567,12 @@ pub fn serve_process(
 /// core, so the child forwards updates via the very same bridge machinery as local.
 fn build_entry_composite(
     program: &Program,
-    registry: ProcessRegistry,
-    methods: MethodRegistry,
+    core: Core,
     modules: ModuleRegistry,
     args: &BTreeMap<String, String>,
     entry: &CompositeDef,
 ) -> Result<Composite, RunError> {
-    let result = compile_with_modules(program, registry, methods, modules)?;
+    let result = compile_with_core(program, core, modules)?;
     let ev = &result.evaluator;
     let mut env = collect_top_level_bindings(program, ev)?;
     for p in &entry.params {

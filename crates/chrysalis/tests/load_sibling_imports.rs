@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use chrysalis::parse::parse_file;
-use chrysalis::prelude::{std_methods, std_modules_at, std_registry};
+use chrysalis::prelude::{std_core, std_modules_at};
 use chrysalis::runner::invoke;
 
 #[test]
@@ -48,8 +48,7 @@ fn load_then_run_resolves_a_loaded_files_sibling_imports() {
     let prog = parse_file(dir.join("orch.ys")).expect("parse orch");
     let out = invoke(
         &prog,
-        std_registry(),
-        std_methods(),
+        std_core(),
         std_modules_at(Some(dir.clone())),
         &BTreeMap::new(),
         0.0,

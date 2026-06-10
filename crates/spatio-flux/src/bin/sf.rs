@@ -9,7 +9,7 @@
 //! ```
 
 use chrysalis::parse::parse_file;
-use spatio_flux::prelude::{sf_methods, sf_modules, sf_registry};
+use spatio_flux::prelude::{sf_core, sf_modules};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -45,7 +45,7 @@ fn main() {
         eprintln!("sf: parse {path}: {e}");
         std::process::exit(1);
     });
-    let state = chrysalis::runner::run(&prog, sf_registry(), sf_methods(), modules, time)
+    let state = chrysalis::runner::run(&prog, sf_core(), modules, time)
         .unwrap_or_else(|e| {
             eprintln!("sf: run {path}: {e}");
             std::process::exit(1);

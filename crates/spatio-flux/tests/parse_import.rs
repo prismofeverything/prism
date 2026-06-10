@@ -9,13 +9,14 @@
 //! without any precedence rule).
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use indexmap::IndexMap;
-use prism_bigraph::{Engine, ProcessNode, ProcessRegistry};
-use prism_schema::{MethodRegistry, Value};
+use prism_bigraph::{Core, Engine, ProcessNode, ProcessRegistry};
+use prism_schema::Value;
 
 use chrysalis::ast::Def;
-use chrysalis::compile::compile_with_modules;
+use chrysalis::compile::compile_with_core;
 use chrysalis::parse::parse_file;
 use spatio_flux::prelude::sf_modules;
 use spatio_flux::processes::diffusion_advection::DiffusionAdvection;
@@ -87,10 +88,9 @@ fn import_resolves_and_runs_across_files() {
 
     // Compile through the spatio-flux native modules (the `extern` replacement):
     // `from diffusion import DiffusionAdvection` resolves to the native factory.
-    let result = compile_with_modules(
+    let result = compile_with_core(
         &program,
-        diffusion_natives(),
-        MethodRegistry::new(),
+        Core::from(Arc::new(diffusion_natives())),
         sf_modules(),
     )
     .expect("compile merged program");

@@ -36,11 +36,7 @@ composite Harness[child_dt :: Float = 1.0] ->{count :: Float @ count} (
 fn count_after(child_dt: f64, duration: f64) -> f64 {
     let src = format!("{PROG}\nHarness[child_dt: {child_dt:?}]\n");
     let program = chrysalis::parse::parse_program(&src).expect("parse");
-    let result = chrysalis::compile::compile_with_methods(
-        &program,
-        chrysalis::prelude::std_registry(),
-        chrysalis::prelude::std_methods(),
-    )
+    let result = chrysalis::compile::compile_with_core(&program, chrysalis::prelude::std_core(), chrysalis::compile::ModuleRegistry::new())
     .expect("compile");
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),

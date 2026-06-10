@@ -48,6 +48,11 @@ overall; the deep docs hold the content.
   symmetric w/ `discover_processes`); landed the **4a node rung** `Core::instantiate_spec` +
   the **type-as-data** `schema_codec` (Axis-A primitive). Also flipped `.ys` imports to
   explicit-origin + fixed the board lexer (apostrophe/brace escapes).
+- `pkg` → `coord/pkg.next` — **NEW agent (charter written; boots SOLO once the current arcs
+  land).** OWNS the entire **packages / dependency ecosystem** (#67): manifest · resolver ·
+  lockfile · registry · `chrysalis add`/`publish` · semver · transitive + native deps. Plan:
+  `docs/packages-ecosystem.md` (5 phases, MVP-first). Spine: *a package = a Core*; linking =
+  `Core::merge`; the registry of theories. One prereq: `Core::merge` (core, post-#71).
 - *(future, add a `<agent>.ys`+`.next` pair when booted: `bio`, `quantum`, `spatial` —
   see ROSTER for the role map.)*
 
@@ -60,6 +65,16 @@ overall; the deep docs hold the content.
 - **M5** — the living demo (categorical-core §M5).
 
 ## What to unify next
+- **▶▶ NOW (the arc progression).** The **homoiconic face is CLOSED + green** (4a metacircular
+  close · Axis-A 10/12 · FLAT/RICH dissolved · 4 one-door guards). On top of it landed the
+  **canonical run-Core** (synth's finding — one Core through `run`/`compile` + a protocol door,
+  `docs/canonical-run-core.md`) — *a package = a Core*. **In flight:** #71 units (core, isolated
+  worktree) + synth A6 (the homoiconic module factory, riding the run-Core). **Planned + a NEW
+  owner:** the **packages / dependency ecosystem** (#67, `docs/packages-ecosystem.md`) — the
+  **`pkg`** agent owns it SOLO, booting last to lay a principled foundation (manifest → resolver
+  → registry → publish; linking = `Core::merge`; the registry of theories). **Queued:** the
+  metacircular **orchestrator** (`coord/orchestrator.ys`, consumer-in-waiting — blocked on the
+  `load()` relative-import fix it surfaced). *(The bullet below is now provenance.)*
 - **🟢 THE HOMOICONIC FACE — forged + PINNED** (`docs/homoiconic-unification.md`). Stages
   1/2/3/4c DONE: one `quote` (`to_value`, total) · one `reify` (`from_value`) · the
   capitalized constructor IS `quote` of the definer · **one `build_rule` lowering core** ·

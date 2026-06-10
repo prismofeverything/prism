@@ -37,11 +37,12 @@ const SUBSET_DOOR: &str = "registry: ProcessRegistry";
 
 /// Files that still hold a subset door, shrinking to `&[]` as `lang` threads the
 /// canonical Core through `run`/`compile`. Each is repo-relative.
-const KNOWN_REMAINING: &[&str] = &[
-    "crates/chrysalis/src/runner.rs",  // run / to_document / invoke* — lang threading the Core
-    "crates/chrysalis/src/compile.rs", // compile_with_registry / _methods / _modules — same
-    "crates/chrysalis/src/cli.rs",     // run_command (the CLI entry that drives run) — same
-];
+// ✅ EMPTY — definition of done. Every run/compile path threads ONE `Core`: the
+// 3-door `run`/`compile_with_modules`/`compile_with_registry`/`compile_with_methods`
+// are retired, `compile_inner` folded into `compile_with_core` (registries are
+// LOCALS, decomposed from the Core), cli/runner/prelude/codegen + spatio-flux all
+// go through `compile_with_core` / `run`(Core). No registry-subset door remains.
+const KNOWN_REMAINING: &[&str] = &[];
 
 const SCAN_DIR: &str = "crates/chrysalis/src";
 

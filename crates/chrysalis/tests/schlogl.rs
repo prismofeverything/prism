@@ -6,9 +6,9 @@
 
 use std::path::PathBuf;
 
-use chrysalis::compile::compile_with_modules;
+use chrysalis::compile::compile_with_core;
 use chrysalis::parse::parse_file;
-use chrysalis::prelude::{std_methods, std_modules, std_registry};
+use chrysalis::prelude::{std_core, std_modules};
 use prism_schema::Value;
 
 fn ys() -> PathBuf {
@@ -18,7 +18,7 @@ fn ys() -> PathBuf {
 #[test]
 fn compiles_the_schlogl_demo() {
     let prog = parse_file(&ys()).expect("parse_file schlogl-engines.ys");
-    let result = compile_with_modules(&prog, std_registry(), std_methods(), std_modules());
+    let result = compile_with_core(&prog, std_core(), std_modules());
     assert!(result.is_ok(), "should compile: {:?}", result.err());
 }
 
@@ -33,7 +33,7 @@ fn mse_x(state: &Value, key: &str) -> f64 {
 #[ignore = "integration: needs process-server/serve.sh on :8765"]
 fn schlogl_is_bistable_and_engines_agree_per_basin() {
     let prog = parse_file(&ys()).expect("parse_file");
-    let state = chrysalis::runner::run(&prog, std_registry(), std_methods(), std_modules(), 2.0)
+    let state = chrysalis::runner::run(&prog, std_core(), std_modules(), 2.0)
         .expect("run the Schlögl demo (is serve.sh on :8765?)");
 
     let gap = mse_x(&state, "bistable_gap");

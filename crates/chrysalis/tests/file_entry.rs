@@ -7,7 +7,7 @@
 
 use chrysalis::ast::def_name;
 use chrysalis::parse::parse_program;
-use chrysalis::prelude::{std_methods, std_modules, std_registry};
+use chrysalis::prelude::{std_core, std_modules};
 use chrysalis::runner::run;
 
 #[test]
@@ -29,7 +29,7 @@ composite World[seed :: Float = 2.0] ->{count :: Float @ count} (
     );
 
     // Running with no `main` inlines `World`: its body (count: seed=2.0) is root.
-    let state = run(&prog, std_registry(), std_methods(), std_modules(), 1.0).expect("run");
+    let state = run(&prog, std_core(), std_modules(), 1.0).expect("run");
     let count = state
         .as_map()
         .and_then(|m| m.get("count"))

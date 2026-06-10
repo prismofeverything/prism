@@ -1,0 +1,96 @@
+# pkg.next — durable resume for the `pkg` agent
+
+<!-- The per-agent fractal of NEXT-SESSION.md. DURABLE (survives reboot);
+     coord/pkg.ys is the LIVE heartbeat, rebuilt from here on boot.
+     Edit ONLY your own pkg.ys + pkg.next (monotone, per-source). -->
+
+## ⏯️ ON BOOT
+You are `pkg` — you OWN the **packages / dependency-management ecosystem** (#67) **solo**:
+the manifest, the resolver, the lockfile, the registry, `chrysalis add`/`publish`, semver,
+transitive + native dependencies. The human boots you once the rest of the team frees up,
+to "establish a solid foundation for the future." This slice is **entirely yours** — take
+the long view, build it principled and complete, no workarounds.
+
+Read this + `coord/ROSTER.md` (roles + the **build-coordination protocol**) +
+`coord/board.ys` (who else is live — likely quiet when you boot) + `coord/unify.next` (the
+overall / convergence map) + **`docs/packages-ecosystem.md`** (YOUR full plan — the 5
+phases, in detail) + **`docs/canonical-run-core.md`** (the foundation: *a package is a
+Core*). **On boot:** create `coord/pkg.ys` from your first heartbeat AND join the board —
+add `from .pkg import pkg` + a `pkg: pkg` merge entry to `coord/board.ys` (a coordinate-first
+shared edit, safe when you boot solo). Resume from **Now / next**.
+
+**Prereqs — the substrate you build on (all should be green when you boot):**
+- ✅ The **canonical run-Core** (`compile_with_core`/`run_with_core` + the protocol door —
+  a package = a Core). Landed. See `docs/canonical-run-core.md`.
+- **`Core::merge`** (linking = the algebra key-union of the four registries) — ideally
+  `core` lands it before you boot (a small `prism-bigraph` add, post-#71). If it is not yet
+  there, build it in `prism-bigraph` yourself (additive, with a prism-side test) — it is the
+  algebra key-union with conflict-on-incompatible-same-name; thin-layer, do NOT clone a
+  linker in chrysalis.
+- The **homoiconic face** (quote/reify/eval — the manifest is `.ys`-as-data) + the
+  **`coord set`** correct-by-construction edit (reuse it for `chrysalis add`).
+
+## Domain
+The **chrysalis packaging surface** + the codegen path: `crates/chrysalis/src/{codegen.rs,
+cli.rs, bin/chrysalis.rs, compile.rs}` + NEW modules you add (`manifest.rs` / `resolver.rs`
+/ `registry.rs` / `lockfile.rs`). You own #67 + #13's tail (the codegen rewrite). Adjacent:
+**lang** (the chrysalis surface — coordinate-first on the shared seams
+`cli.rs`/`codegen.rs`/the import resolver), **core** (`Core::merge`, registry
+introspection), **mesh** (the remote-registry transport, Phase 4), **unify** (the
+theory-composition spine), **simplify** (your guards).
+
+## The spine (keep it thin — every piece reuses a generator)
+- a **package = a `Core`** (the canonical run-Core).
+- **linking a dependency = `Core::merge`** — union the four registries; a same-name
+  incompatible def = a conflict. The SAME algebra key-union the mesh + codec use. **Never a
+  bespoke linker.**
+- the **manifest (`project.ys`) = `.ys`-as-data** — `chrysalis add` edits it through the
+  homoiconic read → Value → algebra-apply → unparse → round-trip-gate → write (the `coord
+  set` pattern; reuse, do not clone).
+- the **registry = a registry of theories**; **semver = theory compatibility**; **fetch =
+  a pluggable transport** (the mesh-transport generalization).
+
+## Now / next — the 5 phases (full detail in `docs/packages-ecosystem.md`)
+Each phase SHIPS with its consumer (`feedback_no_half_measures`). Start at Phase 1.
+- [ ] **Phase 1 — manifest-as-data + a PATH dependency + `Core::merge` linking.** Grow
+  `project.ys` from the one-line directive (`codegen.rs::Manifest`) into a structured `.ys`
+  manifest value (name, version, `dependencies`, `exports`). Path dep (one local `.ys`
+  package depending on another). Link by merging the dep's Core. *Consumer:* a 2-package
+  local project. **Highest value — "independent `.ys` projects with deps" — de-risks the
+  linker first.**
+- [ ] **Phase 2 — resolver + lockfile** (transitive + semver; conflict = `Core::merge`
+  conflict; `project.lock` pinned graph). *Consumer:* a 3-package graph with a shared
+  transitive dep + a version constraint. *(The one genuinely-new algorithm.)*
+- [ ] **Phase 3 — registry + `chrysalis add`/`install`/`remove`/`update` + fetch/cache**
+  (LOCAL dir-based index first; pluggable backend). *Consumer:* `chrysalis add foo` locally.
+- [ ] **Phase 4 — publish + remote registry** (`chrysalis publish`; HTTP backend with
+  `mesh`; checksums). *Consumer:* publish prism-std / audio / spatio-flux; `chrysalis add
+  audio` from the registry.
+- [ ] **Phase 5 — native-dep + workspaces.** Rewrite the #13 codegen onto the canonical
+  run-Core (`pkg::prelude::{registry,methods,modules}` → `pkg::domain_core()`); dissolve the
+  spatio-flux 3-door debt; multi-package workspaces. *Consumer:* a mixed native + `.ys`
+  project.
+
+## Coordinate (build-coordination — ROSTER §Build coordination)
+You are **downstream** in the build DAG (schema → bigraph → chrysalis). Booting solo, the
+upstream is green + stable — still: set a `build:` field on your heartbeat (state /
+green_tick / cmd), build against the existing green, run tests via the consolidated suite
+(`cargo test -p chrysalis --test suite <module>`). Work mostly in NEW chrysalis modules +
+ADDITIVE CLI verbs (minimizes overlap). Any change to a SHARED chrysalis seam (`cli.rs`
+dispatch, `codegen.rs`, the import resolver) or a `Cargo.toml` is non-monotone → keep it
+green / coordinate-first if anyone is live. `Core::merge` is core's domain — pair, never
+clone.
+
+## Hard rules (durable)
+- **Thin chrysalis.** The linker is `Core::merge` (the algebra); the manifest edit is the
+  homoiconic round-trip; instantiation is `run_with_core` — CALL prism, never clone a
+  runtime / linker / merge (`feedback_chrysalis_thin_layer`).
+- **Closed algebra.** A new schema/state op = a named algebra op + laws + tests
+  (`feedback_schema_algebra`). `Core::merge`'s conflict semantics ARE the algebra merge.
+- **No half-measures.** Each phase lands with its consumer test (`feedback_no_half_measures`);
+  this slice is yours to make *complete + principled*, not bounded.
+- **The board is `.ys`-as-data.** Your heartbeat prose AVOIDS curly braces (interpolation)
+  and lone apostrophes (double them: `''`) — see `project_ys_import_explicit_origin`.
+
+## Done
+(empty — you boot fresh into the package ecosystem; archive each phase here as it lands.)

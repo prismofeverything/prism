@@ -1987,11 +1987,13 @@ name = "prism-audio"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrysalis",
  "cpal",
  "gorgon",
  "indexmap",
  "prism-bigraph",
  "prism-schema",
+ "prism-std",
  "ringbuf",
 ]
 

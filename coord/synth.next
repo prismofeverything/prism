@@ -126,6 +126,42 @@ another's*, not bespoke glue. Build each as a small functor + a "you HEAR domain
 definer + the `Complex` sort THERE with `unify`; build the per-domain demos HERE.)
 
 ## Done (this arc — all green)
+- **LAYERING FIX — `audio_core()` is CHRYSALIS-FREE (the human caught the smell).** The audio domain
+  (DSP + processes + types + *assembling its Core*) is independent of the LANGUAGE, so prism-audio
+  must not be downstream of chrysalis. `audio_core()` (`src/prelude.rs`) now assembles the full audio
+  runtime from the SUBSTRATE alone — `prism_std::register_processes/methods` + the `prism-bigraph`
+  `Composite` factory + `Rest`/`Mesh`/`local` protocols (`prism_bigraph::protocols`) + the `Signal`
+  type. **Proven:** `cargo tree -p prism-audio` (default) has NO chrysalis; the `audio_core` test
+  passes in the default build; it built GREEN *while chrysalis was red* (lang's retirement) — the
+  domain is not hostage to language churn. prism-audio deps `prism-std` (substrate) by default;
+  `chrysalis` is optional behind the `ys` feature, which now holds ONLY the language facet
+  (`audio_modules` import-surface + `run_with_core` + the `.ys` tests). Default suite 30/30.
+  **Why it was forced (the find):** `std_core` lives in chrysalis, but only needs chrysalis for ONE
+  piece — `StreamProtocol` (runs chrysalis subprograms over a stream; a language protocol). REFINEMENT
+  proposed to the team (synth tick 16): `domain_core()` lives in the DOMAIN (chrysalis-free); move
+  `std_core`'s substrate half (protocol/Composite assembly) DOWN to `prism-std` so chrysalis AND
+  domains both build on it; only import-surface + run + `StreamProtocol` are the language facet (the
+  runner / #10 codegen). spatio-flux's `sf_core()` should be chrysalis-free too. *Clean follow-up
+  (post lang-green): extract the `ys` facet to a separate thin runner crate so prism-audio's library
+  is 100% chrysalis-free, not merely chrysalis-optional.*
+- **A6 Phase 2 — the `.ys` surface (🚧 IN PROGRESS; canonical door LANDED).** The canonical-pattern
+  proposal I surfaced (synth tick 13) was ratified + **lang landed it**: `run_with_core(program,
+  domain_core, modules)` + `compile_with_core` thread ONE Core *with the protocol door* (retiring the
+  hard-coded `stream_protocols()` — unblocks A8 `net:` too); `ProcessRegistry` is now `Clone` +
+  `type_names()`; `Composite[…]` shipped. Built the prism-audio side: **`audio_core(block)` +
+  `audio_modules()`** (`src/prelude.rs`, gated behind a `ys` feature so the kernel/offline/realtime
+  paths never pull chrysalis — cleaner layering than spatio-flux's unconditional dep). **GREEN
+  (pre-churn):** `audio_core` serves std+audio caps + the `Signal` type; **a `.ys` one-oscillator
+  patch renders through `run_with_core`** (configured `Oscillator[…] ~{}->{}` + the `Signal` type
+  reachable from `.ys` — the seam works end to end). **Headline WRITTEN, pending verify:** a
+  `Composite[…]` expression authoring a 2-oscillator module TYPE on the surface (the synth writes
+  synths, `.ys` side) — blocked on **lang's in-flight 3-door retirement** (chrysalis `build:building`);
+  HOLDING per the build channel, will rebuild once + confirm on lang's green. *Lesson (durable):
+  RE-READ the upstream `build:` state before each downstream build — lang flipped to `building` after
+  my prior green run, and I built `--features ys` into the in-flight break. The feature gate saved
+  everyone else (my chrysalis-dependent code can't break a default build).* Next: on lang-green,
+  verify the headline → extract `crates/prism-audio/ys/writes-synths.ys` as the durable demo →
+  the reactum form (a BRS whose reactum is `Composite[…]`).
 - **A6 deepened — full instrument types + author-then-REUSE (parallel track, while lang builds the
   canonical runner).** Two enrichments of the factory (`src/instrument.rs` + `tests/instrument.rs`,
   29/29 suite): **(1) a full subtractive INSTRUMENT type** — `instrument_voice_node` composes ALL

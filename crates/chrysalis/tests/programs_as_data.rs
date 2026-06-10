@@ -15,9 +15,9 @@
 
 use std::path::PathBuf;
 
-use chrysalis::compile::compile_with_modules;
+use chrysalis::compile::compile_with_core;
 use chrysalis::parse::parse_program;
-use chrysalis::prelude::{std_methods, std_modules, std_registry};
+use chrysalis::prelude::{std_core, std_modules};
 use chrysalis::runner::{document_of, run, run_document};
 use prism_bigraph::Document;
 use prism_schema::Value;
@@ -46,11 +46,11 @@ fn grow_divide_runs_identically_as_data_and_as_program() {
     let prog = parse_program(GROW_DIVIDE).expect("parse grow-divide-unbounded.ys");
 
     // Direct run — the program executed as code.
-    let direct = run(&prog, std_registry(), std_methods(), std_modules(), 5.0).expect("direct run");
+    let direct = run(&prog, std_core(), std_modules(), 5.0).expect("direct run");
 
     // Render to Document — the program AS DATA (schema + state, JSON-shaped).
     // This is the homoiconic move: the runnable program is now a value.
-    let compiled = compile_with_modules(&prog, std_registry(), std_methods(), std_modules())
+    let compiled = compile_with_core(&prog, std_core(), std_modules())
         .expect("compile");
     let doc = document_of(&compiled);
 
@@ -105,13 +105,13 @@ fn definer_equals_its_quote_then_eval() {
     use chrysalis::ast::Program;
 
     let prog = parse_program(GROW_DIVIDE).expect("parse");
-    let direct = run(&prog, std_registry(), std_methods(), std_modules(), 5.0).expect("direct run");
+    let direct = run(&prog, std_core(), std_modules(), 5.0).expect("direct run");
 
     // quote → reify the program's definers, then compile + run the reconstruction.
     let quoted = prog.to_value();
     let reified = Program::from_value(&quoted).expect("reify the quoted program");
     let from_quote =
-        run(&reified, std_registry(), std_methods(), std_modules(), 5.0).expect("run reified");
+        run(&reified, std_core(), std_modules(), 5.0).expect("run reified");
 
     assert_eq!(
         cell_ids(&direct),
@@ -130,7 +130,7 @@ fn document_preserves_the_program_shape() {
     // `state` field carries the initial state. Both are present — making the
     // Document a complete runnable description, not a stripped trace.
     let prog = parse_program(GROW_DIVIDE).expect("parse");
-    let compiled = compile_with_modules(&prog, std_registry(), std_methods(), std_modules())
+    let compiled = compile_with_core(&prog, std_core(), std_modules())
         .expect("compile");
     let doc = document_of(&compiled);
 

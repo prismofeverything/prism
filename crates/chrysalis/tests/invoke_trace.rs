@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use chrysalis::prelude::{std_methods, std_modules, std_registry};
+use chrysalis::prelude::{std_core, std_modules};
 use chrysalis::runner::{invoke_driven, invoke_trace};
 use prism_schema::{Schema, Value};
 
@@ -43,8 +43,7 @@ fn constant_composite_trace_round_trips_through_arrow() {
     // duration 3, sample_dt 1 ⇒ frames at t = 0,1,2,3 (4 frames), all identical.
     let trace = invoke_trace(
         &prog,
-        std_registry(),
-        std_methods(),
+        std_core(),
         std_modules(),
         &args(&[("value", "10.0"), ("factor", "3.0")]),
         3.0,
@@ -75,8 +74,7 @@ fn evolving_composite_trace_captures_dynamics() {
     // duration 5, sample_dt 1 ⇒ 6 frames; n grows by 1 each tick from start = 0.
     let trace = invoke_trace(
         &prog,
-        std_registry(),
-        std_methods(),
+        std_core(),
         std_modules(),
         &args(&[("start", "0.0")]),
         5.0,
@@ -114,8 +112,7 @@ fn pipe_round_trip_drives_b_from_a_over_arrow() {
     let a = chrysalis::parse::parse_program(COUNTER).expect("parse A");
     let a_trace = invoke_trace(
         &a,
-        std_registry(),
-        std_methods(),
+        std_core(),
         std_modules(),
         &args(&[("start", "0.0")]),
         5.0,
@@ -131,8 +128,7 @@ fn pipe_round_trip_drives_b_from_a_over_arrow() {
     let b = chrysalis::parse::parse_program(ECHO).expect("parse B");
     let b_trace = invoke_driven(
         &b,
-        std_registry(),
-        std_methods(),
+        std_core(),
         std_modules(),
         &args(&[]),
         &b_input,
@@ -157,8 +153,7 @@ fn mismatched_input_stream_is_rejected_at_connect() {
     let b = chrysalis::parse::parse_program(ECHO).expect("parse");
     let err = invoke_driven(
         &b,
-        std_registry(),
-        std_methods(),
+        std_core(),
         std_modules(),
         &args(&[]),
         &bad,
@@ -203,8 +198,7 @@ fn driven_advances_by_irregular_frame_times() {
     let acc = chrysalis::parse::parse_program(ACC).expect("parse acc");
     let out = invoke_driven(
         &acc,
-        std_registry(),
-        std_methods(),
+        std_core(),
         std_modules(),
         &args(&[]),
         &input,

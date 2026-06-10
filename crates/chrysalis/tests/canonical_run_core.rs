@@ -13,10 +13,10 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use chrysalis::compile::{compile_with_core, compile_with_modules};
+use chrysalis::compile::compile_with_core;
 use chrysalis::parse::parse_program;
-use chrysalis::prelude::{std_core, std_methods, std_modules, std_registry};
-use chrysalis::runner::{run, run_with_core};
+use chrysalis::prelude::{std_core, std_modules};
+use chrysalis::runner::run;
 use indexmap::IndexMap;
 use prism_bigraph::process::{Process, ProcessNode};
 use prism_bigraph::{Core, ProcessRegistry, Schema, Update, Value};
@@ -32,21 +32,18 @@ composite Main ->{ n :: Float } (
 ";
 
 #[test]
-fn run_with_core_is_a_faithful_sibling_of_the_three_door_run() {
-    // The canonical run-Core and the 3-door run reach the SAME final state — so
-    // collapsing the 3 doors into one Core changes nothing for existing callers
-    // (the additive-sibling, keep-it-green property). `std_core()` carries the
-    // same procs/types/methods/protocols the three separate args do.
+fn run_threads_one_core_to_the_engine() {
+    // `run` IS the canonical run-Core (the 3-door split is retired): it takes ONE
+    // `Core` (here `std_core()` — procs + types + methods + protocols) + the import
+    // `modules` surface, merges the program's own defs, and runs. The program's
+    // `Tick` accumulates to 5.0 over 5 ticks.
     let prog = parse_program(TICK).expect("parse");
-    let via_three_door =
-        run(&prog, std_registry(), std_methods(), std_modules(), 5.0).expect("3-door run");
-    let via_core = run_with_core(&prog, std_core(), std_modules(), 5.0).expect("canonical run");
+    let state = run(&prog, std_core(), std_modules(), 5.0).expect("canonical run");
     assert_eq!(
-        via_three_door, via_core,
-        "run_with_core(std_core()) == run(std_registry(), std_methods(), …): faithful sibling"
+        state.get_field("n").and_then(|v| v.as_f64()),
+        Some(5.0),
+        "run(std_core()) threaded the std procs/methods through one Core and ran Tick to 5.0"
     );
-    // Sanity: it actually ran (Tick accumulated to 5.0).
-    assert_eq!(via_core.get_field("n").and_then(|v| v.as_f64()), Some(5.0));
 }
 
 #[test]
@@ -69,14 +66,14 @@ fn the_protocol_door_carries_the_domains_protocols_not_a_hard_coded_default() {
         "the compiled Core carries the DOMAIN's protocols (the door), not a hard-coded set"
     );
 
-    // And it genuinely differs from the 3-door default (which hard-codes the
-    // stream set) — proving the choice is real, not incidental.
-    let three_door =
-        compile_with_modules(&prog, std_registry(), std_methods(), std_modules()).expect("3-door");
+    // And a RICHER domain Core (std_core() carries the stream/rest/parallel set)
+    // flows MORE protocols through the same door — proving the choice is the
+    // domain's, carried faithfully, not a hard-coded constant.
+    let rich = compile_with_core(&prog, std_core(), std_modules()).expect("compile_with_core(std)");
     assert!(
-        three_door.core.protocols.names().len() > via_core.core.protocols.names().len(),
-        "3-door hard-codes the larger stream set ({:?}); the door let the domain pick fewer ({:?})",
-        three_door.core.protocols.names(),
+        rich.core.protocols.names().len() > via_core.core.protocols.names().len(),
+        "std_core's protocol set ({:?}) is richer than the bare domain's ({:?}) — the door carries each domain's own",
+        rich.core.protocols.names(),
         via_core.core.protocols.names(),
     );
 }
@@ -122,7 +119,7 @@ fn a_domains_native_process_reaches_a_ys_program_through_the_one_core() {
     )
     .expect("parse");
 
-    let out = run_with_core(&prog, domain, modules, 4.0).expect("run a domain process via one Core");
+    let out = run(&prog, domain, modules, 4.0).expect("run a domain process via one Core");
     assert_eq!(
         out.get_field("n").and_then(|v| v.as_f64()),
         Some(4.0),

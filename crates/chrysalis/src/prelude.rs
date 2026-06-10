@@ -81,7 +81,7 @@ fn run_from_program_value(program_value: &Value, time: f64) -> Result<Value, Met
     };
     let prog = crate::ast::Program::from_value(program_value)
         .map_err(|e| mk_err("Program from_value", e.to_string()))?;
-    crate::runner::run(&prog, std_registry(), std_methods(), std_modules(), time)
+    crate::runner::run(&prog, std_core(), std_modules(), time)
         .map_err(|e| mk_err("run", format!("{e:?}")))
 }
 
@@ -106,7 +106,7 @@ fn run_from_source(path: &str, time: f64) -> Result<Value, MethodError> {
     // Use the source file's directory as ys_root so a nested `load('sibling.ys')`
     // inside this program resolves relative to where it lives.
     let ys_root = std::path::Path::new(path).parent().map(|p| p.to_path_buf());
-    crate::runner::run(&prog, std_registry(), std_methods(), std_modules_at(ys_root), time)
+    crate::runner::run(&prog, std_core(), std_modules_at(ys_root), time)
         .map_err(|e| mk_err(&format!("run {path}"), format!("{e:?}")))
 }
 
@@ -157,11 +157,14 @@ pub fn std_core() -> Core {
             ))
         });
     }
-    let mut methods = MethodRegistry::new();
-    prism_std::register_methods(&mut methods);
+    // The FULL std method set (prism_std + `Document.run` + quantum) — the same
+    // [`std_methods`] the 3-door path used, so `std_core()` is a faithful
+    // drop-in. (Was only `prism_std::register_methods`, which silently dropped the
+    // `Document`/quantum methods when callers moved from `std_methods()` to the
+    // canonical `std_core()`.)
     let core = Core::new()
         .with_processes(Arc::new(registry))
-        .with_methods(Arc::new(methods))
+        .with_methods(Arc::new(std_methods()))
         .with_protocols(Arc::new(crate::stream::stream_protocols()));
     let _ = handle.set(core.clone());
     core
@@ -697,7 +700,7 @@ pub fn compile_value(program_value: &Value) -> Result<Value, MethodError> {
     let prog = crate::ast::Program::from_value(program_value)
         .map_err(|e| mk_err("Program from_value", e.to_string()))?;
     let result =
-        crate::compile::compile_with_modules(&prog, std_registry(), std_methods(), std_modules())
+        crate::compile::compile_with_core(&prog, std_core(), std_modules())
             .map_err(|e| mk_err("compile", format!("{e:?}")))?;
     let doc = crate::runner::document_of(&result);
     let mut value = document_to_value(&doc);
@@ -769,7 +772,7 @@ fn load_program_as_document(path: &str) -> Result<Value, MethodError> {
         crate::parse::parse_file(path).map_err(|e| mk_err(&format!("parse {path}"), e.to_string()))?;
     let ys_root = std::path::Path::new(path).parent().map(|p| p.to_path_buf());
     let result =
-        crate::compile::compile_with_modules(&prog, std_registry(), std_methods(), std_modules_at(ys_root))
+        crate::compile::compile_with_core(&prog, std_core(), std_modules_at(ys_root))
             .map_err(|e| mk_err(&format!("compile {path}"), format!("{e:?}")))?;
     let doc = crate::runner::document_of(&result);
     let mut value = document_to_value(&doc);

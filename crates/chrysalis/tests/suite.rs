@@ -36,6 +36,8 @@ mod contract_enforcement;
 mod contract_query;
 #[path = "coord_heartbeats_parse.rs"]
 mod coord_heartbeats_parse;
+#[path = "coord_set.rs"]
+mod coord_set;
 #[path = "cross_composite_firing.rs"]
 mod cross_composite_firing;
 #[path = "cross_composite_link_redex.rs"]

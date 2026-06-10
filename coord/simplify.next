@@ -169,6 +169,24 @@ accidental (delete it).
   `compile_with_core`, routing through my `run_state` — invariant #3 driver is the shared
   foundation). NOTE: hit a TRANSIENT lib break from lang's in-flight compile.rs edit (not mine,
   test-only tick) — flagged, did not touch.
+- **2026-06-09 (BUILT `chrysalis coord set` — the durable board-safety fix, tick 17)** — the
+  user caught a hand-typed `{…}` in a status STRING breaking the board (interpolation), and
+  asked why we were still hand-editing. Root cause: the `coord set` command was never built (only
+  the design doc + the parse guard). FINDING: `coord_heartbeats_parse` even MISSES this brace
+  class — interpolation that evals to an unbound var parses fine, the board render exits 0, and
+  `Eval(UnboundVar)` has no substring `error`, so both checks pass it. So I BUILT the command
+  (serialize-from-data, the principled fix): `coord.rs` `set_in_source` (parse → set Record
+  fields → auto-bump `tick` → `unparse` → **ROUND-TRIP GATE** → write; preserves the `#` header
+  since the AST drops comments, #10) + `set` (file wrapper) + the `cli.rs` `coord set` arm +
+  `tests/coord_set.rs` (pins the gate invariant — a returned `Ok` always re-parses). Verified
+  end-to-end via the bin: the exact brace bug auto-escapes to `{{`, an apostrophe to `''`, tick
+  bumps, header survives, the gate refuses anything un-encodable. **Dogfooded** — this heartbeat
+  was written by `coord set`, not hand-edited. Going forward: `chrysalis coord set <peer>
+  field=value`, never hand-edit a heartbeat. FLAGGED to lang: `chrysalis check` prints the eval
+  error but EXITS 0 (cannot be a script gate). NEXT (suite-green-gated, lang migration): run the
+  coord_set suite test; strengthen `coord_heartbeats_parse` to forbid ANY string interpolation
+  (AST-level, closes the render-miss); v1 sets top-level string/int fields — nested (`build.*`) +
+  lists want the JSON-patch power form (design has it, deferred).
 - **NEXT for me:** SIX source/board one-door guards now (lowering / quote-reify / carrier /
   engine-driver / coord-parse / run-core). (1) Shrink the run-Core ratchet as lang threads each
   file; (2) pin "protocols come from the Core" once lang adds the protocol door (retiring

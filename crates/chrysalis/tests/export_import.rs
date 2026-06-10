@@ -5,8 +5,8 @@
 
 use std::path::PathBuf;
 
-use chrysalis::compile::compile_with_modules;
-use chrysalis::prelude::{std_methods, std_modules, std_registry};
+use chrysalis::compile::compile_with_core;
+use chrysalis::prelude::{std_core, std_modules};
 use chrysalis::runner::{document_of, run, run_document};
 use prism_bigraph::Document;
 use prism_schema::Value;
@@ -38,13 +38,13 @@ fn import_export_equals_run() {
     let (prog, out) = temp_program("roundtrip");
 
     // Direct run.
-    let direct = run(&prog, std_registry(), std_methods(), std_modules(), 2.0).expect("run");
+    let direct = run(&prog, std_core(), std_modules(), 2.0).expect("run");
 
     // export → serialize → deserialize → import, against the program's own core
     // (the document carries schema + state; the core supplies the factories its
     // addressed nodes reference).
     let result =
-        compile_with_modules(&prog, std_registry(), std_methods(), std_modules()).expect("compile");
+        compile_with_core(&prog, std_core(), std_modules()).expect("compile");
     let doc = document_of(&result);
     assert!(
         doc.schema.is_some(),

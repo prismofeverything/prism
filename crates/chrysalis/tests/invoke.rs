@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use chrysalis::prelude::{std_methods, std_modules, std_registry};
+use chrysalis::prelude::{std_core, std_modules};
 use chrysalis::runner::invoke;
 use prism_schema::Value;
 
@@ -28,8 +28,7 @@ fn run_args(src: &str, pairs: &[(&str, &str)]) -> Result<Value, String> {
     let prog = chrysalis::parse::parse_program(src).expect("parse");
     invoke(
         &prog,
-        std_registry(),
-        std_methods(),
+        std_core(),
         std_modules(),
         &args(pairs),
         1.0,

@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use chrysalis::parse::parse_program;
-use chrysalis::prelude::{std_methods, std_modules, std_registry};
+use chrysalis::prelude::{std_core, std_modules};
 use chrysalis::runner::invoke;
 use prism_schema::Value;
 
@@ -16,8 +16,7 @@ fn invoke_out(src: &str, duration: f64) -> Value {
     let prog = parse_program(src).expect("parse");
     invoke(
         &prog,
-        std_registry(),
-        std_methods(),
+        std_core(),
         std_modules(),
         &BTreeMap::new(),
         duration,

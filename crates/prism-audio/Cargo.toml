@@ -24,10 +24,22 @@ ringbuf = "0.4"
 gorgon = { path = "../../../gorgon", optional = true }
 cpal = { version = "0.15", optional = true }
 anyhow = { version = "1", optional = true }
+# The standard runtime (std processes/methods). SUBSTRATE, not the language — so
+# the audio domain's `Core` (`audio_core`) is built without chrysalis: the audio
+# features are independent of the language.
+prism-std = { workspace = true }
+# The `.ys` LANGUAGE facet only (the import surface + running a `.ys` program).
+# Optional: prism-audio's library never deps the language; only the thin runner
+# facet behind `--features ys` does. (chrysalis stays downstream of the domain.)
+chrysalis = { workspace = true, optional = true }
 
 [features]
 # Enable the cpal device boundary + the `play` example: `--features realtime`.
 realtime = ["dep:gorgon", "dep:cpal", "dep:anyhow"]
+# Enable the `.ys` language facet: `audio_modules()` + run via
+# `chrysalis::runner::run_with_core`. `audio_core()` is NOT gated — it is
+# chrysalis-free substrate (`--features ys` only adds the language integration).
+ys = ["dep:chrysalis"]
 
 [[example]]
 name = "play"

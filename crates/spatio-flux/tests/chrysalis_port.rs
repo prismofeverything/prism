@@ -13,8 +13,10 @@ use prism_bigraph::{Engine, ProcessNode, ProcessRegistry};
 use chrysalis::ast::{
     CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, SchemaExpr, StringLit,
 };
-use chrysalis::compile::{ModuleRegistry, compile_with_modules};
-use prism_schema::MethodRegistry;
+use std::sync::Arc;
+
+use chrysalis::compile::{ModuleRegistry, compile_with_core};
+use prism_bigraph::Core;
 
 // ── Example 1: Monod kinetics (well-mixed) ───────────────────────────
 
@@ -90,10 +92,9 @@ fn monod_kinetics_composed_from_chrysalis() {
     });
 
     let program = monod_program();
-    let result = compile_with_modules(
+    let result = compile_with_core(
         &program,
-        natives,
-        MethodRegistry::new(),
+        Core::from(Arc::new(natives)),
         ModuleRegistry::new().process("natives", "Kinetics"),
     )
     .expect("compile");
@@ -225,10 +226,9 @@ fn diffusion_composed_from_chrysalis() {
     });
 
     let program = diffusion_program();
-    let result = compile_with_modules(
+    let result = compile_with_core(
         &program,
-        natives,
-        MethodRegistry::new(),
+        Core::from(Arc::new(natives)),
         ModuleRegistry::new().process("natives", "Diffusion"),
     )
     .expect("compile");

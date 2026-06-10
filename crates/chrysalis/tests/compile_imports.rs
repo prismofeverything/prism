@@ -4,10 +4,10 @@
 //! fallback). This pins the `extern` replacement at the compile boundary.
 
 use chrysalis::ast::Def;
-use chrysalis::compile::{ModuleRegistry, compile_with_modules};
+use chrysalis::compile::{ModuleRegistry, compile_with_core};
 use chrysalis::parse::parse_program;
-use prism_bigraph::ProcessRegistry;
-use prism_schema::{MethodRegistry, Value};
+use prism_bigraph::Core;
+use prism_schema::Value;
 
 const SRC: &str = r#"
 from integrators import rk4
@@ -40,10 +40,9 @@ fn resolves_object_and_type_imports() {
     let modules = ModuleRegistry::new()
         .object("integrators", "rk4", rk4_object())
         .type_("chem", "CRN", CRN_REPR);
-    let result = compile_with_modules(
+    let result = compile_with_core(
         &prog,
-        ProcessRegistry::new(),
-        MethodRegistry::new(),
+        Core::new(),
         modules,
     );
     assert!(
@@ -69,10 +68,9 @@ composite W ->{out: map[any]} (
 W[]
 "#;
     let prog = parse_program(src).expect("parse");
-    let result = compile_with_modules(
+    let result = compile_with_core(
         &prog,
-        ProcessRegistry::new(),
-        MethodRegistry::new(),
+        Core::new(),
         ModuleRegistry::new(),
     );
     assert!(
@@ -102,10 +100,9 @@ W[]
             .any(|d| matches!(d, Def::Binding { name, schema: Some(_), .. } if name == "net")),
         "`def net :: CRN` should parse as a typed binding"
     );
-    let result = compile_with_modules(
+    let result = compile_with_core(
         &prog,
-        ProcessRegistry::new(),
-        MethodRegistry::new(),
+        Core::new(),
         ModuleRegistry::new(),
     );
     assert!(
@@ -120,10 +117,9 @@ fn undeclared_import_is_a_compile_error() {
     let prog = parse_program(SRC).expect("parse");
     // Omit the `chem::CRN` declaration: `from chem import CRN` is now unresolved.
     let modules = ModuleRegistry::new().object("integrators", "rk4", rk4_object());
-    let err = compile_with_modules(
+    let err = compile_with_core(
         &prog,
-        ProcessRegistry::new(),
-        MethodRegistry::new(),
+        Core::new(),
         modules,
     )
     .err()

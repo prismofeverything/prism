@@ -10,7 +10,7 @@ use std::sync::{Arc, OnceLock};
 
 use chrysalis::compile::ModuleRegistry;
 use prism_bigraph::composite::Composite;
-use prism_bigraph::{Core, ProcessNode, ProcessRegistry};
+use prism_bigraph::{Core, ProcessNode};
 use prism_schema::MethodRegistry;
 
 /// The full spatio-flux [`Core`]: std natives (`RunProcess`, the generic
@@ -49,38 +49,19 @@ pub fn sf_core() -> Core {
 // ── Codegen convention ──────────────────────────────────────────────────
 //
 // The generated runner crate (chrysalis::codegen) imports a package's run-path
-// packages under the standard names `<crate>::prelude::{registry, methods,
-// modules}`. These delegate to the `sf_*` originals so spatio-flux satisfies the
-// convention without the codegen having to know package-specific names.
+// under the standard names `<crate>::prelude::{core, modules}` — ONE `Core` (the
+// canonical run-Core; `docs/canonical-run-core.md`) plus its import-`modules`
+// surface. These delegate to the `sf_*` originals so spatio-flux satisfies the
+// convention without the codegen knowing package-specific names. (The 3-door
+// `registry`/`methods` convention is retired — a package IS a Core.)
 
-/// Codegen convention alias for [`sf_registry`].
-pub fn registry() -> ProcessRegistry {
-    sf_registry()
-}
-/// Codegen convention alias for [`sf_methods`].
-pub fn methods() -> MethodRegistry {
-    sf_methods()
+/// Codegen convention alias for [`sf_core`] — the one Core a package exposes.
+pub fn core() -> Core {
+    sf_core()
 }
 /// Codegen convention alias for [`sf_modules`].
 pub fn modules() -> ModuleRegistry {
     sf_modules()
-}
-
-/// Process factories for the *run/compile* path (`chrysalis::runner::run`):
-/// spatio-flux's natives + the std `RunProcess`. (The generic `Composite` factory
-/// is added by `compile_with_modules` itself, which merges these with the `.ys`'s
-/// own user defs — so unlike [`sf_core`], no Composite here.)
-pub fn sf_registry() -> ProcessRegistry {
-    let mut registry = crate::from_config::build_registry();
-    prism_std::register_processes(&mut registry);
-    registry
-}
-
-/// Value-methods for the run path (std `TimeSeries`/`Figure`/`Map`/… methods).
-pub fn sf_methods() -> MethodRegistry {
-    let mut methods = MethodRegistry::new();
-    prism_std::register_methods(&mut methods);
-    methods
 }
 
 /// Importable modules a spatio-flux `.ys` can `from … import`: the std modules

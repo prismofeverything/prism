@@ -15,9 +15,9 @@
 
 use std::sync::Arc;
 
-use chrysalis::compile::compile_with_modules;
+use chrysalis::compile::compile_with_core;
 use chrysalis::parse::parse_file;
-use chrysalis::prelude::{std_core, std_methods, std_modules, std_modules_at, std_registry};
+use chrysalis::prelude::{std_core, std_modules, std_modules_at};
 use prism_bigraph::protocols::RestProcessServer;
 
 fn main() {
@@ -135,7 +135,7 @@ fn cmd_new(args: &[String]) {
          # This project is STD-ONLY (runs in-process against the bundled std library).\n\
          # To link a non-std native package (HiGHS solver, rapier2d physics, …),\n\
          # uncomment the `package` directive below and ensure that crate's\n\
-         # `prelude::{{registry, methods, modules}}` is exported — `chrysalis run`\n\
+         # `prelude::{{core, modules}}` is exported (a package = a Core) — `chrysalis run`\n\
          # then generates + builds + caches a runner that links it. See\n\
          # docs/chrysalis-design.md (the codegen path).\n\
          #\n\
@@ -291,9 +291,11 @@ fn cmd_server(args: &[String]) {
     }
 }
 
-/// `chrysalis coord <serve|push|pull>` — the live agent coordination board on the
-/// mesh (#62 dogfood). `serve` hosts the board as one `map[any]` mesh link; `push`
-/// merges a peer's key (per-source, no collision); `pull` prints the converged board.
+/// `chrysalis coord <serve|push|pull|set>` — the agent coordination board (#62
+/// dogfood). `serve` hosts the board as one `map[any]` mesh link; `push` merges a
+/// peer's key over the socket (per-source, no collision); `pull` prints the
+/// converged board; `set <peer> field=value …` updates a peer's durable heartbeat
+/// FILE from data (serialize + round-trip gate — no hand-typed braces/quotes).
 fn cmd_coord(args: &[String]) {
     // Pull out `--port P`; the rest are positional (sub [peer] [json]).
     let mut port = chrysalis::coord::DEFAULT_PORT;
@@ -311,7 +313,7 @@ fn cmd_coord(args: &[String]) {
         i += 1;
     }
     let Some((sub, rest)) = pos.split_first() else {
-        die("coord", "usage: chrysalis coord <serve|push <peer> '<json>'|pull> [--port P]");
+        die("coord", "usage: chrysalis coord <serve|push <peer> '<json>'|pull|set <peer> field=value …> [--port P]");
     };
     match *sub {
         "serve" => chrysalis::coord::serve(port).unwrap_or_else(|e| die("coord serve", e)),
@@ -321,7 +323,24 @@ fn cmd_coord(args: &[String]) {
             chrysalis::coord::push(port, peer, json).unwrap_or_else(|e| die("coord push", e));
         }
         "pull" => chrysalis::coord::pull(port).unwrap_or_else(|e| die("coord pull", e)),
-        other => die("coord", format!("unknown subcommand `{other}` (serve|push|pull)")),
+        // `set <peer> field=value …` — update a heartbeat FROM DATA (serialize
+        // through the unparser + round-trip gate), so a brace / apostrophe can never
+        // be hand-typed into the board. `tick` auto-bumps unless set explicitly.
+        "set" => {
+            let peer = rest.first().unwrap_or_else(|| die("coord set", "need <peer>"));
+            if rest.len() < 2 {
+                die("coord set", "need at least one field=value");
+            }
+            let assignments: Vec<(String, String)> = rest[1..]
+                .iter()
+                .map(|a| match a.split_once('=') {
+                    Some((k, v)) => (k.to_string(), v.to_string()),
+                    None => die("coord set", format!("expected field=value, got `{a}`")),
+                })
+                .collect();
+            chrysalis::coord::set(peer, &assignments).unwrap_or_else(|e| die("coord set", e));
+        }
+        other => die("coord", format!("unknown subcommand `{other}` (serve|push|pull|set)")),
     }
 }
 
@@ -371,8 +390,7 @@ fn cmd_run(args: &[String]) {
         entry_path.and_then(|p| std::path::Path::new(&p).parent().map(|d| d.to_path_buf()));
     std::process::exit(chrysalis::cli::run_command(
         args,
-        std_registry(),
-        std_methods(),
+        std_core(),
         std_modules_at(ys_root),
     ));
 }
@@ -380,7 +398,7 @@ fn cmd_run(args: &[String]) {
 fn cmd_check(args: &[String]) {
     let (path, _) = path_and_time(args);
     let prog = parse_file(&path).unwrap_or_else(|e| die(&format!("parse {path}"), e));
-    match compile_with_modules(&prog, std_registry(), std_methods(), std_modules()) {
+    match compile_with_core(&prog, std_core(), std_modules()) {
         Ok(_) => println!("{path}: ok"),
         Err(e) => die(&path, format!("{e:?}")),
     }
@@ -401,7 +419,7 @@ fn cmd_bigraph(args: &[String]) {
 /// Compile a `.ys` to its [`Document`] (schema + state).
 fn document_for(path: &str) -> prism_bigraph::Document {
     let prog = parse_file(path).unwrap_or_else(|e| die(&format!("parse {path}"), e));
-    chrysalis::runner::to_document(&prog, std_registry(), std_methods(), std_modules())
+    chrysalis::runner::to_document(&prog, std_core(), std_modules())
         .unwrap_or_else(|e| die(&format!("compile {path}"), format!("{e:?}")))
 }
 

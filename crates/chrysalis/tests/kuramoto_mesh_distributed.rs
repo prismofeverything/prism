@@ -32,11 +32,7 @@ fn field_schema() -> Schema {
 
 fn run_peer(src: &str) -> Engine {
     let program = chrysalis::parse::parse_program(src).expect("parse");
-    let result = chrysalis::compile::compile_with_methods(
-        &program,
-        chrysalis::prelude::std_registry(),
-        chrysalis::prelude::std_methods(),
-    )
+    let result = chrysalis::compile::compile_with_core(&program, chrysalis::prelude::std_core(), chrysalis::compile::ModuleRegistry::new())
     .expect("compile");
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),

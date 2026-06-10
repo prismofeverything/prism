@@ -5,9 +5,9 @@
 
 use std::path::PathBuf;
 
-use chrysalis::compile::compile_with_modules;
+use chrysalis::compile::compile_with_core;
 use chrysalis::parse::parse_file;
-use chrysalis::prelude::{std_methods, std_modules, std_registry};
+use chrysalis::prelude::{std_core, std_modules};
 use prism_schema::Value;
 
 fn ys() -> PathBuf {
@@ -17,7 +17,7 @@ fn ys() -> PathBuf {
 #[test]
 fn compiles_the_engine_agreement_demo() {
     let prog = parse_file(&ys()).expect("parse_file agreement-engines.ys");
-    let result = compile_with_modules(&prog, std_registry(), std_methods(), std_modules());
+    let result = compile_with_core(&prog, std_core(), std_modules());
     assert!(
         result.is_ok(),
         "should compile (rest-addressed COPASI/Tellurium + native RK4, uniform RunProcess): {:?}",
@@ -36,7 +36,7 @@ fn mse_a(state: &Value, key: &str) -> f64 {
 #[ignore = "integration: needs process-server/serve.sh on :8765"]
 fn engines_agree_over_the_unified_run_process_path() {
     let prog = parse_file(&ys()).expect("parse_file");
-    let state = chrysalis::runner::run(&prog, std_registry(), std_methods(), std_modules(), 2.0)
+    let state = chrysalis::runner::run(&prog, std_core(), std_modules(), 2.0)
         .expect("run the engine-agreement demo (is serve.sh on :8765?)");
 
     // The contract-checked comparison: each Compare demanded DeterministicMassAction

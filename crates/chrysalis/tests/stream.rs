@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::io::Cursor;
 
-use chrysalis::prelude::{std_methods, std_modules, std_registry};
+use chrysalis::prelude::{std_core, std_modules};
 use chrysalis::runner::{invoke_trace, serve_stream};
 use prism_schema::Value;
 
@@ -50,8 +50,7 @@ fn drive_trace(top: f64) -> Value {
     let counter = chrysalis::parse::parse_program(COUNTER).expect("parse counter");
     invoke_trace(
         &counter,
-        std_registry(),
-        std_methods(),
+        std_core(),
         std_modules(),
         &args(&[("start", "0.0")]),
         top,
@@ -69,8 +68,7 @@ fn serve_stream_is_a_live_trace_filter() {
     let mut out_bytes: Vec<u8> = Vec::new();
     serve_stream(
         &echo,
-        std_registry(),
-        std_methods(),
+        std_core(),
         std_modules(),
         &BTreeMap::new(),
         Cursor::new(in_bytes),

@@ -15,11 +15,7 @@ const PLASTIC: &str = include_str!("../ys/kuramoto-plastic.ys");
 fn run(k: f64, duration: f64) -> Value {
     let src = format!("{PLASTIC}\nPlasticTile[k: {k:?}]\n");
     let program = chrysalis::parse::parse_program(&src).expect("parse");
-    let result = chrysalis::compile::compile_with_methods(
-        &program,
-        chrysalis::prelude::std_registry(),
-        chrysalis::prelude::std_methods(),
-    )
+    let result = chrysalis::compile::compile_with_core(&program, chrysalis::prelude::std_core(), chrysalis::compile::ModuleRegistry::new())
     .expect("compile");
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),

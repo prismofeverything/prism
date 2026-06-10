@@ -15,14 +15,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
-use prism_bigraph::{Engine, ProcessNode, ProcessRegistry, Step, Update};
+use prism_bigraph::{Core, Engine, ProcessNode, ProcessRegistry, Step, Update};
 use prism_schema::{Key, Schema, Value};
 
 use chrysalis::ast::{
     CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, SchemaExpr, StringLit,
 };
-use chrysalis::compile::{ModuleRegistry, compile_with_modules};
-use prism_schema::MethodRegistry;
+use chrysalis::compile::{ModuleRegistry, compile_with_core};
 use spatio_flux::processes::diffusion_advection::DiffusionAdvection;
 
 // ── helpers ─────────────────────────────────────────────────────────
@@ -170,10 +169,9 @@ fn slot_glucose(state: &Value, slot: &str) -> Vec<f64> {
 #[test]
 fn culture_imports_nests_and_runs_dish() {
     let program = culture_program();
-    let result = compile_with_modules(
+    let result = compile_with_core(
         &program,
-        diffusion_natives(),
-        MethodRegistry::new(),
+        Core::from(Arc::new(diffusion_natives())),
         ModuleRegistry::new().process("natives", "Diffusion"),
     )
     .expect("compile Culture (imports Dish)");
@@ -276,10 +274,9 @@ impl Step for RunCultureStep {
         IndexMap::from([("snapshots".into(), Schema::overwrite(Schema::Any))])
     }
     fn update(&self, _state: &Value) -> Update {
-        let result = compile_with_modules(
+        let result = compile_with_core(
             &culture_program(),
-            diffusion_natives(),
-            MethodRegistry::new(),
+            Core::from(Arc::new(diffusion_natives())),
             ModuleRegistry::new().process("natives", "Diffusion"),
         )
         .expect("compile Culture");

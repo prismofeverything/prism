@@ -17,7 +17,7 @@
 //! `code`, not in fenced blocks.
 
 use chrysalis::parse::parse_program;
-use chrysalis::prelude::{std_methods, std_modules, std_registry};
+use chrysalis::prelude::{std_core, std_modules};
 use chrysalis::runner::run;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -107,7 +107,7 @@ fn primer_blocks_parse_and_run() {
         };
         parsed += 1;
         if b.tag == Tag::Run {
-            match run(&prog, std_registry(), std_methods(), std_modules(), 5.0) {
+            match run(&prog, std_core(), std_modules(), 5.0) {
                 Ok(_) => ran += 1,
                 Err(e) => failures.push(format!(
                     "L{} run error: {e:?}\n--- block ---\n{}",

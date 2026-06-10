@@ -11,7 +11,7 @@
 //! runner; the full `chrysalis` CLI (see the plan) will resolve extra packages.
 
 use chrysalis::parse::parse_file;
-use chrysalis::prelude::{std_methods, std_modules, std_registry};
+use chrysalis::prelude::{std_core, std_modules};
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -25,7 +25,7 @@ fn main() {
     let time: f64 = args.next().and_then(|s| s.parse().ok()).unwrap_or(2.0);
 
     let prog = parse_file(&path).unwrap_or_else(|e| panic!("parse {path}: {e}"));
-    let state = chrysalis::runner::run(&prog, std_registry(), std_methods(), std_modules(), time)
+    let state = chrysalis::runner::run(&prog, std_core(), std_modules(), time)
         .unwrap_or_else(|e| panic!("run {path}: {e}"));
 
     let keys: Vec<String> = state

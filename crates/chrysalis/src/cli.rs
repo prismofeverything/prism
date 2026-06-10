@@ -9,8 +9,7 @@ use std::collections::BTreeMap;
 
 use indexmap::IndexMap;
 
-use prism_bigraph::ProcessRegistry;
-use prism_schema::MethodRegistry;
+use prism_bigraph::Core;
 
 use crate::ast::{
     CompositeDef, Def, Expr, Interface, Param, PortDecl, Program, SchemaExpr,
@@ -168,8 +167,7 @@ fn lower_first(s: &str) -> String {
 /// `A.ys --trace | B.ys --in -`). Otherwise the file runs as a script.
 pub fn run_command(
     args: &[String],
-    registry: ProcessRegistry,
-    methods: MethodRegistry,
+    core: Core,
     modules: ModuleRegistry,
 ) -> i32 {
     // Reserved flags (`--time`, `--out`) vs arbitrary `--<port> SOURCE`
@@ -260,8 +258,7 @@ pub fn run_command(
         if serve_node {
             return match serve_process(
                 &prog,
-                registry,
-                methods,
+                core,
                 modules,
                 &inputs,
                 std::io::stdin().lock(),
@@ -281,8 +278,7 @@ pub fn run_command(
         if serve {
             return match serve_stream(
                 &prog,
-                registry,
-                methods,
+                core,
                 modules,
                 &inputs,
                 std::io::stdin().lock(),
@@ -313,7 +309,7 @@ pub fn run_command(
                 }
             };
             let out_trace =
-                match invoke_driven(&prog, registry, methods, modules, &inputs, &in_trace) {
+                match invoke_driven(&prog, core, modules, &inputs, &in_trace) {
                     Ok(t) => t,
                     Err(e) => {
                         eprintln!("run {path}: {e}");
@@ -329,7 +325,7 @@ pub fn run_command(
 
         // output→trace: capture the per-tick output delta-log onto the Arrow wire.
         if trace {
-            return match invoke_trace(&prog, registry, methods, modules, &inputs, time, sample_dt) {
+            return match invoke_trace(&prog, core, modules, &inputs, time, sample_dt) {
                 Ok(captured) => emit_trace(&captured, out, &path, time, sample_dt),
                 Err(e) => {
                     eprintln!("run {path}: {e}");
@@ -339,7 +335,7 @@ pub fn run_command(
         }
 
         // Batch: the final-frame output record as JSON.
-        return match invoke(&prog, registry, methods, modules, &inputs, time) {
+        return match invoke(&prog, core, modules, &inputs, time) {
             Ok(record) => emit_json(&record, out, &path, time),
             Err(e) => {
                 eprintln!("run {path}: {e}");
@@ -349,7 +345,7 @@ pub fn run_command(
     }
 
     // Otherwise a `main`/script file: run for `time` and report.
-    match run(&prog, registry, methods, modules, time) {
+    match run(&prog, core, modules, time) {
         Ok(state) => {
             let keys: Vec<String> = state
                 .as_map()

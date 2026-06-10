@@ -24,11 +24,7 @@ fn order_parameter(k: f64, duration: f64) -> (f64, Vec<f64>) {
     let program = chrysalis::parse::parse_program(&src).expect("parse");
     // Compile with the std method bundle so `.at`/`.cos`/`.sin` (prism-std math)
     // reach the Core — bare `compile()` uses an empty MethodRegistry.
-    let result = chrysalis::compile::compile_with_methods(
-        &program,
-        chrysalis::prelude::std_registry(),
-        chrysalis::prelude::std_methods(),
-    )
+    let result = chrysalis::compile::compile_with_core(&program, chrysalis::prelude::std_core(), chrysalis::compile::ModuleRegistry::new())
     .expect("compile");
     let mut engine = Engine::from_state(
         result.topology.state_schema.clone(),
