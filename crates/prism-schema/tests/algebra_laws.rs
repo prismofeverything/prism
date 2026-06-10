@@ -15,6 +15,7 @@ use proptest::prelude::*;
 
 use prism_schema::algebra;
 use prism_schema::schema::Schema;
+use prism_schema::units::Dimension;
 use prism_schema::value::{Key, Value};
 
 // ════════════════════════════════════════════════════════════════════════
@@ -26,11 +27,20 @@ use prism_schema::value::{Key, Value};
 fn arb_schema() -> impl Strategy<Value = Schema> {
     let leaf = prop_oneof![
         Just(Schema::float()),
-        Just(Schema::Float { default: Some(0.0) }),
+        Just(Schema::Float { default: Some(0.0), dimension: None }),
         Just(Schema::integer()),
         Just(Schema::bool()),
         Just(Schema::string()),
-        Just(Schema::Delta { default: None }),
+        Just(Schema::Delta { default: None, dimension: None }),
+        // #71 units-in-schema: DIMENSIONED numeric leaves, so the lattice laws
+        // (resolve/generalize idempotent/commutative/associative) are exercised
+        // over a present `Dimension` — covering the agree (mass⊔mass), the
+        // `None`-yields (mass⊔dimensionless), AND the conflict (mass⊔length) cases.
+        // The conflict is where a naive `→None` join breaks associativity; these
+        // leaves make the proptest the safety net that pins the `min` semilattice.
+        Just(Schema::float_dim(Dimension::base("mass"))),
+        Just(Schema::delta_dim(Dimension::base("mass"))),
+        Just(Schema::delta_dim(Dimension::base("length"))),
         Just(Schema::Enum { values: vec!["x".into(), "y".into()], default: None }),
         // Link-kind nodes — the four bigraph sorts. Each carries a small
         // scalar data face (additive `Delta`/`Integer`) so apply/reconcile/
@@ -61,7 +71,7 @@ fn arb_schema() -> impl Strategy<Value = Schema> {
 /// them through the data-face path and the laws stay crisp.
 fn node_face() -> IndexMap<Key, Schema> {
     let mut outputs = IndexMap::new();
-    outputs.insert(Key::from("mass"), Schema::Delta { default: None });
+    outputs.insert(Key::from("mass"), Schema::Delta { default: None, dimension: None });
     outputs.insert(Key::from("count"), Schema::integer());
     outputs
 }
@@ -96,7 +106,7 @@ fn node_composite_link_with_face() -> Schema {
         outputs: node_face(),
         interval: 1.0,
         inner_schema: Box::new(Schema::Tree {
-            branches: IndexMap::from([(Key::from("mass"), Schema::Delta { default: None })]),
+            branches: IndexMap::from([(Key::from("mass"), Schema::Delta { default: None, dimension: None })]),
         }),
     }
 }
@@ -258,9 +268,9 @@ fn zeros_array(shape: &[usize], element: &Schema) -> Value {
 fn normalize(schema: &Schema) -> Schema {
     use Schema::*;
     match schema {
-        Float { .. } => Float { default: None },
+        Float { .. } => Float { default: None, dimension: None },
         Integer { .. } => Integer { default: None },
-        Delta { .. } => Delta { default: None },
+        Delta { .. } => Delta { default: None, dimension: None },
         Bool { .. } => Bool { default: None },
         String { .. } => String { default: None },
         Enum { values, .. } => {
@@ -331,14 +341,14 @@ fn arb_compatible_triple() -> impl Strategy<Value = (Schema, Schema, Schema)> {
     // Integer and Delta apart (no resolve arm pairs them).
     let fi = || prop_oneof![
         Just(Schema::float()),
-        Just(Schema::Float { default: Some(0.0) }),
+        Just(Schema::Float { default: Some(0.0), dimension: None }),
         Just(Schema::integer()),
         Just(Schema::Integer { default: Some(0) }),
     ];
     let fd = || prop_oneof![
         Just(Schema::float()),
-        Just(Schema::Delta { default: None }),
-        Just(Schema::Delta { default: Some(0.0) }),
+        Just(Schema::Delta { default: None, dimension: None }),
+        Just(Schema::Delta { default: Some(0.0), dimension: None }),
     ];
     let scalars = prop_oneof![
         (fi(), fi(), fi()),

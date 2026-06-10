@@ -20,6 +20,8 @@ mod bigraph_type;
 mod contract_substitutability;
 #[path = "crdt_laws.rs"]
 mod crdt_laws;
+#[path = "dimension_in_schema.rs"]
+mod dimension_in_schema;
 #[path = "fire_across_composites.rs"]
 mod fire_across_composites;
 #[path = "fire_keying.rs"]

@@ -119,7 +119,7 @@ pub fn parse_type_expression(expr: &str) -> Schema {
             "integer" => Schema::integer(),
             "string" => Schema::string(),
             "bool" | "boolean" | "xor" => Schema::bool(),
-            "delta" => Schema::Delta { default: None },
+            "delta" => Schema::Delta { default: None, dimension: None },
             "set_float" => Schema::set_float(),
             "positive_array" => Schema::array(vec![], Schema::float()),
             "any" | "node" => Schema::Any,

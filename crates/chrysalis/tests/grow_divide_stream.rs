@@ -98,11 +98,11 @@ impl Step for Divider {
 fn cell_link_schema() -> Schema {
     Schema::CompositeLink {
         inputs: IndexMap::from([
-            (Key::from("mass"), Schema::Delta { default: None }),
+            (Key::from("mass"), Schema::Delta { default: None, dimension: None }),
             (Key::from("glucose"), Schema::float()),
         ]),
         outputs: IndexMap::from([
-            (Key::from("mass"), Schema::Delta { default: None }),
+            (Key::from("mass"), Schema::Delta { default: None, dimension: None }),
             (Key::from("glucose"), Schema::float()),
             (Key::from("acetate"), Schema::float()),
             (Key::from("divide"), Schema::Bool { default: None }),

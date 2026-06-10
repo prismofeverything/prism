@@ -990,15 +990,15 @@ fn test_infer_enum() {
 
 #[test]
 fn test_default_delta() {
-    let s = Schema::Delta { default: None };
+    let s = Schema::Delta { default: None, dimension: None };
     assert_eq!(prism_schema::algebra::default_with(None, &s), Value::float(0.0));
-    let s2 = Schema::Delta { default: Some(5.5) };
+    let s2 = Schema::Delta { default: Some(5.5), dimension: None };
     assert_eq!(prism_schema::algebra::default_with(None, &s2), Value::float(5.5));
 }
 
 #[test]
 fn test_check_delta() {
-    let s = Schema::Delta { default: None };
+    let s = Schema::Delta { default: None, dimension: None };
     assert!(prism_schema::algebra::check_with(None, &s, &Value::float(1.0)));
     assert!(prism_schema::algebra::check_with(None, &s, &Value::Int(1)));
     assert!(!prism_schema::algebra::check_with(None, &s, &Value::String("nope".into())));
@@ -1006,19 +1006,19 @@ fn test_check_delta() {
 
 #[test]
 fn test_apply_delta_additive() {
-    let s = Schema::Delta { default: None };
+    let s = Schema::Delta { default: None, dimension: None };
     assert_eq!(prism_schema::algebra::apply_with(None, &s, &Value::float(10.0), &Value::float(3.0)), Value::float(13.0));
 }
 
 #[test]
 fn test_encode_delta() {
-    let s = Schema::Delta { default: None };
+    let s = Schema::Delta { default: None, dimension: None };
     assert_eq!(prism_schema::algebra::serialize_with(None, &s, &Value::float(5.5)), Value::float(5.5));
 }
 
 #[test]
 fn test_realize_delta() {
-    let s = Schema::Delta { default: None };
+    let s = Schema::Delta { default: None, dimension: None };
     assert_eq!(prism_schema::algebra::realize_with(None, &s, &Value::String("3.14".into())), Value::float(3.14));
     assert_eq!(prism_schema::algebra::realize_with(None, &s, &Value::Int(5)), Value::float(5.0));
 }

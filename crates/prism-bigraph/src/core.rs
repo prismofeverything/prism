@@ -151,24 +151,6 @@ impl Core {
         self.protocols.instantiate(&parsed, config, self)
     }
 
-    /// Instantiate a live process from a SPEC ENVELOPE — the `{_type, address,
-    /// config, …}` map that node-discovery reads out of state (the data form a
-    /// process/composite constructor produces). The envelope's SHAPE is owned
-    /// HERE so callers don't re-implement field extraction: this is the node
-    /// rung of "eval state-data → runnable" (`docs/schema-algebra.md` ·
-    /// `homoiconic-unification.md` §3 Stage 4a), the analogue of the BRS's
-    /// `ReactionRule::from_data_value` (rules) and `Pattern::from_value`
-    /// (patterns). The surface `eval` (chrysalis) CALLS this — thin layer, no
-    /// clone of the envelope shape. Wiring (`inputs`/`outputs`) is applied by the
-    /// engine when the node is placed (`discover_processes`); this returns the
-    /// instantiated node itself.
-    pub fn instantiate_spec(&self, spec: &Value) -> Result<ProcessNode, ProtocolError> {
-        let address = spec.get_field("address").ok_or_else(|| {
-            ProtocolError::MalformedAddress("a process spec needs an `address` field".into())
-        })?;
-        let config = spec.get_field("config").cloned().unwrap_or(Value::None);
-        self.instantiate(address, config)
-    }
 }
 
 /// `local:` process classes referenced in `state` that `registry` can't build.
@@ -213,65 +195,5 @@ fn collect_missing_processes(value: &Value, registry: &ProcessRegistry, out: &mu
 impl From<Arc<ProcessRegistry>> for Core {
     fn from(processes: Arc<ProcessRegistry>) -> Self {
         Core::new().with_processes(processes)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::Update;
-    use crate::ports::PortSchema;
-    use crate::process::Step;
-
-    #[derive(Debug)]
-    struct NoopStep;
-    impl Step for NoopStep {
-        fn inputs(&self) -> PortSchema {
-            indexmap::IndexMap::new()
-        }
-        fn outputs(&self) -> PortSchema {
-            indexmap::IndexMap::new()
-        }
-        fn update(&self, _state: &Value) -> Update {
-            Update::Noop
-        }
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
-        }
-        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-            self
-        }
-    }
-
-    fn core_with_noop() -> Core {
-        let mut r = ProcessRegistry::new();
-        r.register("Noop", |_config| ProcessNode::Step(Box::new(NoopStep)));
-        Core::from(Arc::new(r))
-    }
-
-    #[test]
-    fn instantiate_spec_brings_a_spec_envelope_to_life() {
-        // The NODE rung of "eval state-data → runnable": a `{_type, address}`
-        // envelope (the data a process/composite constructor produces) becomes a
-        // live node — the analogue of the BRS evaling a `{_pat:"Rule"}` map and
-        // `find_matches` consuming `Pattern::from_value`. The surface `eval` (4a)
-        // calls THIS, never re-implementing the envelope shape.
-        let core = core_with_noop();
-        let spec = Value::tree([
-            ("_type", Value::String("step".into())),
-            ("address", Value::String("local:Noop".into())),
-        ]);
-        let node = core.instantiate_spec(&spec).expect("spec envelope → node");
-        assert!(matches!(node, ProcessNode::Step(_)));
-    }
-
-    #[test]
-    fn instantiate_spec_rejects_a_spec_without_address() {
-        // `address` is what instantiation needs; its absence is a clear error,
-        // not a silent drop (the envelope shape is validated in one place).
-        let core = core_with_noop();
-        let spec = Value::tree([("_type", Value::String("step".into()))]);
-        let err = core.instantiate_spec(&spec).unwrap_err();
-        assert!(matches!(err, ProtocolError::MalformedAddress(_)));
     }
 }

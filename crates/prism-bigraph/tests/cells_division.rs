@@ -45,7 +45,7 @@ impl Process for Metabolism {
     }
     fn outputs(&self) -> IndexMap<String, Schema> {
         IndexMap::from([
-            ("mass".to_string(), Schema::Delta { default: None }),
+            ("mass".to_string(), Schema::Delta { default: None, dimension: None }),
             ("glucose".to_string(), Schema::float()),
             ("acetate".to_string(), Schema::float()),
         ])
@@ -171,7 +171,7 @@ fn wire(segs: &[&str]) -> Value {
 fn cell_inner_schema() -> Schema {
     Schema::Tree {
         branches: IndexMap::from([
-            (Key::from("mass"), Schema::Delta { default: None }),
+            (Key::from("mass"), Schema::Delta { default: None, dimension: None }),
             (Key::from("glucose"), Schema::float()),
             (Key::from("acetate"), Schema::float()),
             (Key::from("divide"), Schema::Bool { default: None }),
@@ -183,7 +183,7 @@ fn cell_inner_schema() -> Schema {
                         (Key::from("glucose"), Schema::float()),
                     ]),
                     outputs: IndexMap::from([
-                        (Key::from("mass"), Schema::Delta { default: None }),
+                        (Key::from("mass"), Schema::Delta { default: None, dimension: None }),
                         (Key::from("glucose"), Schema::float()),
                         (Key::from("acetate"), Schema::float()),
                     ]),
@@ -208,11 +208,11 @@ fn cell_inner_schema() -> Schema {
 fn cell_link_schema() -> Schema {
     Schema::CompositeLink {
         inputs: IndexMap::from([
-            (Key::from("mass"), Schema::Delta { default: None }),
+            (Key::from("mass"), Schema::Delta { default: None, dimension: None }),
             (Key::from("glucose"), Schema::float()),
         ]),
         outputs: IndexMap::from([
-            (Key::from("mass"), Schema::Delta { default: None }),
+            (Key::from("mass"), Schema::Delta { default: None, dimension: None }),
             (Key::from("glucose"), Schema::float()),
             (Key::from("acetate"), Schema::float()),
             (Key::from("divide"), Schema::Bool { default: None }),

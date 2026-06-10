@@ -17,6 +17,7 @@
 use indexmap::IndexMap;
 
 use crate::schema::Schema;
+use crate::units::Dimension;
 use crate::value::Key;
 
 /// Whether a schema's default slot is absent (upstream `is_empty` on the
@@ -24,7 +25,7 @@ use crate::value::Key;
 fn empty_default(s: &Schema) -> bool {
     match s {
         Schema::Integer { default } => default.is_none(),
-        Schema::Float { default } | Schema::Delta { default } => default.is_none(),
+        Schema::Float { default, .. } | Schema::Delta { default, .. } => default.is_none(),
         Schema::Bool { default } => default.is_none(),
         Schema::String { default } => default.is_none(),
         Schema::Enum { default, .. } => default.is_none(),
@@ -36,6 +37,59 @@ fn empty_default(s: &Schema) -> bool {
 /// (an unconstrained hole), so anything else wins over it.
 fn is_any(s: &Schema) -> bool {
     matches!(s, Schema::Any)
+}
+
+/// Join two dimensions for `resolve` (the more-specific wins). A `None`
+/// (dimensionless) yields to a present dimension — `None` is the units wildcard
+/// (the identity), exactly as `Any` is for sorts. Two DIFFERENT present
+/// dimensions (mass vs length) are an illegal link the wiring check
+/// (`dimension_conflict`) rejects; resolve must still be a **semilattice**
+/// (associative/commutative/idempotent — Law 4), so it keeps a *deterministic
+/// representative* (`min`) rather than collapsing to `None` — which would break
+/// associativity (`resolve(resolve(m,m),l) != resolve(m,resolve(m,l))`). Since
+/// `min(x, x) == x`, this also covers the agree case. See
+/// `docs/units-in-the-schema.md`.
+fn resolve_dimension(a: &Option<Dimension>, b: &Option<Dimension>) -> Option<Dimension> {
+    match (a, b) {
+        (None, d) | (d, None) => d.clone(),
+        (Some(x), Some(y)) => Some(std::cmp::min(x, y).clone()),
+    }
+}
+
+/// Meet two dimensions for `generalize` (the least-specific both refine).
+/// `Float[M]` and `Float[L]` both generalize to dimensionless `Float`, and a
+/// present dimension met with a dimensionless one is dimensionless — so the meet
+/// keeps a dimension only when both sides agree.
+fn generalize_dimension(a: &Option<Dimension>, b: &Option<Dimension>) -> Option<Dimension> {
+    if a == b {
+        a.clone()
+    } else {
+        None
+    }
+}
+
+/// The dimension a numeric schema carries (`Float`/`Delta`), if any.
+fn numeric_dimension(s: &Schema) -> Option<&Dimension> {
+    match s {
+        Schema::Float { dimension, .. } | Schema::Delta { dimension, .. } => dimension.as_ref(),
+        _ => None,
+    }
+}
+
+/// The conflicting dimensions of two numeric schemas being WIRED, if any — both
+/// carry a present dimension and they DIFFER (e.g. mass vs length). `None` means
+/// compatible: equal, or at least one is dimensionless (the units wildcard).
+///
+/// This is the first-class **wiring check** (#71 units-in-schema): a magnitude of
+/// one dimension cannot flow into a slot of another. `resolve` silently drops such
+/// a conflict to dimensionless (its contract is to stay total); `dimension_conflict`
+/// NAMES it so a consumer — the compile/check pass — can reject the link, making
+/// *illegal wirings unrepresentable*. See `docs/units-in-the-schema.md`.
+pub fn dimension_conflict(a: &Schema, b: &Schema) -> Option<(Dimension, Dimension)> {
+    match (numeric_dimension(a), numeric_dimension(b)) {
+        (Some(da), Some(db)) if da != db => Some((da.clone(), db.clone())),
+        _ => None,
+    }
 }
 
 /// Combine two schemas. Symmetric in spirit (the more-specific type wins
@@ -71,19 +125,32 @@ pub fn resolve(current: &Schema, update: &Schema) -> Schema {
 
         // ── Numeric: Integer ⊓ Float keeps Float (wider) but preserves a
         // present default; same-type prefers the side that carries a default.
-        (Integer { default: ci }, Float { default: uf }) => Float {
+        // Integer is dimensionless; the join is the more-specific Float, so it
+        // keeps the Float side's dimension.
+        (Integer { default: ci }, Float { default: uf, dimension: ud }) => Float {
             default: uf.or_else(|| ci.map(|i| i as f64)),
+            dimension: ud.clone(),
         },
-        (Float { default: cf }, Integer { default: ui }) => Float {
+        (Float { default: cf, dimension: cd }, Integer { default: ui }) => Float {
             default: cf.or_else(|| ui.map(|i| i as f64)),
+            dimension: cd.clone(),
         },
-        (Float { default: c }, Float { default: u }) => Float { default: u.or(*c) },
+        (Float { default: c, dimension: cd }, Float { default: u, dimension: ud }) => Float {
+            default: u.or(*c),
+            dimension: resolve_dimension(cd, ud),
+        },
         (Integer { default: c }, Integer { default: u }) => Integer { default: u.or(*c) },
-        (Delta { default: c }, Delta { default: u }) => Delta { default: u.or(*c) },
-        // Delta vs Float: Delta is the additive refinement — keep it.
-        (Delta { default: c }, Float { default: u }) | (Float { default: u }, Delta { default: c }) => {
-            Delta { default: u.or(*c) }
-        }
+        (Delta { default: c, dimension: cd }, Delta { default: u, dimension: ud }) => Delta {
+            default: u.or(*c),
+            dimension: resolve_dimension(cd, ud),
+        },
+        // Delta vs Float: Delta is the additive refinement — keep it; the
+        // dimension is the join of both numeric sides.
+        (Delta { default: c, dimension: dd }, Float { default: u, dimension: fd })
+        | (Float { default: u, dimension: fd }, Delta { default: c, dimension: dd }) => Delta {
+            default: u.or(*c),
+            dimension: resolve_dimension(dd, fd),
+        },
         (Bool { default: c }, Bool { default: u }) => Bool { default: u.or(*c) },
         (String { default: c }, String { default: u }) => String { default: u.clone().or_else(|| c.clone()) },
         (Enum { values: cv, default: cd }, Enum { values: uv, default: ud }) => {
@@ -314,16 +381,26 @@ pub fn generalize(current: &Schema, update: &Schema) -> Schema {
 
     match (current, update) {
         // Numeric meet → Float (the wider type), keeping a present default.
-        (Integer { default: ci }, Float { default: uf })
-        | (Float { default: uf }, Integer { default: ci }) => Float {
+        (Integer { default: ci }, Float { default: uf, dimension: _ })
+        | (Float { default: uf, dimension: _ }, Integer { default: ci }) => Float {
             default: uf.or_else(|| ci.map(|i| i as f64)),
+            // Integer is dimensionless, so the meet generalizes to dimensionless.
+            dimension: None,
         },
-        (Float { default: c }, Float { default: u }) => Float { default: u.or(*c) },
+        (Float { default: c, dimension: cd }, Float { default: u, dimension: ud }) => Float {
+            default: u.or(*c),
+            dimension: generalize_dimension(cd, ud),
+        },
         (Integer { default: c }, Integer { default: u }) => Integer { default: u.or(*c) },
-        (Delta { default: c }, Delta { default: u }) => Delta { default: u.or(*c) },
-        (Delta { default: c }, Float { default: u }) | (Float { default: u }, Delta { default: c }) => {
-            Delta { default: u.or(*c) }
-        }
+        (Delta { default: c, dimension: cd }, Delta { default: u, dimension: ud }) => Delta {
+            default: u.or(*c),
+            dimension: generalize_dimension(cd, ud),
+        },
+        (Delta { default: c, dimension: dd }, Float { default: u, dimension: fd })
+        | (Float { default: u, dimension: fd }, Delta { default: c, dimension: dd }) => Delta {
+            default: u.or(*c),
+            dimension: generalize_dimension(dd, fd),
+        },
         (Bool { default: c }, Bool { default: u }) => Bool { default: u.or(*c) },
         (String { default: c }, String { default: u }) => {
             String { default: u.clone().or_else(|| c.clone()) }
@@ -481,9 +558,15 @@ fn link_ports(s: &Schema) -> (&IndexMap<Key, Schema>, &IndexMap<Key, Schema>) {
 fn with_default_from(target: &Schema, source: &Schema) -> Schema {
     use Schema::*;
     match (target, source) {
-        (Float { .. }, Float { default }) => Float { default: *default },
+        (Float { dimension, .. }, Float { default, .. }) => Float {
+            default: *default,
+            dimension: dimension.clone(),
+        },
         (Integer { .. }, Integer { default }) => Integer { default: *default },
-        (Delta { .. }, Delta { default }) => Delta { default: *default },
+        (Delta { dimension, .. }, Delta { default, .. }) => Delta {
+            default: *default,
+            dimension: dimension.clone(),
+        },
         (Bool { .. }, Bool { default }) => Bool { default: *default },
         (String { .. }, String { default }) => String { default: default.clone() },
         _ => target.clone(),
@@ -554,14 +637,14 @@ mod tests {
 
     #[test]
     fn integer_float_keeps_float_and_default() {
-        let r = resolve(&Schema::Integer { default: Some(3) }, &Schema::Float { default: None });
-        assert_eq!(r, Schema::Float { default: Some(3.0) });
+        let r = resolve(&Schema::Integer { default: Some(3) }, &Schema::Float { default: None, dimension: None });
+        assert_eq!(r, Schema::Float { default: Some(3.0), dimension: None });
     }
 
     #[test]
     fn delta_refines_float() {
         assert!(matches!(
-            resolve(&Schema::float(), &Schema::Delta { default: None }),
+            resolve(&Schema::float(), &Schema::Delta { default: None, dimension: None }),
             Schema::Delta { .. }
         ));
     }

@@ -21,6 +21,7 @@ use indexmap::IndexMap;
 use prism_schema::{Key, Schema};
 
 use crate::ast::{CompositeDef, ContractRef, Def, Expr, PortDecl, Program, SchemaExpr};
+use crate::units::UnitEnv;
 
 /// Lower a [`SchemaExpr`] **with the program in scope**, so a `custom(Name)`
 /// that names a *definer* (composite / process / step) expands to that
@@ -97,6 +98,27 @@ fn lower_in_prog(s: &SchemaExpr, program: &Program, building: &mut Vec<crate::as
             // Genuine (rich) data type, or unknown → the opaque-but-dispatchable form.
             _ => lower_schema(s),
         },
+        // #71 units-in-schema: a `Quantity` lowered WITH the program in scope can
+        // resolve its unit's DIMENSION (the program's `unit` defs over SI base) and
+        // carry it in the schema — extensive → `delta_dim`, intensive → `float_dim`
+        // (the value is still a bare f64; the dimension rides in the type). The
+        // program-free `lower_schema` has no units registry, so it stays
+        // dimensionless. Degrade to dimensionless here too if the unit does not
+        // resolve — the units CHECK pass reports a genuine error separately, and
+        // schema derivation must not fail on it.
+        SchemaExpr::Quantity { extensive, .. } => {
+            let dim = UnitEnv::from_program(program)
+                .and_then(|env| env.unit_of_schema(s))
+                .ok()
+                .map(|u| u.dimension)
+                .filter(|d| !d.is_dimensionless());
+            match (*extensive, dim) {
+                (true, Some(d)) => Schema::delta_dim(d),
+                (true, None) => Schema::delta(),
+                (false, Some(d)) => Schema::float_dim(d),
+                (false, None) => Schema::float(),
+            }
+        }
         // Non-container, non-custom: identical to the program-free lowering.
         _ => lower_schema(s),
     }
@@ -115,7 +137,7 @@ pub fn lower_schema(s: &SchemaExpr) -> Schema {
         SchemaExpr::Any => Schema::Any,
         SchemaExpr::Bool => Schema::Bool { default: None },
         SchemaExpr::Int => Schema::Integer { default: None },
-        SchemaExpr::Float => Schema::Float { default: None },
+        SchemaExpr::Float => Schema::Float { default: None, dimension: None },
         SchemaExpr::String => Schema::String { default: None },
         SchemaExpr::Map(inner) => Schema::Map {
             value: Box::new(lower_schema(inner)),
@@ -148,9 +170,9 @@ pub fn lower_schema(s: &SchemaExpr) -> Schema {
         // divide); intensive → `Float` (shares).
         SchemaExpr::Quantity { extensive, .. } => {
             if *extensive {
-                Schema::Delta { default: None }
+                Schema::Delta { default: None, dimension: None }
             } else {
-                Schema::Float { default: None }
+                Schema::Float { default: None, dimension: None }
             }
         }
         SchemaExpr::Array { shape, element } => Schema::Array {

@@ -74,7 +74,10 @@ overall; the deep docs hold the content.
   **`pkg`** agent owns it SOLO, booting last to lay a principled foundation (manifest → resolver
   → registry → publish; linking = `Core::merge`; the registry of theories). **Queued:** the
   metacircular **orchestrator** (`coord/orchestrator.ys`, consumer-in-waiting — blocked on the
-  `load()` relative-import fix it surfaced). *(The bullet below is now provenance.)*
+  `load()` relative-import fix it surfaced); a **lang task** — **`.ys` corpus health**
+  (`docs/ys-corpus-health.md`: the demos are smoke-tested not behavior-tested — land
+  `chrysalis run --json` + executable `# Expected:` goldens; the `--json` slice also fixes the
+  keys-only board view). *(The bullet below is now provenance.)*
 - **🟢 THE HOMOICONIC FACE — forged + PINNED** (`docs/homoiconic-unification.md`). Stages
   1/2/3/4c DONE: one `quote` (`to_value`, total) · one `reify` (`from_value`) · the
   capitalized constructor IS `quote` of the definer · **one `build_rule` lowering core** ·

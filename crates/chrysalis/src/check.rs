@@ -19,7 +19,6 @@ use indexmap::IndexMap;
 use crate::ast::{
     ContractRef, Def, Expr, Interface, Name, PathRoot, PortDecl, Program, SchemaExpr, TermArg,
 };
-use crate::units::UnitEnv;
 
 /// A wiring whose endpoints don't agree.
 #[derive(Clone, Debug, PartialEq)]
@@ -32,7 +31,6 @@ pub struct ConnectionError {
 
 /// Validate every port wiring in the program. Empty result = valid.
 pub fn validate_connections(program: &Program) -> Vec<ConnectionError> {
-    let env = UnitEnv::from_program(program).ok();
     let mut errors = Vec::new();
     for def in &program.defs {
         if let Def::Composite(c) = def {
@@ -58,7 +56,6 @@ pub fn validate_connections(program: &Program) -> Vec<ConnectionError> {
                 &c.body,
                 &c.name,
                 program,
-                env.as_ref(),
                 &slots,
                 &bindings,
                 &slot_contracts,
@@ -83,7 +80,6 @@ fn check_body(
     e: &Expr,
     composite: &str,
     program: &Program,
-    env: Option<&UnitEnv>,
     slots: &HashMap<String, SchemaExpr>,
     bindings: &HashMap<String, String>,
     slot_contracts: &HashMap<String, ContractRef>,
@@ -96,7 +92,6 @@ fn check_body(
                     i,
                     composite,
                     program,
-                    env,
                     slots,
                     bindings,
                     slot_contracts,
@@ -108,7 +103,6 @@ fn check_body(
             value,
             composite,
             program,
-            env,
             slots,
             bindings,
             slot_contracts,
@@ -120,7 +114,6 @@ fn check_body(
                     v,
                     composite,
                     program,
-                    env,
                     slots,
                     bindings,
                     slot_contracts,
@@ -131,7 +124,6 @@ fn check_body(
                 &b.value,
                 composite,
                 program,
-                env,
                 slots,
                 bindings,
                 slot_contracts,
@@ -151,7 +143,6 @@ fn check_body(
                         bindings,
                         slot_contracts,
                         program,
-                        env,
                         true,
                         errors,
                     );
@@ -167,7 +158,6 @@ fn check_body(
                         bindings,
                         slot_contracts,
                         program,
-                        env,
                         false,
                         errors,
                     );
@@ -221,7 +211,6 @@ fn check_wire(
     bindings: &HashMap<String, String>,
     slot_contracts: &HashMap<String, ContractRef>,
     program: &Program,
-    env: Option<&UnitEnv>,
     is_input: bool,
     errors: &mut Vec<ConnectionError>,
 ) {
@@ -280,25 +269,20 @@ fn check_wire(
         return;
     }
 
-    if let Some(env) = env {
-        if is_dimensioned(port_se) && is_dimensioned(slot_se) {
-            let pd = env
-                .unit_of_schema(port_se)
-                .map(|u| u.dimension)
-                .unwrap_or_default();
-            let sd = env
-                .unit_of_schema(slot_se)
-                .map(|u| u.dimension)
-                .unwrap_or_default();
-            if pd != sd {
-                errors.push(ConnectionError {
-                    composite: composite.to_string(),
-                    child: child.to_string(),
-                    port: port.to_string(),
-                    message: format!("dimension mismatch: port {pd:?} vs slot {sd:?}"),
-                });
-            }
-        }
+    // Dimensional compatibility (#71 units-in-schema): a `[mass]` port wired to a
+    // `[length]` slot is an illegal link. Now that the schema CARRIES the dimension
+    // (lowered from the port/slot's unit), this is the FIRST-CLASS schema-algebra
+    // check `dimension_conflict` on the lowered schemas — the schema is the one
+    // dimension source, replacing the bespoke parallel-unit-AST comparison.
+    let port_schema = crate::schema::lower_schema_in_program(port_se, program);
+    let slot_schema = crate::schema::lower_schema_in_program(slot_se, program);
+    if let Some((pd, sd)) = prism_schema::algebra::dimension_conflict(&port_schema, &slot_schema) {
+        errors.push(ConnectionError {
+            composite: composite.to_string(),
+            child: child.to_string(),
+            port: port.to_string(),
+            message: format!("dimension mismatch: port [{pd:?}] cannot wire to slot [{sd:?}]"),
+        });
     }
 }
 
@@ -544,14 +528,6 @@ fn kinds_compatible(a: &SchemaExpr, b: &SchemaExpr) -> bool {
     // `any`/`custom` are lenient (resolved against the TypeRegistry in
     // the unification step); otherwise families must match.
     fa == "any" || fb == "any" || fa == "custom" || fb == "custom" || fa == fb
-}
-
-fn is_dimensioned(s: &SchemaExpr) -> bool {
-    match s {
-        SchemaExpr::Quantity { .. } => true,
-        SchemaExpr::Array { element, .. } => is_dimensioned(element),
-        _ => false,
-    }
 }
 
 #[cfg(test)]

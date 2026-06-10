@@ -26,7 +26,7 @@ impl Process for TypedProcess {
     fn outputs(&self) -> IndexMap<String, Schema> {
         IndexMap::from([
             ("state".to_string(), Schema::map(Schema::float())),
-            ("delta".to_string(), Schema::Delta { default: None }),
+            ("delta".to_string(), Schema::Delta { default: None, dimension: None }),
             ("gate".to_string(), Schema::overwrite(Schema::float())),
         ])
     }
@@ -67,7 +67,7 @@ fn rest_bridge_reconstructs_real_port_schemas() {
     assert_eq!(outputs.get("state"), Some(&Schema::map(Schema::float())));
     assert_eq!(
         outputs.get("delta"),
-        Some(&Schema::Delta { default: None }),
+        Some(&Schema::Delta { default: None, dimension: None }),
         "a Delta port round-trips as Delta (reconciles ADDITIVELY across the boundary)"
     );
     assert_eq!(

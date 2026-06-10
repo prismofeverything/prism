@@ -43,7 +43,7 @@ use crate::value::Value;
 // `resolve` (join) and `generalize` (meet) and `promote` (local resolve)
 // live in `crate::resolve`; re-exported here so the lattice is reached only
 // through the algebra surface.
-pub use crate::resolve::{generalize, promote, refines, resolve};
+pub use crate::resolve::{dimension_conflict, generalize, promote, refines, resolve};
 
 // ── Mesh-safety (the CRDT closure invariant) ───────────────────────────
 //

@@ -212,6 +212,8 @@ mod stream;
 mod structural_reaction;
 #[path = "units_engine.rs"]
 mod units_engine;
+#[path = "units_in_schema.rs"]
+mod units_in_schema;
 #[path = "unparse_roundtrip.rs"]
 mod unparse_roundtrip;
 #[path = "ys_files_roundtrip.rs"]

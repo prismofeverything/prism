@@ -87,7 +87,9 @@ pub fn pull(port: u16) -> Result<(), String> {
 /// good → good — if the re-serialized text does not re-parse, the write is ABORTED
 /// and the file left untouched. `tick` auto-increments unless set explicitly.
 ///
-///     chrysalis coord set simplify status='all green' note='shipped the guard'
+/// ```text
+/// chrysalis coord set simplify status='all green' note='shipped the guard'
+/// ```
 pub fn set(peer: &str, assignments: &[(String, String)]) -> Result<(), String> {
     let path = format!("coord/{peer}.ys");
     let src = std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;

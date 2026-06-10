@@ -10,6 +10,7 @@ use std::fmt;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
+use crate::units::Dimension;
 use crate::value::{Key, StateMap, Value};
 
 fn default_interval() -> f64 {
@@ -35,6 +36,13 @@ pub enum Schema {
     Float {
         #[serde(skip_serializing_if = "Option::is_none")]
         default: Option<f64>,
+        /// Optional physical dimension — the type-level units refinement (#71).
+        /// `None` = dimensionless, bit-identical to a bare `Float` (zero-cost; the
+        /// value stays a raw `f64`). Carried in the TYPE, erased from the VALUE;
+        /// consulted by wiring (`resolve`/`generalize`) and the boundary codec,
+        /// never on the per-op hot path. See `docs/units-in-the-schema.md`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dimension: Option<Dimension>,
     },
     String {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -74,6 +82,11 @@ pub enum Schema {
     Delta {
         #[serde(skip_serializing_if = "Option::is_none")]
         default: Option<f64>,
+        /// Optional physical dimension — the type-level units refinement (#71).
+        /// `None` = dimensionless. Extensive (additive, halves on `divide`); the
+        /// dimension rides along unchanged. See `docs/units-in-the-schema.md`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dimension: Option<Dimension>,
     },
 
     /// Overwrite wrapper — updates REPLACE the current value.
@@ -267,11 +280,18 @@ impl Schema {
     // ── Convenience constructors ──
 
     pub fn float() -> Self {
-        Self::Float { default: None }
+        Self::Float { default: None, dimension: None }
     }
 
     pub fn float_default(v: f64) -> Self {
-        Self::Float { default: Some(v) }
+        Self::Float { default: Some(v), dimension: None }
+    }
+
+    /// A `Float` carrying a physical dimension (#71 units-in-schema). The value
+    /// stays a raw `f64`; the dimension lives in the type. Intensive — shares on
+    /// `divide`. chrysalis lowers an intensive `Quantity[D]` to this.
+    pub fn float_dim(dimension: Dimension) -> Self {
+        Self::Float { default: None, dimension: Some(dimension) }
     }
 
     pub fn integer() -> Self {
@@ -287,7 +307,14 @@ impl Schema {
     }
 
     pub fn delta() -> Self {
-        Self::Delta { default: Some(0.0) }
+        Self::Delta { default: Some(0.0), dimension: None }
+    }
+
+    /// A `Delta` carrying a physical dimension (#71 units-in-schema). Extensive —
+    /// additive, halves on `divide`; the dimension rides along. chrysalis lowers
+    /// an extensive `Quantity[D, extensive]` to this.
+    pub fn delta_dim(dimension: Dimension) -> Self {
+        Self::Delta { default: Some(0.0), dimension: Some(dimension) }
     }
 
     pub fn list(element: Schema) -> Self {
@@ -542,7 +569,7 @@ impl Schema {
             Self::Any => Value::None,
             Self::Bool { default } => Value::Bool(default.unwrap_or(false)),
             Self::Integer { default } => Value::Int(default.unwrap_or(0)),
-            Self::Float { default } => Value::float(default.unwrap_or(0.0)),
+            Self::Float { default, .. } => Value::float(default.unwrap_or(0.0)),
             Self::String { default } => {
                 Value::String(default.clone().unwrap_or_default())
             }
@@ -559,7 +586,7 @@ impl Schema {
                     values.first().cloned().unwrap_or_default()
                 }))
             }
-            Self::Delta { default } => Value::float(default.unwrap_or(0.0)),
+            Self::Delta { default, .. } => Value::float(default.unwrap_or(0.0)),
             Self::Overwrite { inner } => inner.default_value(),
             Self::Array { shape, element } => {
                 // Build nested list matching shape dimensions

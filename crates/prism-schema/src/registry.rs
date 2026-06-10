@@ -1641,8 +1641,8 @@ mod tests {
         let reg = TypeRegistry::new();
         let schema = Schema::Tree {
             branches: IndexMap::from([
-                (Key::from("mass"), Schema::Delta { default: None }),
-                (Key::from("rate"), Schema::Float { default: None }),
+                (Key::from("mass"), Schema::Delta { default: None, dimension: None }),
+                (Key::from("rate"), Schema::Float { default: None, dimension: None }),
                 (
                     Key::from("body"),
                     Schema::CompositeLink {
@@ -1706,7 +1706,7 @@ mod tests {
         let reg = TypeRegistry::new();
         let cell = Schema::Tree {
             branches: IndexMap::from([
-                (Key::from("mass"), Schema::Delta { default: None }),
+                (Key::from("mass"), Schema::Delta { default: None, dimension: None }),
                 (
                     Key::from("body"),
                     Schema::CompositeLink {
@@ -1782,11 +1782,11 @@ mod tests {
         // so face-only division conserves mass without dividing `inner_schema`.
         let reg = TypeRegistry::new();
         let schema = Schema::CompositeLink {
-            inputs: IndexMap::from([(Key::from("mass"), Schema::Delta { default: None })]),
-            outputs: IndexMap::from([(Key::from("mass"), Schema::Delta { default: None })]),
+            inputs: IndexMap::from([(Key::from("mass"), Schema::Delta { default: None, dimension: None })]),
+            outputs: IndexMap::from([(Key::from("mass"), Schema::Delta { default: None, dimension: None })]),
             interval: 1.0,
             inner_schema: Box::new(Schema::Tree {
-                branches: IndexMap::from([(Key::from("mass"), Schema::Delta { default: None })]),
+                branches: IndexMap::from([(Key::from("mass"), Schema::Delta { default: None, dimension: None })]),
             }),
         };
         // The node carries its spec + the current exported face (mass=2.0, grown
@@ -1912,6 +1912,7 @@ mod tests {
         // Build a non-trivial schema and put it in a Foreign.
         let original = Schema::Float {
             default: Some(1.5),
+            dimension: None,
         };
         let state = Value::Foreign(Foreign::new("schema", original.clone()));
         // Serialize → Value (JSON-shaped).
@@ -1952,7 +1953,7 @@ mod tests {
     fn schema_apply_replaces() {
         let reg = TypeRegistry::new();
         let initial = Value::Foreign(Foreign::new("schema", Schema::Any));
-        let new_schema = Schema::Float { default: Some(3.14) };
+        let new_schema = Schema::Float { default: Some(3.14), dimension: None };
         let update = Value::Foreign(Foreign::new("schema", new_schema.clone()));
         let result = reg.type_apply("schema", &initial, &update);
         let inner = result

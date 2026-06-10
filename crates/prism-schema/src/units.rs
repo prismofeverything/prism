@@ -21,6 +21,8 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 // ── Rational exponents ───────────────────────────────────────────────
 
 fn gcd(a: i64, b: i64) -> i64 {
@@ -36,7 +38,7 @@ fn gcd(a: i64, b: i64) -> i64 {
 /// A rational exponent (always stored reduced, with positive denominator)
 /// so `√Hz`-style fractional dimensions are representable and equality is
 /// structural.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Ratio {
     pub num: i64,
     pub den: i64,
@@ -71,7 +73,7 @@ impl Ratio {
 
 /// A dimension as base-name → rational exponent, kept free of
 /// zero-exponent entries so `PartialEq` is exact. Empty = dimensionless.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Dimension(BTreeMap<String, Ratio>);
 
 impl Dimension {
@@ -130,7 +132,7 @@ impl Dimension {
 /// A unit: a scale to its dimension's canonical unit, plus an affine
 /// `offset` (0 for purely multiplicative units; non-zero for offset
 /// units like °C). `canonical = magnitude * scale + offset`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Unit {
     pub dimension: Dimension,
     pub scale: f64,
@@ -160,7 +162,7 @@ impl Unit {
 /// context rule's transform expression (`value / volume`) into one of
 /// these recognized shapes; a constant factor is baked in, a parameter
 /// factor is supplied from state at the (single) conversion site.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Bridge {
     /// `value * k` for a compile-time constant `k`.
     ScaleConst(f64),
@@ -186,7 +188,7 @@ impl Bridge {
 }
 
 /// One rule: bridges `from` → `to` (and the reverse, if `bidirectional`).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ContextRule {
     pub from: Dimension,
     pub to: Dimension,
@@ -195,7 +197,7 @@ pub struct ContextRule {
 }
 
 /// A named, parameterized set of cross-dimension rules.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Context {
     pub name: String,
     pub rules: Vec<ContextRule>,
@@ -218,7 +220,7 @@ impl Context {
 
 // ── The erased conversion ────────────────────────────────────────────
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StateOp {
     DivBy,
     MulBy,
@@ -226,7 +228,7 @@ pub enum StateOp {
 
 /// The result of resolving a conversion *once*, in the check phase. This
 /// is what lowered code carries: a closed form, applied as a single op.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Conversion {
     /// Same unit — no-op.
     Identity,
@@ -309,6 +311,56 @@ mod tests {
         assert_eq!(a, b);
         assert!(!a.is_dimensionless());
         assert!(length().div(&length()).is_dimensionless());
+    }
+
+    #[test]
+    fn units_vocabulary_round_trips_through_serde() {
+        // #71 units-in-schema FOUNDATION: the units vocabulary is now plain
+        // serializable DATA. This unblocks two consumers — the schema codec can
+        // carry a `Dimension` (the next step of #71), and lang can reify a
+        // `unit`/`context` DEFINITION (UnitDef/ContextDef wire through these
+        // types). Law: `deserialize ∘ serialize = id` over the vocabulary; the
+        // normalization invariants (reduced `Ratio`, zero-free `Dimension`)
+        // survive because only already-normalized values are ever serialized.
+        fn rt<T>(v: &T)
+        where
+            T: Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
+        {
+            let json = serde_json::to_string(v).unwrap();
+            let back: T = serde_json::from_str(&json).unwrap();
+            assert_eq!(*v, back, "round-trips: {json}");
+        }
+
+        // Ratio: a non-trivially-reduced input stays reduced through the trip.
+        let r = Ratio::new(2, 4);
+        assert_eq!((r.num, r.den), (1, 2), "Ratio is stored reduced");
+        rt(&r);
+
+        // Dimension: substance · length⁻³ (concentration) exercises the
+        // BTreeMap<String, Ratio> codec; the empty (dimensionless) case too.
+        let concentration = Dimension::base("substance").div(&length().pow(3));
+        rt(&concentration);
+        rt(&Dimension::dimensionless());
+
+        // Unit: an affine (offset) unit — °C-style.
+        rt(&Unit::affine(Dimension::base("temperature"), 1.0, 273.15));
+
+        // Context: a cross-dimension bridge (amount↔concentration via a runtime
+        // `volume` factor) — the full Context → ContextRule → Bridge nesting.
+        let ctx = Context {
+            name: "compartment".to_string(),
+            rules: vec![ContextRule {
+                from: Dimension::base("substance"),
+                to: concentration.clone(),
+                bidirectional: true,
+                bridge: Bridge::DivByParam("volume".to_string()),
+            }],
+        };
+        rt(&ctx);
+
+        // Conversion: the erased runtime form (both the stateful and affine arms).
+        rt(&Conversion::ByState { op: StateOp::DivBy, param: "volume".to_string() });
+        rt(&Conversion::Affine { scale: 2.0, offset: -1.5 });
     }
 
     #[test]
