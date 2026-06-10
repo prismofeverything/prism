@@ -24,6 +24,56 @@ the shared `Complex`/`Signal[ℂ]` sort that make cross-domain audio natural), `
 patch/reaction surface).
 
 ## Now / next (priority order)
+> **⏯️ ACTIVE ARC (redirected by `unify`, 2026-06-09): A6 — the homoiconic module factory.**
+> The homoiconic face is CLOSED + GREEN (one `quote`/`reify`/`build_rule`; reactions emit
+> transparent DATA; `instantiate` is a `.ys` builtin; `EntityDef::from_value` total over
+> 10/12 kinds incl. process/composite). That is exactly what unblocks **A6's body-level half**
+> (author a *new module type*, not just instance a known one — historically gated on #30
+> entity-as-data). So A6 jumps to #1; the sound-quality pass + InsertFilter sit behind it.
+>
+> **A6 PLAN — two phases:**
+> - **Phase 1 ✅ DONE + GREEN (prism-audio; 25/25 suite):** a generic `stack_factory` reaction
+>   reads a `StackSeed{ base, spread, voices }` recipe FROM the live bigraph and `stack_voice_node`
+>   authors a **new compound module type** — a **detuned stack**: one oscillator per voice
+>   (`base · 2^(±spread·i/1200)`) summed into a shared inner `Signal` mix bus, bridged to one
+>   `out`, the apply-critical inner schema carried with the spec. Instantiated via
+>   `discover_processes` (the #61 mechanism). The recipe LENGTH sets the inner node count → distinct
+>   seeds author distinct TYPES from ONE rule. **Generalizes `spawn_voice`** from a FIXED chain
+>   (`voice_composite_node`) to a BUILT structure — the body-level capstone on the *existing*
+>   substrate (no A4 modulation; `freq` stays config-time). Files: `src/factory.rs` +
+>   `tests/factory.rs` (+ `lib.rs`/`suite.rs` wiring). Proved the one new behavior — K writers
+>   summing into one inner `Signal` bus *inside* a composite via the additive reconcile. *Next:*
+>   Phase 2 (the `.ys` face).
+> - **Phase 2 (WITH `lang` · the `.ys` face):** the SAME factory on the surface, RIDING the
+>   closed face. **lang ask:** A6 is the consumer for the **rich-kind constructor** —
+>   `Process[…]` / `Composite[…]` as value forms (the "build a module value" bracket lang
+>   deliberately left for a consumer; today only `Reaction[…]` / `Pattern(…)` are value
+>   constructors). A reactum must construct a module-type value *inline*. Plus the layering
+>   question: how a `.ys` program reaches the prism-audio native modules (prism-audio registers
+>   its modules into the program `Core`). This is "build + install a module value live" made
+>   literal on the surface — the M3-ward cash-out of the face.
+> - **⚠️ CANONICAL-PATTERN FINDING (2026-06-09, paused Phase-2 runner build on it).** Investigating
+>   the layering seam (mirror spatio-flux?) found the current door carries debt — do NOT copy it.
+>   `chrysalis::runner::run(program, registry, methods, modules)` **splits the unified Core back
+>   apart**: processes via `registry`, methods via `methods`, native **types** through a *third*
+>   door (`modules.type_`), and native **protocols have no door** — `compile.rs:463` hard-codes
+>   `stream_protocols()`, so a domain can't inject its own (this blocks **A8 `net:`** directly).
+>   That is core-unification ("one Core threaded everywhere") *not reaching* the `run()` boundary;
+>   spatio-flux works around it with a 6-function prelude. **Proposed canonical:**
+>   `run(program, domain_core: Core, modules, time)` — pass the ONE unified Core (procs+types+
+>   methods+protocols) + the import-surface; chrysalis merges the program's own defs in. Collapses
+>   3 doors → 1, carries types+protocols for free, a domain exposes ONE `audio_core()`. Further:
+>   derive the import-surface from the Core (needs `ProcessRegistry::names()` — none today, only
+>   `contains()`) for one source of truth. OWNERS: lang (run/compile sig), core (`names()`; post-#71),
+>   unify (the recognition). Proposal pushed to the LIVE board (synth tick 13). *Audio = first
+>   consumer to dogfood it.* Useful facts banked: `ModuleRegistry::type_` already injects native
+>   types; `signal_type()` is block-free (`Schema::Custom`, block only at registration); `run_state`/
+>   `run_document` already take a `Core` (the canonical `run` is a small additive sibling).
+> - **Deeper horizon (with `core`, after #71):** the REGISTRY-backed *named* type — a reactum
+>   that adds a new ADDRESS to the vocabulary, reusable by name (true tier-2 #30). The spec-as-
+>   data type in Phase 1 *is* the type (the authored sub-bigraph); the named/addressable form is
+>   the next rung, gated on core's entity registry.
+
 - [ ] **Sound QUALITY pass (NEW — from first listen).** The `play` demo SOUNDS (great!),
       but the fifth isn't clean: two summed voices beat, the env/levels color it, and two
       voices at 0.4 peak flirt with clipping. First pass: gain staging + a master limiter,
@@ -76,6 +126,17 @@ another's*, not bespoke glue. Build each as a small functor + a "you HEAR domain
 definer + the `Complex` sort THERE with `unify`; build the per-domain demos HERE.)
 
 ## Done (this arc — all green)
+- **A6 Phase 1 — the homoiconic module factory (the synth writes a new module TYPE).** A generic
+  `stack_factory` reaction reads a `StackSeed{ base, spread, voices }` recipe from the live bigraph
+  and `stack_voice_node` lowers it into a NEW `Stack` composite type — one `Oscillator` per voice,
+  detuned across `±spread` cents, summing into a shared inner `Signal` `mix` bus (the additive
+  reconcile IS the mixer), bridged to one `out`. The engine instantiates it via `discover_processes`
+  — the SAME #61 mechanism a cell colony divides by, ZERO clone (the recipe→spec lowering is the only
+  new code, pure data construction). The recipe LENGTH sets the inner node count, so distinct seeds
+  author distinct TYPES from ONE rule. 3 tests (structure-is-generated · authored-type-runs-audibly ·
+  distinct-recipes→distinct-types); full suite 25 pass / 0 fail. `src/factory.rs` + `tests/factory.rs`.
+  Generalizes `spawn_voice` (A5) from a FIXED chain to a BUILT structure — the body-level capstone,
+  unblocked by the closed homoiconic face. *(Phase 2 — the `.ys` surface, with `lang` — is the next step.)*
 - **A1/A2** — offline `Signal` (Array repr, additive-mix reconcile, REPLACE apply) + the
   module library (Oscillator/LowPass/Vca/Envelope over native kernels) + **patch-as-data**
   (a patch is a `Value` the engine discovers; data-patch ≡ hand-wired, proven).

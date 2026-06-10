@@ -95,9 +95,14 @@ fn run_from_source(path: &str, time: f64) -> Result<Value, MethodError> {
         method: "run".into(),
         message: format!("{context}: {msg}"),
     };
-    let src = std::fs::read_to_string(path).map_err(|e| mk_err(&format!("read {path}"), e.to_string()))?;
+    // `parse_file` (not `parse_program`) so the source's OWN relative `.ys`
+    // imports (`from .mesh import …`) resolve against ITS directory — exactly
+    // what the bin's `run` does (`cli.rs` via `parse_file`). Path-blind
+    // `parse_program` would leave `.mesh` unresolved and the compile would reject
+    // it as an unknown native module (the bug that broke `load(p).run()` on a
+    // program with sibling imports — e.g. the coordination board).
     let prog =
-        crate::parse::parse_program(&src).map_err(|e| mk_err(&format!("parse {path}"), e.to_string()))?;
+        crate::parse::parse_file(path).map_err(|e| mk_err(&format!("parse {path}"), e.to_string()))?;
     // Use the source file's directory as ys_root so a nested `load('sibling.ys')`
     // inside this program resolves relative to where it lives.
     let ys_root = std::path::Path::new(path).parent().map(|p| p.to_path_buf());
@@ -754,12 +759,18 @@ fn load_program_as_document(path: &str) -> Result<Value, MethodError> {
         method: "load".into(),
         message: format!("{context}: {msg}"),
     };
-    let src = std::fs::read_to_string(path).map_err(|e| mk_err(&format!("read {path}"), e.to_string()))?;
+    // `parse_file` (not path-blind `parse_program`) so the loaded program's OWN
+    // relative `.ys` imports (`from .mesh import …`) resolve against ITS directory
+    // — the same resolution the bin's `run` uses. Without this, loading a program
+    // with sibling imports (the coordination board) failed at compile with
+    // "unknown import `.mesh`". And `std_modules_at(ys_root)` so a nested
+    // `load('sibling.ys')` inside the loaded program resolves relative to it too.
     let prog =
-        crate::parse::parse_program(&src).map_err(|e| mk_err(&format!("parse {path}"), e.to_string()))?;
-    // Compile against fresh std registries — same path `chrysalis run` uses.
-    let result = crate::compile::compile_with_modules(&prog, std_registry(), std_methods(), std_modules())
-        .map_err(|e| mk_err(&format!("compile {path}"), format!("{e:?}")))?;
+        crate::parse::parse_file(path).map_err(|e| mk_err(&format!("parse {path}"), e.to_string()))?;
+    let ys_root = std::path::Path::new(path).parent().map(|p| p.to_path_buf());
+    let result =
+        crate::compile::compile_with_modules(&prog, std_registry(), std_methods(), std_modules_at(ys_root))
+            .map_err(|e| mk_err(&format!("compile {path}"), format!("{e:?}")))?;
     let doc = crate::runner::document_of(&result);
     let mut value = document_to_value(&doc);
     // Stash:

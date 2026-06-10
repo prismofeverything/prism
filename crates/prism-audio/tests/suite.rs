@@ -12,6 +12,8 @@
 
 #[path = "device.rs"]
 mod device;
+#[path = "factory.rs"]
+mod factory;
 #[path = "mix_bus.rs"]
 mod mix_bus;
 #[path = "modules.rs"]

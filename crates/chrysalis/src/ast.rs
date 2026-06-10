@@ -1002,11 +1002,28 @@ impl EntityDef {
                 ])),
             );
         }
-        if self.unit.is_some() {
+        if let Some(u) = &self.unit {
             slots.push(Value::String("unit".into()));
+            let mut umap: IndexMap<Key, Value> = IndexMap::new();
+            umap.insert(Key::from("dimension"), dimension_to_value(&u.dimension));
+            umap.insert(Key::from("definition"), unit_expr_to_value(&u.definition));
+            if let Some(off) = u.affine_offset {
+                umap.insert(Key::from("affine_offset"), Value::float(off));
+            }
+            fields.insert(Key::from("unit"), Value::Map(umap));
         }
-        if self.context.is_some() {
+        if let Some(c) = &self.context {
             slots.push(Value::String("context".into()));
+            let mut cmap: IndexMap<Key, Value> = IndexMap::new();
+            cmap.insert(
+                Key::from("params"),
+                Value::List(c.params.iter().map(param_to_value).collect()),
+            );
+            cmap.insert(
+                Key::from("rules"),
+                Value::List(c.rules.iter().map(context_rule_to_value).collect()),
+            );
+            fields.insert(Key::from("context"), Value::Map(cmap));
         }
         if let Some((schema, value)) = &self.binding {
             slots.push(Value::String("binding".into()));
@@ -2559,11 +2576,16 @@ impl Program {
             if let Some(p) = ent.protocol {
                 prog.push(Def::Protocol(p));
             }
+            if let Some(u) = ent.unit {
+                prog.push(Def::Unit(u));
+            }
+            if let Some(c) = ent.context {
+                prog.push(Def::Context(c));
+            }
             // A value binding — incl. a program's trailing `main` entry, which
             // carries the initial state. Without this a whole program's entry is
             // lost through `quote ↔ reify` (the `definer_equals_its_quote_then_eval`
-            // proof). unit / context — add as their slot serializations round-trip
-            // (each needs its sub-type codec: Dimension/UnitExpr, ContextRule).
+            // proof). Every entity kind now round-trips (Axis-A 12/12).
             if let Some((schema, value)) = ent.binding {
                 prog.push(Def::Binding {
                     name: ent.name.clone(),
@@ -2578,12 +2600,12 @@ impl Program {
 
 impl EntityDef {
     /// Materialize an `EntityDef` from its [`Self::to_value`] shape — the inverse
-    /// of `to_value`. `process`, `step`, `composite`, `reaction`, `function`,
-    /// `pattern`, `type`, `contract`, `protocol`, and `binding` all round-trip
-    /// (Axis-A completeness, homoiconic-unification gap 3). The two remaining
-    /// kinds (`unit`, `context`) emit a slot-name marker only and are not yet
-    /// reconstructed — each needs a `Dimension`/`UnitExpr`/`Ratio` codec (core
-    /// flagged Ratio-serde) and expands here as that lands.
+    /// of `to_value`, total over **every** entity kind: `process`, `step`,
+    /// `composite`, `reaction`, `function`, `pattern`, `type`, `contract`,
+    /// `protocol`, `unit`, `context`, and `binding` all round-trip (Axis-A
+    /// completeness, homoiconic-unification gap 3 — 12/12). `unit`/`context` use
+    /// the structural `Dimension`/`UnitExpr`/`Ratio`/`ContextRule` codecs above
+    /// (all surface AST, so no core dependency).
     pub fn from_value(v: &prism_schema::Value) -> Result<EntityDef, ExprFromValueError> {
         let map = v
             .as_map()
@@ -2740,6 +2762,34 @@ impl EntityDef {
                 fields: fields_out,
             });
         }
+        if let Some(u) = map.get("unit") {
+            let um = u.as_map().ok_or_else(|| err("EntityDef.unit must be a Map"))?;
+            ent.unit = Some(UnitDef {
+                name: name.clone(),
+                dimension: dimension_from_value(
+                    um.get("dimension").ok_or_else(|| err("unit.dimension missing"))?,
+                )?,
+                definition: unit_expr_from_value(
+                    um.get("definition").ok_or_else(|| err("unit.definition missing"))?,
+                )?,
+                affine_offset: um.get("affine_offset").and_then(|v| v.as_f64()),
+            });
+        }
+        if let Some(c) = map.get("context") {
+            let cm = c.as_map().ok_or_else(|| err("EntityDef.context must be a Map"))?;
+            let rules = match cm.get("rules").and_then(|v| v.as_list()) {
+                Some(list) => list
+                    .iter()
+                    .map(context_rule_from_value)
+                    .collect::<Result<Vec<_>, _>>()?,
+                None => Vec::new(),
+            };
+            ent.context = Some(ContextDef {
+                name: name.clone(),
+                params: params_from_value_list(cm.get("params"))?,
+                rules,
+            });
+        }
         // A value binding (`def X = expr`, incl. a program's trailing `main`
         // entry). Reconstructing it is what lets a whole program — its definers
         // AND its entry/initial-state — survive `quote ↔ reify ↔ run`
@@ -2814,6 +2864,142 @@ fn method_def_from_value(v: &prism_schema::Value) -> Result<MethodDef, ExprFromV
         name,
         params: params_from_value_list(m.get("params"))?,
         body,
+    })
+}
+
+// ── unit / context structural codecs (Axis-A 12/12) ─────────────────────────
+// These are surface AST (`Dimension`/`UnitExpr`/`Ratio`/`ContextRule` all live
+// here, not in the prism Schema), so they round-trip via plain structural data —
+// exact `f64`/`i32`, no string-format coupling and no core dependency.
+
+/// `Ratio { num, den }` → `{num, den}`.
+fn ratio_to_value(r: &Ratio) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    Value::Map(IndexMap::from([
+        (Key::from("num"), Value::Int(r.num as i64)),
+        (Key::from("den"), Value::Int(r.den as i64)),
+    ]))
+}
+
+fn ratio_from_value(v: &prism_schema::Value) -> Result<Ratio, ExprFromValueError> {
+    let m = v.as_map().ok_or_else(|| err("Ratio must be a Map"))?;
+    let geti = |k: &str| -> Result<i32, ExprFromValueError> {
+        m.get(k)
+            .and_then(|x| x.as_i64())
+            .map(|n| n as i32)
+            .ok_or_else(|| err(&format!("Ratio.{k} must be an integer")))
+    };
+    Ok(Ratio::new(geti("num")?, geti("den")?))
+}
+
+/// `Dimension { powers }` → `{powers: {base: ratio, …}}`.
+fn dimension_to_value(d: &Dimension) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    let powers: IndexMap<Key, Value> = d
+        .powers
+        .iter()
+        .map(|(name, r)| (Key::from(name.as_str()), ratio_to_value(r)))
+        .collect();
+    Value::Map(IndexMap::from([(Key::from("powers"), Value::Map(powers))]))
+}
+
+fn dimension_from_value(v: &prism_schema::Value) -> Result<Dimension, ExprFromValueError> {
+    let m = v.as_map().ok_or_else(|| err("Dimension must be a Map"))?;
+    let mut powers: indexmap::IndexMap<Name, Ratio> = indexmap::IndexMap::new();
+    if let Some(pm) = m.get("powers").and_then(|v| v.as_map()) {
+        for (k, rv) in pm {
+            powers.insert(k.to_string(), ratio_from_value(rv)?);
+        }
+    }
+    Ok(Dimension { powers })
+}
+
+/// `UnitExpr` (recursive) → a `{_unit: <variant>, …}` tagged map.
+fn unit_expr_to_value(u: &UnitExpr) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    let tag = |variant: &str, fields: &[(&str, Value)]| -> Value {
+        let mut m: IndexMap<Key, Value> = IndexMap::new();
+        m.insert(Key::from("_unit"), Value::String(variant.into()));
+        for (k, val) in fields {
+            m.insert(Key::from(*k), val.clone());
+        }
+        Value::Map(m)
+    };
+    match u {
+        UnitExpr::Named(n) => tag("Named", &[("name", Value::String(n.clone()))]),
+        UnitExpr::Scalar(f) => tag("Scalar", &[("value", Value::float(*f))]),
+        UnitExpr::Mul(a, b) => {
+            tag("Mul", &[("a", unit_expr_to_value(a)), ("b", unit_expr_to_value(b))])
+        }
+        UnitExpr::Div(a, b) => {
+            tag("Div", &[("a", unit_expr_to_value(a)), ("b", unit_expr_to_value(b))])
+        }
+        UnitExpr::Pow(a, r) => {
+            tag("Pow", &[("base", unit_expr_to_value(a)), ("exp", ratio_to_value(r))])
+        }
+    }
+}
+
+fn unit_expr_from_value(v: &prism_schema::Value) -> Result<UnitExpr, ExprFromValueError> {
+    let m = v.as_map().ok_or_else(|| err("UnitExpr must be a Map"))?;
+    let tag = m
+        .get("_unit")
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| err("UnitExpr missing _unit"))?;
+    let sub = |k: &str| -> Result<Box<UnitExpr>, ExprFromValueError> {
+        Ok(Box::new(unit_expr_from_value(
+            m.get(k).ok_or_else(|| err(&format!("UnitExpr.{k} missing")))?,
+        )?))
+    };
+    match tag {
+        "Named" => Ok(UnitExpr::Named(
+            m.get("name")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| err("UnitExpr.Named.name missing"))?
+                .to_string(),
+        )),
+        "Scalar" => Ok(UnitExpr::Scalar(
+            m.get("value")
+                .and_then(|v| v.as_f64())
+                .ok_or_else(|| err("UnitExpr.Scalar.value missing"))?,
+        )),
+        "Mul" => Ok(UnitExpr::Mul(sub("a")?, sub("b")?)),
+        "Div" => Ok(UnitExpr::Div(sub("a")?, sub("b")?)),
+        "Pow" => Ok(UnitExpr::Pow(
+            sub("base")?,
+            ratio_from_value(m.get("exp").ok_or_else(|| err("UnitExpr.Pow.exp missing"))?)?,
+        )),
+        other => Err(err(&format!("unknown UnitExpr variant `{other}`"))),
+    }
+}
+
+/// `ContextRule { from, to, bidirectional, transform }` → a flat map.
+fn context_rule_to_value(r: &ContextRule) -> prism_schema::Value {
+    use indexmap::IndexMap;
+    use prism_schema::{Key, Value};
+    Value::Map(IndexMap::from([
+        (Key::from("from"), dimension_to_value(&r.from)),
+        (Key::from("to"), dimension_to_value(&r.to)),
+        (Key::from("bidirectional"), Value::Bool(r.bidirectional)),
+        (Key::from("transform"), r.transform.to_value()),
+    ]))
+}
+
+fn context_rule_from_value(v: &prism_schema::Value) -> Result<ContextRule, ExprFromValueError> {
+    let m = v.as_map().ok_or_else(|| err("ContextRule must be a Map"))?;
+    Ok(ContextRule {
+        from: dimension_from_value(m.get("from").ok_or_else(|| err("ContextRule.from missing"))?)?,
+        to: dimension_from_value(m.get("to").ok_or_else(|| err("ContextRule.to missing"))?)?,
+        bidirectional: m
+            .get("bidirectional")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        transform: Expr::from_value(
+            m.get("transform").ok_or_else(|| err("ContextRule.transform missing"))?,
+        )?,
     })
 }
 

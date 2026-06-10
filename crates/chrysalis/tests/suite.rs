@@ -24,6 +24,8 @@ mod bigraph_rule_through_algebra;
 mod compile_imports;
 #[path = "composite_bridge.rs"]
 mod composite_bridge;
+#[path = "composite_constructor.rs"]
+mod composite_constructor;
 #[path = "composite_interval.rs"]
 mod composite_interval;
 #[path = "contract_enforcement.rs"]
@@ -44,6 +46,8 @@ mod distributed_alchemy;
 mod distributed_cross_composite;
 #[path = "effects_first_slice.rs"]
 mod effects_first_slice;
+#[path = "engine_driver_one_door_guard.rs"]
+mod engine_driver_one_door_guard;
 #[path = "entity_as_data.rs"]
 mod entity_as_data;
 #[path = "entity_roundtrip_complete.rs"]
@@ -96,6 +100,8 @@ mod link_pool;
 mod link_schema;
 #[path = "live_cross_composite.rs"]
 mod live_cross_composite;
+#[path = "load_sibling_imports.rs"]
+mod load_sibling_imports;
 #[path = "load_in_language.rs"]
 mod load_in_language;
 #[path = "load_in_language_ys.rs"]

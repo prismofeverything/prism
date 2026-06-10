@@ -1,0 +1,52 @@
+# coord/orchestrator.ys — THE METACIRCULAR ORCHESTRATOR.
+# ─────────────────────────────────────────────────────────────────────────────
+# ⚠️ STATUS (v1): BLOCKED on a `load()` bug this consumer surfaced. `load('board.ys')`
+# does not re-base board.ys's OWN relative sibling imports to its dir — `.mesh` resolves
+# wrong (the error wants `..mesh`). load() must set the LOADED file's dir as the base for
+# ITS relative imports. Flagged to lang/core; this file goes green the moment that lands —
+# it is the consumer that drives + proves the fix. (The 233-test suite missed it: nothing
+# loads a file with relative imports. Classic dogfood find.)
+#
+# The coordination board is `.ys`-as-data: N agent heartbeats merged through a
+# `mesh` link (coord/board.ys). This program treats that coordination system as
+# DATA it can load, inspect, and RUN — from inside `.ys`. It is the reflexive
+# cash-out of the homoiconic face (#64 §7): a `.ys` program orchestrating the
+# `.ys` programs that ARE our coordination. The metacircular identity made real
+# on our own dogfood —
+#
+#     run(p)  ==  eval(quote(p))          (homoiconic-unification.md §3)
+#       │            │      │
+#       │            │      └─ load('board.ys')  : the board read AS DATA (a Document)
+#       │            └──────── board.run(t)      : interpret that data AS A PROGRAM
+#       └───────────────────── chrysalis run coord/board.ys : the direct run
+#
+# `load` ~ Lisp `read` (text → data); `Document.run` ~ `eval` (data → behavior).
+# The board never knows it was run from inside another `.ys` program — the same
+# converged 7-peer mesh view comes out either way. That sameness IS the closure.
+#
+# Run: chrysalis run coord/orchestrator.ys --time 0
+# (Keys-only display today shows the output FACE; the values are the converged
+#  board + the agents-as-data. A richer dashboard + the build-channel verdict are
+#  v2 — see coord/unify.next.)
+
+from io import load
+
+# QUOTE — the coordination board, read as a Document VALUE (data, not yet run).
+def board = load('board.ys')
+
+composite Orchestrator ~{} ->{
+  converged :: Any,
+  agents :: Any,
+  source :: String
+} (
+  # EVAL — run the board-as-data: the converged mesh view of every live heartbeat,
+  # computed by interpreting the loaded coordination program from inside this one.
+  converged: board.run(1.0) |
+  # The agents AS DATA — the board's entity registry, walkable without re-parsing
+  # (the substrate a v2 verdict-computation folds over: each peer's `build` state).
+  agents: board._entities |
+  # What `load` resolved — proof the data carries its own provenance.
+  source: board._source
+)
+
+Orchestrator[]

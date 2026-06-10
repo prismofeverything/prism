@@ -10,16 +10,17 @@
 //! dropped on reify, re-quoting the reconstruction diverges from the original
 //! quote — a total, structural check, not a sampled one.
 //!
-//! Now also `pattern`, `contract`, `protocol`. Remaining (each needs a sub-type
-//! codec, noted in `from_value`): `unit` (`Dimension`/`UnitExpr`/`Ratio`) and
-//! `context` (`ContextRule`) still emit a slot-name marker only.
+//! Now **total — 12/12 kinds**: also `pattern`, `contract`, `protocol`, and
+//! (via structural `Dimension`/`UnitExpr`/`Ratio`/`ContextRule` codecs) `unit`
+//! and `context`. Every entity kind is definition-as-data.
 
 use chrysalis::ast::Program;
 use chrysalis::parse::parse_program;
 
-/// One program touching every round-trippable kind: a bare `type`, a `type` WITH
-/// a method, a `function`, a `process`, a `reaction` (redex/reactum over a sorted
-/// site), a `pattern`, a `composite`, a `contract`, and a `protocol`.
+/// One program touching every entity kind: a bare `type`, a `type` WITH a method,
+/// a `function`, a `unit`, a `context` (dimension-conversion rule), a `process`,
+/// a `reaction` (redex/reactum over a sorted site), a `pattern`, a `composite`, a
+/// `contract`, and a `protocol`.
 const ALL_KINDS: &str = "\
 type Mass = float
 
@@ -29,6 +30,12 @@ with {
 }
 
 def helper(x) = x + 1.0
+
+unit pg : [mass] = 1e-12 kg
+
+context concentration (volume: Float) (
+  [substance] <-> [substance]/[length]^3 : value / volume
+)
 
 process Tick ~{count :: Float} ->{count :: Float} (
   {count: 1.0}
@@ -88,6 +95,11 @@ fn reified_program_carries_each_kind() {
     assert!(
         by("StreamingCell").is_some_and(|e| e.protocol.is_some()),
         "protocol StreamingCell reconstructed"
+    );
+    assert!(by("pg").is_some_and(|e| e.unit.is_some()), "unit pg reconstructed");
+    assert!(
+        by("concentration").is_some_and(|e| e.context.as_ref().is_some_and(|c| !c.rules.is_empty())),
+        "context concentration reconstructed WITH its rule"
     );
 }
 

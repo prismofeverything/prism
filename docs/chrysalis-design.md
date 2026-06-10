@@ -870,6 +870,14 @@ asymmetry **dissolves at Stage 4**, when every consumer boundary —
 evals DATA → runnable, so every constructor can produce DATA (quote) uniformly. The
 bracket is offered where inline construction is ergonomic (reactions/patterns are built
 inline in reactums / BRS lists; processes are usually named) — a presentation choice.
+**Update (synth A6 Phase 2):** `Composite[state:, bridge:, schema:] ~{in} ->{out}` now
+*exists* as a rich-kind value constructor — a reactum authors a NEW composite module type
+inline as data, lowering to the composite instance envelope (`{_type:"composite",
+address:"local:Composite", config:{…args}, …}`) that `discover_processes` /
+`Composite::from_config` instantiate (`tests/composite_constructor.rs`, proven via the 4a
+node rung). So the FLAT/RICH asymmetry is further dissolved on the constructor surface; the
+remaining gap is purely ergonomic (`Process[…]` generic is deferred — a process's inner
+nodes are reached as named-native brackets like `Oscillator[…]`).
 2b gaps **closed**: (1) parameterization — `X[args]` now *calls* a function, so a
 parameterized `reaction X[p](…)` has the def-form `def X(p) = Reaction[…]` instantiated
 `X[p: v]` (the `[]`/`()` reconciliation; the param reaches a fire-time guard/rate via
@@ -901,18 +909,20 @@ the program's OWN `Core` — a built spec's `local:Tick` address resolves to *th
 **`run(p) = instantiate(surface_eval(quote(p)))`** a callable loop — `instantiate(spec-as-data)
 ≡ run(spec-as-body)` (`tests/metacircular_node_rung.rs`).
 
-**Axis-A `from_value` completeness landed (10/12 kinds).** `EntityDef`/`Program`
-`to_value` ↔ `from_value` now round-trips **process / step / composite / reaction /
-function / pattern / type / contract / protocol / binding** — the strong witness is the
-total identity *quote ∘ reify ∘ quote == quote* over a program touching all ten
-(`tests/entity_roundtrip_complete.rs`). Along the way `to_value` was made faithful where
-it had been lossy: reaction + function params went from name-only to full params (schema +
-default), reaction `guard` / `rate` were being dropped, and `type` / `contract` / `protocol`
-/ `pattern` weren't serialized at all. Only **`unit`** and **`context`** remain — each needs
-a recursive sub-type codec (`Dimension` / `UnitExpr` / `Ratio` for units, `ContextRule` for
-contexts; core flagged `Ratio` serde as a small gated core-side add) — and reify to nothing
-until that lands. Remaining Stage-4 work: the 4a metacircular *orchestrator* north star
-(build + eval a whole sub-program) + `unit` / `context` reify.
+**Axis-A `from_value` completeness landed (12/12 kinds — total).** `EntityDef`/`Program`
+`to_value` ↔ `from_value` now round-trips **every** kind: process / step / composite /
+reaction / function / pattern / type / contract / protocol / unit / context / binding — the
+strong witness is the total identity *quote ∘ reify ∘ quote == quote* over a program touching
+all twelve (`tests/entity_roundtrip_complete.rs`). Along the way `to_value` was made faithful
+where it had been lossy: reaction + function params went from name-only to full params (schema
++ default), reaction `guard` / `rate` were being dropped, and `type` / `contract` / `protocol`
+/ `pattern` / `unit` / `context` weren't fully serialized. `unit`/`context` reify via
+**structural** `Dimension` / `UnitExpr` / `Ratio` / `ContextRule` codecs — all surface AST
+(`ast.rs`), so no core dependency. And the **metacircular orchestrator** north star *runs*
+(`coord/orchestrator.ys`: `load('board.ys').run(1.0)` over our own coordination board) — once
+a path-blind-`parse_program` bug in `load`/`run_from_source` was fixed to `parse_file` (so a
+loaded program's own relative sibling imports resolve). The homoiconic face is closed and
+dogfooded end to end.
 
 ### Evaluation: every name a value, every value composes
 

@@ -80,20 +80,22 @@ a new instantiate op is a NAMED algebra op + laws + tests, not ad-hoc munging.
       instantiate(surface_eval(quote(p)))` is callable. Consumer: `tests/metacircular_node_rung.rs`
       (3 green: runs a built spec to count 5.0; `instantiate(spec-as-data) == run(spec-as-body)`;
       non-map rejected). **4b CLOSED** (no-op, confirmed w/ core: different rungs, nothing to delete).
-- [x] **Axis-A `from_value`-completeness — 10/12 kinds DONE.** `EntityDef`/`Program`
-      `to_value`↔`from_value` now round-trips process/step/composite/reaction/function/pattern/
-      type/contract/protocol/binding (total `quote∘reify∘quote == quote`, `tests/
-      entity_roundtrip_complete.rs`). Made `to_value` faithful (reaction/function params name-only→
-      full; reaction guard/rate were dropped; type/contract/protocol/pattern weren't serialized).
-      Only **unit + context** remain — need a `Dimension`/`UnitExpr`/`Ratio` + `ContextRule` codec
-      (pair w/ core's #71 Ratio-serde). Closes the DATA side of simplify's pattern-definer finding.
-- [ ] **Stage 4 — remaining** (consumer-driven, with `unify`/`core`): (a) the metacircular
-      *orchestrator* north star — a `.ys` program that builds + `instantiate`s a whole sub-program;
-      (b) `unit`/`context` reify (gated on core #71's `Ratio` serde — coordinate the shared
-      `Dimension` codec); (c) cleanups — retire `ReactionType::realize`; settle the pattern-definer
-      EVAL-arm (no `entity.pattern` arm in `eval_term_value` — simplify's finding; the DATA side is
-      now done). NOTE #71 units-in-schema is non-monotone (Schema-enum change) — coordinate the
-      chrysalis match-site batch before it lands.
+- [x] **Axis-A `from_value`-completeness — 12/12 kinds DONE (TOTAL).** `EntityDef`/`Program`
+      `to_value`↔`from_value` round-trips EVERY kind: process/step/composite/reaction/function/
+      pattern/type/contract/protocol/unit/context/binding (total `quote∘reify∘quote == quote`,
+      `tests/entity_roundtrip_complete.rs` over all 12). Made `to_value` faithful (reaction/function
+      params name-only→full; reaction guard/rate were dropped; type/contract/protocol/pattern/unit/
+      context weren't serialized). unit/context use STRUCTURAL codecs (Dimension/UnitExpr/Ratio/
+      ContextRule) — all surface AST in ast.rs, NO core dependency. Closes simplify's pattern-definer
+      DATA side + the lone unit gap in `definer_equals_its_quote_then_eval`.
+- [ ] **Stage 4 — remaining** (consumer-driven, with `unify`/`core`): (a) orchestrator *v2*
+      (richer dashboard / build-channel verdict over `board._entities` — the metacircular north star
+      RUNS now); (b) `ReactionType::realize` retirement — NOT dead code (it is the `:: reaction`
+      typed-slot codec; needs core to confirm every `:: reaction` consumer reads DATA before the
+      DATA→Foreign re-wrap retires — a core-paired call); (c) the pattern-definer EVAL-arm (no
+      `entity.pattern` arm in `eval_term_value` — simplify's finding; the DATA side is done); (d)
+      synth A6 module-factory surface when synth boots. NOTE #71 units-in-schema is non-monotone
+      (Schema-enum change) — coordinate the chrysalis match-site batch before it lands.
 
 ## Coordinate
 `crates/chrysalis` is YOUR crate → monotone, act freely, sync via the board. BUT
@@ -166,14 +168,39 @@ the Stage-3 one-door guard (don't let your N→1 collapse regress).
   `parse_schema_expr`, `Expr::to_value/from_value`) — no core change. Full suite 233 pass. Docs:
   homoiconic-unification gap-3 + chrysalis-design + EntityDef::from_value doc. Only unit + context
   remain (Dimension/UnitExpr/Ratio + ContextRule codec — pair w/ core #71 Ratio-serde).
+- **METACIRCULAR ORCHESTRATOR UNBLOCKED (the WIDE cash-out)** — `coord/orchestrator.ys` (unify's 4a
+  north-star: `load('board.ys')` then `board.run(1.0)` — `run(p) == eval(quote(p))` on our own
+  coordination board) was BROKEN by a real load-path bug: `load_program_as_document` +
+  `run_from_source` (prelude.rs) parsed with PATH-BLIND `parse_program`, so a loaded file's own
+  relative sibling imports (`from .mesh import …`) never resolved (compile rejected `.mesh` as an
+  unknown native module). A program ran fine DIRECTLY but broke when `load`ed. FIX: both use
+  `parse_file(path)` (resolves relative `.ys` imports vs the file dir) + `std_modules_at(ys_root)`
+  for nested loads — what the bin's `run` already did. Orchestrator now RUNS (exit 0). Regression
+  `tests/load_sibling_imports.rs` (value flows through load→run→field). Also hardened `ys_files_run`
+  + `ys_files_roundtrip` to skip `.#`emacs-lock/dotfiles (multi-agent sweep robustness — a transient
+  lock flaked them). Full suite 235 pass. (Took this over synth A6 — synth still paused, orchestrator
+  was here + broken + yours.)
 
-## ✅ RESOLVED (10/12) — Axis-A now uniform across the value/declarative kinds
-The earlier finding ("`from_value` rebuilds only process/step/composite/binding") is **closed for
-10 of 12 kinds** (above). The premise the Stage-4 FLAT/RICH dissolution leans on — definition-as-
-data uniform across kinds — is now TRUE for process/step/composite/reaction/function/pattern/type/
-contract/protocol/binding. Remaining: **unit + context** (each needs a recursive `Dimension`/
-`UnitExpr`/`Ratio` (+`ContextRule`) codec; core flagged Ratio-serde — pair on #71). GROW_DIVIDE's
-proof still uses a non-load-bearing `unit`, now the lone gap there.
+- **`Composite[…]` rich-kind VALUE constructor LANDED (synth A6 Phase 2, lang side)** — the
+  build-a-module-value bracket. `Composite[state:, bridge:, schema:] ~{in} ->{out}` lowers to the
+  composite instance envelope (`{_type:"composite", address:"local:Composite", config:{…args},
+  inputs, outputs}`) — reuses `build_native_spec` + stamps the `composite` kind. So a reactum can
+  author a NEW composite type inline as DATA (#61), instantiated by `discover_processes`. Proven
+  e2e (`tests/composite_constructor.rs`): a `.ys` expr builds a `Composite[…]` with an inner `Tick`,
+  `instantiate`s it (the 4a node rung), inner runs 5 ticks → bridge exports 5.0. Dissolves the
+  FLAT/RICH split further (composite now has a bracket too). GOTCHA: `Composite::from_config` needs
+  the bridge to carry BOTH `inputs`+`outputs` keys (even empty). Handoff: synth wires prism-audio
+  natives (Oscillator as importable) + a runner harness; `Process[…]` generic deferred (native
+  imports cover inner nodes). eval.rs touch was additive, far from simplify's `run_state` region.
+
+## ✅ RESOLVED (12/12, TOTAL) — Axis-A uniform across EVERY entity kind
+The earlier finding ("`from_value` rebuilds only process/step/composite/binding") is **fully
+closed** — all 12 kinds round-trip (process/step/composite/reaction/function/pattern/type/contract/
+protocol/unit/context/binding). The premise the Stage-4 FLAT/RICH dissolution leans on —
+definition-as-data uniform across kinds — is now TRUE, not just honest. unit/context reified via
+STRUCTURAL `Dimension`/`UnitExpr`/`Ratio`/`ContextRule` codecs (surface AST in `ast.rs`, NO core
+dependency — core's flagged Ratio-serde is for the LOWERED Schema path of #71, a different layer).
+GROW_DIVIDE's `unit pg` now round-trips too (the lone remaining gap there, closed).
 - **Build hygiene** — added `[profile.dev]` `debug = "line-tables-only"` + `incremental = false`
   to root `Cargo.toml` (the full 93-binary suite at default `debug = 2` filled the disk). Rule:
   `cargo check -p <crate>` / `cargo test -p <crate> --test <one>` — NEVER bare

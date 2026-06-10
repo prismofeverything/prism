@@ -581,13 +581,14 @@ impl Evaluator {
     /// `Expr → spec data`) to close the metacircular identity
     /// `run(p) = instantiate(surface_eval(quote(p)))`.
     ///
-    /// THIN LAYER (`feedback_chrysalis_thin_layer`): it CALLS prism — `Engine::
-    /// from_state` + `discover_all_processes` (the discover rung) + `run` — never
-    /// clones engine logic. Discovery + instantiation bottom out in the SAME
-    /// `ProtocolRegistry::instantiate` door that `scan_for_processes` /
-    /// `Core::instantiate` / `Core::instantiate_spec` use, so this is one
-    /// instantiate, not a second one (invariant #1). The proven node loop it
-    /// exposes is `crates/prism-bigraph/tests/reaction_creates_process.rs`.
+    /// THIN LAYER + ONE DOOR: it routes through `runner::run_state` — the single
+    /// chrysalis engine-driver (`Engine::from_state` + `discover_all_processes` +
+    /// `run`) that `runner::run` / `run_document` also use — so the surface
+    /// `instantiate` is NOT a second/third engine driver (invariant #3, "no second
+    /// eval"; pinned by `tests/engine_driver_one_door_guard.rs`). Discovery +
+    /// instantiation bottom out in the SAME `ProtocolRegistry::instantiate` door
+    /// `scan_for_processes` / `Core::instantiate` use, never cloning engine logic.
+    /// The proven node loop is `crates/prism-bigraph/tests/reaction_creates_process.rs`.
     ///
     /// It runs against the program's OWN [`Core`] (read through the shared handle,
     /// per the Core-threading rule) — so a `local:Tick` address resolves to this
@@ -609,12 +610,8 @@ impl Evaluator {
                 "instantiate: the runtime Core is not bound yet (no engine context)".into(),
             )
         })?;
-        let mut engine =
-            prism_bigraph::Engine::from_state(prism_schema::Schema::Any, state.clone(), core)
-                .map_err(EvalError::Other)?;
-        engine.discover_all_processes();
-        engine.run(time);
-        Ok(engine.state().clone())
+        crate::runner::run_state(prism_schema::Schema::Any, state.clone(), core, time)
+            .map_err(|e| EvalError::Other(format!("instantiate: {e}")))
     }
 
     /// Evaluate a function body with `params` bound positionally to `args`.
@@ -883,6 +880,19 @@ impl Evaluator {
             // The `Pattern( fragment )` constructor — the value form of the
             // `pattern` definer (a first-class matcher). Same shadow rule as above.
             "Pattern" => self.build_pattern_constructor(args, body, env),
+            // The capitalized `Composite[state: …, bridge: …, schema: …] ~{in} ->{out}`
+            // constructor — the rich-kind VALUE form for building a composite MODULE
+            // inline (synth A6, "the synth writes synths"). Produces the same
+            // instance-spec envelope a DEFINED composite lowers to
+            // (`build_composite_outer`) / a hand-built spec
+            // (`reaction_creates_process`): `{_type:"composite",
+            // address:"local:Composite", config:{…named args…}, inputs, outputs}` — so
+            // `discover_processes` / `Composite::from_config` instantiate it as a
+            // subengine. The named args ARE the Composite factory's config
+            // (`state`/`bridge`/`schema`), supplied as DATA, so a reactum can author a
+            // NEW composite type live (#61). A program entity named `Composite`
+            // shadows this (the `entity` dispatch above), like `BRS`/`Reaction`.
+            "Composite" => self.build_composite_constructor(args, ports, env),
             _ => self.build_plain_map_value(control, args, body, env),
         }
     }
@@ -930,6 +940,26 @@ impl Evaluator {
         spec.insert("inputs".into(), Value::Map(inputs_map));
         spec.insert("outputs".into(), Value::Map(outputs_map));
         Ok(Value::Map(spec))
+    }
+
+    /// Build a composite-module instance spec from inline data — the value form
+    /// of the `composite` definer (the rich-kind constructor; synth A6's
+    /// build-a-module-value bracket). Reuses [`Self::build_native_spec`]'s
+    /// envelope (config = the named args, ports = the outer wiring; `address`
+    /// `local:Composite` is the control name) and stamps the `composite` kind
+    /// hint — matching `build_composite_outer` and a hand-built composite spec.
+    /// See the `"Composite"` dispatch arm in [`Self::eval_term_value`].
+    fn build_composite_constructor(
+        &self,
+        args: &[TermArg],
+        ports: &PortBindings,
+        env: &IndexMap<Name, Value>,
+    ) -> Result<Value, EvalError> {
+        let mut spec = self.build_native_spec(&"Composite".to_string(), args, ports, env)?;
+        if let Value::Map(m) = &mut spec {
+            m.insert(Key::from("_type"), Value::String("composite".into()));
+        }
+        Ok(spec)
     }
 
     /// A protocol-bound control (`protocol StreamingCell = stream<Cell, …>` used as

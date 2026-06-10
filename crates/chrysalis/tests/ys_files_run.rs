@@ -44,6 +44,15 @@ fn all_ys_examples_run_clean() {
         .expect("ys dir")
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("ys"))
+        // Skip dot-prefixed entries — chiefly Emacs lock symlinks
+        // (`.#name.ys`, a dangling link to the lock owner) that appear while a
+        // `.ys` is open in an editor. They carry the `.ys` extension but aren't
+        // real files; in a multi-agent session they would flake this sweep.
+        .filter(|p| {
+            !p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with('.'))
+        })
         .collect();
     entries.sort();
 

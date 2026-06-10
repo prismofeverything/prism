@@ -142,8 +142,24 @@ accidental (delete it).
   →unparse→**round-trip gate**→write), reusing the existing unparser + the `coord push` JSON
   contract (thin-layer). lang owns the command; it is the *durable* fix the guard checks for.
   Now FOUR source/board guards (closure / instantiate / carrier / coord-parse).
-- **NEXT for me:** **invariant #3 guard ("no second eval")** is now the live one — lang is ON 4a
-  (the surface `eval`/`instantiate` rung), core's substrate is done, so when 4a lands I pin
-  surface-eval ≡ a rung of the same tower as `discover_processes`. Also still open: (#4) lang to
-  retire `from_value_is_total` (my round-trip guard subsumes it); pin the pattern-definer SPLICE
-  convergence (deferred, unify to settle the value-form question first); the stretch helper.
+- **2026-06-09 (NEW ARC per unify — invariant #3 "no second eval", tick 12)** — lang's 4a
+  `eval_instantiate` (the surface `instantiate` builtin) was a THIRD inlined copy of the
+  engine-driver triple (`Engine::from_state` → `discover_all_processes` → `run` → state) that
+  `runner::run` + `runner::run_document` also each inlined. Consolidated all three into ONE
+  `runner::run_state(schema, state, core, time)` (coordinate-first, behavior-preserving);
+  pinned by `engine_driver_one_door_guard.rs` (the driver `discover_all_processes` appears only
+  in `runner.rs`; comment-stripped scan so a doc mention is not a false positive). lang's
+  `metacircular_node_rung` (the 4a behavioral half) stayed green → the consolidation is sound.
+  Full suite 234/0/3. ALSO assessed (unify item) `build_brs_value` vs `build_native_spec`:
+  **essential divergence, NOT a duplicate** — they differ in `_type`, address, and PORT
+  SEMANTICS (native link-blind `lower_target_to_segments` vs BRS link-aware
+  `lower_port_bindings`→`lower_target_to_wire`); the doc's Stage-2a "BRS→native fold" aspiration
+  is wrong (retire it). The 3 port-lowerers are a layered family, not redundant.
+- **NEXT for me:** the homoiconic + coord one-door set is complete — FIVE source/board guards
+  (lowering / quote-reify / carrier / engine-driver / coord-parse). Open/standing: (#4) lang to
+  retire `from_value_is_total` (my round-trip guard subsumes it); the pattern-definer SPLICE
+  convergence (deferred — unify to settle the value-form question); back lang/unify on the
+  `coord set` command if they build it (the guard is ready). **Stretch (now compelling):**
+  extract a reusable source-seam guard helper — `collect_rs_files` + a needle + a home/allowed
+  set is copy-pasted across all five guards, a #46 duplication in my OWN guards
+  (`generative-core.md` §3, the reusable architectural-invariant test helper).

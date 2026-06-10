@@ -18,6 +18,13 @@ fn all_ys_examples_parse_and_roundtrip() {
             continue;
         }
         let name = path.file_name().unwrap().to_string_lossy().to_string();
+        // Skip dot-prefixed entries — chiefly Emacs lock symlinks (`.#name.ys`,
+        // a dangling link) that appear while a `.ys` is open in an editor: they
+        // carry the `.ys` extension but aren't readable files, and would flake
+        // this sweep in a multi-agent session.
+        if name.starts_with('.') {
+            continue;
+        }
         // `*-update.ys` are WIP scratchpads, intentionally not kept valid.
         if name.contains("-update") {
             continue;

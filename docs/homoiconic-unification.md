@@ -26,14 +26,18 @@
 > instantiates it, and reaches the same count as running it directly). **4b confirmed a no-op**
 > (`core` + `lang`: `meta::eval`/`load` and the engine rung are genuinely different rungs —
 > `Expr→data` vs `data→running`, parse+compile vs engine-build — no duplication to delete).
-> **Axis-A `from_value`-completeness LANDED (`lang`, 10/12 kinds):** `EntityDef`/`Program`
-> `from_value` now reconstructs process/step/composite/reaction/function/pattern/type/contract/
-> protocol/binding — the *quote ∘ reify ∘ quote == quote* total round-trip holds over a program
-> touching all ten (`tests/entity_roundtrip_complete.rs`). Reaction `guard`/`rate`/typed-params,
-> a `type`'s methods, and schemaless function params all survive. Only **`unit` + `context`**
-> remain (each needs a `Dimension`/`UnitExpr`/`Ratio` codec — core flagged Ratio-serde as a gated
-> core add). **Remaining:** the 4a metacircular *orchestrator* north star (consumer-driven);
-> `unit`/`context` reify; cleanups (retire `ReactionType::realize`). See §4 + "Constructor face".
+> **Axis-A `from_value`-completeness COMPLETE (`lang`, 12/12 kinds):** `EntityDef`/`Program`
+> `from_value` now reconstructs **every** entity kind — process/step/composite/reaction/function/
+> pattern/type/contract/protocol/unit/context/binding — and the *quote ∘ reify ∘ quote == quote*
+> total round-trip holds over a program touching all twelve (`tests/entity_roundtrip_complete.rs`).
+> Reaction `guard`/`rate`/typed-params, a `type`'s methods, schemaless function params, and a
+> `unit`'s `Dimension`/`UnitExpr`/`Ratio` + a `context`'s rules all survive. `unit`/`context` use
+> **structural codecs** (all surface AST in `ast.rs`, no core dependency — the `Ratio`-serde core
+> flagged is for the *lowered* Schema path of #71, not this surface one). The
+> "definition-as-data is uniform across every kind" premise is now **fully true**, and the
+> 4a-orchestrator metacircular north star **runs** (see §4). **Remaining:** the orchestrator
+> *v2* (richer dashboard / build-verdict, consumer-driven); cleanups (`ReactionType::realize`
+> is the `:: reaction` typed-slot codec, not dead — a core-paired call). See §4 + "Constructor face".
 
 ## 1. The diagnosis — the vision vs. the code (2026-06-09 survey)
 
@@ -250,19 +254,19 @@ Stage-2 reaction exception surfacing in the constructor**, and must be framed as
    process/step/composite — so a program's trailing `main` (a `Def::Binding` holding the initial
    state) was **LOST through quote** (the reified program ran with no cells). Binding round-trip
    now fixed. The proof discipline earned its keep.
-3. **Axis-A reify completeness** (✅ SUBSTANTIALLY DONE, `lang`, 2026-06-09 — 10/12 kinds).
-   `EntityDef`/`Program` `from_value` now reconstruct **process/step/composite/reaction/function/
-   pattern/type/contract/protocol/binding**, and `to_value` was made faithful where it was lossy
-   (reaction/function params went name-only → full params; reaction `guard`/`rate` were dropped;
-   `type`/`contract`/`protocol`/`pattern` weren't serialized at all). The total round-trip
-   *quote ∘ reify ∘ quote == quote* now holds over a program touching all ten
-   (`tests/entity_roundtrip_complete.rs`) — so the "definition-as-data uniform across every kind"
-   premise the Stage-4 dissolution leans on is **true for these ten**. The two remaining kinds —
-   **`unit`** (needs a `Dimension`/`UnitExpr`/`Ratio` codec; core flagged Ratio-serde) and
-   **`context`** (needs a `ContextRule` codec) — emit a slot-name marker only and reify to nothing;
-   they expand in `EntityDef::from_value` when their sub-type codec lands. *(The reaction-as-DATA
-   dissolution rides the total `Expr::from_value` / `ReactionRule::from_data_value` paths, so it was
-   never blocked; this pass makes the broad Axis-A claim honest.)*
+3. **Axis-A reify completeness** (✅ DONE, `lang`, 2026-06-09 — **12/12 kinds, total**).
+   `EntityDef`/`Program` `from_value` now reconstruct **every** kind — process/step/composite/
+   reaction/function/pattern/type/contract/protocol/unit/context/binding — and `to_value` was made
+   faithful where it was lossy (reaction/function params went name-only → full params; reaction
+   `guard`/`rate` were dropped; type/contract/protocol/pattern/unit/context weren't fully
+   serialized). The total round-trip *quote ∘ reify ∘ quote == quote* now holds over a program
+   touching all twelve (`tests/entity_roundtrip_complete.rs`), so the "definition-as-data uniform
+   across every kind" premise the Stage-4 dissolution leans on is **fully true**. `unit`/`context`
+   reify via **structural** `Dimension`/`UnitExpr`/`Ratio`/`ContextRule` codecs — all surface AST in
+   `ast.rs`, so no core dependency (the `Ratio`-serde core flagged is for the *lowered* Schema path
+   of #71, a different layer). *(The reaction-as-DATA dissolution always rode the total
+   `Expr::from_value` / `ReactionRule::from_data_value` paths; this pass makes the broad Axis-A
+   claim true, not just honest.)*
 
 ### Stage 3 — the one-door guard · `simplify`
 - A build-failing test: **"exactly one function instantiates an entity spec"** — the

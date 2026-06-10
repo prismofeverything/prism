@@ -14,6 +14,7 @@
 
 pub mod device;
 pub mod envelope;
+pub mod factory;
 pub mod lowpass;
 pub mod oscillator;
 pub mod patch;
@@ -29,6 +30,7 @@ pub use device::interleave;
 #[cfg(feature = "realtime")]
 pub use device::{run_realtime, RealtimeOpts};
 pub use envelope::Envelope;
+pub use factory::{stack_factory, stack_voice_node, StackRecipe};
 pub use lowpass::LowPass;
 pub use oscillator::Oscillator;
 pub use patch::{module_node, register_audio, render_patch, wire_map};

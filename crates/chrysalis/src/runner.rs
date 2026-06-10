@@ -32,6 +32,22 @@ pub enum RunError {
     Invoke(String),
 }
 
+/// Drive an engine from a spec-bearing STATE for `time`, returning the evolved
+/// state — the ONE one-shot engine driver (`Engine::from_state` → discover →
+/// `run` → `state`). `run` (a compiled program), `run_document` (a Document), and
+/// the surface `instantiate` builtin (`eval.rs`, the Stage-4a node rung) ALL route
+/// through here, so "bring a spec to life and run it" is one door, not a re-inlined
+/// second/third path (homoiconic-unification invariant #3, pinned by
+/// `tests/engine_driver_one_door_guard.rs`). The streaming/sampling runner is the
+/// other run mode (it holds the engine and ticks repeatedly); both live in THIS
+/// module — engine-driving never leaks into the evaluator or the prelude.
+pub fn run_state(schema: Schema, state: Value, core: Core, time: f64) -> Result<Value, RunError> {
+    let mut engine = Engine::from_state(schema, state, core).map_err(RunError::Engine)?;
+    engine.discover_all_processes();
+    engine.run(time);
+    Ok(engine.state().clone())
+}
+
 /// Compile `program` against the host's native packages (`registry` process
 /// factories, `methods` value-methods, `modules` importable native modules) and
 /// run it for `time`, returning the final engine state. The program's own
@@ -44,15 +60,12 @@ pub fn run(
     time: f64,
 ) -> Result<Value, RunError> {
     let result = compile_with_modules(program, registry, methods, modules)?;
-    let mut engine = Engine::from_state(
+    run_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
         result.core.clone(),
+        time,
     )
-    .map_err(RunError::Engine)?;
-    engine.discover_all_processes();
-    engine.run(time);
-    Ok(engine.state().clone())
 }
 
 /// Render a compiled program as a process-bigraph [`Document`] — the schema
@@ -87,11 +100,7 @@ pub fn run_document(doc: &Document, core: Core, time: f64) -> Result<Value, RunE
         .as_ref()
         .and_then(value_to_schema)
         .unwrap_or(Schema::Any);
-    let mut engine =
-        Engine::from_state(schema, doc.state.clone(), core).map_err(RunError::Engine)?;
-    engine.discover_all_processes();
-    engine.run(time);
-    Ok(engine.state().clone())
+    run_state(schema, doc.state.clone(), core, time)
 }
 
 // ── Compositional invocation (decision #24) ─────────────────────────────────
