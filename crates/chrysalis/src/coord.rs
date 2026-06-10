@@ -92,15 +92,182 @@ pub fn pull(port: u16) -> Result<(), String> {
 /// ```
 pub fn set(peer: &str, assignments: &[(String, String)]) -> Result<(), String> {
     let path = format!("coord/{peer}.ys");
-    let src = std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
+    // CREATE-ON-BOOT: a missing heartbeat is synthesized from the canonical skeleton
+    // (DATA → gated by `set_in_source` below), so an agent's FIRST `coord set` makes it
+    // live on the board — "boot into the heartbeat" is one command, never a hand-made file.
+    let (src, created) = match std::fs::read_to_string(&path) {
+        Ok(s) => (s, false),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (skeleton(peer), true),
+        Err(e) => return Err(format!("read {path}: {e}")),
+    };
     let (rendered, bumped) = set_in_source(&src, peer, assignments)?;
     std::fs::write(&path, &rendered).map_err(|e| format!("write {path}: {e}"))?;
+    // Wire the peer into the aggregated board (idempotent — a no-op if already joined).
+    let joined = join_board(peer)?;
     println!(
-        "coord set: {path} updated ({} field(s){})",
+        "coord set: {path} {} ({} field(s){}{})",
+        if created {
+            "CREATED — you are live on the board"
+        } else {
+            "updated"
+        },
         assignments.len(),
-        if bumped { ", tick bumped" } else { "" }
+        if bumped { ", tick bumped" } else { "" },
+        if joined { ", joined coord/board.ys" } else { "" },
     );
     Ok(())
+}
+
+/// The canonical skeleton heartbeat for a freshly-booting peer — a `def <peer> = { … }`
+/// record of the standard fields at their defaults, plus a `#` banner. Passed through
+/// `set_in_source` (which gates it), so a malformed skeleton would abort, not corrupt.
+fn skeleton(peer: &str) -> String {
+    format!(
+        "# coord/{peer}.ys — the `{peer}` peer's LIVE heartbeat (created by `chrysalis coord set`;\n\
+         # rebuilt from coord/{peer}.next on boot). Edit ONLY via `chrysalis coord set {peer} …`,\n\
+         # NEVER by hand: the serializer escapes data, so a stray brace/quote cannot wedge the\n\
+         # board. coord/board.ys MERGES every peer through the mesh link.\n\
+         def {peer} = {{ task: 'booting — see coord/{peer}.next', touching: [], status: '', note: '', build: {{ state: 'idle', layer: '', green_tick: 0, cmd: '', note: '' }}, tick: 0 }}\n"
+    )
+}
+
+/// Ensure `coord/board.ys` imports + merges `peer` (idempotent — a no-op if already
+/// present, so every `set` self-heals the board). The board aggregates every peer
+/// through its `mesh` link, so a freshly created heartbeat must be wired in to appear
+/// in the rendered board. The edit is a programmatic text splice GUARDED by the parse
+/// gate (re-parse or ABORT — the board only ever goes good → good), so it is board-safe
+/// even though it splices text. No board file (the live-socket-only form) ⇒ a no-op.
+fn join_board(peer: &str) -> Result<bool, String> {
+    let path = "coord/board.ys";
+    let src = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(format!("read {path}: {e}")),
+    };
+    match join_board_in_source(&src, peer)? {
+        Some(rendered) => {
+            std::fs::write(path, &rendered).map_err(|e| format!("write {path}: {e}"))?;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
+/// The pure core of [`join_board`] — no file I/O, so it is unit-testable. Returns
+/// `Some(new_source)` if `peer` was wired in (the import + the mesh-link merge entry),
+/// or `None` if it was already present (idempotent). The **parse gate** lives here: a
+/// returned `Some` is GUARANTEED to re-parse, so the caller can never write a broken
+/// board. The splice is textual but gate-protected — board-safe (good → good).
+pub fn join_board_in_source(src: &str, peer: &str) -> Result<Option<String>, String> {
+    let import = format!("from .{peer} import {peer}");
+    let merge_entry = format!("{peer}: {peer}");
+    let has_import = src.lines().any(|l| l.trim() == import);
+    let has_merge = src.contains(&merge_entry);
+    if has_import && has_merge {
+        return Ok(None);
+    }
+
+    let trailing_nl = src.ends_with('\n');
+    let mut lines: Vec<String> = src.lines().map(String::from).collect();
+    if !has_import {
+        let pos = lines
+            .iter()
+            .rposition(|l| l.trim_start().starts_with("from ."))
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        lines.insert(pos, import);
+    }
+    let mut rendered = lines.join("\n");
+    if trailing_nl {
+        rendered.push('\n');
+    }
+    if !has_merge {
+        // Splice `<peer>: <peer>,` just inside the mesh link Record's opening brace.
+        let anchor = "mesh = {";
+        let at = rendered
+            .find(anchor)
+            .ok_or_else(|| format!("could not find the `{anchor}` link Record to join"))?
+            + anchor.len();
+        rendered.insert_str(at, &format!(" {merge_entry},"));
+    }
+    // GATE — the board only ever goes good → good; a bad splice aborts (nothing written).
+    crate::parse::parse_program(&rendered).map_err(|e| {
+        format!("join_board ABORTED (nothing written): board.ys would not re-parse — {e}")
+    })?;
+    Ok(Some(rendered))
+}
+
+/// Parse a `coord set` value string into an `Expr` DATA literal. A JSON array/object
+/// (`[…]` / `{…}`) becomes structured data (lists, nested records); a bare integer
+/// becomes `Int`; anything else is a `String` literal (the unparser escapes it). If a
+/// `[`/`{` value is NOT valid JSON it falls back to a string (so a `status='{busy}'`
+/// stays a safe escaped string, never an error). The round-trip gate in
+/// [`set_in_source`] guarantees the result is safely encodable regardless.
+fn value_to_expr(raw: &str) -> Result<crate::ast::Expr, String> {
+    use crate::ast::{Expr, StringLit};
+    let trimmed = raw.trim_start();
+    if trimmed.starts_with('[') || trimmed.starts_with('{') {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(raw) {
+            if json.is_array() || json.is_object() {
+                return data_value_to_expr(&json_to_value(&json))
+                    .map_err(|e| format!("value `{raw}` is not representable as `.ys` data: {e}"));
+            }
+        }
+        // Looked structured but is not valid JSON array/object — treat as a plain
+        // string (the unparser escapes the braces, so the board stays safe).
+    }
+    Ok(match raw.parse::<i64>() {
+        Ok(n) => Expr::Int(n),
+        Err(_) => Expr::Str(StringLit::plain(raw)),
+    })
+}
+
+/// Lift a DATA [`Value`] into an `Expr` LITERAL (structural). This is NOT
+/// `Expr::from_value` — that reifies a *quoted AST* (a Map-encoded `Expr`), whereas
+/// this turns ordinary data (a JSON list / record) into the literal that denotes it.
+/// JSON yields only None/Bool/Int/Float/String/List/Map, so those are total here.
+fn data_value_to_expr(v: &Value) -> Result<crate::ast::Expr, String> {
+    use crate::ast::{Expr, StringLit};
+    Ok(match v {
+        Value::Bool(b) => Expr::Bool(*b),
+        Value::Int(n) => Expr::Int(*n),
+        Value::Float(f) => Expr::Float(f.0),
+        Value::String(s) => Expr::Str(StringLit::plain(s)),
+        Value::List(items) => Expr::List(
+            items
+                .iter()
+                .map(data_value_to_expr)
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        Value::Map(entries) => Expr::Map(
+            entries
+                .iter()
+                .map(|(k, val)| Ok((StringLit::plain(k.as_str()), data_value_to_expr(val)?)))
+                .collect::<Result<Vec<_>, String>>()?,
+        ),
+        other => return Err(format!("cannot represent {other:?} as `.ys` data")),
+    })
+}
+
+/// Set `value` at a DOTTED PATH in a record, creating intermediate Records as needed.
+/// `["build","state"]` descends into `build`'s Record (making it if absent / not a
+/// record) and sets `state`. A single-segment path is a plain top-level insert.
+fn set_path(record: &mut IndexMap<String, crate::ast::Expr>, path: &[&str], value: crate::ast::Expr) {
+    use crate::ast::Expr;
+    let (head, rest) = path.split_first().expect("coord set: empty field path");
+    if rest.is_empty() {
+        record.insert((*head).to_string(), value);
+        return;
+    }
+    let child = record
+        .entry((*head).to_string())
+        .or_insert_with(|| Expr::Record(IndexMap::new()));
+    if !matches!(child, Expr::Record(_)) {
+        *child = Expr::Record(IndexMap::new());
+    }
+    if let Expr::Record(inner) = child {
+        set_path(inner, rest, value);
+    }
 }
 
 /// The pure core of [`set`] — no file I/O, so it is unit-testable. Returns the new
@@ -112,7 +279,7 @@ pub fn set_in_source(
     peer: &str,
     assignments: &[(String, String)],
 ) -> Result<(String, bool), String> {
-    use crate::ast::{Def, Expr, StringLit};
+    use crate::ast::{Def, Expr};
 
     let mut program =
         crate::parse::parse_program(src).map_err(|e| format!("parse heartbeat: {e}"))?;
@@ -130,19 +297,18 @@ pub fn set_in_source(
         })
         .ok_or_else(|| format!("no `def {peer} = {{ … }}` record binding in the heartbeat"))?;
 
-    // Apply each field=value. A bare integer becomes an `Int` (so `tick=16` stays
-    // numeric); everything else is a `String` literal — the unparser escapes it, so
-    // the author never hand-writes `.ys` syntax (the whole point).
+    // Apply each field=value FROM DATA. `field` may be a DOTTED PATH (`build.state`)
+    // — descend / create nested Records. `value` parses as a JSON array/object
+    // (`touching=["a","b"]`) → structured data; else a bare integer (`tick=16`) → Int;
+    // else a String literal — the unparser escapes every value, so the author never
+    // hand-writes `.ys` syntax and a `{` / `'` can never reach the board (the point).
     let mut set_tick = false;
     for (field, raw) in assignments {
-        if field == "tick" {
+        let segments: Vec<&str> = field.split('.').collect();
+        if segments.as_slice() == ["tick"] {
             set_tick = true;
         }
-        let expr = match raw.parse::<i64>() {
-            Ok(n) => Expr::Int(n),
-            Err(_) => Expr::Str(StringLit::plain(raw.as_str())),
-        };
-        record.insert(field.clone(), expr);
+        set_path(record, &segments, value_to_expr(raw)?);
     }
 
     // Auto-bump the monotone `tick` counter unless it was set explicitly.

@@ -4,10 +4,25 @@
 # through the mesh link — communication ACROSS THE LINK, no write races.
 # (Prose avoids curly braces (interpolation) and lone apostrophes (need doubling).)
 def unify = {
-  task: 'Slotted a NEW lang task: .ys CORPUS HEALTH — the human flagged a real test-reality drift (tests are green because ys_files_run only smoke-tests no-crash, never checks output). Wrote the spec: docs/ys-corpus-health.md. (The specific files the human saw were a STALE PATH binary from May 28 — not real breakage — but the coverage gap is real and worth fixing.)',
-  touching: ['docs/ys-corpus-health.md (NEW — the lang task spec)', 'coord/unify.next (queued the task in the NOW marker)', 'coord/unify.ys (mine; tick 20)'],
-  status: 'THE GAP: ys_files_run runs every .ys at --time 1 and asserts only no-crash; 15/50 files carry an Expected: golden that NOTHING checks; the keys-only run display hides whether a demo produced the right result — so a stub / aspirational / silently-broken demo passes. FIX: chrysalis run --json (small, reuses emit_json — ALSO fixes the keys-only board view), then make the Expected: golden executable (smoke to behavioral), then backfill the ~35/50 + an aspirational marker.',
-  note: 'lang — NEW TASK (spec: docs/ys-corpus-health.md; folds into #14 diagnostics / the dependability trio #67a). NOT urgent vs A6 but high-value + small to start. SEQUENCE: (1) chrysalis run --json — dump the full final state as JSON, not just the keys (emit_json already exists at cli.rs 343; the script path at 358 prints keys) — tiny, and it independently unblocks the converged-board / orchestrator view the keys-only display blocks; (2) the golden harness — run each demo per its Run/Expected header with --json + diff, failing on mismatch (convert ys_files_run from no-crash to correct-output); (3) backfill the ~35/50 goldens + a STATUS-aspirational marker + list for demos blocked on a future feature (the SKIP pattern, for runs-but-incomplete-by-design). This hardens WHAT the tests prove; the build-coordination work hardened how FAST we test. unify stewards the spec.',
-  build: { state: 'idle', layer: 'docs+coord (not in the compile DAG)', green_tick: 0, cmd: 'n/a — unify edits docs and coord, does not compile code', note: 'TEMPLATE for the build channel. The .ys-corpus-health task is lang-owned, post-A6; chrysalis run --json (its first slice) is tiny and also fixes the keys-only board/orchestrator view.' },
-  tick: 20
+  task: 'TWO things landed on the human ask. (1) pkg deep-dive CONVERGED: identity = the librarian of theories (builds the CATEGORY theories live in); soul = theory-composition (Phases 1-2); semantics BINDING (Core::merge = an idempotent join-semilattice reusing mesh_safety; resolution = a colimit over the dep DAG; semver = a compatibility functor). Folded into pkg.next + packages-ecosystem.md + unify.next. (2) Hardened the coord board protocol.',
+  touching: [
+    'crates/chrysalis/src/coord.rs',
+    'crates/chrysalis/src/bin/chrysalis.rs',
+    'crates/chrysalis/tests/coord_set.rs',
+    'crates/chrysalis/tests/coord_heartbeats_parse.rs',
+    'coord/ROSTER.md',
+    'coord/pkg.next',
+    'coord/unify.next',
+    'docs/packages-ecosystem.md',
+  ],
+  status: 'coord set is now the ONE board door: CREATE-on-boot (first set makes you live + joins board.ys) + NESTED/LIST totality + the every-heartbeat-processable guard. THIS heartbeat was written BY the new total command — nested build.* + the touching list below are the capability that was missing.',
+  note: 'Mandate is in ROSTER + the memory. board-join = a gated text splice (pure-core join_board_in_source, unit-tested). OPEN for the human: want HARDER enforcement (a pre-commit hook rejecting a non-canonical coord/*.ys), or is the CI guard + mandate enough?',
+  build: {
+    state: 'green',
+    layer: 'chrysalis coord (SHARED seam: coord.rs + cli.rs)',
+    green_tick: 1,
+    cmd: 'cargo test -p chrysalis --test suite',
+    note: 'coord set hardened: create-on-boot + nested/list-total + the processability guard. Full chrysalis suite 252 pass / 0 fail. lang/simplify/mesh: pull + rebuild; edit heartbeats via chrysalis coord set ONLY.'
+  },
+  tick: 22
 }

@@ -26,6 +26,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use chrysalis::ast::{Def, Expr, StringLit, StringSeg};
+use chrysalis::coord::set_in_source;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -198,5 +199,56 @@ fn the_guard_detects_the_failure_modes_it_pins() {
     assert!(
         !expr_interpolates(clean_val),
         "expr_interpolates flagged a brace-free heartbeat — false positive"
+    );
+}
+
+#[test]
+fn every_heartbeat_is_coord_set_processable() {
+    // ENFORCEMENT — the mechanical backing for "edit the board ONLY via `chrysalis coord
+    // set`". Every peer heartbeat must round-trip through the codec: `set_in_source` with
+    // NO assignments parses it, re-serializes from DATA, and passes the round-trip gate.
+    // If this holds for every heartbeat AND the command is total (nested + lists, see
+    // coord_set.rs), then no agent is ever FORCED to hand-edit — so the mandate is HONEST,
+    // not aspirational. A heartbeat the codec cannot reproduce is exactly the one that
+    // invites a hand-edit (and the next board wedge).
+    let root = repo_root();
+    let coord = root.join("coord");
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&coord)
+        .expect("coord dir")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("ys"))
+        .collect();
+    files.sort();
+
+    let mut checked = 0;
+    let mut failures = Vec::new();
+    for path in &files {
+        let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+        let text = std::fs::read_to_string(path).expect("read heartbeat");
+        // Peer HEARTBEATS only (a `def <stem> = { … }` record). board.ys / orchestrator.ys
+        // are composites / programs, not heartbeats — the live-socket form needs neither.
+        let is_heartbeat = chrysalis::parse::parse_program(&text)
+            .ok()
+            .map(|p| {
+                p.defs.iter().any(|d| {
+                    matches!(d, Def::Binding { name, value: Expr::Record(_), .. } if name.as_str() == stem)
+                })
+            })
+            .unwrap_or(false);
+        if !is_heartbeat {
+            continue;
+        }
+        checked += 1;
+        if let Err(e) = set_in_source(&text, &stem, &[]) {
+            failures.push(format!("  - coord/{stem}.ys: the codec cannot reproduce it — {e}"));
+        }
+    }
+    assert!(checked > 0, "no peer heartbeats found under {}", coord.display());
+    assert!(
+        failures.is_empty(),
+        "heartbeat(s) are NOT coord-set-processable — they invite a hand-edit (the next board \
+         wedge). Recreate them via `chrysalis coord set <peer> …`:\n{}\n\n{}",
+        failures.join("\n"),
+        HINT,
     );
 }

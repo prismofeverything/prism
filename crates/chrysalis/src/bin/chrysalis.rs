@@ -295,7 +295,10 @@ fn cmd_server(args: &[String]) {
 /// dogfood). `serve` hosts the board as one `map[any]` mesh link; `push` merges a
 /// peer's key over the socket (per-source, no collision); `pull` prints the
 /// converged board; `set <peer> field=value …` updates a peer's durable heartbeat
-/// FILE from data (serialize + round-trip gate — no hand-typed braces/quotes).
+/// FILE from data (serialize + round-trip gate — no hand-typed braces/quotes). `set`
+/// is the ONE board door: it CREATES the heartbeat on first use (boot into the board
+/// in one command) + joins coord/board.ys; a field may be a dotted path
+/// (`build.state=green`) and a value may be a JSON list (`touching=["a","b"]`).
 fn cmd_coord(args: &[String]) {
     // Pull out `--port P`; the rest are positional (sub [peer] [json]).
     let mut port = chrysalis::coord::DEFAULT_PORT;

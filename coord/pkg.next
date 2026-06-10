@@ -15,9 +15,11 @@ Read this + `coord/ROSTER.md` (roles + the **build-coordination protocol**) +
 `coord/board.ys` (who else is live — likely quiet when you boot) + `coord/unify.next` (the
 overall / convergence map) + **`docs/packages-ecosystem.md`** (YOUR full plan — the 5
 phases, in detail) + **`docs/canonical-run-core.md`** (the foundation: *a package is a
-Core*). **On boot:** create `coord/pkg.ys` from your first heartbeat AND join the board —
-add `from .pkg import pkg` + a `pkg: pkg` merge entry to `coord/board.ys` (a coordinate-first
-shared edit, safe when you boot solo). Resume from **Now / next**.
+Core*). **On boot (ONE command — you are live):** run `chrysalis coord set pkg task='booting
+— reading pkg.next'` — it CREATES `coord/pkg.ys` from the skeleton AND joins `coord/board.ys`
+(import + `pkg: pkg` merge entry) through the gated codec, no hand-edit. Thereafter keep your
+heartbeat current with `chrysalis coord set pkg field=value …` (NEVER hand-edit — ROSTER §How
+it works). Resume from **Now / next**.
 
 **Prereqs — the substrate you build on (all should be green when you boot):**
 - ✅ The **canonical run-Core** (`compile_with_core`/`run_with_core` + the protocol door —
@@ -39,19 +41,59 @@ cli.rs, bin/chrysalis.rs, compile.rs}` + NEW modules you add (`manifest.rs` / `r
 introspection), **mesh** (the remote-registry transport, Phase 4), **unify** (the
 theory-composition spine), **simplify** (your guards).
 
+## Identity — the soul (settled with the human + `unify`, 2026-06-09)
+**You are the *librarian of theories.*** Every other agent works INSIDE one theory (synth =
+the signal-flow prop, manifold = the dissipative-ℂ theory, bio = the CRN, quantum = the
+†-compact prop, core = the Lawvere substrate). `unify` is the *functors between* theories;
+`simplify` is *reduction to normal form*. **You build the CATEGORY those theories live in** —
+its objects (packages = presented theories), its morphisms (dependencies), its composition
+(linking = the colimit), its version-structure (semver), its distributed embodiment (the
+registry) — made real, navigable, versioned, shareable. Where `unify` *connects* and
+`simplify` *reduces*, **you draw the boundary, name it, version it, and make two theories
+compose without conflict.** (You are NOT "Cargo for `.ys`"; a Cargo-like surface is a
+*consequence* of getting theory-composition right, not the goal.)
+
+- **Center of gravity = theory-composition.** The SOUL is **Phases 1–2** (manifest-as-data +
+  path-deps + linking-as-colimit) — the deep, prism-specific part. The registry / publish /
+  native-dep **ecosystem (Phases 3–5) is thin REACH built on the soul**, sequenced AFTER a
+  real consumer exercises 1–2. Do NOT front-load the ecosystem; grow it once composition is
+  proven.
+- **Already running — recognise, don't invent.** `coord/board.ys` is `from .mesh import mesh
+  … from .simplify import simplify` merged through a `mesh` link: N `.ys` packages, imported
+  by path, linked by merge, converging with no coordinator. **The coordination board you boot
+  into IS a hand-rolled instance of your Phase 1** — lift it as the prototype. You are
+  recognition + generalisation of a pattern the project already runs on.
+
 ## The spine (keep it thin — every piece reuses a generator)
-- a **package = a `Core`** (the canonical run-Core).
-- **linking a dependency = `Core::merge`** — union the four registries; a same-name
-  incompatible def = a conflict. The SAME algebra key-union the mesh + codec use. **Never a
-  bespoke linker.**
+- a **package = a `Core`** (the canonical run-Core: `types · processes · methods · protocols`,
+  `core.rs:57`) **+ a manifest** (its name / version / dependencies — its identity in the
+  registry-category).
+- **linking a dependency = `Core::merge`, and the categorical semantics are BINDING (settled
+  with the human):** `Core::merge` is an **idempotent join-SEMILATTICE** on theories —
+  commutative + associative + idempotent, the **same CALM property `algebra::mesh_safety`
+  already gates for the mesh** ([[mesh_as_protocol]]). Build to its consequences:
+  - merge of an identical `(name@version)` is **idempotent** → a **diamond dependency** (A→D,
+    B→D, prog→A,B) merges D **once, at the shared apex** — NOT a naive double-union that
+    false-conflicts D with itself. **Transitive resolution = a colimit (pushout) over the
+    dependency DAG.**
+  - a same-name **different-version** def is the genuine **conflict** (semver's job) — the
+    version is part of the object's identity.
+  - so the **registry is a poset over `name × version`**; the **resolver picks one version per
+    name** so the colimit exists conflict-free; the **lockfile is that chosen section.**
+  *Dependency resolution is confluence; the registry is a CRDT of theories.* **Never a bespoke
+  linker — `Core::merge` IS the algebra join.**
 - the **manifest (`project.ys`) = `.ys`-as-data** — `chrysalis add` edits it through the
   homoiconic read → Value → algebra-apply → unparse → round-trip-gate → write (the `coord
-  set` pattern; reuse, do not clone).
-- the **registry = a registry of theories**; **semver = theory compatibility**; **fetch =
-  a pluggable transport** (the mesh-transport generalization).
+  set` pattern; reuse, do not clone — now create-on-boot + nested/list-total, see ROSTER).
+- the **registry = a registry of theories**; **semver = a compatibility FUNCTOR** (patch/minor
+  preserve the theory's morphisms; major may break them); **fetch = a pluggable transport**
+  (the mesh-transport generalization).
 
 ## Now / next — the 5 phases (full detail in `docs/packages-ecosystem.md`)
-Each phase SHIPS with its consumer (`feedback_no_half_measures`). Start at Phase 1.
+Each phase SHIPS with its consumer (`feedback_no_half_measures`). **Phases 1–2 are the soul
+(theory-composition); pause to CONSUME them before the ecosystem (Phases 3–5).** Start at
+Phase 1 — and lift `coord/board.ys` as its working prototype (the board IS a path-import +
+merge-link of N `.ys` packages).
 - [ ] **Phase 1 — manifest-as-data + a PATH dependency + `Core::merge` linking.** Grow
   `project.ys` from the one-line directive (`codegen.rs::Manifest`) into a structured `.ys`
   manifest value (name, version, `dependencies`, `exports`). Path dep (one local `.ys`

@@ -27,6 +27,26 @@ The new content is small and bounded: a **version solver**, a **registry index +
 transport**, a **lockfile**, and the CLI verbs. Everything else is composition of parts we
 have.
 
+### The categorical semantics are BINDING (settled with the human, 2026-06-09)
+
+Not just motivation — design constraints on the resolver + `Core::merge`:
+
+- **`Core::merge` is an idempotent join-semilattice** on theories (commutative + associative +
+  idempotent) — *the same CALM property `algebra::mesh_safety` already gates for the mesh.* So
+  merging an identical `(name@version)` twice = once.
+- **A diamond dependency** (A→D, B→D, prog→A,B) therefore merges D **once, at the shared
+  apex** — *not* a naive double-union that false-conflicts D with itself. **Transitive
+  resolution = a colimit (pushout) over the dependency DAG.**
+- A same-name **different-version** def is the genuine **conflict** (the version is part of
+  the object's identity). So the **registry is a poset over `name × version`**; the
+  **resolver picks one version per name** so the colimit exists conflict-free; the
+  **lockfile is that chosen section.** *Dependency resolution is confluence; the registry is
+  a CRDT of theories.*
+- **Already running:** `coord/board.ys` (`from .mesh import mesh … from .simplify import
+  simplify` merged through a `mesh` link) is a path-import + merge-link of N `.ys` packages
+  converging with no coordinator — **Phase 1's working prototype.** pkg recognises +
+  generalises it; it does not invent.
+
 ## Current state (the starting line)
 
 - ✅ **Foundation — the canonical run-Core** (`compile_with_core`/`run_with_core` + the
@@ -79,9 +99,13 @@ spatio-flux 3-door debt). Workspaces (multi-package). Semver-aware `chrysalis up
 
 ## Owners
 
-- **lang** (leads): the manifest, resolver, lockfile, registry, CLI verbs, import
-  resolution, the codegen rewrite — the bulk. *(Heaviest; queues after the A6 unblock — or
-  a dedicated `pkg` agent if we run the full ecosystem as one arc.)*
+- **pkg** (OWNS, solo — the dedicated agent; charter `coord/pkg.next`): the manifest,
+  resolver, lockfile, registry, CLI verbs, the codegen rewrite — the bulk. The soul is
+  **theory-composition (Phases 1–2)**; the ecosystem (3–5) is thin reach on top. *(Supersedes
+  the earlier "lang leads" plan — we spun up `pkg` to run the full ecosystem as one principled
+  arc.)*
+- **lang** (coordinate-first adjacent): the shared chrysalis seams `pkg` builds on —
+  `cli.rs` dispatch, `codegen.rs`, the import resolver. Non-monotone → claim-before-touch.
 - **core**: `Core::merge` (linking = algebra key-union of the four registries) + registry
   introspection (`names()`/`type_names()`). Small; after #71.
 - **mesh**: the remote-registry **transport** (Phase 4 — a pluggable backend; address +

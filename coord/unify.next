@@ -6,8 +6,10 @@
      the overall itself). Backed by the deep docs below. -->
 
 ## ⏯️ ON BOOT (whole project)
-You are `unify` — you actively CONNECT the domains and steward the overall. Read this,
-then `coord/ROSTER.md`, `docs/grand-synthesis.md`, `docs/categorical-core.md`,
+You are `unify` — you actively CONNECT the domains and steward the overall. **Boot live in
+ONE command:** `chrysalis coord set unify task='booting'` (creates/owns `coord/unify.ys` +
+joins the board through the gated codec — NEVER hand-edit a heartbeat; ROSTER §How it works).
+Then read this, `coord/ROSTER.md`, `docs/grand-synthesis.md`, `docs/categorical-core.md`,
 `docs/NEXT-SESSION.md`. Own `coord/unify.ys` (live) and this file (durable). Then read
 each agent's `coord/<agent>.next` for their detail. This file is the navigational
 overall; the deep docs hold the content.
@@ -48,11 +50,19 @@ overall; the deep docs hold the content.
   symmetric w/ `discover_processes`); landed the **4a node rung** `Core::instantiate_spec` +
   the **type-as-data** `schema_codec` (Axis-A primitive). Also flipped `.ys` imports to
   explicit-origin + fixed the board lexer (apostrophe/brace escapes).
-- `pkg` → `coord/pkg.next` — **NEW agent (charter written; boots SOLO once the current arcs
-  land).** OWNS the entire **packages / dependency ecosystem** (#67): manifest · resolver ·
-  lockfile · registry · `chrysalis add`/`publish` · semver · transitive + native deps. Plan:
-  `docs/packages-ecosystem.md` (5 phases, MVP-first). Spine: *a package = a Core*; linking =
-  `Core::merge`; the registry of theories. One prereq: `Core::merge` (core, post-#71).
+- `pkg` → `coord/pkg.next` — **NEW agent (charter SHARPENED w/ the human 2026-06-09; boots
+  SOLO once the current arcs land).** Identity SETTLED: **the *librarian of theories*** —
+  builds the CATEGORY theories live in (objects = packages, morphisms = deps, composition =
+  linking). **Center of gravity = theory-composition (Phases 1–2 are the soul); the
+  registry/publish ecosystem (3–5) is thin reach.** OWNS #67: manifest · resolver · lockfile ·
+  registry · `chrysalis add`/`publish` · semver · transitive + native deps. **Categorical
+  semantics now BINDING:** `Core::merge` = an idempotent join-semilattice (reuse
+  `mesh_safety`'s CALM); transitive resolution = a **colimit over the dep DAG** (diamond deps
+  → one shared apex, no false self-conflict); registry = a poset over `name × version`;
+  lockfile = the conflict-free section; semver = a compatibility functor. *Resolution is
+  confluence; the registry is a CRDT of theories.* Recognition: **`coord/board.ys` IS Phase
+  1's prototype** (path-import + merge-link of N `.ys` packages). Plan:
+  `docs/packages-ecosystem.md`. Prereq: `Core::merge` (core, post-#71, or pkg builds it).
 - *(future, add a `<agent>.ys`+`.next` pair when booted: `bio`, `quantum`, `spatial` —
   see ROSTER for the role map.)*
 

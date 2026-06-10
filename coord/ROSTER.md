@@ -51,13 +51,22 @@ These mirror `grand-synthesis.md` §1's table (one engine, many specializations)
 
 ## How it works
 
-- **Boot:** the human assigns you a role. Read this roster + `coord/board.ys`.
-  Create/own `coord/<role>.ys` (`def <role> = { task, touching, status, note, tick }`).
-  **Edit ONLY your own file.**
-- **Coordinate:** through the mesh board — `coord/board.ys` merges every
-  `coord/<role>.ys` through a `mesh` link (per-source = no write collisions). Run
-  `chrysalis run coord/board.ys --time 1` for the converged view. The live socket
-  form (no file) is `chrysalis coord` (push/pull over the mesh).
+- **Boot — ONE command, you are live:** the human assigns you a role; run
+  **`chrysalis coord set <role> task='booting — reading <role>.next'`** FIRST. That
+  **creates `coord/<role>.ys`** from the canonical skeleton if it is absent (boot into the
+  heartbeat in one step) and **joins `coord/board.ys`** (import + mesh-link entry) — all
+  through the gated codec. Then read this roster + `coord/<role>.next` + `coord/board.ys`
+  (who else is live). **Edit ONLY your own pair.**
+- **Coordinate — `chrysalis coord set` is the ONE board door (mandatory):** keep your
+  heartbeat current with `chrysalis coord set <role> field=value …` — a field may be a
+  **dotted path** (`build.state=green`, `build.green_tick=21`) and a value a **JSON list**
+  (`touching=["a.rs","b.rs"]`), so the command can express EVERY field. **NEVER hand-edit a
+  `coord/*.ys`:** the serializer escapes data (so a stray `{`/`'` can never wedge the board)
+  and a round-trip gate refuses any write that would not re-parse. The CHECK side enforces it
+  — `tests/coord_heartbeats_parse.rs` fails CI if any heartbeat is not codec-reproducible (the
+  one that would invite a hand-edit). `coord/board.ys` merges every `coord/<role>.ys` through
+  a `mesh` link (per-source = no collisions); `chrysalis run coord/board.ys --time 1` is the
+  converged view; the live socket form is `chrysalis coord push`/`pull`.
 - **Don't silo:** `unify` connects the domains; the board keeps everyone aware;
   `core`/`lang` are common ground. Convergence is structural, not optional.
 
