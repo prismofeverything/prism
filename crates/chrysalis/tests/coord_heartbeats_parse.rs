@@ -25,11 +25,36 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+use chrysalis::ast::{Def, Expr, StringLit, StringSeg};
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()
         .expect("canonicalize repo root")
+}
+
+/// True if a string literal interpolates (`'…{x}…'` — has an `Expr` segment).
+fn lit_interpolates(lit: &StringLit) -> bool {
+    lit.segments.iter().any(|s| matches!(s, StringSeg::Expr(_)))
+}
+
+/// True if any string reachable from `e` interpolates. A coord heartbeat is pure
+/// DATA, so this must be false — an interpolated `{x}` is exactly the board-breaker
+/// the render check below MISSES (it parses, then evals to an unbound var, but the
+/// render exits 0 with a message that has no substring `error`). Walked over the data
+/// shapes a heartbeat uses (records, maps, lists, keyed entries, strings).
+fn expr_interpolates(e: &Expr) -> bool {
+    match e {
+        Expr::Str(lit) => lit_interpolates(lit),
+        Expr::List(items) | Expr::Parallel(items) => items.iter().any(expr_interpolates),
+        Expr::Record(fields) => fields.values().any(expr_interpolates),
+        Expr::Map(entries) => entries
+            .iter()
+            .any(|(k, v)| lit_interpolates(k) || expr_interpolates(v)),
+        Expr::KeyedEntry { key, value } => lit_interpolates(key) || expr_interpolates(value),
+        _ => false, // scalars + any non-data Expr a heartbeat must not contain
+    }
 }
 
 /// The escaping discipline these `.ys` string fields require — surfaced on failure
@@ -59,17 +84,40 @@ fn every_coord_heartbeat_parses_and_the_board_renders() {
     );
 
     let mut parse_failures = Vec::new();
+    let mut interp_violations = Vec::new();
     for path in &files {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let text = std::fs::read_to_string(path).expect("read heartbeat");
-        if let Err(e) = chrysalis::parse::parse_program(&text) {
-            parse_failures.push(format!("  - coord/{name}: {e}"));
+        match chrysalis::parse::parse_program(&text) {
+            Err(e) => parse_failures.push(format!("  - coord/{name}: {e}")),
+            // A `{…}` in a string is interpolation — it PARSES (so the check above
+            // passes), then evals to an unbound var, which the render check below
+            // MISSES (exit 0, no `error` substring). Catch it here at the AST level.
+            Ok(program) => {
+                for def in &program.defs {
+                    if let Def::Binding { name: peer, value, .. } = def {
+                        if expr_interpolates(value) {
+                            interp_violations.push(format!(
+                                "  - coord/{name}: `def {peer} = …` has a string with `{{…}}` interpolation"
+                            ));
+                        }
+                    }
+                }
+            }
         }
     }
     assert!(
         parse_failures.is_empty(),
         "coord heartbeat(s) do not parse — the board merge breaks for EVERY peer:\n{}\n\n{}",
         parse_failures.join("\n"),
+        HINT,
+    );
+    assert!(
+        interp_violations.is_empty(),
+        "coord heartbeat(s) contain STRING INTERPOLATION (a `{{` in a string) — it parses but the \
+         board render evals it to an unbound var (and exits 0, so the render check below misses \
+         it). A heartbeat is pure DATA:\n{}\n\n{}",
+        interp_violations.join("\n"),
         HINT,
     );
 
@@ -115,5 +163,40 @@ fn the_guard_detects_the_failure_modes_it_pins() {
         chrysalis::parse::parse_program(escaped).is_ok(),
         "the doubled-apostrophe escape (`''`) no longer parses — the lexer rule changed; \
          update the HINT and the `coord set` serializer accordingly"
+    );
+
+    // The interpolation gap the AST check closes: a `{x}` in a string PARSES (so the
+    // parse check passes it), yet it is the board-breaker. `expr_interpolates` must
+    // catch it — else the strengthening is vacuous.
+    let braced = "def p = { note: 'a baseline {x} here', tick: 1 }";
+    let prog = chrysalis::parse::parse_program(braced)
+        .expect("a `{x}` string PARSES (interpolation) — exactly why the parse check misses it");
+    let binding = prog
+        .defs
+        .iter()
+        .find_map(|d| match d {
+            Def::Binding { value, .. } => Some(value),
+            _ => None,
+        })
+        .expect("the binding value");
+    assert!(
+        expr_interpolates(binding),
+        "expr_interpolates FAILED to catch a `{{x}}` interpolation — the AST check is vacuous"
+    );
+
+    // …and a brace-free heartbeat must NOT be flagged (no false positive).
+    let clean = chrysalis::parse::parse_program("def p = { note: 'no braces at all', tick: 1 }")
+        .expect("clean parses");
+    let clean_val = clean
+        .defs
+        .iter()
+        .find_map(|d| match d {
+            Def::Binding { value, .. } => Some(value),
+            _ => None,
+        })
+        .expect("the binding value");
+    assert!(
+        !expr_interpolates(clean_val),
+        "expr_interpolates flagged a brace-free heartbeat — false positive"
     );
 }

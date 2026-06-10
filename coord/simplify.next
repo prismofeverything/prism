@@ -187,12 +187,24 @@ accidental (delete it).
   coord_set suite test; strengthen `coord_heartbeats_parse` to forbid ANY string interpolation
   (AST-level, closes the render-miss); v1 sets top-level string/int fields — nested (`build.*`) +
   lists want the JSON-patch power form (design has it, deferred).
-- **NEXT for me:** SIX source/board one-door guards now (lowering / quote-reify / carrier /
-  engine-driver / coord-parse / run-core). (1) Shrink the run-Core ratchet as lang threads each
-  file; (2) pin "protocols come from the Core" once lang adds the protocol door (retiring
-  compile.rs:463 `with_protocols(stream_protocols())`); (3) extend the run-Core scan to domain
-  crates (spatio-flux `sf_core()`, prism-audio `audio_core()`) as their workarounds dissolve.
-  Standing: (#4) lang retire `from_value_is_total`; the pattern-definer SPLICE convergence
-  (unify to settle); back the `coord set` command. **Stretch (now overdue — SIX copies):** extract
-  a reusable source-seam guard helper (`collect_rs_files` + comment-strip + needle + home/allowed
-  set is copy-pasted across all six guards — a #46 dup in my OWN guards; `generative-core.md` §3).
+- **2026-06-09 (lang FINISHED → staged items landed, tick 18)** — lang completed the canonical
+  run-Core migration; full chrysalis suite GREEN again (245/0/3). Landed both items the red suite
+  had blocked: (1) **`tests/coord_set.rs` runs + passes** — the `coord set` round-trip-gate command
+  is now verified IN-SUITE (the gate invariant: a returned `Ok` always re-parses), not just
+  bin-verified. (2) **STRENGTHENED `coord_heartbeats_parse`** — an AST-level walk
+  (`expr_interpolates`) forbids ANY string interpolation (`StringSeg::Expr`) in a heartbeat, with
+  a teeth test proving it catches the `{x}` brace class the render check MISSED (a braced heartbeat
+  parses but is flagged; a clean one is not — no false positive). Board-breakage is now closed at
+  BOTH ends: `coord set` prevents it at WRITE (escape + gate), the guard catches it at CHECK (AST).
+  run-core ratchet now `KNOWN_REMAINING = compile.rs` only (lang threaded runner.rs + cli.rs and
+  shrank the baseline as the ratchet intended).
+- **NEXT for me:** SEVEN source/board guards (lowering / quote-reify / carrier / engine-driver /
+  coord-parse+interpolation / run-core) + the `coord set` command. (1) Shrink the run-Core ratchet
+  to `&[]` when lang retires compile.rs's `compile_with_registry`/`_methods` helpers; (2) pin
+  "protocols come from the Core" once lang adds the protocol door (retiring compile.rs:463
+  `with_protocols(stream_protocols())`); (3) extend the run-Core scan to domain crates
+  (`sf_core()`, `audio_core()`). `coord set` follow-on: the JSON-patch power form (nested `build.*`
+  + lists). Flagged to lang: `chrysalis check` should fail-exit on an eval error. Standing: (#4)
+  lang retire `from_value_is_total`; the pattern-definer SPLICE convergence (unify). **Stretch
+  (overdue — SIX guard copies):** extract the reusable source-seam guard helper (`collect_rs_files`
+  + comment-strip + needle + home/allowed set) — a #46 dup in my OWN guards; `generative-core.md` §3.
