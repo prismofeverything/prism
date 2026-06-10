@@ -126,6 +126,19 @@ another's*, not bespoke glue. Build each as a small functor + a "you HEAR domain
 definer + the `Complex` sort THERE with `unify`; build the per-domain demos HERE.)
 
 ## Done (this arc — all green)
+- **A6 deepened — full instrument types + author-then-REUSE (parallel track, while lang builds the
+  canonical runner).** Two enrichments of the factory (`src/instrument.rs` + `tests/instrument.rs`,
+  29/29 suite): **(1) a full subtractive INSTRUMENT type** — `instrument_voice_node` composes ALL
+  four kernels into one authored type (a generated `k`-oscillator bank → inner `mix` → `LowPass` →
+  `Vca` shaped by `Envelope`), the rich-type analogue of `stack_voice_node`. **(2) AlChemy reuse** —
+  `define_instrument` authors the type and stores it as a plain-data **blueprint** in state
+  (`InstrumentRecipe::to_value`/`from_value` round-trips — homoiconic type-as-data); a SECOND
+  reaction `cast_instrument` reads that blueprint and instances it at each `CastSeed`'s pitch → an
+  ensemble. The product of one reaction became a building block later reactions consume. Matcher
+  note (durable): the blueprint is bound via `Pattern::Bind` (NOT a bare `Site`) so Milner
+  rest-capture does not swallow the sibling rack slots into it; the `cast` key is a structural label
+  matching each seed combinatorially while `blueprint` name-aligns. Held first try. *When the
+  canonical `run(program, core, modules)` lands, these factories are the `.ys` demo payload.*
 - **A6 Phase 1 — the homoiconic module factory (the synth writes a new module TYPE).** A generic
   `stack_factory` reaction reads a `StackSeed{ base, spread, voices }` recipe from the live bigraph
   and `stack_voice_node` lowers it into a NEW `Stack` composite type — one `Oscillator` per voice,

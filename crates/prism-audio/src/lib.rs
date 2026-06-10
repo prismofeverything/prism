@@ -15,6 +15,7 @@
 pub mod device;
 pub mod envelope;
 pub mod factory;
+pub mod instrument;
 pub mod lowpass;
 pub mod oscillator;
 pub mod patch;
@@ -31,6 +32,7 @@ pub use device::interleave;
 pub use device::{run_realtime, RealtimeOpts};
 pub use envelope::Envelope;
 pub use factory::{stack_factory, stack_voice_node, StackRecipe};
+pub use instrument::{cast_instrument, define_instrument, instrument_voice_node, InstrumentRecipe};
 pub use lowpass::LowPass;
 pub use oscillator::Oscillator;
 pub use patch::{module_node, register_audio, render_patch, wire_map};

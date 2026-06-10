@@ -5,16 +5,21 @@
 //! the appropriate instances at runtime.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use prism_schema::Value;
 
 use crate::process::ProcessNode;
 
-/// A factory function that constructs a ProcessNode from config.
-pub type FactoryFn = Box<dyn Fn(Value) -> ProcessNode + Send + Sync>;
+/// A factory function that constructs a ProcessNode from config. `Arc` (not
+/// `Box`) so a [`ProcessRegistry`] is **`Clone`** — a domain's registry can be
+/// cloned and extended with a program's own factories when threading ONE `Core`
+/// through the `run()`/`compile` boundary (the canonical run-Core; the factories
+/// are shared, not duplicated).
+pub type FactoryFn = Arc<dyn Fn(Value) -> ProcessNode + Send + Sync>;
 
 /// Registry of process factories keyed by type name.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ProcessRegistry {
     factories: HashMap<String, FactoryFn>,
 }
@@ -29,7 +34,7 @@ impl ProcessRegistry {
     where
         F: Fn(Value) -> ProcessNode + Send + Sync + 'static,
     {
-        self.factories.insert(type_name.into(), Box::new(factory));
+        self.factories.insert(type_name.into(), Arc::new(factory));
     }
 
     /// Create a process instance from a type name and config.

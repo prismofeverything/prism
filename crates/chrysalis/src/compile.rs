@@ -29,6 +29,7 @@ use std::sync::{Arc, OnceLock};
 use indexmap::IndexMap;
 
 use prism_bigraph::composite::Composite;
+use prism_bigraph::protocol::ProtocolRegistry;
 use prism_bigraph::{BigraphicalReactiveSystem, Core, ProcessNode, ProcessRegistry, Topology};
 use prism_schema::algebra;
 use prism_schema::registry::TypeMethods;
@@ -313,11 +314,69 @@ pub fn compile_with_methods(
 /// wholesale native control wired straight from its call site; an *object*
 /// import (`from integrators import rk4`) binds a value resolvable in bodies, so
 /// `rk4.integrate(network, state, interval)` dispatches via the `MethodRegistry`.
+///
+/// This is the 3-door form (separate process + method registries, native types
+/// via `modules`, protocols hard-coded to `stream_protocols()`). Prefer
+/// [`compile_with_core`] — ONE `Core` through the boundary, with the protocol
+/// door. Both funnel through `compile_inner`.
 pub fn compile_with_modules(
+    program: &Program,
+    registry: ProcessRegistry,
+    methods: MethodRegistry,
+    modules: ModuleRegistry,
+) -> Result<CompileResult, CompileError> {
+    compile_inner(
+        program,
+        registry,
+        methods,
+        modules,
+        None,
+        Arc::new(crate::stream::stream_protocols()),
+    )
+}
+
+/// **Canonical compile** — thread ONE [`Core`] through the boundary (the #59
+/// Core-threading rule reaching its last seam; `docs/canonical-run-core.md`). A
+/// domain passes its WHOLE `domain_core` (procs + types + methods + protocols);
+/// chrysalis merges the program's own defs in (its process/composite factories,
+/// its `type`s, its divide / user-type methods) and uses the Core's PROTOCOLS —
+/// no hard-coded default, so a domain injects its own (`rest:` / `net:`: the
+/// **protocol door**). `modules` stays — it is the import / `load` *name*
+/// surface, not a registry subset. Collapses the 3-door split of
+/// [`compile_with_modules`]; the program's factories share the domain's
+/// (`ProcessRegistry` is `Clone`).
+pub fn compile_with_core(
+    program: &Program,
+    domain_core: Core,
+    modules: ModuleRegistry,
+) -> Result<CompileResult, CompileError> {
+    // Start the mutable registries from the domain Core (clone the Arc'd
+    // registries so we EXTEND them with the program's defs, never mutate the
+    // shared originals); the Core's types seed the type registry and its
+    // protocols ride the door.
+    let registry = (*domain_core.processes).clone();
+    let methods = (*domain_core.methods).clone();
+    compile_inner(
+        program,
+        registry,
+        methods,
+        modules,
+        Some(domain_core.types),
+        domain_core.protocols,
+    )
+}
+
+/// The shared compile body behind [`compile_with_modules`] (3-door) and
+/// [`compile_with_core`] (one Core). `base_types` seeds the program-aware type
+/// registry (the domain's types; `None` = fresh builtins) and `protocols` is the
+/// protocol door (the domain's, not a hard-coded default).
+fn compile_inner(
     program: &Program,
     mut registry: ProcessRegistry,
     mut methods: MethodRegistry,
     modules: ModuleRegistry,
+    base_types: Option<Arc<TypeRegistry>>,
+    protocols: Arc<ProtocolRegistry>,
 ) -> Result<CompileResult, CompileError> {
     // Resolve native host imports (`Def::Use`): object/process bindings + bare
     // native functions + synthetic `type` defs for imported native types.
@@ -365,7 +424,7 @@ pub fn compile_with_modules(
     // so a `Custom`-typed face dispatches), the Evaluator (realize-at-binding),
     // AND the Core below — a single registry per compile context, never an
     // ad-hoc default.
-    let type_registry = build_type_registry(&program_arc);
+    let type_registry = build_type_registry_extending(base_types.as_deref(), &program_arc);
     register_divide_methods(&mut methods, &program);
     register_user_type_methods(&mut methods, &program_arc);
     let methods = Arc::new(methods);
@@ -460,7 +519,7 @@ pub fn compile_with_modules(
         .with_types(Arc::clone(&type_registry))
         .with_processes(Arc::clone(&registry))
         .with_methods(Arc::clone(&methods))
-        .with_protocols(Arc::new(crate::stream::stream_protocols()));
+        .with_protocols(protocols);
     let _ = core_handle.set(core.clone());
 
     // Evaluate `main`. If main is a call to a user-defined composite,
@@ -706,7 +765,17 @@ fn register_user_type_methods(methods: &mut MethodRegistry, program: &Arc<Progra
 /// Evaluator and the Core (one registry, never an ad-hoc default). Also what
 /// every standalone `Evaluator::new` builds from its own program.
 pub(crate) fn build_type_registry(program: &Arc<Program>) -> Arc<TypeRegistry> {
-    let mut types = TypeRegistry::new();
+    build_type_registry_extending(None, program)
+}
+
+/// Like [`build_type_registry`], but seeded from `base` (a domain `Core`'s types)
+/// instead of fresh builtins — so the canonical [`compile_with_core`] merges the
+/// program's `type`s ON TOP of the domain's, in one registry. `None` = fresh.
+pub(crate) fn build_type_registry_extending(
+    base: Option<&TypeRegistry>,
+    program: &Arc<Program>,
+) -> Arc<TypeRegistry> {
+    let mut types = base.cloned().unwrap_or_else(TypeRegistry::new);
     register_user_types(&mut types, program);
     crate::quantum::register_quantum_type(&mut types);
     // The `Reaction` type — a reaction at rest as transmittable DATA (AlChemy).

@@ -24,7 +24,7 @@ use crate::patch::module_node;
 use crate::signal::{signal_type, silence};
 
 /// A module `config` map: `sample_rate` + `block` + the named float `extras`.
-fn mod_cfg(rate: f64, block: usize, extras: &[(&str, f64)]) -> Value {
+pub(crate) fn mod_cfg(rate: f64, block: usize, extras: &[(&str, f64)]) -> Value {
     let mut v = vec![
         ("sample_rate".to_string(), Value::float(rate)),
         ("block".to_string(), Value::Int(block as i64)),

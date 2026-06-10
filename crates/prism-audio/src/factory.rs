@@ -66,20 +66,9 @@ impl StackRecipe {
     /// `±spread_cents` around `base` (the centre voice at `base` when `voices` is
     /// odd). `voices = 1` collapses to a single oscillator at `base`.
     pub fn super_saw(base: f64, spread_cents: f64, voices: usize, amplitude: f64) -> Self {
-        let voices = voices.max(1);
-        let intervals = (0..voices)
-            .map(|i| {
-                let t = if voices == 1 {
-                    0.0
-                } else {
-                    (i as f64) / ((voices - 1) as f64) * 2.0 - 1.0 // i: 0..voices-1 → t: -1..1
-                };
-                t * spread_cents
-            })
-            .collect();
         Self {
             base,
-            intervals,
+            intervals: spread_intervals(spread_cents, voices),
             amplitude,
         }
     }
@@ -90,13 +79,30 @@ impl StackRecipe {
     }
 }
 
+/// `voices` detune offsets (cents) spread linearly across `±spread_cents` (centre
+/// at 0 when `voices` is odd; `voices = 1` → a single centred oscillator). The
+/// shared oscillator-bank geometry behind both the stack and the full instrument.
+pub(crate) fn spread_intervals(spread_cents: f64, voices: usize) -> Vec<f64> {
+    let voices = voices.max(1);
+    (0..voices)
+        .map(|i| {
+            let t = if voices == 1 {
+                0.0
+            } else {
+                (i as f64) / ((voices - 1) as f64) * 2.0 - 1.0 // i: 0..voices-1 → t: -1..1
+            };
+            t * spread_cents
+        })
+        .collect()
+}
+
 /// `base · 2^(cents/1200)` — equal-tempered detune.
-fn detune(base: f64, cents: f64) -> f64 {
+pub(crate) fn detune(base: f64, cents: f64) -> f64 {
     base * 2.0_f64.powf(cents / 1200.0)
 }
 
 /// An `Oscillator` `config` map at `freq` / `amplitude`.
-fn osc_cfg(freq: f64, amplitude: f64, block: usize, rate: f64) -> Value {
+pub(crate) fn osc_cfg(freq: f64, amplitude: f64, block: usize, rate: f64) -> Value {
     Value::tree([
         ("wave", Value::String("Sine".into())),
         ("freq", Value::float(freq)),

@@ -20,6 +20,8 @@ mod alchemy;
 mod bench_run;
 #[path = "bigraph_rule_through_algebra.rs"]
 mod bigraph_rule_through_algebra;
+#[path = "canonical_run_core.rs"]
+mod canonical_run_core;
 #[path = "compile_imports.rs"]
 mod compile_imports;
 #[path = "composite_bridge.rs"]
@@ -190,6 +192,8 @@ mod reflective_reaction;
 mod repl_coherence;
 #[path = "rule_carrier_one_door_guard.rs"]
 mod rule_carrier_one_door_guard;
+#[path = "run_core_one_door_guard.rs"]
+mod run_core_one_door_guard;
 #[path = "scaffold.rs"]
 mod scaffold;
 #[path = "schlogl.rs"]

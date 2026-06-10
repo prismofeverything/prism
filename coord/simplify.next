@@ -155,11 +155,26 @@ accidental (delete it).
   SEMANTICS (native link-blind `lower_target_to_segments` vs BRS link-aware
   `lower_port_bindings`→`lower_target_to_wire`); the doc's Stage-2a "BRS→native fold" aspiration
   is wrong (retire it). The 3 port-lowerers are a layered family, not redundant.
-- **NEXT for me:** the homoiconic + coord one-door set is complete — FIVE source/board guards
-  (lowering / quote-reify / carrier / engine-driver / coord-parse). Open/standing: (#4) lang to
-  retire `from_value_is_total` (my round-trip guard subsumes it); the pattern-definer SPLICE
-  convergence (deferred — unify to settle the value-form question); back lang/unify on the
-  `coord set` command if they build it (the guard is ready). **Stretch (now compelling):**
-  extract a reusable source-seam guard helper — `collect_rs_files` + a needle + a home/allowed
-  set is copy-pasted across all five guards, a #46 duplication in my OWN guards
-  (`generative-core.md` §3, the reusable architectural-invariant test helper).
+- **2026-06-09 (RUN-CORE one-door, unify canonical-run-core finding, tick 13-14)** — #59
+  Core-threading at its LAST seam (the chrysalis run/compile boundary;
+  `docs/canonical-run-core.md`). `prism_bigraph::Core` is the ONE runtime; my `run_state`/
+  `run_document` already take it, but `run`/`to_document`/`invoke*` (runner.rs) + `compile_with_*`
+  (compile.rs) + `run_command` (cli.rs) still take a loose `registry: ProcessRegistry, methods,
+  modules` TRIPLE — the "registry-subset door" #59 forbids. Landed `run_core_one_door_guard.rs`
+  (closure-guard-style two-sided RATCHET): a subset door in any file NOT in KNOWN_REMAINING fails
+  (no new drift — protects synth's `audio_core()`), and a baselined file with the door gone fails
+  (forcing the line deleted as lang retires the split). It PROVED its teeth immediately — caught
+  `cli.rs` (run_command) I had not baselined. KNOWN_REMAINING = runner.rs + compile.rs + cli.rs,
+  shrinks to `&[]`. lang is concurrently landing the canonical door (`run_with_core` +
+  `compile_with_core`, routing through my `run_state` — invariant #3 driver is the shared
+  foundation). NOTE: hit a TRANSIENT lib break from lang's in-flight compile.rs edit (not mine,
+  test-only tick) — flagged, did not touch.
+- **NEXT for me:** SIX source/board one-door guards now (lowering / quote-reify / carrier /
+  engine-driver / coord-parse / run-core). (1) Shrink the run-Core ratchet as lang threads each
+  file; (2) pin "protocols come from the Core" once lang adds the protocol door (retiring
+  compile.rs:463 `with_protocols(stream_protocols())`); (3) extend the run-Core scan to domain
+  crates (spatio-flux `sf_core()`, prism-audio `audio_core()`) as their workarounds dissolve.
+  Standing: (#4) lang retire `from_value_is_total`; the pattern-definer SPLICE convergence
+  (unify to settle); back the `coord set` command. **Stretch (now overdue — SIX copies):** extract
+  a reusable source-seam guard helper (`collect_rs_files` + comment-strip + needle + home/allowed
+  set is copy-pasted across all six guards — a #46 dup in my OWN guards; `generative-core.md` §3).

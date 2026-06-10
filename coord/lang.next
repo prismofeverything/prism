@@ -192,6 +192,17 @@ the Stage-3 one-door guard (don't let your N→1 collapse regress).
   the bridge to carry BOTH `inputs`+`outputs` keys (even empty). Handoff: synth wires prism-audio
   natives (Oscillator as importable) + a runner harness; `Process[…]` generic deferred (native
   imports cover inner nodes). eval.rs touch was additive, far from simplify's `run_state` region.
+- **CANONICAL RUN-CORE LANDED (the #59 Core-threading rule, last seam — `docs/canonical-run-core.md`)**
+  — synth surfaced it (A6 Phase 2 hit the 3-door wall reaching prism-audio modules); unify stewarded
+  the design; I led the unblock. `compile_with_core(program, domain_core, modules)` + `run_with_core`
+  thread ONE Core + open the **protocol door** (domain protocols, retiring the hard-coded
+  `stream_protocols()` at compile.rs). Additive sibling via a shared `compile_inner`; the 3-door
+  `compile_with_modules`/`run` stay (migrate + retire = follow-up). Enabler: `prism_bigraph`
+  `ProcessRegistry` now `Clone` (`FactoryFn` Box→Arc, contained to `factory.rs` — a CORE-crate change,
+  monotone, no #71 overlap, noted to core). Proven `tests/canonical_run_core.rs` (3): faithful sibling,
+  protocol door, a domain-native process reaching `.ys` through the one Core. chrysalis 241 +
+  prism-bigraph suite 75 green. (`mesh_live_stream` red = an unrelated 20s-ceiling gossip-timing flake
+  under multi-agent machine load, not the factory change.) UNBLOCKS synth `audio_core()` + A8 `net:`.
 
 ## ✅ RESOLVED (12/12, TOTAL) — Axis-A uniform across EVERY entity kind
 The earlier finding ("`from_value` rebuilds only process/step/composite/binding") is **fully

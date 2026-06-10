@@ -17,7 +17,8 @@ use prism_schema::{Key, MethodRegistry, Schema, Value, algebra, schema_to_value,
 
 use crate::ast::{CompositeDef, Def, Expr, Name, PortDecl, Program, SchemaExpr};
 use crate::compile::{
-    CompileError, CompileResult, ModuleRegistry, collect_top_level_bindings, compile_with_modules,
+    CompileError, CompileResult, ModuleRegistry, collect_top_level_bindings, compile_with_core,
+    compile_with_modules,
 };
 use crate::eval::Evaluator;
 use crate::schema::{composite_inner_schema, lower_schema_in_program};
@@ -60,6 +61,28 @@ pub fn run(
     time: f64,
 ) -> Result<Value, RunError> {
     let result = compile_with_modules(program, registry, methods, modules)?;
+    run_state(
+        result.topology.state_schema.clone(),
+        result.initial_state.clone(),
+        result.core.clone(),
+        time,
+    )
+}
+
+/// **Canonical run** — thread ONE [`Core`] through the boundary (the #59
+/// Core-threading rule reaching its last seam; `docs/canonical-run-core.md`). A
+/// domain passes its whole `domain_core` (procs + types + methods + protocols);
+/// the program's own defs merge in; the Core's PROTOCOLS ride the door (a
+/// domain's `rest:` / `net:` work, no hard-coded default). Collapses the 3-door
+/// [`run`]; routes through the one [`run_state`] driver, so the engine-driving
+/// stays one door (invariant #3).
+pub fn run_with_core(
+    program: &Program,
+    domain_core: Core,
+    modules: ModuleRegistry,
+    time: f64,
+) -> Result<Value, RunError> {
+    let result = compile_with_core(program, domain_core, modules)?;
     run_state(
         result.topology.state_schema.clone(),
         result.initial_state.clone(),
