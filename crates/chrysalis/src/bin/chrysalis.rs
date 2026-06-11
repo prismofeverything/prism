@@ -29,6 +29,7 @@ fn main() {
     match cmd.as_str() {
         "new" => cmd_new(rest),
         "run" => cmd_run(rest),
+        "add" => cmd_add(rest),
         "bigraph" => cmd_bigraph(rest),
         "check" => cmd_check(rest),
         "format" => cmd_format(rest),
@@ -409,12 +410,6 @@ fn cmd_run(args: &[String]) {
                 }
             }
         }
-        // Legacy native-crate directive (`package <name> [at <path>]`) — mutually
-        // exclusive with a structured manifest (different parser). Retires once the
-        // structured `native:` field subsumes it (#67 Phase 5c-3).
-        if let Some(manifest) = chrysalis::codegen::find_manifest(path) {
-            std::process::exit(chrysalis::codegen::run(&manifest, "run", args));
-        }
     }
     // `load(path)` resolves relative to the entry file's directory — so a
     // `.ys` demo can reference siblings without absolute paths. Mirrors the
@@ -426,6 +421,65 @@ fn cmd_run(args: &[String]) {
         std_core(),
         std_modules_at(ys_root),
     ));
+}
+
+/// `chrysalis add <name> [--path <p> | --native <p>] [--version <v>]` — add a
+/// dependency to the nearest `project.ys` (walking up from the CWD), through the
+/// homoiconic round-trip (`manifest::add_dependency` — parse → set → unparse → gate),
+/// so a hand-edit can never wedge the manifest. #67 Phase 3; a registry source
+/// (`chrysalis add foo` with no `--path`/`--native`) arrives in Phase 3b.
+fn cmd_add(args: &[String]) {
+    use chrysalis::manifest::{add_dependency_to_file, DependencySource, Manifest};
+
+    let mut name: Option<String> = None;
+    let mut path: Option<String> = None;
+    let mut native: Option<String> = None;
+    let mut version: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--path" => {
+                i += 1;
+                path = args.get(i).cloned();
+            }
+            "--native" => {
+                i += 1;
+                native = args.get(i).cloned();
+            }
+            "--version" => {
+                i += 1;
+                version = args.get(i).cloned();
+            }
+            a if !a.starts_with("--") => name = Some(a.to_string()),
+            other => die("add", format!("unknown flag `{other}`")),
+        }
+        i += 1;
+    }
+    let Some(name) = name else {
+        eprintln!("usage: chrysalis add <name> [--path <p> | --native <p>] [--version <v>]");
+        std::process::exit(2);
+    };
+
+    let cwd = std::env::current_dir().unwrap_or_else(|e| die("add", format!("cwd: {e}")));
+    let manifest = Manifest::find(&cwd).unwrap_or_else(|| {
+        die(
+            "add",
+            "no `project.ys` with a `def package = { … }` record found (run inside a chrysalis project)",
+        )
+    });
+    let source = match (path, native) {
+        (Some(p), None) => DependencySource::Path(p.into()),
+        (None, Some(n)) => DependencySource::Native(n.into()),
+        (None, None) => die(
+            "add",
+            "a dependency needs `--path <p>` (a `.ys` package) or `--native <p>` (a Rust crate)",
+        ),
+        (Some(_), Some(_)) => die("add", "`--path` and `--native` are mutually exclusive"),
+    };
+    match add_dependency_to_file(&manifest.dir, &name, &source, version.as_deref()) {
+        Ok(()) => eprintln!("added `{name}` to {}", manifest.dir.join("project.ys").display()),
+        Err(e) => die("add", e),
+    }
 }
 
 fn cmd_check(args: &[String]) {

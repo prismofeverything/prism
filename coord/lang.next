@@ -51,12 +51,13 @@ crates and feeds their Cores to `pkg`'s `resolve_with_natives` (in-process can't
       — the first structured MIXED package. Consumer: real `ys/kinetics.ys` + `ys/diffusion.ys` run
       IDENTICALLY through the own-native runner (biomass 2.462, glucose 4.095 — same as native-dep +
       legacy). codegen 12/12. (The own+deps resolver colimit = pkg's deferred `resolve_with_own_native`.)
-- [ ] **P5c-3 — retire the legacy `package <name>` directive** — NOT a code blocker (it is a COMPAT
-      decision for the human): the legacy directive stays as the dispatch fallback because out-of-repo
-      projects (`coda`) use `package <name> at <path>`; the structured `native:` SUBSUMES both legacy
-      forms (a path is co-located `'.'` or decoupled `'<path>'`). Retire (delete `find_manifest`/
-      `parse_manifest_package`/legacy `Manifest` + `render_runner` + the bin fallback) once the human
-      confirms nothing external depends on it. Felleisen — one manifest, one codegen path.
+- [x] **P5c-3 — legacy `package <name>` directive RETIRED. DONE.** Human confirmed nothing external uses
+      it. Deleted `codegen::{Manifest, crate_ident, find_manifest, parse_manifest_package, run,
+      render_runner}` + the 6 legacy tests + the bin dispatch fallback; rewrote the codegen module doc +
+      `chrysalis-design.md` §3 to the structured `native:` manifest (it SUBSUMES both legacy forms — `'.'`
+      co-located / `'<path>'` decoupled). One manifest, one codegen path. Regression-clean: chrysalis lib
+      62 + suite 262 / 0 (green @ tick 23); spatio-flux `kinetics.ys` still routes via structured dispatch
+      (biomass 2.462). **P5c COMPLETE** (1 native-dep transport · 2 own-native mixed · 3 legacy retired).
 
 ## Now / next — homoiconic unification (you own Stages 1, 2, 4; `simplify` owns Stage 3)
 - [x] **Stage 1a** — DONE. `Comprehension` arm added to `Expr::from_value` (`ast.rs`);

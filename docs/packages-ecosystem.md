@@ -154,6 +154,15 @@ homoiconic edit), `chrysalis install` (fetch), `remove`/`update`. The registry i
 **pluggable backend** (local now; remote later). *Consumer:* `chrysalis add foo` from a
 local registry, then run.
 
+> **🟡 IN PROGRESS (2026-06-11, `pkg`).** **P3a — `chrysalis add` DONE + green.** `chrysalis
+> add <name> [--path <p> | --native <p>] [--version <v>]` edits the nearest `project.ys` through
+> the **homoiconic round-trip** — `manifest::add_dependency` reuses `coord::set_path` (now
+> `pub(crate)`) + parse → unparse → **re-parse gate**, so a stray brace/quote can never wedge
+> the manifest, exactly like the board heartbeats. Header + other fields preserved; verified on
+> the real binary (added path/native/versioned deps to a real `project.ys`). **NEXT:** P3b the
+> local registry (a `name → versions` index so `chrysalis add foo` with no `--path` resolves
+> from the registry) · P3c install/remove/update + lock integration · P3d the consumer.
+
 **Phase 4 — publish + remote registry + the first published packages.** `chrysalis publish`
 (version + upload); a **remote** backend (HTTP — generalizing Phase 3's index, the move the
 mesh transport gets); integrity (checksums). *Consumer:* publish `prism-std`, `audio`
@@ -167,22 +176,24 @@ spatio-flux 3-door debt). Workspaces (multi-package). Semver-aware `chrysalis up
 *(Sequenced FIRST, ahead of Phase 3 — `docs/packages-decomposition.md`: most domains are
 native/mixed, so the breakout is gated on it.)*
 
-> **🟡 IN PROGRESS (2026-06-11, `pkg`).** The **resolver-side native convergence is DONE +
-> green** — *native vs `.ys` is just where a part's Core comes from; `Core::colimit` is
+> **✅ DONE (2026-06-11, `pkg` ⋈ `lang`).** The native convergence is COMPLETE + verified on a
+> real crate — *native vs `.ys` is just where a part's Core comes from; `Core::colimit` is
 > uniform*:
-> - **P5a — `manifest.rs` `native:` source** — `dependencies: { audio: { native:
->   '../crates/prism-audio' } }` beside `path:`. `DependencySource::Native`.
-> - **P5b — `resolver.rs` colimits a SUPPLIED native Core** — `resolve_with_natives(manifest,
->   modules, native_cores)` takes the native crates' `domain_core()`s (keyed by edge name),
->   `own_over`s each over the floor, and colimits it in exactly like a `.ys` part + surfaces
->   its process exports. In-process `resolve` supplies none, so a native dep errors with the
->   codegen hint. *Consumer:* `tests/package_native.rs` — a program links a (hand-built)
->   native Core + a `.ys` dep and runs both to `n=10.0`. One resolver, two Core sources.
-> - **P5c — the codegen plumbing (NEXT, lang-coordinated):** a structured manifest with
->   native deps generates a runner that links each crate, calls its `prelude::core()`, and
->   invokes `resolve_with_natives` with the Cores supplied. Retire the legacy `package <name>`
->   directive. *Touches `codegen.rs` / `cli.rs`; needs domain crates exposing `prelude::core()`
->   (manifold/parsimony/mapk to add one).* Then the domain breakout + `bio` umbrella.
+> - **P5a — `manifest.rs` native shapes** — a `native:` DEPENDENCY source (`dependencies: {
+>   audio: { native: '../crates/prism-audio' } }`) AND a package's OWN native crate (top-level
+>   `native: '.'`, the co-located mixed shape). `DependencySource::Native` + `Manifest::native`.
+> - **P5b — `resolver.rs` `resolve_with_natives`** — colimits SUPPLIED native crate Cores
+>   (their `domain_core()`s, keyed by edge name) `own_over` the floor, exactly like a `.ys`
+>   part, surfacing process exports. `tests/package_native.rs` (native Core + `.ys` dep → n=10).
+> - **`ModuleRegistry::merge`** — composes import surfaces (`std_modules() ⊔ a crate's own
+>   `modules()`), the own-native runner's need. `tests/module_merge.rs`.
+> - **P5c — the codegen runner (`lang`) — DONE.** Codegen links the native crates: own-native →
+>   `run_command(own::core(), std_modules.merge(own::modules()))` (no resolver); native-deps →
+>   `resolve_with_natives`; own+deps deferred. **spatio-flux migrated to the structured
+>   `native: '.'` and runs identically** (kinetics + diffusion verified) — the decomposition's
+>   first real mixed package. Legacy `package <name>` kept as a fallback.
+> - **Deferred:** the mixed `resolve_with_own_native` (own native + `.ys` deps) — no consumer
+>   until `bio`. Next: the domain breakout + `bio` umbrella → M4.
 
 ## Owners
 

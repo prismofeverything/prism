@@ -251,8 +251,15 @@ fn data_value_to_expr(v: &Value) -> Result<crate::ast::Expr, String> {
 
 /// Set `value` at a DOTTED PATH in a record, creating intermediate Records as needed.
 /// `["build","state"]` descends into `build`'s Record (making it if absent / not a
-/// record) and sets `state`. A single-segment path is a plain top-level insert.
-fn set_path(record: &mut IndexMap<String, crate::ast::Expr>, path: &[&str], value: crate::ast::Expr) {
+/// record) and sets `state`. A single-segment path is a plain top-level insert. Shared
+/// by the board heartbeat edit ([`set_in_source`]) and the manifest edit
+/// ([`crate::manifest::add_dependency`]) — the one correct-by-construction `.ys`-record
+/// setter (the homoiconic round-trip: parse → set here → unparse → re-parse gate).
+pub(crate) fn set_path(
+    record: &mut IndexMap<String, crate::ast::Expr>,
+    path: &[&str],
+    value: crate::ast::Expr,
+) {
     use crate::ast::Expr;
     let (head, rest) = path.split_first().expect("coord set: empty field path");
     if rest.is_empty() {

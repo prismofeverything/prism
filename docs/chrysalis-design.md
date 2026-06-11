@@ -62,24 +62,17 @@ completion, multi-line). **`compile`/codegen is live**: a program importing a
 staleness, so prism edits rebuild it), and runs it; a `project.ys` manifest names
 the package. `run`/`server`/`import` share that one package-resolution +
 `Core`-assembly path. The consumer that proved it: the whole spatio-flux demo
-suite, rewritten as `.ys` (layer 5). **`project.ys` supports two forms:**
-`package <name>` (the co-located default, used by `spatio-flux` — the crate lives
-next to project.ys) and `package <name> at <path>` (decoupled — the crate lives at
-`<path>`, resolved relative to project.ys or absolute; used by the `coda`
-research project at `/home/prism/code/coda`, which links the `coda` crate at
-`crates/coda/` from outside the prism monorepo). Without the `at` form,
-chrysalis would not be a complete language for projects that live outside the
-nest. See `crates/chrysalis/src/codegen.rs::Manifest::crate_dir`.
-
-**The structured manifest converges this onto the package resolver (#67 Phase 5c).**
-A `def package = { … }` manifest (pkg's `manifest.rs`) whose `dependencies` include a
-`native:` source — a Rust crate chrysalis can't link in-process — *also* routes through
-codegen, but the runner is now a **transport** for native Cores: it links each native
-crate, calls its `prelude::core()`, builds a `native_cores` map keyed by edge name, and
-routes through the canonical resolver `resolve_with_natives` (the *same* colimit as an
-in-process `.ys`-only resolve — one resolver, native Cores merely *supplied*). This
-generalizes the legacy single-crate runner above to N crates + the resolver; the legacy
-`package <name>` directive migrates to a top-level structured `native:` field and retires
+suite, rewritten as `.ys` (layer 5). **The manifest is the structured `def package = { … }` (#67 Phase 5c — ONE form).**
+A package's manifest is `.ys`-as-data (pkg's `manifest.rs`); its native parts are a
+top-level `native: '<crate>'` (the package's OWN native crate — the co-located *mixed*
+shape, `'.'` next to `project.ys`, or `'<path>'` decoupled for a project outside the
+monorepo) plus `dependencies: { d: { native: '<crate>' } }` (a native DEPENDENCY). The
+runner is a **transport** for native Cores: it links each native crate, calls its
+`prelude::core()`, and routes through the canonical resolver `resolve_with_natives` (the
+*same* colimit as an in-process `.ys`-only resolve — native Cores merely *supplied*). An
+own-native-only package skips the resolver — its crate's `core()` *is* the run-Core
+(surface `std ⊔ its modules()`). The legacy one-line `package <name> [at <path>]` directive
+**was retired**: the structured `native:` subsumes both its co-located + decoupled forms
 (Felleisen — one manifest, one codegen path). See `docs/packages-decomposition.md` §3 +
 `crates/chrysalis/src/codegen.rs::run_structured`.
 

@@ -107,21 +107,25 @@ lifted `coord/board.ys` as the mental prototype — the board IS a path-import +
   resolver-as-colimit (iterated `own_over`-then-`merge`, memoized → a diamond's apex linked
   ONCE), `version.rs` (owned semver), version reqs + conflict detection, `project.lock` (the
   chosen section). See **Done** below + `docs/packages-ecosystem.md` Phase 2.
-- [ ] **Phase 3 — registry + `chrysalis add`/`install`/`remove`/`update` + fetch/cache**
-  (LOCAL dir-based index first; pluggable backend). *Consumer:* `chrysalis add foo` locally.
+- [~] **Phase 3 — registry + `chrysalis add`/`install`/`remove`/`update` + fetch/cache**
+  (LOCAL dir-based index first; pluggable backend). **P3a DONE (2026-06-11):** `chrysalis add
+  <name> [--path | --native | --version]` edits `project.ys` via the homoiconic round-trip
+  (`manifest::add_dependency` reuses `coord::set_path` + the parse→unparse→re-parse gate);
+  verified on the real binary. **NEXT:** P3b local registry (a `name → versions` index) · P3c
+  install/remove/update + lock · P3d consumer. *Consumer:* `chrysalis add foo` locally.
 - [ ] **Phase 4 — publish + remote registry** (`chrysalis publish`; HTTP backend with
   `mesh`; checksums). *Consumer:* publish prism-std / audio / spatio-flux; `chrysalis add
   audio` from the registry.
-- [~] **Phase 5 — native-dep + workspaces. 🟡 IN PROGRESS (jumped here FIRST per the human +
-  unify — `docs/packages-decomposition.md`).** **P5a + P5b DONE + green:** the resolver-side
-  native convergence — a `native:` manifest source + `resolve_with_natives` colimits a SUPPLIED
-  native Core (a crate's `domain_core()`) as just another part (`tests/package_native.rs`:
-  native Core + `.ys` dep run to n=10.0). *Native vs `.ys` = only where a part's Core comes
-  from; `Core::colimit` is uniform.* **P5c NEXT:** the codegen rewrite — a structured manifest
-  with native deps generates a runner that links each crate, calls its `prelude::core()`, and
-  supplies the Cores to `resolve_with_natives`; retire the legacy `package <name>` directive
-  (touches `codegen.rs`/`cli.rs` — coordinate-first with lang; domain crates need
-  `prelude::core()`). Then the domain breakout + `bio` umbrella → M4.
+- [x] **Phase 5 — native-dep. ✅ DONE (2026-06-11, `pkg` ⋈ `lang`; jumped here FIRST per the
+  human + unify — `docs/packages-decomposition.md`).** The native convergence COMPLETE +
+  verified on a real crate: **P5a** both native shapes (`native:` DEP source + a package's OWN
+  `native:` crate); **P5b** `resolve_with_natives` colimits supplied native Cores as just
+  another part; **`ModuleRegistry::merge`** composes import surfaces (own-native runner); **P5c**
+  (lang's runner) links the crates — own-native → `run_command(own::core(), std⊔own::modules())`,
+  native-deps → `resolve_with_natives`. **spatio-flux migrated to `native: '.'` + runs
+  identically** (the first real mixed package). *Native vs `.ys` = only where a part's Core comes
+  from; `Core::colimit` is uniform.* **Deferred:** the mixed `resolve_with_own_native` (own +
+  `.ys` deps) until `bio`; then the domain breakout + `bio` umbrella → M4. **Workspaces remain.**
 
 ## Coordinate (build-coordination — ROSTER §Build coordination)
 You are **downstream** in the build DAG (schema → bigraph → chrysalis). Booting solo, the

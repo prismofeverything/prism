@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 
-use crate::ast::{Def, Expr};
+use crate::ast::{Def, Expr, StringLit};
 use crate::parse::parse_program;
 use crate::version::{Version, VersionReq};
 
@@ -269,6 +269,90 @@ fn parse_dependencies(e: &Expr) -> Result<Vec<Dependency>, String> {
     Ok(deps)
 }
 
+/// Add (or replace) a dependency `name` in a `project.ys` SOURCE, returning the edited
+/// source. Reuses the **coord-set homoiconic round-trip** — parse →
+/// [`set_path`](crate::coord::set_path) the `dependencies.<name>` field → unparse →
+/// re-parse GATE — so the manifest only ever goes good → good and a stray brace/quote
+/// can never wedge it (the same correct-by-construction edit the board heartbeats use).
+/// `chrysalis add`'s core (#67 Phase 3).
+pub fn add_dependency(
+    src: &str,
+    name: &str,
+    source: &DependencySource,
+    version: Option<&str>,
+) -> Result<String, String> {
+    let mut program = parse_program(src).map_err(|e| format!("parse {MANIFEST_FILE}: {e}"))?;
+    let record = program
+        .defs
+        .iter_mut()
+        .find_map(|d| match d {
+            Def::Binding {
+                name: binding,
+                value: Expr::Record(fields),
+                ..
+            } if binding == MANIFEST_BINDING => Some(fields),
+            _ => None,
+        })
+        .ok_or_else(|| {
+            format!("{MANIFEST_FILE} has no `def {MANIFEST_BINDING} = {{ … }}` record to add to")
+        })?;
+
+    crate::coord::set_path(record, &["dependencies", name], dep_spec_expr(source, version));
+
+    // Preserve the leading comment/banner block (the AST drops comments), then GATE.
+    let header: String = src
+        .lines()
+        .take_while(|l| {
+            let t = l.trim_start();
+            t.is_empty() || t.starts_with('#')
+        })
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let rendered = format!("{header}{}", crate::unparse::unparse(&program));
+    parse_program(&rendered).map_err(|e| {
+        format!(
+            "`chrysalis add` ABORTED (nothing written): the edited {MANIFEST_FILE} would not \
+             re-parse — {e}"
+        )
+    })?;
+    Ok(rendered)
+}
+
+/// Read `<dir>/project.ys`, add the dependency, write it back (gated). The on-disk
+/// form of [`add_dependency`].
+pub fn add_dependency_to_file(
+    dir: &Path,
+    name: &str,
+    source: &DependencySource,
+    version: Option<&str>,
+) -> Result<(), String> {
+    let path = dir.join(MANIFEST_FILE);
+    let src =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let rendered = add_dependency(&src, name, source, version)?;
+    std::fs::write(&path, &rendered).map_err(|e| format!("write {}: {e}", path.display()))
+}
+
+/// Build the dependency spec record — `{ path: '...', version: '...' }` or
+/// `{ native: '...' }` — as an `Expr::Record` (bare keys, the form the manifest parser
+/// reads back as a dependency).
+fn dep_spec_expr(source: &DependencySource, version: Option<&str>) -> Expr {
+    let mut rec: IndexMap<String, Expr> = IndexMap::new();
+    let (key, path) = match source {
+        DependencySource::Path(p) => ("path", p),
+        DependencySource::Native(p) => ("native", p),
+    };
+    rec.insert(key.to_string(), str_lit(&path.to_string_lossy()));
+    if let Some(v) = version {
+        rec.insert("version".to_string(), str_lit(v));
+    }
+    Expr::Record(rec)
+}
+
+fn str_lit(s: &str) -> Expr {
+    Expr::Str(StringLit::plain(s))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,5 +477,51 @@ def package = {
         let plain = Manifest::parse("def package = { name: 'p' }", "/p").unwrap();
         assert_eq!(plain.native, None);
         assert_eq!(plain.native_dir(), None);
+    }
+
+    #[test]
+    fn add_dependency_edits_the_manifest_through_the_round_trip() {
+        // Adding to a manifest with no `dependencies` yet — `set_path` creates it.
+        let src = "def package = { name: 'app' }\n";
+        let edited = add_dependency(
+            src,
+            "foo",
+            &DependencySource::Path(PathBuf::from("../foo")),
+            Some("^1.0"),
+        )
+        .unwrap();
+        let m = Manifest::parse(&edited, "/app").unwrap();
+        assert_eq!(m.dependencies.len(), 1);
+        assert_eq!(m.dependencies[0].name, "foo");
+        assert_eq!(
+            m.dependencies[0].source,
+            DependencySource::Path(PathBuf::from("../foo"))
+        );
+        assert!(m.dependencies[0].req.matches(&Version::new(1, 5, 0)));
+
+        // Adding a SECOND dep (a native one) to the now-populated manifest.
+        let edited2 = add_dependency(
+            &edited,
+            "bar",
+            &DependencySource::Native(PathBuf::from("../bar")),
+            None,
+        )
+        .unwrap();
+        let m2 = Manifest::parse(&edited2, "/app").unwrap();
+        assert_eq!(m2.dependencies.len(), 2);
+        assert!(m2.dependencies.iter().find(|d| d.name == "bar").unwrap().source.is_native());
+    }
+
+    #[test]
+    fn add_dependency_preserves_header_and_other_fields() {
+        let src = "# my project\ndef package = { name: 'app', version: '0.1.0' }\n";
+        let edited =
+            add_dependency(src, "foo", &DependencySource::Path(PathBuf::from("../foo")), None)
+                .unwrap();
+        assert!(edited.contains("# my project"), "the header is preserved");
+        let m = Manifest::parse(&edited, "/app").unwrap();
+        assert_eq!(m.name, "app");
+        assert_eq!(m.version, Some(Version::new(0, 1, 0)));
+        assert_eq!(m.dependencies.len(), 1);
     }
 }
