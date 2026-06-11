@@ -130,6 +130,8 @@ mod one_shot_steps;
 mod outer_link_alchemy;
 #[path = "package_lockfile.rs"]
 mod package_lockfile;
+#[path = "package_native.rs"]
+mod package_native;
 #[path = "package_path_dep.rs"]
 mod package_path_dep;
 #[path = "package_transitive.rs"]

@@ -164,6 +164,25 @@ A6's module factory rides it from the registry. **The ecosystem goes live.**
 project depending on a native crate's `domain_core()` — bridges the registry + cargo,
 **rewriting the #13 codegen path onto the canonical run-Core**, dissolving the last
 spatio-flux 3-door debt). Workspaces (multi-package). Semver-aware `chrysalis update`.
+*(Sequenced FIRST, ahead of Phase 3 — `docs/packages-decomposition.md`: most domains are
+native/mixed, so the breakout is gated on it.)*
+
+> **🟡 IN PROGRESS (2026-06-11, `pkg`).** The **resolver-side native convergence is DONE +
+> green** — *native vs `.ys` is just where a part's Core comes from; `Core::colimit` is
+> uniform*:
+> - **P5a — `manifest.rs` `native:` source** — `dependencies: { audio: { native:
+>   '../crates/prism-audio' } }` beside `path:`. `DependencySource::Native`.
+> - **P5b — `resolver.rs` colimits a SUPPLIED native Core** — `resolve_with_natives(manifest,
+>   modules, native_cores)` takes the native crates' `domain_core()`s (keyed by edge name),
+>   `own_over`s each over the floor, and colimits it in exactly like a `.ys` part + surfaces
+>   its process exports. In-process `resolve` supplies none, so a native dep errors with the
+>   codegen hint. *Consumer:* `tests/package_native.rs` — a program links a (hand-built)
+>   native Core + a `.ys` dep and runs both to `n=10.0`. One resolver, two Core sources.
+> - **P5c — the codegen plumbing (NEXT, lang-coordinated):** a structured manifest with
+>   native deps generates a runner that links each crate, calls its `prelude::core()`, and
+>   invokes `resolve_with_natives` with the Cores supplied. Retire the legacy `package <name>`
+>   directive. *Touches `codegen.rs` / `cli.rs`; needs domain crates exposing `prelude::core()`
+>   (manifold/parsimony/mapk to add one).* Then the domain breakout + `bio` umbrella.
 
 ## Owners
 

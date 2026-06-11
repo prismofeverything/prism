@@ -112,10 +112,16 @@ lifted `coord/board.ys` as the mental prototype — the board IS a path-import +
 - [ ] **Phase 4 — publish + remote registry** (`chrysalis publish`; HTTP backend with
   `mesh`; checksums). *Consumer:* publish prism-std / audio / spatio-flux; `chrysalis add
   audio` from the registry.
-- [ ] **Phase 5 — native-dep + workspaces.** Rewrite the #13 codegen onto the canonical
-  run-Core (`pkg::prelude::{registry,methods,modules}` → `pkg::domain_core()`); dissolve the
-  spatio-flux 3-door debt; multi-package workspaces. *Consumer:* a mixed native + `.ys`
-  project.
+- [~] **Phase 5 — native-dep + workspaces. 🟡 IN PROGRESS (jumped here FIRST per the human +
+  unify — `docs/packages-decomposition.md`).** **P5a + P5b DONE + green:** the resolver-side
+  native convergence — a `native:` manifest source + `resolve_with_natives` colimits a SUPPLIED
+  native Core (a crate's `domain_core()`) as just another part (`tests/package_native.rs`:
+  native Core + `.ys` dep run to n=10.0). *Native vs `.ys` = only where a part's Core comes
+  from; `Core::colimit` is uniform.* **P5c NEXT:** the codegen rewrite — a structured manifest
+  with native deps generates a runner that links each crate, calls its `prelude::core()`, and
+  supplies the Cores to `resolve_with_natives`; retire the legacy `package <name>` directive
+  (touches `codegen.rs`/`cli.rs` — coordinate-first with lang; domain crates need
+  `prelude::core()`). Then the domain breakout + `bio` umbrella → M4.
 
 ## Coordinate (build-coordination — ROSTER §Build coordination)
 You are **downstream** in the build DAG (schema → bigraph → chrysalis). Booting solo, the
@@ -139,6 +145,24 @@ clone.
   and lone apostrophes (double them: `''`) — see `project_ys_import_explicit_origin`.
 
 ## Done
+- **Phase 5 (P5a + P5b) — the resolver-side native convergence. 2026-06-11.** Green
+  (chrysalis suite 260/0; manifest 10 lib): *native vs `.ys` is just where a part's Core comes
+  from; `Core::colimit` is uniform* (`docs/packages-decomposition.md`).
+  - **P5a — `manifest.rs` `native:` source** — `DependencySource::Native(crate_dir)` beside
+    `Path`; `dependencies: { audio: { native: '../crates/prism-audio' } }`. `is_native()` /
+    `path()` accessors.
+  - **P5b — `resolver.rs` `resolve_with_natives(manifest, modules, native_cores)`** — the
+    native crates' `domain_core()`s are SUPPLIED (keyed by edge name; chrysalis can't link a
+    crate in-process). The resolver `own_over`s each over the floor and colimits it in exactly
+    like a `.ys` part, surfacing its process exports. In-process `resolve` supplies none, so a
+    native dep errors with the codegen hint. The resolver was restructured: `resolve_one`
+    dispatches `resolve_native` vs `resolve_ys`.
+  - **Consumer** `tests/package_native.rs`: a program links a (hand-built) native Core + a
+    `.ys` path dep and runs BOTH to n=10.0 — one resolver, two Core sources.
+  - **P5c REMAINING (the gate):** the codegen rewrite so a real native crate is supplied via a
+    generated runner (`prelude::core()` → `resolve_with_natives`); retire the legacy directive;
+    then break the domains into `packages/<domain>/` (bio umbrella) → M4. Coordinate-first with
+    lang on `codegen.rs`/`cli.rs`.
 - **Phase 2 — the resolver-as-colimit + lockfile (transitive + semver). 2026-06-10.**
   Shipped + green (chrysalis suite 258/0; version 9 / manifest 8 / lockfile 2 lib tests):
   - **`version.rs`** — an owned semver subset (no `semver` crate dep): `Version`

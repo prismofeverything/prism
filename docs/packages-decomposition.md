@@ -68,6 +68,37 @@ or mixed. **This is the answer to "can packages include Rust?": yes — a mixed 
 Cargo crate (kernels + `domain_core()`) + a `project.ys` + a `ys/` dir, and the resolver
 colimits its native and `.ys` parts into one theory.**
 
+### P5c — the codegen runner (the gate; `lang` ⋈ `pkg`)
+
+chrysalis is a fixed binary — it cannot link an arbitrary domain crate in-process. So a
+manifest with native parts **generates a runner crate** (the existing `codegen.rs` path,
+EXTENDED) that links those crates, obtains each `prelude::core()`, and calls
+`resolve_with_natives(manifest, modules, native_cores)` — the *same* resolver as in-process,
+just with the native Cores supplied. **Reuse, don't clone:** the runner template already
+calls `prelude::{core, modules}` + the canonical `run`; P5c generalizes it from ONE crate to
+N (a `[dependencies]` entry + a `native_cores` entry per native part) and routes through
+`resolve_with_natives`. The runner is a *transport* for native Cores, not new semantics.
+
+**Two native shapes the manifest must express (the design question for the pair):**
+- a package's **OWN** native crate — the co-located *mixed* case (`spatio-flux`'s `sf_core()`
+  ⊔ its `ys/`; `prism-audio`'s `audio_core()`). *Recommend* a top-level `native: '<path>'`
+  field (the package's own crate), distinct from `dependencies`.
+- a native **dependency** — one package depending on another whose Core is native (`bio` →
+  `spatio-flux`). P5a's `dependencies: { sf: { native: '<path>' } }`.
+
+Both feed `native_cores`; a package's own `.ys` + own native core + its deps' Cores all
+colimit. The legacy `package <name> [at <path>]` directive (one co-located native crate)
+**migrates to the structured manifest's `native:` field** and retires (Felleisen — one
+manifest, one codegen path).
+
+**Consumer (no half-measures):** a REAL native crate via a generated runner — `spatio-flux`
+or `prism-audio` as the first mixed package (`.ys` modules over a native `domain_core()`),
+replacing P5b's hand-built Core. *That consumer IS the decomposition's first real package.*
+
+**Seam split:** `pkg` drives the manifest→runner generation (package logic); `lang` owns the
+`codegen.rs` template + `cli.rs` dispatch fit (the surface) + guards the canonical-run-core
+path against regression. Coordinate-first; pair.
+
 ## 4. The map (roster → packages)
 
 ```

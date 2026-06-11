@@ -1,33 +1,36 @@
 //! `resolver.rs` — resolve a package's dependency DAG into a linked Core + import
-//! surface + the resolved graph (#67, Phase 2: transitive + semver).
+//! surface + the resolved graph (#67, Phases 2 + 5).
 //!
-//! "Depend on package P" = "run against P's Core" (`docs/canonical-run-core.md`).
-//! Resolution is the **colimit over the dependency DAG** — *iterated
-//! `own_over`-then-`merge` to a shared apex* (the framing `unify` settled): each
-//! package is compiled ONCE against `base ⊔ its-resolved-deps`, its OWN theory taken
-//! ([`Core::own_over`]), and the theories linked via [`Core::colimit`] — prism's
-//! n-ary join (core's primitive; confluent over any order, accumulates every
-//! conflict). Because every package's own theory is **memoized by name**, a
-//! **diamond** dependency (`prog→A,B`, `A→D`, `B→D`) compiles + merges `D` exactly
-//! ONCE at the shared apex — *not* a naive double-union that false-conflicts `D` with
-//! itself. **Dependency resolution is confluence.**
+//! "Depend on package P" = "colimit P's Core" (`docs/packages-decomposition.md`). A
+//! package's Core comes from `.ys` (compiled here) **or** from a native Rust crate's
+//! `domain_core()` — *native vs `.ys` is just where the part's Core is sourced*, and
+//! [`Core::colimit`] links them uniformly. Resolution is the **colimit over the
+//! dependency DAG** — *iterated `own_over`-then-`merge` to a shared apex* (the framing
+//! `unify` settled): each package is reduced to its OWN theory over `base ⊔
+//! its-resolved-deps` ([`Core::own_over`]), the theories joined via `Core::colimit`
+//! (core's confluent, conflict-accumulating n-ary join). Because every package's own
+//! theory is **memoized by name**, a **diamond** (`prog→A,B`, `A→D`, `B→D`) links `D`
+//! exactly ONCE at the shared apex. **Dependency resolution is confluence.**
 //!
-//! **Semver.** Each edge carries a [`VersionReq`] (the compatibility functor); the
-//! resolver checks the resolved package's [`Version`] satisfies it, and a same-name
-//! package reached at two incompatible versions is a conflict (the resolver picks one
-//! version per name so the apex is well-defined — the registry as a poset over
-//! `name × version`). Cycles are detected.
+//! **Native deps (Phase 5).** chrysalis (a fixed binary) can't link an arbitrary
+//! domain crate, so a native dependency's Core is **supplied** to [`resolve_with_natives`]
+//! (a generated codegen runner links the crate and calls its `prelude::core()`). The
+//! resolver then colimits that Core in exactly like a `.ys` part — one resolver, two
+//! Core *sources*. In-process [`resolve`] supplies no native Cores, so a native dep
+//! errors with the codegen hint.
 //!
-//! THIN: the linker is `Core::merge` (prism), the compiler is `compile_with_core`
-//! (lang) — this module only WIRES them into the DAG walk ([[feedback_chrysalis_thin_layer]]).
+//! **Semver.** Each `.ys` edge carries a [`VersionReq`]; a same-name package reached at
+//! two incompatible versions is a conflict (one version per name ⇒ the apex is
+//! well-defined). Cycles are detected. THIN: the linker is `Core::colimit` (prism), the
+//! compiler is `compile_with_core` (lang) — this module only WIRES them ([[feedback_chrysalis_thin_layer]]).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use prism_bigraph::{Core, CoreMergeConflict};
 
 use crate::compile::{compile_with_core, ModuleRegistry};
-use crate::manifest::Manifest;
+use crate::manifest::{Dependency, Manifest};
 use crate::parse::parse_program_in;
 use crate::prelude::{std_core, std_modules};
 use crate::version::Version;
@@ -45,7 +48,7 @@ pub struct Resolution {
     /// only into the package that depends on it directly, at that package's compile.
     pub modules: ModuleRegistry,
     /// Every resolved package (sorted by name — deterministic): its identity + the
-    /// direct-dependency edges. The lockfile's pinned graph (Phase 2 P2d).
+    /// direct-dependency edges. The lockfile's pinned graph.
     pub graph: Vec<ResolvedPackage>,
 }
 
@@ -54,28 +57,41 @@ pub struct Resolution {
 pub struct ResolvedPackage {
     pub name: String,
     pub version: Version,
-    /// The package's directory (where its `project.ys` + `lib.ys` live).
+    /// The package's directory (a `.ys` package dir, or a native crate dir).
     pub source: PathBuf,
     /// The names of this package's DIRECT dependencies (the graph edges).
     pub dependencies: Vec<String>,
 }
 
-/// Resolve `manifest`'s dependency DAG. `base_modules` (`std_modules()` or
-/// `std_modules_at(dir)`) seeds the import surface so the caller controls `load()`
-/// path resolution.
+/// Resolve `manifest`'s dependency DAG (no native dependencies). `base_modules`
+/// (`std_modules()` or `std_modules_at(dir)`) seeds the import surface so the caller
+/// controls `load()` path resolution. A native dependency errors — those need
+/// [`resolve_with_natives`] (a codegen runner supplies their Cores).
 pub fn resolve(manifest: &Manifest, base_modules: ModuleRegistry) -> Result<Resolution, String> {
+    resolve_with_natives(manifest, base_modules, HashMap::new())
+}
+
+/// Resolve `manifest`'s DAG, with the Cores of its native dependencies supplied (keyed
+/// by the dependency NAME — the codegen runner links each native crate and hands over
+/// its `domain_core()`). The resolver colimits a native Core in exactly like a `.ys`
+/// part.
+pub fn resolve_with_natives(
+    manifest: &Manifest,
+    base_modules: ModuleRegistry,
+    native_cores: HashMap<String, Core>,
+) -> Result<Resolution, String> {
     let mut resolver = Resolver {
         base: std_core(),
         base_modules,
+        native_cores,
         memo: BTreeMap::new(),
         in_progress: BTreeSet::new(),
     };
 
-    // Resolve each DIRECT dependency (recursively), then surface its exports to the
-    // root program. `clone()` because `resolve_dep` borrows the resolver mutably.
+    // Resolve each DIRECT dependency (recursively), then surface its exports.
     let mut root_modules = resolver.base_modules.clone();
     for dep in &manifest.dependencies {
-        let name = resolver.resolve_dep(&dep.resolved_dir(&manifest.dir), &dep.req)?;
+        let name = resolver.resolve_one(dep, &manifest.dir)?;
         let exports = resolver.memo[&name].export_processes.clone();
         root_modules = declare_process_exports(root_modules, &dep.name, &exports);
     }
@@ -83,8 +99,7 @@ pub fn resolve(manifest: &Manifest, base_modules: ModuleRegistry) -> Result<Reso
     // The colimit: the shared floor ⊔ every resolved package's own theory, via the
     // n-ary join `Core::colimit` (core's prism primitive — confluent over any order,
     // accumulates ALL conflicts). Each name appears ONCE in the memo, so the diamond's
-    // apex is a single part — merged once. (Thin-layer: the linker is prism's, never
-    // cloned here.)
+    // apex is a single part — merged once.
     let parts: Vec<Core> = resolver.memo.values().map(|p| p.own_core.clone()).collect();
     let core = resolver.base.colimit(&parts).map_err(|conflicts| {
         format!("linking the dependency graph: {}", render_conflicts(&conflicts))
@@ -108,23 +123,25 @@ pub fn resolve(manifest: &Manifest, base_modules: ModuleRegistry) -> Result<Reso
     })
 }
 
-/// Convenience: resolve only the linked Core (callers with no dependency imports, or
-/// that build their own import surface).
+/// Convenience: resolve only the linked Core (no native deps; callers with no
+/// dependency imports or that build their own import surface).
 pub fn resolve_core(manifest: &Manifest) -> Result<Core, String> {
     resolve(manifest, std_modules()).map(|r| r.core)
 }
 
 /// The recursive resolution state: the shared std floor, the import-surface seed, the
-/// memo (one resolved package per NAME — the colimit dedup), and a cycle guard.
+/// supplied native Cores, the memo (one resolved package per NAME — the colimit dedup),
+/// and a cycle guard.
 struct Resolver {
     base: Core,
     base_modules: ModuleRegistry,
+    native_cores: HashMap<String, Core>,
     memo: BTreeMap<String, ResolvedPkg>,
     in_progress: BTreeSet<String>,
 }
 
-/// A fully resolved package: its identity, its OWN theory (compiled once, the part
-/// strictly above `base ⊔ its-deps`), its exported processes, and its direct deps.
+/// A fully resolved package: its identity, its OWN theory (the part strictly above
+/// `base ⊔ its-deps`), its exported processes, and its direct deps.
 struct ResolvedPkg {
     name: String,
     version: Version,
@@ -135,11 +152,63 @@ struct ResolvedPkg {
 }
 
 impl Resolver {
-    /// Resolve the package at `dir`, requiring its version satisfy `req`. Returns the
-    /// package's NAME (its key in the memo). Idempotent per name: a second edge to an
-    /// already-resolved package returns immediately (the diamond), after checking the
-    /// versions agree.
-    fn resolve_dep(&mut self, dir: &Path, req: &crate::version::VersionReq) -> Result<String, String> {
+    /// Resolve one dependency edge — dispatching on where its Core comes from. Returns
+    /// the package NAME (its memo key).
+    fn resolve_one(&mut self, dep: &Dependency, manifest_dir: &Path) -> Result<String, String> {
+        if dep.source.is_native() {
+            self.resolve_native(dep, manifest_dir)
+        } else {
+            self.resolve_ys(&dep.resolved_dir(manifest_dir), &dep.req)
+        }
+    }
+
+    /// Resolve a **native** dependency: its `domain_core()` must have been SUPPLIED
+    /// (keyed by the edge name). Colimited like any other part — `own_over` the floor,
+    /// its own processes surfaced for import. Memoized by name (a shared native dep
+    /// links once).
+    fn resolve_native(&mut self, dep: &Dependency, manifest_dir: &Path) -> Result<String, String> {
+        let name = dep.name.clone();
+        if self.memo.contains_key(&name) {
+            return Ok(name);
+        }
+        let native_core = self.native_cores.get(&name).ok_or_else(|| {
+            format!(
+                "native dependency `{name}` was not supplied a Core — a project with native \
+                 dependencies must be built via codegen (run with `chrysalis run`, which links \
+                 the crate and hands over its `domain_core()`)"
+            )
+        })?;
+        let own_core = native_core.own_over(&self.base);
+        let export_processes = own_core
+            .processes
+            .type_names()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        self.memo.insert(
+            name.clone(),
+            ResolvedPkg {
+                name: name.clone(),
+                // The native crate's version (from its own `project.ys`/Cargo.toml) is a
+                // refinement; a native dep is Cargo-versioned, not part of the `.ys` poset.
+                version: Version::new(0, 0, 0),
+                source: dep.resolved_dir(manifest_dir),
+                own_core,
+                export_processes,
+                direct_deps: Vec::new(),
+            },
+        );
+        Ok(name)
+    }
+
+    /// Resolve a `.ys` package at `dir`, requiring its version satisfy `req`. Returns
+    /// the package's NAME. Idempotent per name: a second edge to an already-resolved
+    /// package returns immediately (the diamond), after checking the versions agree.
+    fn resolve_ys(
+        &mut self,
+        dir: &Path,
+        req: &crate::version::VersionReq,
+    ) -> Result<String, String> {
         let manifest = Manifest::load(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let name = manifest.name.clone();
         let version = manifest.version.unwrap_or_else(|| Version::new(0, 0, 0));
@@ -151,8 +220,7 @@ impl Resolver {
             ));
         }
 
-        // Already resolved (a shared / diamond dependency)? It must be the SAME
-        // version — the resolver picks ONE version per name so the apex is well-defined.
+        // Already resolved (a shared / diamond dependency)? It must be the SAME version.
         if let Some(existing) = self.memo.get(&name) {
             if existing.version != version {
                 return Err(format!(
@@ -165,18 +233,18 @@ impl Resolver {
             return Ok(name);
         }
 
-        // Cycle guard — an edge that reaches a package currently being resolved.
+        // Cycle guard.
         if !self.in_progress.insert(name.clone()) {
             return Err(format!("dependency cycle through `{name}`"));
         }
 
-        // Resolve this package's OWN dependencies first (depth-first), collecting
-        // their theories + the import surface its `lib.ys` sees + the graph edges.
+        // Resolve this package's OWN dependencies first (depth-first), collecting their
+        // theories + the import surface its `lib.ys` sees + the graph edges.
         let mut dep_cores = Vec::new();
         let mut dep_modules = self.base_modules.clone();
         let mut direct_deps = Vec::new();
         for dep in &manifest.dependencies {
-            let dep_name = self.resolve_dep(&dep.resolved_dir(&manifest.dir), &dep.req)?;
+            let dep_name = self.resolve_one(dep, &manifest.dir)?;
             let resolved = &self.memo[&dep_name];
             dep_cores.push(resolved.own_core.clone());
             dep_modules =
@@ -189,8 +257,8 @@ impl Resolver {
             format!("linking `{name}`'s dependencies: {}", render_conflicts(&conflicts))
         })?;
 
-        // Compile THIS package against (base ⊔ its resolved deps) with that surface,
-        // then take its OWN theory (the part strictly above what it compiled against).
+        // Compile THIS package against (base ⊔ its deps) with that surface, then take
+        // its OWN theory (the part strictly above what it compiled against).
         let compiled = compile_lib(dir, &against, dep_modules)
             .map_err(|e| format!("compiling `{name}` ({}): {e}", dir.display()))?;
         let own_core = compiled.own_over(&against);

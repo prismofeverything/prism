@@ -61,21 +61,45 @@ pub struct Dependency {
     pub req: VersionReq,
 }
 
-/// Where a dependency lives. Phase 1 is path-only; registry sources (a version
-/// requirement resolved against an index) arrive in Phase 3.
+/// Where a dependency's Core comes from. Native vs `.ys` is just *where the part's
+/// Core is sourced* — `Core::colimit` links them uniformly. Registry sources (a
+/// version requirement resolved against an index) arrive in Phase 3.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DependencySource {
     /// A local **path** dependency: another `.ys` package on disk, relative to the
-    /// depending manifest's `dir` (or absolute).
+    /// depending manifest's `dir` (or absolute). Its Core is compiled from `.ys`.
     Path(PathBuf),
+    /// A **native** dependency: a Rust crate (the directory holding its `Cargo.toml`)
+    /// exposing a `domain_core()` via the `prelude::core()`/`modules()` convention.
+    /// chrysalis (a fixed binary) can't link it in-process, so a native dep routes the
+    /// build through codegen — a generated runner links the crate and supplies its
+    /// Core to [`crate::resolver::resolve`] (#67 Phase 5).
+    Native(PathBuf),
+}
+
+impl DependencySource {
+    /// The declared path (a `.ys` package dir for `Path`, a crate dir for `Native`).
+    pub fn path(&self) -> &Path {
+        match self {
+            DependencySource::Path(p) | DependencySource::Native(p) => p,
+        }
+    }
+
+    /// Is this a native (Rust crate) dependency?
+    pub fn is_native(&self) -> bool {
+        matches!(self, DependencySource::Native(_))
+    }
 }
 
 impl Dependency {
-    /// The dependency's package directory, resolved against `manifest_dir`.
+    /// The dependency's directory, resolved against `manifest_dir` (a `.ys` package
+    /// dir for a path dep, a crate dir for a native dep).
     pub fn resolved_dir(&self, manifest_dir: &Path) -> PathBuf {
-        match &self.source {
-            DependencySource::Path(p) if p.is_absolute() => p.clone(),
-            DependencySource::Path(p) => manifest_dir.join(p),
+        let p = self.source.path();
+        if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            manifest_dir.join(p)
         }
     }
 }
@@ -198,26 +222,27 @@ fn parse_dependencies(e: &Expr) -> Result<Vec<Dependency>, String> {
                 ))
             }
         };
-        match string_field(spec_fields, "path") {
-            Some(p) => {
-                let req = match string_field(spec_fields, "version") {
-                    Some(s) => s
-                        .parse::<VersionReq>()
-                        .map_err(|e| format!("dependency `{name}`: {e}"))?,
-                    None => VersionReq::any(),
-                };
-                deps.push(Dependency {
-                    name: name.clone(),
-                    source: DependencySource::Path(PathBuf::from(p)),
-                    req,
-                });
-            }
-            None => {
-                return Err(format!(
-                    "dependency `{name}` needs a `path: '...'` (path deps are the source kind today)"
-                ))
-            }
-        }
+        let req = match string_field(spec_fields, "version") {
+            Some(s) => s
+                .parse::<VersionReq>()
+                .map_err(|e| format!("dependency `{name}`: {e}"))?,
+            None => VersionReq::any(),
+        };
+        let source = if let Some(p) = string_field(spec_fields, "path") {
+            DependencySource::Path(PathBuf::from(p))
+        } else if let Some(p) = string_field(spec_fields, "native") {
+            DependencySource::Native(PathBuf::from(p))
+        } else {
+            return Err(format!(
+                "dependency `{name}` needs a `path: '...'` (a `.ys` package) or \
+                 `native: '...'` (a Rust crate)"
+            ));
+        };
+        deps.push(Dependency {
+            name: name.clone(),
+            source,
+            req,
+        });
     }
     Ok(deps)
 }
@@ -305,13 +330,30 @@ def package = {
     }
 
     #[test]
-    fn a_dependency_without_a_path_is_an_error() {
-        // Phase 1 supports path deps only; a bare/registry dep is rejected clearly.
+    fn a_dependency_without_a_source_is_an_error() {
+        // A dep needs a `path:` (a `.ys` package) or `native:` (a Rust crate).
         let err = Manifest::parse(
             "def package = { name: 'p', dependencies: { d: { version: '1.0.0' } } }",
             "/p",
         )
         .unwrap_err();
-        assert!(err.contains("path"), "got: {err}");
+        assert!(err.contains("path") && err.contains("native"), "got: {err}");
+    }
+
+    #[test]
+    fn parses_a_native_dependency() {
+        let m = Manifest::parse(
+            "def package = { name: 'app', dependencies: { audio: { native: '../crates/prism-audio' } } }",
+            "/proj",
+        )
+        .unwrap();
+        assert_eq!(m.dependencies.len(), 1);
+        let dep = &m.dependencies[0];
+        assert_eq!(dep.name, "audio");
+        assert!(dep.source.is_native());
+        assert_eq!(
+            dep.source,
+            DependencySource::Native(PathBuf::from("../crates/prism-audio"))
+        );
     }
 }
