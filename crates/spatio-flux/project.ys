@@ -1,6 +1,14 @@
-# chrysalis project manifest — `.ys` files under this directory run against the
-# `spatio-flux` package (its native FBA / diffusion / particle processes), via
-# the codegen path: `chrysalis run` generates + builds + caches a runner crate
-# linking this package. The crate must expose
-# `spatio_flux::prelude::{registry, methods, modules}` (the codegen convention).
-package spatio-flux
+# chrysalis project manifest (#67 Phase 5c) — `spatio-flux` is a MIXED package: its
+# OWN native crate (`sf_core()` / `sf_modules()` = the kinetics / diffusion / particle /
+# FBA processes) plus its `.ys` modules under `ys/`. A `.ys` here runs via the codegen
+# path: `chrysalis run` generates + builds + caches a runner that links this crate, then
+# runs the program against `sf_core()` directly (surface = std ⊔ `sf_modules()`), no
+# resolver. The crate exposes the `spatio_flux::prelude::{core, modules}` convention.
+#
+# Migrated from the legacy `package spatio-flux` directive to the structured `native:`
+# field; both still work, but the structured manifest is the one codegen path going
+# forward (the legacy directive retires once nothing — incl. out-of-repo projects — uses it).
+def package = {
+  name: 'spatio-flux',
+  native: '.',
+}

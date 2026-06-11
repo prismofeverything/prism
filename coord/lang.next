@@ -39,16 +39,24 @@ crates and feeds their Cores to `pkg`'s `resolve_with_natives` (in-process can't
       kept as a fallback). Consumer: codegen unit tests 10/10 + a real native-dep-on-spatio-flux app
       ran `MonodKinetics` through a GENERATED runner (biomass 0.1→2.46, glucose 10→4.09). NOTHING
       needed from `pkg` (P5b already supports native_cores keyed by edge).
-- [ ] **P5c-2 — the OWN native crate (the mixed package). PAIR w/ `pkg`.** `pkg` adds a manifest
-      top-level `native:` field (`Manifest.native: Option<PathBuf>`) + the resolver colimits the own
-      native core (my rec: an explicit `own_native` param, so all colimit logic stays resolver-side and
-      my runner stays a thin transport). I wire the runner to read `manifest.native`. **SHORTCUT:** a
-      no-`.ys`-dep mixed pkg = own `core()`+`modules()` = the LEGACY path (slice 2a — only the field
-      needed); the resolver own-native colimit (2b) is only needed once a mixed pkg ALSO has deps (the
-      `bio` umbrella). Consumer: spatio-flux as the first structured mixed package.
-- [ ] **P5c-3 — retire the legacy `package <name>` directive** (migrate spatio-flux `project.ys` →
-      structured `native:`; delete `find_manifest`/`parse_manifest_package`/the legacy `Manifest` +
-      `render_runner`). Felleisen — one manifest, one codegen path.
+- [x] **P5c-2 — the OWN native crate (the mixed package). DONE + e2e PROVEN.** `pkg` PRE-BUILT
+      `Manifest.native: Option<PathBuf>` + `native_dir()` + `ModuleRegistry::merge` (self-biased) — I
+      only CONSUMED them. codegen restructured: `NativePart` → `NativeCrate` + `NativeParts {own, deps}`;
+      `has_native_parts` includes the own `native:` crate; `render_structured_runner` BRANCHES —
+      own-native-only → `render_own_native_body` (`run_command(args, own::core(),
+      std_modules_at(root).merge(own::modules()))`, NO resolver — nothing to colimit), native-deps →
+      `render_native_deps_body` (the resolve_with_natives path), own+deps → `run_structured` errors at
+      the DEFERRED `resolve_with_own_native` (pkg builds it when `bio` needs it — no consumer yet).
+      **MIGRATED `crates/spatio-flux/project.ys`** to `def package = { name: 'spatio-flux', native: '.' }`
+      — the first structured MIXED package. Consumer: real `ys/kinetics.ys` + `ys/diffusion.ys` run
+      IDENTICALLY through the own-native runner (biomass 2.462, glucose 4.095 — same as native-dep +
+      legacy). codegen 12/12. (The own+deps resolver colimit = pkg's deferred `resolve_with_own_native`.)
+- [ ] **P5c-3 — retire the legacy `package <name>` directive** — NOT a code blocker (it is a COMPAT
+      decision for the human): the legacy directive stays as the dispatch fallback because out-of-repo
+      projects (`coda`) use `package <name> at <path>`; the structured `native:` SUBSUMES both legacy
+      forms (a path is co-located `'.'` or decoupled `'<path>'`). Retire (delete `find_manifest`/
+      `parse_manifest_package`/legacy `Manifest` + `render_runner` + the bin fallback) once the human
+      confirms nothing external depends on it. Felleisen — one manifest, one codegen path.
 
 ## Now / next — homoiconic unification (you own Stages 1, 2, 4; `simplify` owns Stage 3)
 - [x] **Stage 1a** — DONE. `Comprehension` arm added to `Expr::from_value` (`ast.rs`);

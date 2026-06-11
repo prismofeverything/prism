@@ -321,46 +321,76 @@ fn write_if_changed(path: &Path, content: &str) -> Result<(), String> {
 
 use crate::manifest::Manifest as PackageManifest;
 
-/// One native part to link into the runner: today a native dependency edge; a later
-/// slice adds the package's OWN native crate (a top-level `native:` field).
-struct NativePart {
-    /// The dependency EDGE name — the `native_cores` map key the resolver looks up
-    /// (`from <edge> import …`).
-    edge: String,
+/// A native crate to link into the runner — its Cargo identity + dir.
+struct NativeCrate {
     /// The Cargo package name (`spatio-flux`), read from the crate's `Cargo.toml`.
     cargo_name: String,
     /// The crate directory (the dir holding the crate's `Cargo.toml`).
     crate_dir: PathBuf,
 }
 
-impl NativePart {
+impl NativeCrate {
     /// The crate's Rust identifier (`spatio-flux` → `spatio_flux`).
     fn ident(&self) -> String {
         self.cargo_name.replace('-', "_")
     }
+    /// Read the crate's identity from its dir (its `Cargo.toml` package name).
+    fn read(crate_dir: PathBuf) -> Result<Self, String> {
+        Ok(NativeCrate {
+            cargo_name: read_crate_name(&crate_dir)?,
+            crate_dir,
+        })
+    }
 }
 
-/// Does this manifest have native parts (a `native:` dependency — a Rust crate chrysalis
-/// can't link in-process)? If so, running it needs the codegen path.
+/// The native parts of a package: its OWN native crate (top-level `native:` — the mixed
+/// shape) and its native DEPENDENCY edges. (`.ys` path deps are resolved from disk by the
+/// resolver, not linked here.)
+struct NativeParts {
+    /// The package's own native crate — its `prelude::core()` is the native BASE, its
+    /// `prelude::modules()` the full own import surface.
+    own: Option<NativeCrate>,
+    /// Native dependency edges: `(edge name, crate)` — each edge's Core is supplied to
+    /// the resolver keyed by the edge name (`from <edge> import …`).
+    deps: Vec<(String, NativeCrate)>,
+}
+
+impl NativeParts {
+    /// Every DISTINCT native crate for the runner's `[dependencies]` (own + deps, deduped
+    /// by Cargo name — cargo errors on a duplicate path entry).
+    fn crates(&self) -> Vec<&NativeCrate> {
+        let mut seen = BTreeSet::new();
+        let mut out = Vec::new();
+        for c in self.own.iter().chain(self.deps.iter().map(|(_, c)| c)) {
+            if seen.insert(c.cargo_name.clone()) {
+                out.push(c);
+            }
+        }
+        out
+    }
+}
+
+/// Does this manifest have native parts (an own `native:` crate, or a `native:`
+/// dependency — a Rust crate chrysalis can't link in-process)? If so, running it needs the
+/// codegen path.
 pub fn has_native_parts(manifest: &PackageManifest) -> bool {
-    manifest.dependencies.iter().any(|d| d.source.is_native())
+    manifest.native.is_some() || manifest.dependencies.iter().any(|d| d.source.is_native())
 }
 
 /// Collect the native parts of `manifest`, reading each crate's Cargo package name.
-fn native_parts(manifest: &PackageManifest) -> Result<Vec<NativePart>, String> {
-    let mut parts = Vec::new();
+fn native_parts(manifest: &PackageManifest) -> Result<NativeParts, String> {
+    let own = match manifest.native_dir() {
+        Some(dir) => Some(NativeCrate::read(dir)?),
+        None => None,
+    };
+    let mut deps = Vec::new();
     for dep in &manifest.dependencies {
         if dep.source.is_native() {
-            let crate_dir = dep.resolved_dir(&manifest.dir);
-            let cargo_name = read_crate_name(&crate_dir)?;
-            parts.push(NativePart {
-                edge: dep.name.clone(),
-                cargo_name,
-                crate_dir,
-            });
+            let krate = NativeCrate::read(dep.resolved_dir(&manifest.dir))?;
+            deps.push((dep.name.clone(), krate));
         }
     }
-    Ok(parts)
+    Ok(NativeParts { own, deps })
 }
 
 /// Read `[package].name` from a crate's `Cargo.toml` (dependency-free — a focused scan,
@@ -396,27 +426,23 @@ fn read_crate_name(crate_dir: &Path) -> Result<String, String> {
 }
 
 /// Render the structured runner's `Cargo.toml` + `src/main.rs`. Pure (no I/O) so it's
-/// unit-testable. Links `chrysalis` + each distinct native crate; the `main` builds the
-/// `native_cores` map (one entry per native edge) and routes through
-/// `resolve_with_natives`.
+/// unit-testable. Links `chrysalis` + each native crate; the `run` body depends on the
+/// part shape (own-native-only → `run_command` directly; native deps → the resolver).
+/// Assumes own+deps was rejected upstream (`run_structured`).
 fn render_structured_runner(
     manifest_name: &str,
-    parts: &[NativePart],
+    parts: &NativeParts,
     chrysalis_dir: &Path,
     bin_name: &str,
 ) -> (String, String) {
-    // [dependencies]: chrysalis + each DISTINCT native crate (two edges may share a
-    // crate; cargo lists it once).
+    // [dependencies]: chrysalis + each distinct native crate.
     let mut crate_deps = String::new();
-    let mut seen = BTreeSet::new();
-    for part in parts {
-        if seen.insert(part.cargo_name.clone()) {
-            crate_deps.push_str(&format!(
-                "{name} = {{ path = {dir:?} }}\n",
-                name = part.cargo_name,
-                dir = part.crate_dir,
-            ));
-        }
+    for c in parts.crates() {
+        crate_deps.push_str(&format!(
+            "{name} = {{ path = {dir:?} }}\n",
+            name = c.cargo_name,
+            dir = c.crate_dir,
+        ));
     }
     let cargo_toml = format!(
         "# GENERATED by `chrysalis` — runner linking the native parts of package `{name}`.\n\
@@ -440,21 +466,16 @@ fn render_structured_runner(
         chrysalis = chrysalis_dir,
     );
 
-    // The native_cores inserts — one per edge: link the crate, hand over its Core.
-    let mut inserts = String::new();
-    for part in parts {
-        inserts.push_str(&format!(
-            "    native_cores.insert(\"{edge}\".to_string(), {ident}::prelude::core());\n",
-            edge = part.edge,
-            ident = part.ident(),
-        ));
-    }
+    let run_body = match &parts.own {
+        // Own native crate (own+deps rejected upstream) → run directly against its Core.
+        Some(own) => render_own_native_body(own),
+        // Native deps (no own crate) → supply each edge's Core to the resolver.
+        None => render_native_deps_body(&parts.deps),
+    };
 
     let main_rs = format!(
-        "// GENERATED by `chrysalis`. Links the native parts of package `{name}` and\n\
-         // routes through the canonical resolver `resolve_with_natives` — one resolver,\n\
-         // native Cores supplied. The same run path as the std binary, with crates linked.\n\
-         use std::collections::HashMap;\n\
+        "// GENERATED by `chrysalis`. Links the native parts of package `{name}` and runs\n\
+         // through the canonical run path (own native Core directly, or the resolver for deps).\n\
          \n\
          fn main() {{\n\
          \x20   let argv: Vec<String> = std::env::args().skip(1).collect();\n\
@@ -468,7 +489,47 @@ fn render_structured_runner(
          \x20   std::process::exit(code);\n\
          }}\n\
          \n\
-         fn run(args: &[String]) -> i32 {{\n\
+         {run_body}",
+        name = manifest_name,
+        run_body = run_body,
+    );
+
+    (cargo_toml, main_rs)
+}
+
+/// The `fn run` body for an own-native-only package: the crate's `core()` IS the run-Core,
+/// its surface = `std ⊔` the crate's own `modules()` (self-biased — std wins a name clash).
+/// No resolver: there is nothing to colimit.
+fn render_own_native_body(own: &NativeCrate) -> String {
+    format!(
+        "fn run(args: &[String]) -> i32 {{\n\
+         \x20   let entry = match args.iter().find(|a| !a.starts_with(\"--\")) {{\n\
+         \x20       Some(p) => p.clone(),\n\
+         \x20       None => {{ eprintln!(\"chrysalis runner: no .ys entry file in args\"); return 2; }}\n\
+         \x20   }};\n\
+         \x20   let prog_dir = std::path::Path::new(&entry).parent().map(|d| d.to_path_buf());\n\
+         \x20   let core = {ident}::prelude::core();\n\
+         \x20   let modules = chrysalis::prelude::std_modules_at(prog_dir).merge({ident}::prelude::modules());\n\
+         \x20   chrysalis::cli::run_command(args, core, modules)\n\
+         }}\n",
+        ident = own.ident(),
+    )
+}
+
+/// The `fn run` body for a native-deps package: build the `native_cores` map (one entry
+/// per edge), then `resolve_with_natives` (one resolver, native Cores supplied).
+fn render_native_deps_body(deps: &[(String, NativeCrate)]) -> String {
+    let mut inserts = String::new();
+    for (edge, krate) in deps {
+        inserts.push_str(&format!(
+            "    native_cores.insert(\"{edge}\".to_string(), {ident}::prelude::core());\n",
+            edge = edge,
+            ident = krate.ident(),
+        ));
+    }
+    format!(
+        "fn run(args: &[String]) -> i32 {{\n\
+         \x20   use std::collections::HashMap;\n\
          \x20   let entry = match args.iter().find(|a| !a.starts_with(\"--\")) {{\n\
          \x20       Some(p) => p.clone(),\n\
          \x20       None => {{ eprintln!(\"chrysalis runner: no .ys entry file in args\"); return 2; }}\n\
@@ -490,10 +551,8 @@ fn render_structured_runner(
          \x20   let _ = chrysalis::lockfile::write(&resolution.graph, &manifest.dir);\n\
          \x20   chrysalis::cli::run_command(args, resolution.core, resolution.modules)\n\
          }}\n",
-        name = manifest_name,
-    );
-
-    (cargo_toml, main_rs)
+        inserts = inserts,
+    )
 }
 
 /// Generate + build (cached) + exec the structured runner for `manifest`, forwarding
@@ -507,7 +566,9 @@ fn render_structured_runner(
 /// app whose `project.ys` declares `dependencies: { sf: { native:
 /// '<repo>/crates/spatio-flux' } }` and imports `from sf import MonodKinetics`, run via
 /// `chrysalis run app/main.ys --time 10`, grows a real native process (biomass 0.1→2.46,
-/// glucose 10→4.09) through a generated runner.
+/// glucose 10→4.09) through a generated runner. The OWN-native form: `spatio-flux`'s
+/// `project.ys` is `def package = { name: 'spatio-flux', native: '.' }` — a `ys/` file
+/// runs against `sf_core()` directly (its surface `std ⊔ sf_modules()`), no resolver.
 pub fn run_structured(manifest: &PackageManifest, subcommand: &str, args: &[String]) -> i32 {
     let parts = match native_parts(manifest) {
         Ok(p) => p,
@@ -516,6 +577,17 @@ pub fn run_structured(manifest: &PackageManifest, subcommand: &str, args: &[Stri
             return 1;
         }
     };
+    // Own native crate + dependencies needs the resolver to colimit the own Core WITH the
+    // deps (`resolve_with_own_native`) — deferred until a mixed consumer exists (the `bio`
+    // umbrella). Until then a package is own-native OR has deps, not both.
+    if parts.own.is_some() && !parts.deps.is_empty() {
+        eprintln!(
+            "chrysalis codegen: package `{}` has BOTH an own `native:` crate and \
+             dependencies — that needs `resolve_with_own_native` (deferred; no consumer yet).",
+            manifest.name
+        );
+        return 1;
+    }
     let layout = match Layout::resolve(&manifest.name) {
         Ok(l) => l,
         Err(e) => {
@@ -678,21 +750,23 @@ mod tests {
 
     // ── structured-manifest native runner (#67 Phase 5c) ──
 
+    fn nc(cargo_name: &str, dir: &str) -> NativeCrate {
+        NativeCrate {
+            cargo_name: cargo_name.into(),
+            crate_dir: dir.into(),
+        }
+    }
+
     #[test]
-    fn renders_a_structured_native_runner() {
+    fn renders_a_native_deps_runner() {
         // Two native deps → both crates linked, each edge supplied to the resolver.
-        let parts = vec![
-            NativePart {
-                edge: "sf".into(),
-                cargo_name: "spatio-flux".into(),
-                crate_dir: "/crates/spatio-flux".into(),
-            },
-            NativePart {
-                edge: "audio".into(),
-                cargo_name: "prism-audio".into(),
-                crate_dir: "/crates/prism-audio".into(),
-            },
-        ];
+        let parts = NativeParts {
+            own: None,
+            deps: vec![
+                ("sf".into(), nc("spatio-flux", "/crates/spatio-flux")),
+                ("audio".into(), nc("prism-audio", "/crates/prism-audio")),
+            ],
+        };
         let (cargo, main) =
             render_structured_runner("app", &parts, Path::new("/cz"), "chrysalis_runner_app");
         // Cargo.toml links chrysalis + each native crate (by Cargo package name + path).
@@ -713,22 +787,43 @@ mod tests {
     }
 
     #[test]
+    fn renders_an_own_native_runner() {
+        // An OWN native crate, no deps (the mixed package) → run directly against its
+        // `core()`, surface = std ⊔ its own `modules()`; NO resolver.
+        let parts = NativeParts {
+            own: Some(nc("spatio-flux", "/crates/spatio-flux")),
+            deps: vec![],
+        };
+        let (cargo, main) = render_structured_runner(
+            "spatio-flux",
+            &parts,
+            Path::new("/cz"),
+            "chrysalis_runner_spatio_flux",
+        );
+        assert!(cargo.contains("spatio-flux = { path = \"/crates/spatio-flux\" }"));
+        assert!(main.contains("let core = spatio_flux::prelude::core();"));
+        assert!(main.contains(
+            "chrysalis::prelude::std_modules_at(prog_dir).merge(spatio_flux::prelude::modules())"
+        ));
+        assert!(main.contains("chrysalis::cli::run_command(args, core, modules)"));
+        assert!(
+            !main.contains("resolve_with_natives"),
+            "own-native-only does not need the resolver"
+        );
+    }
+
+    #[test]
     fn dedups_a_shared_native_crate_in_cargo_deps() {
         // Two edges to the SAME crate → listed once in [dependencies] (cargo would error
         // on a duplicate), but BOTH get a native_cores insert (each edge is a distinct
         // resolver key).
-        let parts = vec![
-            NativePart {
-                edge: "a".into(),
-                cargo_name: "shared".into(),
-                crate_dir: "/c/shared".into(),
-            },
-            NativePart {
-                edge: "b".into(),
-                cargo_name: "shared".into(),
-                crate_dir: "/c/shared".into(),
-            },
-        ];
+        let parts = NativeParts {
+            own: None,
+            deps: vec![
+                ("a".into(), nc("shared", "/c/shared")),
+                ("b".into(), nc("shared", "/c/shared")),
+            ],
+        };
         let (cargo, main) = render_structured_runner("app", &parts, Path::new("/cz"), "bin");
         assert_eq!(
             cargo.matches("shared = { path").count(),
@@ -737,6 +832,25 @@ mod tests {
         );
         assert!(main.contains("native_cores.insert(\"a\""));
         assert!(main.contains("native_cores.insert(\"b\""));
+    }
+
+    #[test]
+    fn has_native_parts_detects_own_and_dep() {
+        use crate::manifest::Manifest;
+        let own = Manifest::parse("def package = { name: 'p', native: '.' }", "/p").unwrap();
+        assert!(has_native_parts(&own), "an own native: crate is a native part");
+        let dep = Manifest::parse(
+            "def package = { name: 'p', dependencies: { x: { native: '../c' } } }",
+            "/p",
+        )
+        .unwrap();
+        assert!(has_native_parts(&dep), "a native dependency is a native part");
+        let pure = Manifest::parse(
+            "def package = { name: 'p', dependencies: { y: { path: '../d' } } }",
+            "/p",
+        )
+        .unwrap();
+        assert!(!has_native_parts(&pure), "pure-.ys deps are not native parts");
     }
 
     #[test]
