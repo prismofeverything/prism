@@ -56,9 +56,13 @@ overall; the deep docs hold the content.
 - `pkg` → `coord/pkg.next` — **Phase 1 SHIPPED + GREEN (2026-06-10).** `manifest.rs` (`.ys`-data
   manifest) + **`Core::merge` + `Core::own_over`** (prism-bigraph, additive, 10/10 laws:
   commutative/associative/idempotent + diamond-dedup) + `resolver.rs` + a 2-package path-dep
-  consumer that links + runs a dep's process end-to-end; **core reviewed + APPROVED.** Now: the
-  `chrysalis run` auto-resolve CLI hook → **Phase 2 (resolver + lockfile), pairing core on the
-  resolver-as-COLIMIT.** Identity: **the *librarian of theories*** (builds the CATEGORY theories
+  consumer that links + runs a dep's process end-to-end; **core reviewed + APPROVED.**
+  **Phase 2 DONE** (resolver-as-colimit + lockfile + semver — the SOUL complete, joint pkg+core).
+  **NEXT (human-steered 2026-06-10): Phase 5 (native-dep convergence) → the DOMAINS-AS-PACKAGES
+  decomposition** (`docs/packages-decomposition.md`): each domain → a package in a top-level
+  `packages/` dir, `bio` an umbrella over spatio-flux + mapk; **the M4 substrate** — a one-engine
+  `project.ys` that deps `bio + quantum + synth` and colimits them into one engine. Identity:
+  **the *librarian of theories*** (builds the CATEGORY theories
   live in; soul = theory-composition, Phases 1–2; registry/publish 3–5 = thin reach). OWNS #67.
   **Categorical semantics BINDING — SHARPENED by pkg's implementation (bank these):**
   (1) `Core::merge` is the CALM idempotent join-semilattice, but it is the structural **DUAL** of
