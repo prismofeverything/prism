@@ -30,6 +30,9 @@ fn main() {
         "new" => cmd_new(rest),
         "run" => cmd_run(rest),
         "add" => cmd_add(rest),
+        "remove" => cmd_remove(rest),
+        "install" => cmd_install(rest),
+        "update" => cmd_update(rest),
         "bigraph" => cmd_bigraph(rest),
         "check" => cmd_check(rest),
         "format" => cmd_format(rest),
@@ -487,6 +490,64 @@ fn cmd_add(args: &[String]) {
         Ok(()) => eprintln!("added `{name}` to {}", manifest.dir.join("project.ys").display()),
         Err(e) => die("add", e),
     }
+}
+
+/// `chrysalis remove <name>` — remove a dependency from the nearest `project.ys`
+/// (the homoiconic round-trip, the reverse of `add`). #67 Phase 3.
+fn cmd_remove(args: &[String]) {
+    let name = args
+        .iter()
+        .find(|a| !a.starts_with("--"))
+        .cloned()
+        .unwrap_or_else(|| {
+            eprintln!("usage: chrysalis remove <name>");
+            std::process::exit(2);
+        });
+    let cwd = std::env::current_dir().unwrap_or_else(|e| die("remove", format!("cwd: {e}")));
+    let manifest = chrysalis::manifest::Manifest::find(&cwd)
+        .unwrap_or_else(|| die("remove", "no `project.ys` found (run inside a chrysalis project)"));
+    match chrysalis::manifest::remove_dependency_from_file(&manifest.dir, &name) {
+        Ok(()) => eprintln!("removed `{name}` from {}", manifest.dir.join("project.ys").display()),
+        Err(e) => die("remove", e),
+    }
+}
+
+/// `chrysalis install` — resolve the project's dependencies (honoring `project.lock`)
+/// and write the lock, WITHOUT running. The "prepare" step. #67 Phase 3.
+fn cmd_install(_args: &[String]) {
+    resolve_and_lock("install", false);
+}
+
+/// `chrysalis update` — re-resolve every registry dependency to the newest satisfying
+/// version (IGNORING the lock pins) and re-write `project.lock`. #67 Phase 3.
+fn cmd_update(_args: &[String]) {
+    resolve_and_lock("update", true);
+}
+
+/// Shared body of `install`/`update`: find the project, resolve (honoring or ignoring
+/// the lock), and write `project.lock`.
+fn resolve_and_lock(cmd: &str, update: bool) {
+    let cwd = std::env::current_dir().unwrap_or_else(|e| die(cmd, format!("cwd: {e}")));
+    let manifest = chrysalis::manifest::Manifest::find(&cwd)
+        .unwrap_or_else(|| die(cmd, "no `project.ys` found (run inside a chrysalis project)"));
+    if chrysalis::codegen::has_native_parts(&manifest) {
+        die(
+            cmd,
+            "this project has native dependencies — use `chrysalis run` (the codegen path links them)",
+        );
+    }
+    let resolution = if update {
+        chrysalis::resolver::resolve_update(&manifest, std_modules())
+    } else {
+        chrysalis::resolver::resolve(&manifest, std_modules())
+    }
+    .unwrap_or_else(|e| die(cmd, e));
+    chrysalis::lockfile::write(&resolution.graph, &manifest.dir).unwrap_or_else(|e| die(cmd, e));
+    eprintln!(
+        "{cmd}: resolved {} package(s) → wrote {}",
+        resolution.graph.len(),
+        manifest.dir.join("project.lock").display()
+    );
 }
 
 fn cmd_check(args: &[String]) {

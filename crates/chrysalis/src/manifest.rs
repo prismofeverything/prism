@@ -347,6 +347,54 @@ pub fn add_dependency(
     Ok(rendered)
 }
 
+/// Remove dependency `name` from a `project.ys` SOURCE (the reverse of
+/// [`add_dependency`], same gated round-trip). Errors if there is no such dependency.
+pub fn remove_dependency(src: &str, name: &str) -> Result<String, String> {
+    let mut program = parse_program(src).map_err(|e| format!("parse {MANIFEST_FILE}: {e}"))?;
+    let record = program
+        .defs
+        .iter_mut()
+        .find_map(|d| match d {
+            Def::Binding {
+                name: binding,
+                value: Expr::Record(fields),
+                ..
+            } if binding == MANIFEST_BINDING => Some(fields),
+            _ => None,
+        })
+        .ok_or_else(|| format!("{MANIFEST_FILE} has no `def {MANIFEST_BINDING} = {{ … }}` record"))?;
+
+    let removed = match record.get_mut("dependencies") {
+        Some(Expr::Record(deps)) => deps.shift_remove(name).is_some(),
+        _ => false,
+    };
+    if !removed {
+        return Err(format!("no dependency `{name}` in {MANIFEST_FILE}"));
+    }
+
+    let header: String = src
+        .lines()
+        .take_while(|l| {
+            let t = l.trim_start();
+            t.is_empty() || t.starts_with('#')
+        })
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let rendered = format!("{header}{}", crate::unparse::unparse(&program));
+    parse_program(&rendered)
+        .map_err(|e| format!("`chrysalis remove` ABORTED (nothing written): would not re-parse — {e}"))?;
+    Ok(rendered)
+}
+
+/// Read `<dir>/project.ys`, remove the dependency, write it back (gated).
+pub fn remove_dependency_from_file(dir: &Path, name: &str) -> Result<(), String> {
+    let path = dir.join(MANIFEST_FILE);
+    let src =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let rendered = remove_dependency(&src, name)?;
+    std::fs::write(&path, &rendered).map_err(|e| format!("write {}: {e}", path.display()))
+}
+
 /// Read `<dir>/project.ys`, add the dependency, write it back (gated). The on-disk
 /// form of [`add_dependency`].
 pub fn add_dependency_to_file(
@@ -547,6 +595,17 @@ def package = {
         let m2 = Manifest::parse(&edited2, "/app").unwrap();
         assert_eq!(m2.dependencies.len(), 2);
         assert!(m2.dependencies.iter().find(|d| d.name == "bar").unwrap().source.is_native());
+    }
+
+    #[test]
+    fn remove_dependency_round_trips() {
+        let src = "def package = { name: 'app', dependencies: { foo: { path: '../foo' }, bar: { path: '../bar' } } }\n";
+        let edited = remove_dependency(src, "foo").unwrap();
+        let m = Manifest::parse(&edited, "/app").unwrap();
+        assert_eq!(m.dependencies.len(), 1);
+        assert_eq!(m.dependencies[0].name, "bar");
+        // Removing a dependency that isn't there errors.
+        assert!(remove_dependency(&edited, "ghost").is_err());
     }
 
     #[test]

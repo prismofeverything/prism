@@ -130,6 +130,8 @@ mod nested_composite;
 mod one_shot_steps;
 #[path = "outer_link_alchemy.rs"]
 mod outer_link_alchemy;
+#[path = "package_lock_pin.rs"]
+mod package_lock_pin;
 #[path = "package_lockfile.rs"]
 mod package_lockfile;
 #[path = "package_native.rs"]

@@ -154,7 +154,9 @@ homoiconic edit), `chrysalis install` (fetch), `remove`/`update`. The registry i
 **pluggable backend** (local now; remote later). *Consumer:* `chrysalis add foo` from a
 local registry, then run.
 
-> **🟡 IN PROGRESS (2026-06-11, `pkg`). P3a + P3b DONE + green** (chrysalis lib 67 / suite 264).
+> **✅ DONE (2026-06-11, `pkg`). P3a + P3b + P3c green** (chrysalis lib 68 / suite 265). The
+> local package ecosystem is live: `chrysalis add` / `remove` / `install` / `update`, a registry,
+> and a lockfile that PINS. (Remote registry + publish = Phase 4.)
 > - **P3a — `chrysalis add`** edits the nearest `project.ys` through the **homoiconic
 >   round-trip** (`manifest::add_dependency` reuses `coord::set_path`, now `pub(crate)`, + parse
 >   → unparse → re-parse gate), so a stray brace/quote can never wedge the manifest. Header +
@@ -167,7 +169,13 @@ local registry, then run.
 >   source dir, then loaded like a path dep. `chrysalis add foo --version ^1.0` writes it.
 >   *Consumer:* `tests/package_registry.rs` — `foo ^1.0` resolves to `foo@1.2.0` from a registry
 >   + runs to n=5.0. The registry is a **pluggable backend** (local dir now; URL in Phase 4).
-> - **NEXT:** P3c `install`/`remove`/`update` + lockfile integration · P3d the full consumer.
+> - **P3c — `install` / `remove` / `update` + the lockfile as a PIN.** `chrysalis remove` is the
+>   reverse homoiconic edit; `chrysalis install` resolves + writes `project.lock` (the prepare
+>   step); `chrysalis update` re-resolves IGNORING the lock (newest satisfying). The resolver now
+>   **honors `project.lock`** for registry deps (the lockfile-as-INPUT the Phase-2 lock deferred —
+>   reproducible builds), unless updating. *Consumers:* `tests/package_registry.rs` (registry
+>   resolution) + `tests/package_lock_pin.rs` (the lock pins `foo@1.0.0`; `update` re-resolves to
+>   `1.2.0`). Verified on the real binary (`install` wrote a pinned lock; `remove` cleared the dep).
 
 **Phase 4 — publish + remote registry + the first published packages.** `chrysalis publish`
 (version + upload); a **remote** backend (HTTP — generalizing Phase 3's index, the move the

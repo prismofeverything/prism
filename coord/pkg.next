@@ -107,17 +107,21 @@ lifted `coord/board.ys` as the mental prototype — the board IS a path-import +
   resolver-as-colimit (iterated `own_over`-then-`merge`, memoized → a diamond's apex linked
   ONCE), `version.rs` (owned semver), version reqs + conflict detection, `project.lock` (the
   chosen section). See **Done** below + `docs/packages-ecosystem.md` Phase 2.
-- [~] **Phase 3 — registry + `chrysalis add`/`install`/`remove`/`update` + fetch/cache**
-  (LOCAL dir-based index first; pluggable backend). **P3a + P3b DONE (2026-06-11; lib 67/suite
-  264):** (P3a) `chrysalis add <name> [--path | --native | --version]` edits `project.ys` via the
-  homoiconic round-trip (`manifest::add_dependency` reuses `coord::set_path` + the
-  parse→unparse→re-parse gate). (P3b) `registry.rs` — a `Registry` trait (version solver:
-  highest satisfying version over the poset) + `LocalRegistry` (dir index `<root>/<name>/<ver>/`);
-  a `DependencySource::Registry` (version-only dep) resolved against the project's `registry:`
-  field → a source dir → loaded like a path dep; `chrysalis add foo --version ^1.0` writes it;
-  `tests/package_registry.rs` resolves `foo ^1.0`→`1.2.0` + runs. Verified on the real binary.
-  **NEXT:** P3c `install`/`remove`/`update` + lock integration · P3d the full consumer.
-  *Consumer:* `chrysalis add foo` locally.
+- [x] **Phase 3 — registry + `chrysalis add`/`install`/`remove`/`update` + fetch/cache. ✅ DONE
+  (2026-06-11; lib 68 / suite 265).** The LOCAL package ecosystem is live:
+  - **P3a** `chrysalis add <name> [--path|--native|--version]` edits `project.ys` via the
+    homoiconic round-trip (`manifest::add_dependency` reuses `coord::set_path` + the gate).
+  - **P3b** `registry.rs` — a `Registry` trait (version solver: highest satisfying over the poset)
+    + `LocalRegistry` (dir index `<root>/<name>/<ver>/`); a `DependencySource::Registry` (version-
+    only dep) resolved against the project's `registry:` field → a source dir → loaded like a
+    path dep. `tests/package_registry.rs` (`foo ^1.0`→`1.2.0` + runs).
+  - **P3c** `chrysalis remove` (reverse edit) · `install` (resolve + write lock) · `update`
+    (re-resolve IGNORING the lock). The resolver **honors `project.lock`** for registry deps (the
+    lockfile-as-INPUT the Phase-2 lock deferred — reproducible builds), via `resolve_inner`'s
+    `ignore_lock` + `resolve_update`. `tests/package_lock_pin.rs` (lock pins `foo@1.0.0`; `update`
+    → `1.2.0`). Verified on the real binary (`install` wrote a pinned lock; `remove` cleared it).
+  - **Remaining:** native-dep `install`/`update` (today they route to `chrysalis run`/codegen);
+    a content-addressed cache (Phase 4-ward).
 - [ ] **Phase 4 — publish + remote registry** (`chrysalis publish`; HTTP backend with
   `mesh`; checksums). *Consumer:* publish prism-std / audio / spatio-flux; `chrysalis add
   audio` from the registry.

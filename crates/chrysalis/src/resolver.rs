@@ -75,17 +75,44 @@ pub fn resolve(manifest: &Manifest, base_modules: ModuleRegistry) -> Result<Reso
 /// Resolve `manifest`'s DAG, with the Cores of its native dependencies supplied (keyed
 /// by the dependency NAME — the codegen runner links each native crate and hands over
 /// its `domain_core()`). The resolver colimits a native Core in exactly like a `.ys`
-/// part.
+/// part. Honors the project's `project.lock` pins (reproducible builds).
 pub fn resolve_with_natives(
     manifest: &Manifest,
     base_modules: ModuleRegistry,
     native_cores: HashMap<String, Core>,
 ) -> Result<Resolution, String> {
+    resolve_inner(manifest, base_modules, native_cores, false)
+}
+
+/// Resolve IGNORING the lockfile pins — re-resolve every registry dependency to the
+/// newest satisfying version (`chrysalis update`). The result re-pins the lock.
+pub fn resolve_update(
+    manifest: &Manifest,
+    base_modules: ModuleRegistry,
+) -> Result<Resolution, String> {
+    resolve_inner(manifest, base_modules, HashMap::new(), true)
+}
+
+fn resolve_inner(
+    manifest: &Manifest,
+    base_modules: ModuleRegistry,
+    native_cores: HashMap<String, Core>,
+    ignore_lock: bool,
+) -> Result<Resolution, String> {
+    // The lockfile PINS registry deps for reproducible builds — honored unless we are
+    // updating. A malformed / absent lock falls back to a fresh resolve.
+    let lock = if ignore_lock {
+        None
+    } else {
+        crate::lockfile::load(&manifest.dir).ok().flatten()
+    };
     let mut resolver = Resolver {
         base: std_core(),
         base_modules,
         native_cores,
         registry: manifest.registry_dir().map(LocalRegistry::new),
+        lock,
+        root_dir: manifest.dir.clone(),
         memo: BTreeMap::new(),
         in_progress: BTreeSet::new(),
     };
@@ -140,6 +167,12 @@ struct Resolver {
     native_cores: HashMap<String, Core>,
     /// The project's registry (from `Manifest::registry`), resolving registry deps.
     registry: Option<LocalRegistry>,
+    /// The project's `project.lock` (if present + honored) — pins registry deps to a
+    /// recorded version for reproducible builds. `None` when updating or absent.
+    lock: Option<Vec<crate::lockfile::LockedPackage>>,
+    /// The project root (the root manifest's dir) — where `project.lock` lives, so a
+    /// pin's relative `source` un-relativizes against it.
+    root_dir: PathBuf,
     memo: BTreeMap<String, ResolvedPkg>,
     in_progress: BTreeSet<String>,
 }
@@ -173,6 +206,19 @@ impl Resolver {
     /// `.ys` package. So `foo: { version: '^1.0' }` + a registry == a path dep whose
     /// path the registry chose.
     fn resolve_registry(&mut self, dep: &Dependency) -> Result<String, String> {
+        // Honor a lockfile PIN if it still satisfies the requirement (reproducible
+        // builds) — `self.lock` is `None` when updating, so update re-resolves fresh.
+        let pinned = self
+            .lock
+            .as_ref()
+            .and_then(|lock| lock.iter().find(|p| p.name == dep.name))
+            .filter(|p| dep.req.matches(&p.version))
+            .map(|p| p.source.clone());
+        if let Some(source) = pinned {
+            let dir = self.root_dir.join(&source);
+            return self.resolve_ys(&dir, &dep.req);
+        }
+
         let registry = self.registry.as_ref().ok_or_else(|| {
             format!(
                 "`{}` is a registry dependency but the project declares no \
