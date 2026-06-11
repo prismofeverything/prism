@@ -136,6 +136,8 @@ mod package_lockfile;
 mod package_native;
 #[path = "package_path_dep.rs"]
 mod package_path_dep;
+#[path = "package_registry.rs"]
+mod package_registry;
 #[path = "package_transitive.rs"]
 mod package_transitive;
 #[path = "parse_auto_key.rs"]

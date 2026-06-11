@@ -30,9 +30,10 @@ use std::path::{Path, PathBuf};
 use prism_bigraph::{Core, CoreMergeConflict};
 
 use crate::compile::{compile_with_core, ModuleRegistry};
-use crate::manifest::{Dependency, Manifest};
+use crate::manifest::{Dependency, DependencySource, Manifest};
 use crate::parse::parse_program_in;
 use crate::prelude::{std_core, std_modules};
+use crate::registry::{LocalRegistry, Registry};
 use crate::version::Version;
 
 /// The conventional library entry of a `.ys` package (Cargo's `src/lib.rs`).
@@ -84,6 +85,7 @@ pub fn resolve_with_natives(
         base: std_core(),
         base_modules,
         native_cores,
+        registry: manifest.registry_dir().map(LocalRegistry::new),
         memo: BTreeMap::new(),
         in_progress: BTreeSet::new(),
     };
@@ -136,6 +138,8 @@ struct Resolver {
     base: Core,
     base_modules: ModuleRegistry,
     native_cores: HashMap<String, Core>,
+    /// The project's registry (from `Manifest::registry`), resolving registry deps.
+    registry: Option<LocalRegistry>,
     memo: BTreeMap<String, ResolvedPkg>,
     in_progress: BTreeSet<String>,
 }
@@ -155,11 +159,31 @@ impl Resolver {
     /// Resolve one dependency edge — dispatching on where its Core comes from. Returns
     /// the package NAME (its memo key).
     fn resolve_one(&mut self, dep: &Dependency, manifest_dir: &Path) -> Result<String, String> {
-        if dep.source.is_native() {
-            self.resolve_native(dep, manifest_dir)
-        } else {
-            self.resolve_ys(&dep.resolved_dir(manifest_dir), &dep.req)
+        match &dep.source {
+            DependencySource::Native(_) => self.resolve_native(dep, manifest_dir),
+            DependencySource::Registry => self.resolve_registry(dep),
+            DependencySource::Path(_) => {
+                self.resolve_ys(&dep.resolved_dir(manifest_dir), &dep.req)
+            }
         }
+    }
+
+    /// Resolve a **registry** dependency: the project's registry resolves `name` + the
+    /// edge's `VersionReq` (the version solver) to a source dir, which then loads as a
+    /// `.ys` package. So `foo: { version: '^1.0' }` + a registry == a path dep whose
+    /// path the registry chose.
+    fn resolve_registry(&mut self, dep: &Dependency) -> Result<String, String> {
+        let registry = self.registry.as_ref().ok_or_else(|| {
+            format!(
+                "`{}` is a registry dependency but the project declares no \
+                 `registry: '<dir>'` in its `project.ys`",
+                dep.name
+            )
+        })?;
+        let (_version, source_dir) = registry
+            .resolve(&dep.name, &dep.req)
+            .map_err(|e| format!("registry dependency `{}`: {e}", dep.name))?;
+        self.resolve_ys(&source_dir, &dep.req)
     }
 
     /// Resolve a **native** dependency: its `domain_core()` must have been SUPPLIED

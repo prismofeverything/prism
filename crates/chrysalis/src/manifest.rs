@@ -53,6 +53,11 @@ pub struct Manifest {
     /// full import surface, e.g. `from diffusion import …`). The legacy `package <name>
     /// [at <path>]` directive migrates here (#67 Phase 5c).
     pub native: Option<PathBuf>,
+    /// The project's package **registry** location — where registry dependencies
+    /// (`{ foo: { version: '^1' } }`) are resolved from. A local directory now (#67
+    /// Phase 3, `registry: '<dir>'`, relative to `dir` or absolute); a URL / pluggable
+    /// backend in Phase 4. `None` ⇒ the project uses no registry (path/native deps only).
+    pub registry: Option<PathBuf>,
     pub dependencies: Vec<Dependency>,
     pub exports: Vec<String>,
     /// The directory containing `project.ys`. Path dependencies resolve relative to
@@ -84,13 +89,19 @@ pub enum DependencySource {
     /// build through codegen — a generated runner links the crate and supplies its
     /// Core to [`crate::resolver::resolve`] (#67 Phase 5).
     Native(PathBuf),
+    /// A **registry** dependency: no declared path — resolved by `name` + the edge's
+    /// [`VersionReq`] against the project's registry ([`Manifest::registry`]). The
+    /// `{ foo: { version: '^1.0' } }` shape `chrysalis add foo` writes (#67 Phase 3).
+    Registry,
 }
 
 impl DependencySource {
-    /// The declared path (a `.ys` package dir for `Path`, a crate dir for `Native`).
-    pub fn path(&self) -> &Path {
+    /// The declared on-disk path, if this source has one (`Path`/`Native`); `None` for
+    /// a registry dependency (its source comes from the registry, not the manifest).
+    pub fn path(&self) -> Option<&Path> {
         match self {
-            DependencySource::Path(p) | DependencySource::Native(p) => p,
+            DependencySource::Path(p) | DependencySource::Native(p) => Some(p),
+            DependencySource::Registry => None,
         }
     }
 
@@ -98,17 +109,23 @@ impl DependencySource {
     pub fn is_native(&self) -> bool {
         matches!(self, DependencySource::Native(_))
     }
+
+    /// Is this a registry dependency (resolved by name + version, no path)?
+    pub fn is_registry(&self) -> bool {
+        matches!(self, DependencySource::Registry)
+    }
 }
 
 impl Dependency {
-    /// The dependency's directory, resolved against `manifest_dir` (a `.ys` package
-    /// dir for a path dep, a crate dir for a native dep).
+    /// The dependency's directory for a path/native source, resolved against
+    /// `manifest_dir`. A registry dependency has no path here — it is resolved via the
+    /// registry, never through this method — so it falls back to `manifest_dir` (a
+    /// harmless placeholder the resolver never reads for a registry dep).
     pub fn resolved_dir(&self, manifest_dir: &Path) -> PathBuf {
-        let p = self.source.path();
-        if p.is_absolute() {
-            p.to_path_buf()
-        } else {
-            manifest_dir.join(p)
+        match self.source.path() {
+            Some(p) if p.is_absolute() => p.to_path_buf(),
+            Some(p) => manifest_dir.join(p),
+            None => manifest_dir.to_path_buf(),
         }
     }
 }
@@ -143,6 +160,7 @@ impl Manifest {
             None => None,
         };
         let native = string_field(fields, "native").map(PathBuf::from);
+        let registry = string_field(fields, "registry").map(PathBuf::from);
         let exports = match fields.get("exports") {
             Some(e) => string_list(e)
                 .ok_or_else(|| "`exports` must be a list of strings".to_string())?,
@@ -157,9 +175,21 @@ impl Manifest {
             name,
             version,
             native,
+            registry,
             dependencies,
             exports,
             dir: dir.as_ref().to_path_buf(),
+        })
+    }
+
+    /// The project's registry root directory, resolved against `dir` (if declared).
+    pub fn registry_dir(&self) -> Option<PathBuf> {
+        self.registry.as_ref().map(|r| {
+            if r.is_absolute() {
+                r.clone()
+            } else {
+                self.dir.join(r)
+            }
         })
     }
 
@@ -255,10 +285,9 @@ fn parse_dependencies(e: &Expr) -> Result<Vec<Dependency>, String> {
         } else if let Some(p) = string_field(spec_fields, "native") {
             DependencySource::Native(PathBuf::from(p))
         } else {
-            return Err(format!(
-                "dependency `{name}` needs a `path: '...'` (a `.ys` package) or \
-                 `native: '...'` (a Rust crate)"
-            ));
+            // Neither `path` nor `native` ⇒ a REGISTRY dependency, resolved by name +
+            // the `version` requirement against the project's registry (#67 Phase 3).
+            DependencySource::Registry
         };
         deps.push(Dependency {
             name: name.clone(),
@@ -338,11 +367,16 @@ pub fn add_dependency_to_file(
 /// reads back as a dependency).
 fn dep_spec_expr(source: &DependencySource, version: Option<&str>) -> Expr {
     let mut rec: IndexMap<String, Expr> = IndexMap::new();
-    let (key, path) = match source {
-        DependencySource::Path(p) => ("path", p),
-        DependencySource::Native(p) => ("native", p),
-    };
-    rec.insert(key.to_string(), str_lit(&path.to_string_lossy()));
+    match source {
+        DependencySource::Path(p) => {
+            rec.insert("path".to_string(), str_lit(&p.to_string_lossy()));
+        }
+        DependencySource::Native(p) => {
+            rec.insert("native".to_string(), str_lit(&p.to_string_lossy()));
+        }
+        // A registry dependency is version-only — no `path`/`native` key.
+        DependencySource::Registry => {}
+    }
     if let Some(v) = version {
         rec.insert("version".to_string(), str_lit(v));
     }
@@ -436,14 +470,17 @@ def package = {
     }
 
     #[test]
-    fn a_dependency_without_a_source_is_an_error() {
-        // A dep needs a `path:` (a `.ys` package) or `native:` (a Rust crate).
-        let err = Manifest::parse(
-            "def package = { name: 'p', dependencies: { d: { version: '1.0.0' } } }",
+    fn a_version_only_dependency_is_a_registry_dependency() {
+        // No `path`/`native` ⇒ a registry dependency, resolved by name + version.
+        let m = Manifest::parse(
+            "def package = { name: 'p', registry: '../reg', dependencies: { d: { version: '^1.0' } } }",
             "/p",
         )
-        .unwrap_err();
-        assert!(err.contains("path") && err.contains("native"), "got: {err}");
+        .unwrap();
+        assert_eq!(m.dependencies.len(), 1);
+        assert!(m.dependencies[0].source.is_registry());
+        assert!(m.dependencies[0].req.matches(&Version::new(1, 5, 0)));
+        assert_eq!(m.registry_dir(), Some(PathBuf::from("/p/../reg")));
     }
 
     #[test]

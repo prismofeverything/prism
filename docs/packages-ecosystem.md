@@ -154,14 +154,20 @@ homoiconic edit), `chrysalis install` (fetch), `remove`/`update`. The registry i
 **pluggable backend** (local now; remote later). *Consumer:* `chrysalis add foo` from a
 local registry, then run.
 
-> **🟡 IN PROGRESS (2026-06-11, `pkg`).** **P3a — `chrysalis add` DONE + green.** `chrysalis
-> add <name> [--path <p> | --native <p>] [--version <v>]` edits the nearest `project.ys` through
-> the **homoiconic round-trip** — `manifest::add_dependency` reuses `coord::set_path` (now
-> `pub(crate)`) + parse → unparse → **re-parse gate**, so a stray brace/quote can never wedge
-> the manifest, exactly like the board heartbeats. Header + other fields preserved; verified on
-> the real binary (added path/native/versioned deps to a real `project.ys`). **NEXT:** P3b the
-> local registry (a `name → versions` index so `chrysalis add foo` with no `--path` resolves
-> from the registry) · P3c install/remove/update + lock integration · P3d the consumer.
+> **🟡 IN PROGRESS (2026-06-11, `pkg`). P3a + P3b DONE + green** (chrysalis lib 67 / suite 264).
+> - **P3a — `chrysalis add`** edits the nearest `project.ys` through the **homoiconic
+>   round-trip** (`manifest::add_dependency` reuses `coord::set_path`, now `pub(crate)`, + parse
+>   → unparse → re-parse gate), so a stray brace/quote can never wedge the manifest. Header +
+>   fields preserved; verified on the real binary (path/native/versioned/registry deps).
+> - **P3b — the local registry** (`registry.rs`): a `Registry` trait (the version solver:
+>   `resolve(name, req)` picks the HIGHEST satisfying version over the registry poset) +
+>   `LocalRegistry` (a dir-based index `<root>/<name>/<version>/`). A **registry dependency**
+>   (`DependencySource::Registry`, the version-only `{ foo: { version: '^1.0' } }` shape) is
+>   resolved by the resolver against the project's `registry: '<dir>'` field — resolved to a
+>   source dir, then loaded like a path dep. `chrysalis add foo --version ^1.0` writes it.
+>   *Consumer:* `tests/package_registry.rs` — `foo ^1.0` resolves to `foo@1.2.0` from a registry
+>   + runs to n=5.0. The registry is a **pluggable backend** (local dir now; URL in Phase 4).
+> - **NEXT:** P3c `install`/`remove`/`update` + lockfile integration · P3d the full consumer.
 
 **Phase 4 — publish + remote registry + the first published packages.** `chrysalis publish`
 (version + upload); a **remote** backend (HTTP — generalizing Phase 3's index, the move the

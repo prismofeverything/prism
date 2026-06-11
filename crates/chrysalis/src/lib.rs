@@ -38,6 +38,7 @@ pub mod manifest;
 pub mod parse;
 pub mod prelude;
 pub mod quantum;
+pub mod registry;
 pub mod repl;
 pub mod resolver;
 pub mod runner;

@@ -470,10 +470,17 @@ fn cmd_add(args: &[String]) {
     let source = match (path, native) {
         (Some(p), None) => DependencySource::Path(p.into()),
         (None, Some(n)) => DependencySource::Native(n.into()),
-        (None, None) => die(
-            "add",
-            "a dependency needs `--path <p>` (a `.ys` package) or `--native <p>` (a Rust crate)",
-        ),
+        (None, None) => {
+            // No `--path`/`--native` ⇒ a REGISTRY dependency (resolved by name +
+            // version against the project's `registry:`); it needs a version.
+            if version.is_none() {
+                die(
+                    "add",
+                    "a registry dependency needs `--version <req>` (or use `--path <p>` / `--native <p>`)",
+                );
+            }
+            DependencySource::Registry
+        }
         (Some(_), Some(_)) => die("add", "`--path` and `--native` are mutually exclusive"),
     };
     match add_dependency_to_file(&manifest.dir, &name, &source, version.as_deref()) {
