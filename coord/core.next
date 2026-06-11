@@ -20,7 +20,22 @@ is a faithful port; when unsure read `../process-bigraph` / `../bigraph-schema` 
 (reaction/delta basis) — cat E. For THIS push you own **Stage 4 of the homoiconic
 unification — THE LINCHPIN** (with `lang` + `unify`).
 
-## Now / next — Stage 4: the consumer-boundary eval unification (THE LINCHPIN)
+## ⏱️ CURRENT (2026-06-10) — #71 MERGED; pairing pkg
+**#71 units-in-schema is MERGED to main** (commit `ba866f8 units`) — the isolated
+`units-in-schema` worktree landed. `Schema` Float/Delta now carry `dimension`,
+resolve/generalize thread it as semilattices (proptest-pinned), chrysalis lowers a
+`Quantity` end-to-end, `check.rs` wiring-dimension is first-class `dimension_conflict`,
+and the `instantiate_spec` orphan is retired — all on main + green @ build green_tick 6.
+**Now:** core is PAIRING `pkg` (the package linker). pkg shipped Phase 1 — `Core::merge`
++ `Core::own_over` (in `prism-bigraph/core.rs` + the 4 registry duals) + resolver + a
+2-package path-dep consumer, all green. I REVIEWED + APPROVED the merge (a faithful
+idempotent join-semilattice: left-biased, idempotent by Arc-identity / structural-equality,
+conflicts collected, `own_over` the floor-strip dual; `tests/core_merge.rs` 10/10 incl
+commutative/associative/diamond-dedup; additive, no signature/Schema change). **Next pairing
+target:** the resolver as a COLIMIT over the dep DAG (iterated merge to a shared apex — the
+diamond test is n=3). Substrate is otherwise idle + available.
+
+## Stage 4 — the consumer-boundary eval unification (DONE; archived)
 **CORE SUBSTRATE COMPLETE + PROVEN (2026-06-09, tick 5).** All three boundaries eval
 state-DATA → runnable, each backed by a GREEN consumer. The remaining Stage-4 work is the
 SURFACE eval (lang 4a, now LIVE) + the recognition (unify 4b) + the `realize` retirement
@@ -171,15 +186,18 @@ checkpoint. Pair with `unify` on the recognition, `lang` on the chrysalis↔pris
   and the engine rung route through the SAME `instantiate_spec`/`from_state`, no third path.
 - **`realize` retirement (lang)** — deferred cleanup; substrate does not need it.
 
-**THE next CORE arc — #71 units-in-schema** (`docs/units-in-the-schema.md`; owner core; the
-Axis-A units half + first refinement of #68). Carry `Dimension` in the TYPE, erased from the
-VALUE (zero-cost), so `check` (wiring) · the boundary codec (conversion) · `serialize` consult it
-— subsuming the chrysalis baked-factor / `thread_factor_inputs` workaround. **It is NON-MONOTONE**
-(the `Schema` enum gains a dimension → the workspace will not compile until every match site
-updates) and **every slice is gated on that change** (serde-on-`prism-schema::units` — the types
-are all plain data, no closures, so a clean derive once `Ratio` gets one — and a dimension-mismatch
-`check` fn are both consumer-less until the schema carries the dimension). So there is **no clean
-monotone slice to dribble in**; it lands as ONE coordinated/isolated arc at the post-push green
-checkpoint, with its consumer (`type Mass = Quantity[…]` round-trips; a mismatched wire is a
-`check` error; gram→kg via the codec). Discipline: laws-first (`schema-algebra.md`), build-the-consumer.
-- If lang's `count()`/`.matches()` lands, a `find_matches`-from-DATA convenience (else `Pattern::from_value`).
+**#71 units-in-schema — DONE + MERGED to main** (`docs/units-in-the-schema.md`; commit
+`ba866f8`). `Dimension` rides in the TYPE, erased from the VALUE (zero-cost); `check`
+(wiring) consults it via first-class `dimension_conflict`; `resolve`/`generalize` thread it
+as semilattices; chrysalis lowers a `Quantity` end-to-end. The boundary codec (gram→kg via
+a schema-driven `Context`) was assessed as a SEPARATE runtime-units feature (today the
+conversion is compile-time-baked + thread_factor_inputs), NOT a #71 gap — left for later.
+Follow-on if lang's `count()`/`.matches()` lands: a `find_matches`-from-DATA convenience
+(else `Pattern::from_value`).
+
+**PAIRING pkg — the package linker (#67), core-side.** pkg owns the resolver/registry; my
+crates host the linker primitive (`Core::merge`/`own_over`, reviewed + approved). Next
+pairing: the resolver as a COLIMIT over the dep DAG (iterated `merge` to a shared apex,
+diamond-dedup = the n=3 case) and the fixpoint/confluence framing. Watch for any prism-side
+gap pkg surfaces (e.g. a `merge` hook the resolver wants) — fix it IN prism, don't let pkg
+clone it (`feedback_chrysalis_thin_layer`).

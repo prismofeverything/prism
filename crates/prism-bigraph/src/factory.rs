@@ -52,6 +52,48 @@ impl ProcessRegistry {
         self.factories.keys().map(|s| s.as_str()).collect()
     }
 
+    /// Join two process registries — the **linker's process half** (behind
+    /// [`crate::Core::merge`]). A factory is opaque behaviour (a closure), so two
+    /// registrations of the same class name are "the same" only if they are the
+    /// SAME `Arc` (a shared dependency Arc-cloned through the merge — `ptr_eq`),
+    /// making the join **idempotent**; a same-name DIFFERENT factory is a conflict.
+    /// A class in only one side is taken; `self` is left-biased on an identical tie.
+    ///
+    /// Returns the merged registry + the conflicting class names (empty ⇒ clean).
+    pub fn merge(&self, other: &ProcessRegistry) -> (ProcessRegistry, Vec<String>) {
+        let mut merged = self.clone();
+        let mut conflicts = Vec::new();
+        for (name, factory) in &other.factories {
+            match merged.factories.get(name) {
+                None => {
+                    merged.factories.insert(name.clone(), Arc::clone(factory));
+                }
+                Some(existing) if Arc::ptr_eq(existing, factory) => {
+                    // idempotent: the same shared factory
+                }
+                Some(_) => conflicts.push(name.clone()),
+            }
+        }
+        (merged, conflicts)
+    }
+
+    /// This registry's OWN factories over a shared `base` — every class name the
+    /// base does not already provide. The package resolver's projection to recover
+    /// a dependency's own process theory from its compiled Core: it drops not only
+    /// the std factories but the **per-compile** generic ones every compile
+    /// re-creates (`Composite`, `Brs` — fresh closures over each compile's Core
+    /// handle), which would otherwise false-conflict in [`merge`](Self::merge) even
+    /// though they are interchangeable infrastructure. The dual of `merge`.
+    pub fn own_over(&self, base: &ProcessRegistry) -> ProcessRegistry {
+        let factories = self
+            .factories
+            .iter()
+            .filter(|(name, _)| !base.factories.contains_key(*name))
+            .map(|(name, factory)| (name.clone(), Arc::clone(factory)))
+            .collect();
+        ProcessRegistry { factories }
+    }
+
     /// Instantiate all processes in a topology.
     pub fn instantiate_topology(
         &self,

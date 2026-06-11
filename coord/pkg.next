@@ -91,15 +91,17 @@ compose without conflict.** (You are NOT "Cargo for `.ys`"; a Cargo-like surface
 
 ## Now / next — the 5 phases (full detail in `docs/packages-ecosystem.md`)
 Each phase SHIPS with its consumer (`feedback_no_half_measures`). **Phases 1–2 are the soul
-(theory-composition); pause to CONSUME them before the ecosystem (Phases 3–5).** Start at
-Phase 1 — and lift `coord/board.ys` as its working prototype (the board IS a path-import +
-merge-link of N `.ys` packages).
-- [ ] **Phase 1 — manifest-as-data + a PATH dependency + `Core::merge` linking.** Grow
-  `project.ys` from the one-line directive (`codegen.rs::Manifest`) into a structured `.ys`
-  manifest value (name, version, `dependencies`, `exports`). Path dep (one local `.ys`
-  package depending on another). Link by merging the dep's Core. *Consumer:* a 2-package
-  local project. **Highest value — "independent `.ys` projects with deps" — de-risks the
-  linker first.**
+(theory-composition); pause to CONSUME them before the ecosystem (Phases 3–5).** **Phase 1 is
+DONE (2026-06-10) — resume at Phase 2 (the resolver + lockfile: transitive + semver). Phase 2
+builds DIRECTLY on Phase 1: `Core::own_over` parameterized by `base ⊔ deps` (bottom-up) gives
+the diamond's single-apex dedup; the version solver picks one version per name so the colimit
+exists; the lockfile is that chosen section.** (Phase 1 lifted `coord/board.ys` as its mental
+prototype — the board IS a path-import + merge-link of N `.ys` packages.)
+- [x] **Phase 1 — manifest-as-data + a PATH dependency + `Core::merge` linking. ✅ DONE
+  (2026-06-10).** `manifest.rs` (`.ys`-data manifest), `Core::merge` **+ `Core::own_over`**
+  (prism-bigraph, 10/10 laws), `resolver.rs` (→ linked Core + import surface), the `chrysalis
+  run` auto-resolve hook, and the consumer `tests/package_path_dep.rs` (a program runs a path
+  dep's `Tick` to n=5.0). See **Done** below + `docs/packages-ecosystem.md` Phase 1.
 - [ ] **Phase 2 — resolver + lockfile** (transitive + semver; conflict = `Core::merge`
   conflict; `project.lock` pinned graph). *Consumer:* a 3-package graph with a shared
   transitive dep + a version constraint. *(The one genuinely-new algorithm.)*
@@ -135,4 +137,38 @@ clone.
   and lone apostrophes (double them: `''`) — see `project_ys_import_explicit_origin`.
 
 ## Done
-(empty — you boot fresh into the package ecosystem; archive each phase here as it lands.)
+- **Phase 1 — theory-composition (manifest-as-data + path-dep + `Core::merge` linking).
+  2026-06-10.** Shipped + green (chrysalis suite 254/0, prism-bigraph core_merge 10/10,
+  prism-schema 198/0):
+  - **`Core::merge`** (`prism-bigraph/src/core.rs`) — the linker as an idempotent
+    join-semilattice of the four registries: TYPES structural (schema/default/inherits —
+    builtins reconcile to themselves), PROCESSES/METHODS by `Arc::ptr_eq` (a shared dep is
+    pointer-identical → the diamond dedups), PROTOCOLS by name. A same-name incompatible def
+    is a `CoreMergeConflict`. Per-registry `merge` duals live in their own modules
+    (factory.rs/protocol.rs + prism-schema registry.rs/method.rs). Laws in
+    `tests/core_merge.rs`.
+  - **`Core::own_over(base)`** — the DUAL of merge (a package's own theory over the shared
+    floor). The dogfooding finding: a *compiled* Core bundles the std floor + the per-compile
+    generic `Composite`/`Brs` factories (fresh closures) that false-conflict on merge, so the
+    resolver links `dep.own_over(base)`, not the full compiled core. This is what makes "a
+    package = a Core" literally true at the registry level.
+  - **`manifest.rs`** — `project.ys` as `.ys`-data (`def package = { name, version,
+    dependencies, exports }`), parsed by the chrysalis parser; `find`/`load`/`parse`. Distinct
+    from the legacy native-crate directive (`codegen.rs`); they converge in Phase 5.
+  - **`resolver.rs`** — `resolve(manifest, base_modules) → (Core, ModuleRegistry)`: the linked
+    Core (each dep's `own_over` merged) + the import surface (a dep's exported PROCESSES as
+    `from <dep> import <Name>`; type exports ride the merged TypeRegistry ambiently). THIN —
+    `compile_with_core` (lang) + `Core::merge` (prism), no cloned linker.
+  - **`chrysalis run` auto-resolve** — `bin/chrysalis.rs cmd_run` resolves a structured
+    manifest's deps before the std fallback (additive; codegen + std paths unchanged, a
+    dep-less / non-package `.ys` is unaffected).
+  - **Consumer** — `tests/package_path_dep.rs`: `ys/bump.ys` SPLIT across a package boundary
+    (foo exports `Tick`; app composes it), running identically to the monolith (n→5.0).
+    Verified on the real binary too.
+  - **Deferred (correctly) to Phase 2:** transitive resolution + the diamond's single-apex
+    dedup (per-package memoization; `own_over` parameterized by `base ⊔ deps`), version
+    constraints + the version solver, the lockfile. Surfacing TYPE/function exports through the
+    module registry when a consumer needs it.
+  - **Coordination:** unify approved (additive-solo per charter; emphasised VISIBILITY) +
+    looped core in to review the join/conflict semantics (replied via `to_unify`/`to_core` —
+    additive, no Schema-enum touch, rebases trivially over the #71-units merge).

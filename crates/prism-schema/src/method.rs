@@ -101,6 +101,58 @@ impl MethodRegistry {
             .insert(method, Arc::new(f))
     }
 
+    /// Join two method registries — the **linker's method half** (behind
+    /// [`Core::merge`]). A method is opaque behaviour (a closure), so two
+    /// registrations of the same `(type, method)` slot are "the same" only if they
+    /// are the SAME `Arc` (a shared dependency Arc-cloned through the merge —
+    /// `ptr_eq`), which makes the join **idempotent**; a same-slot DIFFERENT
+    /// closure is a conflict. A slot in only one side is taken; `self` is
+    /// left-biased on an identical tie.
+    ///
+    /// Returns the merged registry + the conflicting `"Type.method"` slot names.
+    pub fn merge(&self, other: &MethodRegistry) -> (MethodRegistry, Vec<String>) {
+        let mut merged = self.clone();
+        let mut conflicts = Vec::new();
+        for (ty, methods) in &other.by_type {
+            let row = merged.by_type.entry(ty.clone()).or_default();
+            for (method, f) in methods {
+                match row.get(method) {
+                    None => {
+                        row.insert(method.clone(), Arc::clone(f));
+                    }
+                    Some(existing) if Arc::ptr_eq(existing, f) => {
+                        // idempotent: the same shared closure
+                    }
+                    Some(_) => conflicts.push(format!("{ty}.{method}")),
+                }
+            }
+        }
+        (merged, conflicts)
+    }
+
+    /// This registry's OWN methods over a shared `base` — every `(type, method)`
+    /// slot the base does not already provide. The package resolver's projection to
+    /// recover a dependency's own method theory from its compiled Core (which
+    /// bundles the std method floor). The dual of [`merge`](Self::merge).
+    pub fn own_over(&self, base: &MethodRegistry) -> MethodRegistry {
+        let mut by_type: HashMap<String, HashMap<String, MethodFn>> = HashMap::new();
+        for (ty, methods) in &self.by_type {
+            for (method, f) in methods {
+                let in_base = base
+                    .by_type
+                    .get(ty)
+                    .map_or(false, |base_methods| base_methods.contains_key(method));
+                if !in_base {
+                    by_type
+                        .entry(ty.clone())
+                        .or_default()
+                        .insert(method.clone(), Arc::clone(f));
+                }
+            }
+        }
+        MethodRegistry { by_type }
+    }
+
     /// Look up a method without dispatching it.
     pub fn lookup(&self, type_name: &str, method: &str) -> Option<&MethodFn> {
         self.by_type.get(type_name)?.get(method)

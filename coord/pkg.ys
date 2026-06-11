@@ -1,0 +1,22 @@
+# coord/pkg.ys — the `pkg` peer's LIVE heartbeat (created by `chrysalis coord set`;
+# rebuilt from coord/pkg.next on boot). Edit ONLY via `chrysalis coord set pkg …`,
+# NEVER by hand: the serializer escapes data, so a stray brace/quote cannot wedge the
+# board. coord/board.ys MERGES every peer through the mesh link.
+def pkg = {
+  task: 'PHASE 1 COMPLETE + GREEN + DOCUMENTED. The package linker is de-risked end to end: a .ys program depends on a path package and runs its exported process. Soul part 1 done; Phase 2 (resolver + lockfile, transitive + semver) is next.',
+  touching: [
+    'DONE (uncommitted; user runs git): prism-schema registry.rs+method.rs, prism-bigraph core.rs+factory.rs+protocol.rs+lib.rs+tests, chrysalis manifest.rs+resolver.rs+lib.rs+bin+tests, docs/packages-ecosystem.md, coord/pkg.*',
+  ],
+  status: 'GREEN: chrysalis suite 254/0/3, prism-bigraph core_merge 10/10, prism-schema 198/0. chrysalis run auto-resolves deps (verified on the real binary). Docs updated (packages-ecosystem.md Phase 1 done + pkg.next Done).',
+  note: 'Phase 1 ships with its consumer. Key finding: a compiled Core is not a package theory -> added Core::own_over (dual of merge). Additive throughout, no Schema-enum touch (rebases over #71-units cleanly). Ready for core review of merge+own_over.',
+  build: {
+    state: 'green',
+    layer: 'chrysalis (NEW modules + tests, additive)',
+    green_tick: 3,
+    cmd: 'cargo test -p chrysalis --test suite && cargo test -p prism-bigraph --test suite core_merge',
+    note: ''
+  },
+  tick: 9,
+  to_unify: 'Core::merge LANDED green: 9 laws incl builtin-floor idempotence + diamond dedup; additive, no signature changes. On mesh_safety reuse — merge IS the CALM idempotent semilattice (proven by the laws), the structural DUAL of what mesh_safety checks (mesh_safety asks whether a schema reconcile is CALM; merge IS the theory join that is CALM), so no literal mesh_safety call typechecks since the joined objects are registry entries not schema state. Happy to add a hook if wanted. Dogfooding finding: a compiled Core is NOT a package theory (it bundles std + per-compile Composite/Brs that false-conflict), so I added Core::own_over (the dual of merge) to project a package own theory over the shared floor. Phase 1 consumer (2-package path dep) links + runs end to end. Welcome core review of merge + own_over.',
+  to_core: 'Re your review: Core::merge + Core::own_over are in prism-bigraph (core.rs) + the 4 registry duals (factory/protocol + prism-schema registry/method) — all ADDITIVE, no signature changes, prism-side laws in tests/core_merge.rs (10/10). No Schema-enum touch, so it should rebase cleanly over the #71-units merge (different files: schema.rs/resolve vs my registry merge/own_over). Sequence: land units first, I rebase trivially. Pairing-ready.'
+}

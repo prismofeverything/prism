@@ -45,24 +45,34 @@ overall; the deep docs hold the content.
   is missing (only `Pattern[]` constructor is a value) — doc overclaims or a TODO (unify to
   settle). Next: **invariant #3 guard** ("no second eval", lands with 4a) + verify the
   Stage-1/2 collapses left no dead builders + the #46 homoiconic-surface audit tail.
-- `core` → `coord/core.next` — the substrate. HOMOICONIC **Stage 4c DONE (THE LINCHPIN)**:
-  the BRS evals transparent reaction-DATA (`push_reaction` → `ReactionRule::from_data_value`,
-  symmetric w/ `discover_processes`); landed the **4a node rung** `Core::instantiate_spec` +
-  the **type-as-data** `schema_codec` (Axis-A primitive). Also flipped `.ys` imports to
-  explicit-origin + fixed the board lexer (apostrophe/brace escapes).
-- `pkg` → `coord/pkg.next` — **NEW agent (charter SHARPENED w/ the human 2026-06-09; boots
-  SOLO once the current arcs land).** Identity SETTLED: **the *librarian of theories*** —
-  builds the CATEGORY theories live in (objects = packages, morphisms = deps, composition =
-  linking). **Center of gravity = theory-composition (Phases 1–2 are the soul); the
-  registry/publish ecosystem (3–5) is thin reach.** OWNS #67: manifest · resolver · lockfile ·
-  registry · `chrysalis add`/`publish` · semver · transitive + native deps. **Categorical
-  semantics now BINDING:** `Core::merge` = an idempotent join-semilattice (reuse
-  `mesh_safety`'s CALM); transitive resolution = a **colimit over the dep DAG** (diamond deps
-  → one shared apex, no false self-conflict); registry = a poset over `name × version`;
-  lockfile = the conflict-free section; semver = a compatibility functor. *Resolution is
-  confluence; the registry is a CRDT of theories.* Recognition: **`coord/board.ys` IS Phase
-  1's prototype** (path-import + merge-link of N `.ys` packages). Plan:
-  `docs/packages-ecosystem.md`. Prereq: `Core::merge` (core, post-#71, or pkg builds it).
+- `core` → `coord/core.next` — the substrate. **`#71 units` MERGED to main (`ba866f8`, 2026-06-10)**
+  — the coordinated non-monotone event is DONE: `Float`/`Delta` carry a `dimension` in the TYPE
+  (erased from the value — zero-cost), `resolve`/`generalize` thread it as proper semilattices
+  (proptest-pinned), chrysalis lowers a `Quantity` end-to-end, and wiring-dimension is first-class
+  `algebra::dimension_conflict` (the `instantiate_spec` orphan retired). *Pull main + rebuild once.*
+  (Prior arc: HOMOICONIC Stage 4c + the 4a node rung `Core::instantiate_spec` + the type-as-data
+  `schema_codec`.) **Now PAIRING pkg** — reviewed + **APPROVED** `Core::merge`/`own_over` (in
+  prism-bigraph, additive, 10/10 laws); available for the **resolver-as-colimit**.
+- `pkg` → `coord/pkg.next` — **Phase 1 SHIPPED + GREEN (2026-06-10).** `manifest.rs` (`.ys`-data
+  manifest) + **`Core::merge` + `Core::own_over`** (prism-bigraph, additive, 10/10 laws:
+  commutative/associative/idempotent + diamond-dedup) + `resolver.rs` + a 2-package path-dep
+  consumer that links + runs a dep's process end-to-end; **core reviewed + APPROVED.** Now: the
+  `chrysalis run` auto-resolve CLI hook → **Phase 2 (resolver + lockfile), pairing core on the
+  resolver-as-COLIMIT.** Identity: **the *librarian of theories*** (builds the CATEGORY theories
+  live in; soul = theory-composition, Phases 1–2; registry/publish 3–5 = thin reach). OWNS #67.
+  **Categorical semantics BINDING — SHARPENED by pkg's implementation (bank these):**
+  (1) `Core::merge` is the CALM idempotent join-semilattice, but it is the structural **DUAL** of
+  `mesh_safety`, not a literal reuse — `mesh_safety` classifies whether a schema-**STATE** reconcile
+  is CALM; `merge` **IS** a CALM join over **registry ENTRIES** (same property, different carrier,
+  no `mesh_safety` call typechecks). (2) **`Core::own_over` is the keystone discovery:** a compiled
+  Core bundles the shared std/per-compile floor, so a *package theory* = the Core **projected off
+  that floor** (`own_over`) — and that projection is **exactly what makes the shared base the
+  colimit's apex (contributed once), so `merge` over a dep DAG is a true COLIMIT, not a
+  false-conflicting union.** The theory predicted "merge D once at the apex"; pkg found the apex
+  (the std floor) + the projection (`own_over`) that realises it. Resolution = confluence; registry
+  = a poset over `name × version`; lockfile = the chosen conflict-free section; semver = a
+  compatibility functor. Recognition banked: **`coord/board.ys` IS Phase 1's prototype.** Plan:
+  `docs/packages-ecosystem.md`.
 - *(future, add a `<agent>.ys`+`.next` pair when booted: `bio`, `quantum`, `spatial` —
   see ROSTER for the role map.)*
 

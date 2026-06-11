@@ -128,6 +128,8 @@ mod nested_composite;
 mod one_shot_steps;
 #[path = "outer_link_alchemy.rs"]
 mod outer_link_alchemy;
+#[path = "package_path_dep.rs"]
+mod package_path_dep;
 #[path = "parse_auto_key.rs"]
 mod parse_auto_key;
 #[path = "parse_composite.rs"]

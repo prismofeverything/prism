@@ -309,6 +309,57 @@ impl TypeRegistry {
         );
     }
 
+    /// Join two type registries — the **linker's type half** (the schema-algebra
+    /// key-union behind [`Core::merge`](crate)). A name in only one side is taken;
+    /// a name in BOTH is *compatible* iff the two entries agree on the durable
+    /// structural identity — `schema`, `default`, and `inherits` (the opaque
+    /// `methods` impl is behaviour, not identity, and is a fresh `Arc` even for
+    /// identical builtins). Equal entries make the join **idempotent** (the
+    /// builtins every registry shares reconcile to themselves), so a diamond
+    /// dependency re-unions its shared types for free; a genuine **redefinition**
+    /// (two different schemas for one name) is a conflict. `self` is left-biased on
+    /// a compatible tie.
+    ///
+    /// Returns the merged registry + the names that conflicted (empty ⇒ clean).
+    /// This is the structural DUAL of the mesh's `merge` (state-based CRDT join):
+    /// there a value's replicas join; here two theories' type vocabularies do.
+    pub fn merge(&self, other: &TypeRegistry) -> (TypeRegistry, Vec<String>) {
+        let mut merged = self.clone();
+        let mut conflicts = Vec::new();
+        for (name, entry) in &other.types {
+            match self.types.get(name) {
+                None => {
+                    merged.types.insert(name.clone(), entry.clone());
+                }
+                Some(existing)
+                    if existing.schema == entry.schema
+                        && existing.default == entry.default
+                        && existing.inherits == entry.inherits =>
+                {
+                    // idempotent: the shared definition agrees (e.g. a builtin)
+                }
+                Some(_) => conflicts.push(name.clone()),
+            }
+        }
+        (merged, conflicts)
+    }
+
+    /// This registry's OWN types over a shared `base` — every entry whose NAME the
+    /// base does not already provide. The projection the package resolver uses to
+    /// recover a dependency's own theory from its compiled Core (which bundles the
+    /// std/builtin floor): `dep.own_over(base)` drops the shared builtins, keeping
+    /// only the package's declared types, so [`merge`](Self::merge) links theories
+    /// over a common floor without the floor false-conflicting. The dual of `merge`.
+    pub fn own_over(&self, base: &TypeRegistry) -> TypeRegistry {
+        let types = self
+            .types
+            .iter()
+            .filter(|(name, _)| !base.types.contains_key(*name))
+            .map(|(name, entry)| (name.clone(), entry.clone()))
+            .collect();
+        TypeRegistry { types }
+    }
+
     /// Attach method dispatch to an already-registered type, or
     /// register a new minimal entry if the name doesn't exist yet.
     pub fn register_methods(

@@ -51,16 +51,26 @@ Not just motivation — design constraints on the resolver + `Core::merge`:
 
 - ✅ **Foundation — the canonical run-Core** (`compile_with_core`/`run_with_core` + the
   protocol door). In use: prism-audio `audio_core()`.
-- 🟡 **The manifest** — `project.ys` exists but is a one-line *directive* (`package <name>
-  [at <path>]`, `codegen.rs::Manifest`). No version, deps, or exports.
+- ✅ **The manifest** (Phase 1) — `project.ys` reads as **`.ys`-as-data** (`manifest.rs`): a
+  structured `def package = { name, version, dependencies, exports }` record parsed by the
+  chrysalis parser, edited (Phase 3) through the same round-trip `coord set` uses. (The legacy
+  one-line `package <name> [at <path>]` directive in `codegen.rs` still names a NATIVE crate to
+  link; the two converge in Phase 5.)
 - 🟡 **The codegen path (#13)** — `chrysalis run` finds `project.ys`, generates+builds+
   caches a runner crate; still on the OLD 3-door convention (`pkg::prelude::{registry,
   methods, modules}`) — to be rewritten onto `domain_core()`.
 - 🟡 **Import resolution** — explicit-origin (bare = native/registry, `.name` = file). No
   package-name dimension yet.
 - ✅ **`chrysalis new`** + verbs new/run/check/format/server/coord.
-- ❌ **Missing:** version, deps, resolver, lockfile, registry, `chrysalis
-  add`/`remove`/`update`/`publish`/`install`, semver, transitive resolution, `Core::merge`.
+- ✅ **The linker** (Phase 1) — `Core::merge` (the idempotent join-semilattice of the four
+  registries; conflict on incompatible same-name) **+ `Core::own_over`** (a package's own theory
+  over the shared floor — the dual of merge), in `prism-bigraph` with prism-side laws
+  (`tests/core_merge.rs`).
+- ✅ **Path deps + resolver + import surface + `chrysalis run` auto-resolve** (Phase 1,
+  `resolver.rs`): a `.ys` program depends on a path package and uses its exported processes.
+- ❌ **Missing (Phase 2+):** version constraints + the version SOLVER, transitive resolution,
+  the lockfile, the registry, `chrysalis add`/`remove`/`update`/`publish`/`install`, semver,
+  native-dep workspaces.
 
 ## The plan — 5 phases, each shippable with a consumer
 
@@ -72,6 +82,34 @@ key-union of the four registries; conflict on incompatible same-name). *Consumer
 2-package local project (`.ys` lib `foo` + a program depending on `foo`). **This is
 "independent `.ys` projects with dependencies" in its highest-value form — and it de-risks
 the linker before any registry complexity.**
+
+> **✅ DONE (2026-06-10, `pkg`).** Shipped: `manifest.rs` (the `.ys`-data manifest +
+> `find`/`load`/`parse`), `Core::merge` + **`Core::own_over`** in `prism-bigraph` (+ the four
+> registry duals, prism-side laws `tests/core_merge.rs` 10/10), `resolver.rs` (`resolve` →
+> the linked Core + the import surface), the `chrysalis run` auto-resolve hook
+> (`bin/chrysalis.rs`), and the consumer `tests/package_path_dep.rs` (a program runs a path
+> dependency's `Tick` to `n=5.0` — the split runs identically to the monolith). chrysalis
+> suite 254/0, prism-bigraph core_merge 10/10, prism-schema 198/0.
+>
+> **Design finding (dogfooded).** A *compiled* `Core` is **not** a package's theory — it
+> bundles the theory WITH the base it compiled against (the std/builtin floor + the
+> per-compile generic `Composite`/`Brs` factories every compile re-creates with fresh
+> closures, which false-conflict on `merge`). So linking goes through
+> **`dep_core.own_over(base)`** — the package's own theory over the shared floor — and
+> `Core::merge` joins THEORIES. `own_over` is the dual of `merge` (merge joins; `own_over`
+> takes the part strictly above the floor); it is what makes "a package = a Core" literally
+> true at the registry level.
+>
+> **Import surface.** Linking (`Core::merge`) provides the runtime FACTORY; for a `.ys`
+> program to *use* a dependency's process in a composite, the compiler also needs the
+> compile-time NAME, so `resolve` returns a `ModuleRegistry` declaring each dependency's
+> exported processes — `from <dep> import <Name>`. (Type exports ride the merged
+> `TypeRegistry` ambiently and need no declaration.)
+>
+> **Deferred (correctly) to later phases:** transitive resolution + the diamond's single-apex
+> dedup need per-package memoization (Phase 2, where `own_over` is parameterized by
+> `base ⊔ deps`); version constraints/solver + lockfile (Phase 2); surfacing TYPE/function
+> exports through the module registry (when a consumer needs it).
 
 **Phase 2 — the resolver + the lockfile (transitive + semver).** Version constraints;
 transitive resolution; a **version solver** (semver); conflict detection (= `Core::merge`

@@ -26,7 +26,7 @@ pub use protocol_runtime::{ProtocolRuntime, ProtocolRuntimes};
 pub use protocols::{ParallelProtocol, RestProtocol};
 
 pub use composite::Composite;
-pub use core::Core;
+pub use core::{Core, CoreMergeConflict};
 pub use document::Document;
 pub use engine::Engine;
 pub use factory::ProcessRegistry;

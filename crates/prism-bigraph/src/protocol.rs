@@ -254,6 +254,37 @@ impl ProtocolRegistry {
         self.protocols.insert(name, protocol);
     }
 
+    /// Join two protocol registries by NAME — the **linker's protocol half**
+    /// (behind [`Core::merge`](crate::Core::merge)). Protocols are behaviour-opaque
+    /// INFRASTRUCTURE identified by their name (the standard set
+    /// `local`/`rest`/`parallel`/… is shared by every Core, each a fresh `Arc`), so
+    /// a same-name protocol is kept ONCE rather than flagged — the join is
+    /// **idempotent** by name. `self` is left-biased: an existing name is never
+    /// overwritten.
+    pub fn merge(&self, other: &ProtocolRegistry) -> ProtocolRegistry {
+        let mut protocols = self.protocols.clone();
+        for (name, protocol) in &other.protocols {
+            protocols
+                .entry(name.clone())
+                .or_insert_with(|| Arc::clone(protocol));
+        }
+        ProtocolRegistry { protocols }
+    }
+
+    /// This registry's OWN protocols over a shared `base` — every protocol name the
+    /// base does not already provide. The package resolver's projection to recover a
+    /// dependency's own protocols from its compiled Core (dropping the standard set
+    /// every Core carries). The dual of [`merge`](Self::merge).
+    pub fn own_over(&self, base: &ProtocolRegistry) -> ProtocolRegistry {
+        let protocols = self
+            .protocols
+            .iter()
+            .filter(|(name, _)| !base.protocols.contains_key(*name))
+            .map(|(name, protocol)| (name.clone(), Arc::clone(protocol)))
+            .collect();
+        ProtocolRegistry { protocols }
+    }
+
     pub fn get(&self, name: &str) -> Option<&Arc<dyn Protocol>> {
         self.protocols.get(name)
     }

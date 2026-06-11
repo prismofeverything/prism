@@ -16,6 +16,8 @@ mod cells_division;
 mod closure_guard;
 #[path = "composite_step_cache.rs"]
 mod composite_step_cache;
+#[path = "core_merge.rs"]
+mod core_merge;
 #[path = "core_threading_conformance.rs"]
 mod core_threading_conformance;
 #[path = "cross_composite_reactor.rs"]

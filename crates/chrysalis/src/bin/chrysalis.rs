@@ -385,6 +385,22 @@ fn cmd_run(args: &[String]) {
         if let Some(manifest) = chrysalis::codegen::find_manifest(path) {
             std::process::exit(chrysalis::codegen::run(&manifest, "run", args));
         }
+        // A structured `.ys`-package manifest WITH dependencies (`def package = { …,
+        // dependencies: … }`) → resolve them into a linked Core + import surface and
+        // run against it (#67 Phase 1). A dep-less / non-package `.ys` has no such
+        // manifest, so `Manifest::find` returns `None` and we fall through to the std
+        // in-process run below — existing runs are unaffected.
+        if let Some(manifest) = chrysalis::manifest::Manifest::find(path) {
+            if !manifest.dependencies.is_empty() {
+                let prog_dir = std::path::Path::new(path).parent().map(|d| d.to_path_buf());
+                match chrysalis::resolver::resolve(&manifest, std_modules_at(prog_dir)) {
+                    Ok((core, modules)) => {
+                        std::process::exit(chrysalis::cli::run_command(args, core, modules))
+                    }
+                    Err(e) => die("resolving dependencies", e),
+                }
+            }
+        }
     }
     // `load(path)` resolves relative to the entry file's directory — so a
     // `.ys` demo can reference siblings without absolute paths. Mirrors the

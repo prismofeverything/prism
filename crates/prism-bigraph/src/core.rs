@@ -151,7 +151,112 @@ impl Core {
         self.protocols.instantiate(&parsed, config, self)
     }
 
+    /// **Link** another core into this one — the package linker's join (#67). A
+    /// package is a `Core` (types · processes · methods · protocols); *depending
+    /// on* a package is **merging its Core**. This is the idempotent
+    /// join-SEMILATTICE the categorical semantics demand: commutative + associative
+    /// + idempotent (the CALM property [`mesh_safety`](prism_schema::algebra) gates
+    /// for the mesh), so the colimit over a dependency DAG is well-defined — a
+    /// **diamond** dependency (A→D, B→D, prog→A,B) merges D **once**, because D's
+    /// registry entries are the SAME `Arc`s in both branches (`ptr_eq` ⇒ no
+    /// re-union, no false self-conflict).
+    ///
+    /// Per registry, "the same key in both sides" is reconciled by that registry's
+    /// own identity: TYPES structurally (`schema`/`default`/`inherits` agree — the
+    /// shared builtins reconcile to themselves), PROCESSES and METHODS by `Arc`
+    /// identity (opaque closures; a shared dep is pointer-identical), PROTOCOLS by
+    /// name (behaviour-opaque infrastructure, never a conflict). A genuine same-name
+    /// **incompatible** definition — two different schemas for one type, two
+    /// different factories for one class — is a [`CoreMergeConflict`] (semver's job
+    /// to prevent: the version is part of a package's identity). `self` is
+    /// left-biased on every compatible tie.
+    ///
+    /// `Ok` ⇒ the linked core (every protocol's address type re-registered, so the
+    /// Core invariant holds); `Err` ⇒ *every* conflict, so the user sees them all.
+    pub fn merge(&self, other: &Core) -> Result<Core, Vec<CoreMergeConflict>> {
+        let mut conflicts = Vec::new();
+
+        let (types, type_conflicts) = self.types.merge(&other.types);
+        conflicts.extend(
+            type_conflicts
+                .into_iter()
+                .map(|name| CoreMergeConflict { registry: "type", name }),
+        );
+        let (processes, process_conflicts) = self.processes.merge(&other.processes);
+        conflicts.extend(
+            process_conflicts
+                .into_iter()
+                .map(|name| CoreMergeConflict { registry: "process", name }),
+        );
+        let (methods, method_conflicts) = self.methods.merge(&other.methods);
+        conflicts.extend(
+            method_conflicts
+                .into_iter()
+                .map(|name| CoreMergeConflict { registry: "method", name }),
+        );
+        let protocols = self.protocols.merge(&other.protocols);
+
+        if !conflicts.is_empty() {
+            return Err(conflicts);
+        }
+
+        let mut merged = Core {
+            types: Arc::new(types),
+            processes: Arc::new(processes),
+            methods: Arc::new(methods),
+            protocols: Arc::new(protocols),
+        };
+        // Preserve the Core invariant: a newly-merged protocol's address type must
+        // be registered so an address stays a first-class typed value. Idempotent.
+        merged.register_protocol_address_types();
+        Ok(merged)
+    }
+
+    /// This core's OWN contribution over a shared `base`: every registry entry whose
+    /// NAME the base does not already provide. The **dual** of [`merge`](Core::merge)
+    /// (merge joins; `own_over` takes the part of self strictly above the floor),
+    /// and the projection the package resolver (#67) needs because a *compiled* Core
+    /// is not a package's theory — it bundles the theory WITH the base it compiled
+    /// against (the std/builtin floor + the per-compile generic `Composite`/`Brs`
+    /// factories). `dep_core.own_over(base)` recovers just the package's declared
+    /// theory, so the resolver can `merge` THEORIES over a common floor without the
+    /// shared infrastructure false-conflicting (`Composite` defined in both cores).
+    pub fn own_over(&self, base: &Core) -> Core {
+        let mut core = Core {
+            types: Arc::new(self.types.own_over(&base.types)),
+            processes: Arc::new(self.processes.own_over(&base.processes)),
+            methods: Arc::new(self.methods.own_over(&base.methods)),
+            protocols: Arc::new(self.protocols.own_over(&base.protocols)),
+        };
+        // Keep the Core invariant (addresses are typed) for any own protocol.
+        core.register_protocol_address_types();
+        core
+    }
 }
+
+/// A same-name **incompatible** definition found by [`Core::merge`] — the linker
+/// conflict the resolver / semver layer (#67) must prevent by picking one version
+/// per package (the version is part of a package's identity). `registry` is which
+/// of the four it lives in (`"type"` / `"process"` / `"method"`; protocols join by
+/// name and never conflict); `name` is the colliding key (a type name, a process
+/// class, or a `"Type.method"` slot).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoreMergeConflict {
+    pub registry: &'static str,
+    pub name: String,
+}
+
+impl std::fmt::Display for CoreMergeConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} `{}` is defined incompatibly in both cores",
+            self.registry, self.name
+        )
+    }
+}
+
+impl std::error::Error for CoreMergeConflict {}
 
 /// `local:` process classes referenced in `state` that `registry` can't build.
 /// Free-function form of [`Core::missing_process_refs`], for callers that hold a

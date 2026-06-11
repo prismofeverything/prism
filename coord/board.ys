@@ -9,9 +9,10 @@ from .unify import unify
 from .lang import lang
 from .core import core
 from .simplify import simplify
+from .pkg import pkg
 
 composite Board ->{ board :: map[any] @ board } (
-  link board :: map[any] mesh = { mesh: mesh, manifold: manifold, synth: synth, unify: unify, lang: lang, core: core, simplify: simplify }
+  link board :: map[any] mesh = { pkg: pkg, mesh: mesh, manifold: manifold, synth: synth, unify: unify, lang: lang, core: core, simplify: simplify }
 )
 
 Board[]
