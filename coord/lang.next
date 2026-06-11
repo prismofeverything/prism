@@ -10,6 +10,8 @@ semantics, diagnostics). Read this + `coord/ROSTER.md` + `coord/board.ys` (the l
 cross-agent view) + **`docs/homoiconic-unification.md`** (the shared design you
 implement, stewarded by `unify`). Own `coord/lang.ys` (live heartbeat) and this file
 (durable). Create `coord/lang.ys` from your first heartbeat. Resume from **Now / next**.
+**CURRENT ARC: packages / P5c native imports** (paired w/ `pkg`) — see the first Now/next
+block + `docs/packages-decomposition.md` §3. (The homoiconic-unification arc below is parked.)
 
 ## Domain
 The chrysalis crate: `crates/chrysalis/src/{parse.rs, ast.rs, eval.rs, compile.rs}` +
@@ -21,6 +23,32 @@ and any eval rung **CALL** prism (`Core::instantiate`, `discover_processes`,
 `prism_schema::reaction`), never clone a runtime algorithm. `feedback_schema_algebra` —
 a new instantiate op is a NAMED algebra op + laws + tests, not ad-hoc munging.
 `feedback_no_half_measures` — every slice ships with its consuming test.
+
+## Now / next — packages / P5c (native imports) — PAIRED w/ `pkg` (CURRENT ARC)
+The package system is `pkg`'s domain (a package = a `Core` + manifest; linking = `Core::colimit`;
+resolution = the colimit over the dep DAG). Read `docs/packages-decomposition.md` (§3 = P5c) +
+`docs/packages-ecosystem.md`. The codegen runner I own is the **TRANSPORT** that links native
+crates and feeds their Cores to `pkg`'s `resolve_with_natives` (in-process can't link a crate).
+- [x] **P5c-1 — runner-as-transport for native DEPS + dispatch. DONE + e2e PROVEN.**
+      `codegen.rs`: `run_structured` + `render_structured_runner` (link N native crates, build
+      `native_cores` keyed by edge, route through `resolve_with_natives`); `read_crate_name` (Cargo
+      `[package].name`, no `toml` dep); decoupled `Layout::resolve(key)`/`ensure_built(layout, srcs)`;
+      **target-dir fix** (`resolve_target_dir` asks `cargo metadata`, not the hardcoded
+      `workspace/target` — reuses the relocated `/mnt/data` target + rlibs). `bin/chrysalis.rs`:
+      structured manifest w/ native parts → codegen (before the in-process resolve; legacy directive
+      kept as a fallback). Consumer: codegen unit tests 10/10 + a real native-dep-on-spatio-flux app
+      ran `MonodKinetics` through a GENERATED runner (biomass 0.1→2.46, glucose 10→4.09). NOTHING
+      needed from `pkg` (P5b already supports native_cores keyed by edge).
+- [ ] **P5c-2 — the OWN native crate (the mixed package). PAIR w/ `pkg`.** `pkg` adds a manifest
+      top-level `native:` field (`Manifest.native: Option<PathBuf>`) + the resolver colimits the own
+      native core (my rec: an explicit `own_native` param, so all colimit logic stays resolver-side and
+      my runner stays a thin transport). I wire the runner to read `manifest.native`. **SHORTCUT:** a
+      no-`.ys`-dep mixed pkg = own `core()`+`modules()` = the LEGACY path (slice 2a — only the field
+      needed); the resolver own-native colimit (2b) is only needed once a mixed pkg ALSO has deps (the
+      `bio` umbrella). Consumer: spatio-flux as the first structured mixed package.
+- [ ] **P5c-3 — retire the legacy `package <name>` directive** (migrate spatio-flux `project.ys` →
+      structured `native:`; delete `find_manifest`/`parse_manifest_package`/the legacy `Manifest` +
+      `render_runner`). Felleisen — one manifest, one codegen path.
 
 ## Now / next — homoiconic unification (you own Stages 1, 2, 4; `simplify` owns Stage 3)
 - [x] **Stage 1a** — DONE. `Comprehension` arm added to `Expr::from_value` (`ast.rs`);
@@ -231,6 +259,16 @@ GROW_DIVIDE's `unit pg` now round-trips too (the lone remaining gap there, close
   binaries — coordinate w/ core+simplify.)
 
 ## Key gotchas (durable)
+- **Codegen runner builds CONTEND on the shared `target/`.** A generated runner crate is
+  `[workspace]`-isolated → it builds its deps under the DEFAULT `[profile.dev]` (≠ the repo's lean
+  `debug = line-tables-only`), so its nested `cargo build` can invalidate/recompile shared artifacts
+  + race the target lock against a concurrent workspace `cargo`. **SERIALIZE** codegen builds (don't
+  overlap with `cargo check/test`); a transient `could not compile X (lib)` that VANISHES on an
+  isolated retry is this contention, not a real error (hit during P5c-1, confirmed harmless). The
+  real target is `/mnt/data/archive/prism-target` (`.cargo/config.toml`); `run_structured` finds it
+  via `cargo metadata` now (was a hardcoded `workspace/target`, which missed the relocated rlibs).
+  The human + `unify` are looking at AUTOMATING the `build:` lease/broadcast (a PreToolUse/PostToolUse
+  hook on `cargo build|test` → `coord set build.state=…`).
 - **Build = disk.** One shared `target/` (no worktrees) — cargo's lock serializes agents, so the
   pain is SIZE (debug symbols × 93 test binaries) + cross-agent rebuilds of shared crates. Lean
   profile + targeted `--test` keep it bounded. `cargo clean` on the shared target forces EVERYONE

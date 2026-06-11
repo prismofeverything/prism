@@ -71,6 +71,18 @@ research project at `/home/prism/code/coda`, which links the `coda` crate at
 chrysalis would not be a complete language for projects that live outside the
 nest. See `crates/chrysalis/src/codegen.rs::Manifest::crate_dir`.
 
+**The structured manifest converges this onto the package resolver (#67 Phase 5c).**
+A `def package = { … }` manifest (pkg's `manifest.rs`) whose `dependencies` include a
+`native:` source — a Rust crate chrysalis can't link in-process — *also* routes through
+codegen, but the runner is now a **transport** for native Cores: it links each native
+crate, calls its `prelude::core()`, builds a `native_cores` map keyed by edge name, and
+routes through the canonical resolver `resolve_with_natives` (the *same* colimit as an
+in-process `.ys`-only resolve — one resolver, native Cores merely *supplied*). This
+generalizes the legacy single-crate runner above to N crates + the resolver; the legacy
+`package <name>` directive migrates to a top-level structured `native:` field and retires
+(Felleisen — one manifest, one codegen path). See `docs/packages-decomposition.md` §3 +
+`crates/chrysalis/src/codegen.rs::run_structured`.
+
 **4. The boundary, made real.** A process or composite is a black box reachable
 through **protocols** (`local` in-process; `rest` / `parallel` remote) — the
 simulation can't tell whether a process runs in-thread or over HTTP. The

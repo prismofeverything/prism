@@ -382,15 +382,15 @@ fn cmd_run(args: &[String]) {
     // in-process over the std packages. Both call the SAME `cli::run_command`.
     let entry_path = args.iter().find(|a| !a.starts_with("--")).cloned();
     if let Some(path) = entry_path.as_deref() {
-        if let Some(manifest) = chrysalis::codegen::find_manifest(path) {
-            std::process::exit(chrysalis::codegen::run(&manifest, "run", args));
-        }
-        // A structured `.ys`-package manifest WITH dependencies (`def package = { …,
-        // dependencies: … }`) → resolve them into a linked Core + import surface and
-        // run against it (#67 Phase 1). A dep-less / non-package `.ys` has no such
-        // manifest, so `Manifest::find` returns `None` and we fall through to the std
-        // in-process run below — existing runs are unaffected.
+        // A structured `.ys`-package manifest (`def package = { … }`). Native parts (a
+        // `native:` dependency — a Rust crate chrysalis can't link in-process) route
+        // through the codegen runner (#67 Phase 5c); pure-`.ys` dependencies resolve
+        // in-process (#67 Phase 1). A dep-less / non-package `.ys` has no such manifest,
+        // so `Manifest::find` returns `None` and we fall through to the std run below.
         if let Some(manifest) = chrysalis::manifest::Manifest::find(path) {
+            if chrysalis::codegen::has_native_parts(&manifest) {
+                std::process::exit(chrysalis::codegen::run_structured(&manifest, "run", args));
+            }
             if !manifest.dependencies.is_empty() {
                 let prog_dir = std::path::Path::new(path).parent().map(|d| d.to_path_buf());
                 match chrysalis::resolver::resolve(&manifest, std_modules_at(prog_dir)) {
@@ -408,6 +408,12 @@ fn cmd_run(args: &[String]) {
                     Err(e) => die("resolving dependencies", e),
                 }
             }
+        }
+        // Legacy native-crate directive (`package <name> [at <path>]`) — mutually
+        // exclusive with a structured manifest (different parser). Retires once the
+        // structured `native:` field subsumes it (#67 Phase 5c-3).
+        if let Some(manifest) = chrysalis::codegen::find_manifest(path) {
+            std::process::exit(chrysalis::codegen::run(&manifest, "run", args));
         }
     }
     // `load(path)` resolves relative to the entry file's directory — so a

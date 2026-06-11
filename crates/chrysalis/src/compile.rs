@@ -174,6 +174,31 @@ impl ModuleRegistry {
         self
     }
 
+    /// Union another import surface into this one — the export-level join two import
+    /// surfaces need to compose (the package layer's #67 Phase 5 mixed case: a
+    /// package's own native crate's `modules()` ⊔ `std_modules()` ⊔ a dependency's
+    /// surface). For each module the two share, their `processes`/`objects`/
+    /// `functions`/`types` are unioned (NOT a module-level overwrite); a same-name
+    /// export clash keeps `self`'s, so the caller controls bias by argument order
+    /// (`std.merge(own)` ⇒ std wins; `own.merge(std)` ⇒ own wins). Mostly the modules
+    /// are disjoint (`core`/`io` vs `diffusion`/`fba`), so bias rarely bites.
+    pub fn merge(mut self, other: ModuleRegistry) -> Self {
+        for (module, other_exports) in other.modules {
+            let exports = self.modules.entry(module).or_default();
+            exports.processes.extend(other_exports.processes);
+            for (name, value) in other_exports.objects {
+                exports.objects.entry(name).or_insert(value);
+            }
+            for (name, f) in other_exports.functions {
+                exports.functions.entry(name).or_insert(f);
+            }
+            for (name, repr) in other_exports.types {
+                exports.types.entry(name).or_insert(repr);
+            }
+        }
+        self
+    }
+
     fn resolve(&self, module: &str, name: &str) -> Option<Export> {
         let m = self.modules.get(module)?;
         if m.processes.contains(name) {

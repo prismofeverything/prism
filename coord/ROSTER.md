@@ -145,6 +145,16 @@ lock enforces correctness; the channel saves wall-clock):
 3. **Broadcast green/broken** the instant it changes. `broken` on a shared crate is a
    global STOP for downstream; `green` is the GO. Keep-it-green, made *observable*.
 
+**The tool — `coord/build.sh` (USE THIS instead of bare cargo).** It automates all three
+rules so the channel stays *live*, not a stale record: `coord/build.sh <agent> -- <cargo
+cmd>` reads every peer RAW + warns if one is building, **leases** (`build.state=building`)
+before, and **broadcasts** (`green @ green_tick++` / `broken`) after — writes through the
+gated `coord set` on the last-good binary. The discipline that stays YOURS: when the warning
+shows a peer building a crate you **share** (e.g. pkg + lang both in `chrysalis` during P5c),
+**BATCH** — do design / write tests that don't need to run yet — until they go green, rather
+than firing a build that just blocks on cargo's lock. *(Two agents in one crate is the
+hardest case; the channel can't make cargo parallel, only let you wait deliberately.)*
+
 **The channel must not depend on the build.** The rendered board needs the `chrysalis`
 binary (`chrysalis run coord/board.ys`) — the very artifact being rebuilt — so read the
 build channel from the **raw text**, never the rendered view:

@@ -44,6 +44,15 @@ pub struct Manifest {
     pub name: String,
     /// The package's own version (the object's identity in the registry poset).
     pub version: Option<Version>,
+    /// The package's **OWN** native crate (the co-located *mixed* shape: this
+    /// package's theory includes a Rust crate's `domain_core()` — `spatio-flux`'s
+    /// `sf_core()` + its `ys/`, `prism-audio`'s `audio_core()`). The path is the crate
+    /// dir, relative to `dir` (or absolute); `'.'` is the co-located case. Distinct
+    /// from a native *dependency* (`dependencies.x.native`): the own crate supplies the
+    /// package's native BASE — its `prelude::core()` **and** `prelude::modules()` (its
+    /// full import surface, e.g. `from diffusion import …`). The legacy `package <name>
+    /// [at <path>]` directive migrates here (#67 Phase 5c).
+    pub native: Option<PathBuf>,
     pub dependencies: Vec<Dependency>,
     pub exports: Vec<String>,
     /// The directory containing `project.ys`. Path dependencies resolve relative to
@@ -133,6 +142,7 @@ impl Manifest {
             ),
             None => None,
         };
+        let native = string_field(fields, "native").map(PathBuf::from);
         let exports = match fields.get("exports") {
             Some(e) => string_list(e)
                 .ok_or_else(|| "`exports` must be a list of strings".to_string())?,
@@ -146,9 +156,21 @@ impl Manifest {
         Ok(Manifest {
             name,
             version,
+            native,
             dependencies,
             exports,
             dir: dir.as_ref().to_path_buf(),
+        })
+    }
+
+    /// The package's own native crate directory (if any), resolved against `dir`.
+    pub fn native_dir(&self) -> Option<PathBuf> {
+        self.native.as_ref().map(|p| {
+            if p.is_absolute() {
+                p.clone()
+            } else {
+                self.dir.join(p)
+            }
         })
     }
 
@@ -355,5 +377,21 @@ def package = {
             dep.source,
             DependencySource::Native(PathBuf::from("../crates/prism-audio"))
         );
+    }
+
+    #[test]
+    fn parses_an_own_native_crate() {
+        // The co-located mixed shape — the package IS a native crate + its `.ys`.
+        let m = Manifest::parse(
+            "def package = { name: 'spatio-flux', native: '.' }",
+            "/work/spatio-flux",
+        )
+        .unwrap();
+        assert_eq!(m.native, Some(PathBuf::from(".")));
+        assert_eq!(m.native_dir(), Some(PathBuf::from("/work/spatio-flux/.")));
+        // A package with no own native crate.
+        let plain = Manifest::parse("def package = { name: 'p' }", "/p").unwrap();
+        assert_eq!(plain.native, None);
+        assert_eq!(plain.native_dir(), None);
     }
 }

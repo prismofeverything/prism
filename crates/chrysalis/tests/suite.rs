@@ -120,6 +120,8 @@ mod mesh_link_runtime;
 mod mesh_link_surface;
 #[path = "metacircular_node_rung.rs"]
 mod metacircular_node_rung;
+#[path = "module_merge.rs"]
+mod module_merge;
 #[path = "mr.rs"]
 mod mr;
 #[path = "nested_composite.rs"]
