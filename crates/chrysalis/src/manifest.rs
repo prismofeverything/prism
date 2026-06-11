@@ -31,6 +31,7 @@ use indexmap::IndexMap;
 
 use crate::ast::{Def, Expr};
 use crate::parse::parse_program;
+use crate::version::{Version, VersionReq};
 
 /// The binding that holds the manifest record (`def package = { … }`).
 pub const MANIFEST_BINDING: &str = "package";
@@ -41,7 +42,8 @@ pub const MANIFEST_FILE: &str = "project.ys";
 #[derive(Debug, Clone, PartialEq)]
 pub struct Manifest {
     pub name: String,
-    pub version: Option<String>,
+    /// The package's own version (the object's identity in the registry poset).
+    pub version: Option<Version>,
     pub dependencies: Vec<Dependency>,
     pub exports: Vec<String>,
     /// The directory containing `project.ys`. Path dependencies resolve relative to
@@ -49,11 +51,14 @@ pub struct Manifest {
     pub dir: PathBuf,
 }
 
-/// One dependency edge: a name bound to where the package is found.
+/// One dependency edge: a name bound to where the package is found, plus the version
+/// requirement (the compatibility functor) the resolved package must satisfy.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Dependency {
     pub name: String,
     pub source: DependencySource,
+    /// The version requirement on this edge (`VersionReq::any()` if unspecified).
+    pub req: VersionReq,
 }
 
 /// Where a dependency lives. Phase 1 is path-only; registry sources (a version
@@ -97,7 +102,13 @@ impl Manifest {
 
         let name = string_field(fields, "name")
             .ok_or_else(|| format!("{MANIFEST_FILE}: the manifest needs a `name: '...'`"))?;
-        let version = string_field(fields, "version");
+        let version = match string_field(fields, "version") {
+            Some(s) => Some(
+                s.parse::<Version>()
+                    .map_err(|e| format!("{MANIFEST_FILE}: {e}"))?,
+            ),
+            None => None,
+        };
         let exports = match fields.get("exports") {
             Some(e) => string_list(e)
                 .ok_or_else(|| "`exports` must be a list of strings".to_string())?,
@@ -152,14 +163,14 @@ impl Manifest {
 // ── field extractors: walk the parsed `.ys` record (homoiconic — the parser is the
 //    one source of truth for the surface, no second grammar) ──
 
-fn string_field(fields: &IndexMap<String, Expr>, key: &str) -> Option<String> {
+pub(crate) fn string_field(fields: &IndexMap<String, Expr>, key: &str) -> Option<String> {
     match fields.get(key)? {
         Expr::Str(s) => s.as_plain(),
         _ => None,
     }
 }
 
-fn string_list(e: &Expr) -> Option<Vec<String>> {
+pub(crate) fn string_list(e: &Expr) -> Option<Vec<String>> {
     match e {
         Expr::List(items) => items
             .iter()
@@ -188,13 +199,22 @@ fn parse_dependencies(e: &Expr) -> Result<Vec<Dependency>, String> {
             }
         };
         match string_field(spec_fields, "path") {
-            Some(p) => deps.push(Dependency {
-                name: name.clone(),
-                source: DependencySource::Path(PathBuf::from(p)),
-            }),
+            Some(p) => {
+                let req = match string_field(spec_fields, "version") {
+                    Some(s) => s
+                        .parse::<VersionReq>()
+                        .map_err(|e| format!("dependency `{name}`: {e}"))?,
+                    None => VersionReq::any(),
+                };
+                deps.push(Dependency {
+                    name: name.clone(),
+                    source: DependencySource::Path(PathBuf::from(p)),
+                    req,
+                });
+            }
             None => {
                 return Err(format!(
-                    "dependency `{name}` needs a `path: '...'` (Phase 1 supports path deps only)"
+                    "dependency `{name}` needs a `path: '...'` (path deps are the source kind today)"
                 ))
             }
         }
@@ -212,13 +232,13 @@ mod tests {
 def package = {
   name: 'foo',
   version: '0.2.1',
-  dependencies: { bar: { path: '.bar' }, baz: { path: '../baz' } },
+  dependencies: { bar: { path: '.bar', version: '^1.0' }, baz: { path: '../baz' } },
   exports: ['grow', 'Cell'],
 }
 ";
         let m = Manifest::parse(src, "/proj").expect("parses");
         assert_eq!(m.name, "foo");
-        assert_eq!(m.version.as_deref(), Some("0.2.1"));
+        assert_eq!(m.version, Some(Version::new(0, 2, 1)));
         assert_eq!(m.exports, vec!["grow", "Cell"]);
         assert_eq!(m.dependencies.len(), 2);
         assert_eq!(m.dependencies[0].name, "bar");
@@ -226,7 +246,19 @@ def package = {
             m.dependencies[0].source,
             DependencySource::Path(PathBuf::from(".bar"))
         );
+        // The version requirement on the edge (the compatibility functor).
+        assert!(m.dependencies[0].req.matches(&Version::new(1, 5, 0)));
+        assert!(!m.dependencies[0].req.matches(&Version::new(2, 0, 0)));
+        // An unspecified requirement defaults to "any".
+        assert!(m.dependencies[1].req.matches(&Version::new(9, 9, 9)));
         assert_eq!(m.dependencies[1].name, "baz");
+    }
+
+    #[test]
+    fn an_invalid_package_version_is_an_error() {
+        let err = Manifest::parse("def package = { name: 'p', version: 'not-a-version' }", "/p")
+            .unwrap_err();
+        assert!(err.contains("version"), "got: {err}");
     }
 
     #[test]

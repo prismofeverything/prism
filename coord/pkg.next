@@ -91,20 +91,22 @@ compose without conflict.** (You are NOT "Cargo for `.ys`"; a Cargo-like surface
 
 ## Now / next — the 5 phases (full detail in `docs/packages-ecosystem.md`)
 Each phase SHIPS with its consumer (`feedback_no_half_measures`). **Phases 1–2 are the soul
-(theory-composition); pause to CONSUME them before the ecosystem (Phases 3–5).** **Phase 1 is
-DONE (2026-06-10) — resume at Phase 2 (the resolver + lockfile: transitive + semver). Phase 2
-builds DIRECTLY on Phase 1: `Core::own_over` parameterized by `base ⊔ deps` (bottom-up) gives
-the diamond's single-apex dedup; the version solver picks one version per name so the colimit
-exists; the lockfile is that chosen section.** (Phase 1 lifted `coord/board.ys` as its mental
-prototype — the board IS a path-import + merge-link of N `.ys` packages.)
+(theory-composition) — BOTH DONE (2026-06-10).** The charter says **PAUSE here to CONSUME
+them** (a real multi-package `.ys` project — spatio-flux + a synth lib) before the registry
+ecosystem (Phases 3–5). Resume at **Phase 3 (the registry + `chrysalis add` + fetch/cache)** —
+a local dir-based index first; `chrysalis add` reuses the `coord set` homoiconic edit (read →
+parse → set field → unparse → gate → write) on `project.ys` + `project.lock`. (Phases 1–2
+lifted `coord/board.ys` as the mental prototype — the board IS a path-import + merge-link of N
+`.ys` packages.)
 - [x] **Phase 1 — manifest-as-data + a PATH dependency + `Core::merge` linking. ✅ DONE
   (2026-06-10).** `manifest.rs` (`.ys`-data manifest), `Core::merge` **+ `Core::own_over`**
   (prism-bigraph, 10/10 laws), `resolver.rs` (→ linked Core + import surface), the `chrysalis
   run` auto-resolve hook, and the consumer `tests/package_path_dep.rs` (a program runs a path
   dep's `Tick` to n=5.0). See **Done** below + `docs/packages-ecosystem.md` Phase 1.
-- [ ] **Phase 2 — resolver + lockfile** (transitive + semver; conflict = `Core::merge`
-  conflict; `project.lock` pinned graph). *Consumer:* a 3-package graph with a shared
-  transitive dep + a version constraint. *(The one genuinely-new algorithm.)*
+- [x] **Phase 2 — resolver + lockfile (transitive + semver). ✅ DONE (2026-06-10).** The
+  resolver-as-colimit (iterated `own_over`-then-`merge`, memoized → a diamond's apex linked
+  ONCE), `version.rs` (owned semver), version reqs + conflict detection, `project.lock` (the
+  chosen section). See **Done** below + `docs/packages-ecosystem.md` Phase 2.
 - [ ] **Phase 3 — registry + `chrysalis add`/`install`/`remove`/`update` + fetch/cache**
   (LOCAL dir-based index first; pluggable backend). *Consumer:* `chrysalis add foo` locally.
 - [ ] **Phase 4 — publish + remote registry** (`chrysalis publish`; HTTP backend with
@@ -137,6 +139,28 @@ clone.
   and lone apostrophes (double them: `''`) — see `project_ys_import_explicit_origin`.
 
 ## Done
+- **Phase 2 — the resolver-as-colimit + lockfile (transitive + semver). 2026-06-10.**
+  Shipped + green (chrysalis suite 258/0; version 9 / manifest 8 / lockfile 2 lib tests):
+  - **`version.rs`** — an owned semver subset (no `semver` crate dep): `Version`
+    (major.minor.patch, ordered) + `VersionReq` (`^`/`~`/`=`/comparators/`*`, bare = caret per
+    Cargo) + `matches`. The compatibility functor over the version poset.
+  - **`resolver.rs` rewritten as the COLIMIT** — a recursive DAG walk memoizing each package's
+    own theory by name (compiled once against `base ⊔ its-resolved-deps`, then `own_over`'d),
+    so a diamond (`prog→A,B`; `A→D`; `B→D`) resolves + links `D` ONCE at the apex (resolution =
+    confluence). Per-edge `VersionReq` checked; same-name-incompatible-version = conflict;
+    cycles detected. Now returns `Resolution { core, modules, graph }`.
+  - **`lockfile.rs` — `project.lock`** — the chosen section as deterministic `.ys`-data (one
+    entry per name: version + relative source + edges), built via the parser/unparser + a
+    re-parse gate, sources relativized to the project root (portable). `chrysalis run` writes
+    it best-effort; re-resolve ⇒ byte-identical.
+  - **Consumers:** `tests/package_transitive.rs` (the diamond links `D` once; `prog` runs
+    `ATick`+`BTick` to `n=10.0`; a requirement violation + an incompatible transitive version
+    both error) + `tests/package_lockfile.rs` (a constrained graph → a reproducible lock).
+    Verified on the real binary (a 4-package diamond → a `project.lock` pinning `D` once).
+  - **Deferred to Phase 3:** the registry (its `name → versions` index makes the version
+    SOLVER *choose* among many; path deps are one fixed version → validate + dedup),
+    `chrysalis add` (manifest + lock edit via the `coord set` round-trip), the lockfile as a
+    re-resolution INPUT (matters once a registry can drift).
 - **Phase 1 — theory-composition (manifest-as-data + path-dep + `Core::merge` linking).
   2026-06-10.** Shipped + green (chrysalis suite 254/0, prism-bigraph core_merge 10/10,
   prism-schema 198/0):

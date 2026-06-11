@@ -232,6 +232,46 @@ impl Core {
         core.register_protocol_address_types();
         core
     }
+
+    /// **Link a whole resolved dependency set onto this base** — the n-ary join, the
+    /// **colimit** over a dependency DAG (#67, Phase 2). `self` is the shared apex
+    /// (the std/builtin floor every package is projected over); `parts` are the
+    /// packages' OWN theories (each already [`own_over`](Core::own_over) this base,
+    /// so the floor is contributed exactly ONCE and never false-conflicts). The
+    /// result is `self ⊔ part₀ ⊔ part₁ ⊔ …`, folded through [`merge`](Core::merge).
+    ///
+    /// This is the categorical content of *transitive resolution = a colimit* made
+    /// executable. Because `merge` is a commutative + associative + idempotent
+    /// join-semilattice, the fold is **confluent**: any topological order of `parts`
+    /// yields the same linked theory (laws in `tests/core_merge.rs`), and a **diamond**
+    /// dependency — a shared transitive dep reached by two paths, Arc-identical after
+    /// the resolver memoizes its compilation — is merged **once at the apex**, not
+    /// double-unioned into a self-conflict. The resolver's job is upstream (pick one
+    /// version per name so the apex is well-defined, memoize so a shared dep is the
+    /// SAME `Arc`); composition is this one prism call — the linker is never cloned in
+    /// chrysalis ([[feedback_chrysalis_thin_layer]]).
+    ///
+    /// Conflicts are **accumulated across the whole fold**, not short-circuited: a
+    /// `part` that genuinely clashes (a same-name incompatible def the version solver
+    /// failed to prevent) is recorded and skipped, and folding continues, so `Err`
+    /// reports EVERY conflicting package at once (matching `merge`'s "show them all").
+    /// `Ok` ⇒ the fully linked core (the Core invariant — typed addresses — held by
+    /// each `merge` step).
+    pub fn colimit(&self, parts: &[Core]) -> Result<Core, Vec<CoreMergeConflict>> {
+        let mut linked = self.clone();
+        let mut conflicts = Vec::new();
+        for part in parts {
+            match linked.merge(part) {
+                Ok(next) => linked = next,
+                Err(mut part_conflicts) => conflicts.append(&mut part_conflicts),
+            }
+        }
+        if conflicts.is_empty() {
+            Ok(linked)
+        } else {
+            Err(conflicts)
+        }
+    }
 }
 
 /// A same-name **incompatible** definition found by [`Core::merge`] — the linker

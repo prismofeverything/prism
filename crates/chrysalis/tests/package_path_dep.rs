@@ -67,12 +67,12 @@ fn a_program_links_and_runs_a_path_dependencys_process() {
     // 2. Resolution links the dependency's Core in via `Core::merge` + declares its
     //    process exports as importable — the STRUCTURAL proof: `foo`'s exported
     //    `Tick` is now in the linked Core's process registry.
-    let (linked, modules) = resolve(&manifest, std_modules()).expect("dependencies resolve + link");
+    let resolution = resolve(&manifest, std_modules()).expect("dependencies resolve + link");
     assert!(
-        linked.processes.contains("Tick"),
+        resolution.core.processes.contains("Tick"),
         "the path dependency `foo`'s `Tick` reached the linked Core through Core::merge. \
          Linked processes = {:?}",
-        linked.processes.type_names(),
+        resolution.core.processes.type_names(),
     );
 
     // 3. END-TO-END proof: the program — whose composite imports + uses `Tick` from
@@ -81,7 +81,7 @@ fn a_program_links_and_runs_a_path_dependencys_process() {
     //    behaviour reached the program purely through the package link.
     let src = std::fs::read_to_string(&app_main).unwrap();
     let prog = parse_program_in(&src, root.join("app")).expect("parse app/main.ys");
-    let state = run(&prog, linked, modules, 5.0).expect("run the linked program");
+    let state = run(&prog, resolution.core, resolution.modules, 5.0).expect("run the linked program");
     assert_eq!(
         state.get_field("n").and_then(|v| v.as_f64()),
         Some(5.0),

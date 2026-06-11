@@ -68,9 +68,12 @@ Not just motivation — design constraints on the resolver + `Core::merge`:
   (`tests/core_merge.rs`).
 - ✅ **Path deps + resolver + import surface + `chrysalis run` auto-resolve** (Phase 1,
   `resolver.rs`): a `.ys` program depends on a path package and uses its exported processes.
-- ❌ **Missing (Phase 2+):** version constraints + the version SOLVER, transitive resolution,
-  the lockfile, the registry, `chrysalis add`/`remove`/`update`/`publish`/`install`, semver,
-  native-dep workspaces.
+- ✅ **Semver + transitive resolution + the lockfile** (Phase 2) — `version.rs` (an owned
+  semver subset), version requirements on dependency edges, the **resolver-as-colimit**
+  (`resolver.rs`, memoized — a diamond's shared apex resolved + linked once), `project.lock`
+  (`lockfile.rs`, the colimit's chosen section, deterministic + reproducible).
+- ❌ **Missing (Phase 3+):** the registry, `chrysalis add`/`remove`/`update`/`publish`/
+  `install`, fetch/cache, publish, native-dep workspaces.
 
 ## The plan — 5 phases, each shippable with a consumer
 
@@ -116,6 +119,33 @@ transitive resolution; a **version solver** (semver); conflict detection (= `Cor
 conflicts); a **lockfile** (`project.lock`, the pinned graph, reproducible). *Consumer:* a
 3-package graph with a shared transitive dep + a constraint → a deterministic lockfile.
 *(The one genuinely-new algorithm.)*
+
+> **✅ DONE (2026-06-10, `pkg`).** Shipped + green (chrysalis suite, all package tests):
+> - **`version.rs`** — an owned semver subset (no `semver` crate dep): `Version`
+>   (`major.minor.patch`, ordered) + `VersionReq` (`^`/`~`/`=`/comparators/`*`, bare =
+>   caret per Cargo) + `matches`. The compatibility functor over the version poset.
+> - **`resolver.rs` is the resolver-as-COLIMIT** — *iterated `own_over`-then-`merge` to the
+>   shared apex* (`unify`'s framing). A recursive DAG walk **memoizes each package's own
+>   theory by name**, compiling it once against `base ⊔ its-resolved-deps`; so a **diamond**
+>   (`prog→A,B`, `A→D`, `B→D`) resolves + links `D` exactly ONCE at the apex — *dependency
+>   resolution is confluence.* Each edge's `VersionReq` is checked against the resolved
+>   version; a same-name package reached at two incompatible versions is a conflict (one
+>   version per name ⇒ the apex is well-defined); cycles are detected.
+> - **`lockfile.rs` — `project.lock`** — the colimit's chosen section, as deterministic
+>   `.ys`-data (one entry per name: version + relative source + edges), written through the
+>   parser/unparser + a re-parse gate, sources relativized to the project root (portable).
+>   `chrysalis run` writes it (best-effort); re-resolve ⇒ byte-identical.
+> - **Consumers:** `tests/package_transitive.rs` (the diamond resolves + links `D` once;
+>   `prog` runs `ATick`+`BTick` to `n=10.0`; a requirement violation + an incompatible
+>   transitive version both error), `tests/package_lockfile.rs` (a constrained 3-package
+>   graph → a deterministic, reproducible lock). Verified on the real binary (`chrysalis
+>   run` on a 4-package diamond writes a `project.lock` with `D` pinned once).
+>
+> **Deferred to Phase 3:** the registry (a `name → versions` index makes the version SOLVER
+> *choose* among many — here each path is one fixed version, so the "solver" validates +
+> dedups); `chrysalis add` editing the manifest + lock through the `coord set` homoiconic
+> round-trip; the lockfile as an INPUT that pins re-resolution (matters once a registry can
+> drift; path deps already re-resolve deterministically).
 
 **Phase 3 — the registry + `chrysalis add` + fetch/cache.** A package **registry** — start
 **local** (a dir-based index `name → versions → manifest + checksum`; a content-addressed

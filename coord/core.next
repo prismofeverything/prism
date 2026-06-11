@@ -20,20 +20,23 @@ is a faithful port; when unsure read `../process-bigraph` / `../bigraph-schema` 
 (reaction/delta basis) — cat E. For THIS push you own **Stage 4 of the homoiconic
 unification — THE LINCHPIN** (with `lang` + `unify`).
 
-## ⏱️ CURRENT (2026-06-10) — #71 MERGED; pairing pkg
-**#71 units-in-schema is MERGED to main** (commit `ba866f8 units`) — the isolated
-`units-in-schema` worktree landed. `Schema` Float/Delta now carry `dimension`,
-resolve/generalize thread it as semilattices (proptest-pinned), chrysalis lowers a
-`Quantity` end-to-end, `check.rs` wiring-dimension is first-class `dimension_conflict`,
-and the `instantiate_spec` orphan is retired — all on main + green @ build green_tick 6.
-**Now:** core is PAIRING `pkg` (the package linker). pkg shipped Phase 1 — `Core::merge`
-+ `Core::own_over` (in `prism-bigraph/core.rs` + the 4 registry duals) + resolver + a
-2-package path-dep consumer, all green. I REVIEWED + APPROVED the merge (a faithful
-idempotent join-semilattice: left-biased, idempotent by Arc-identity / structural-equality,
-conflicts collected, `own_over` the floor-strip dual; `tests/core_merge.rs` 10/10 incl
-commutative/associative/diamond-dedup; additive, no signature/Schema change). **Next pairing
-target:** the resolver as a COLIMIT over the dep DAG (iterated merge to a shared apex — the
-diamond test is n=3). Substrate is otherwise idle + available.
+## ⏱️ CURRENT (2026-06-10) — Phase 2 colimit landed; pairing pkg on the resolver
+**#71 units MERGED to main** (`ba866f8`) — done; Float/Delta carry `dimension`,
+`instantiate_spec` retired, green. **Phase 2 (the packages ecosystem, resolver-as-colimit)
+core half LANDED:** built **`Core::colimit`** (`prism-bigraph/core.rs`) — the n-ary join,
+the **colimit over a dependency DAG** (`self` = the shared floor/apex; `parts` = the
+`own_over`-projected package theories; folds `merge`, accumulating ALL conflicts). It is a
+drop-in for the Phase-1 `resolve` fold. **5 confluence laws GREEN** (`core_merge.rs`, 15/15
+total): `colimit`=iterated-merge · **order-independence over all 3! orders = confluence** ·
+n-ary diamond single-apex dedup · multi-conflict accumulation · the `own_over`→`colimit`
+resolver loop end-to-end. So *transitive resolution = a colimit; resolution = confluence* is
+now EXECUTABLE in prism (the categorical-core §5 claim, backed by running code). ADDITIVE,
+no signature change — but it sits ON pkg's still-uncommitted `merge`/`own_over` in the same
+`core.rs` block (colimit folds `merge`) → **commit together**. Earlier this session I also
+REVIEWED + APPROVED pkg's `Core::merge`/`own_over` (faithful idempotent join-semilattice).
+**Now:** PAIRING `pkg` on wiring the resolver to `colimit` (pkg owns version-solve +
+memoize + lockfile; prism composes). Offered the seam + signature + the per-package-conflict-
+attribution tradeoff (loop `merge`, or I add `colimit_attributed`) via `to_pkg`.
 
 ## Stage 4 — the consumer-boundary eval unification (DONE; archived)
 **CORE SUBSTRATE COMPLETE + PROVEN (2026-06-09, tick 5).** All three boundaries eval
@@ -196,8 +199,19 @@ Follow-on if lang's `count()`/`.matches()` lands: a `find_matches`-from-DATA con
 (else `Pattern::from_value`).
 
 **PAIRING pkg — the package linker (#67), core-side.** pkg owns the resolver/registry; my
-crates host the linker primitive (`Core::merge`/`own_over`, reviewed + approved). Next
-pairing: the resolver as a COLIMIT over the dep DAG (iterated `merge` to a shared apex,
-diamond-dedup = the n=3 case) and the fixpoint/confluence framing. Watch for any prism-side
-gap pkg surfaces (e.g. a `merge` hook the resolver wants) — fix it IN prism, don't let pkg
-clone it (`feedback_chrysalis_thin_layer`).
+crates host the linker primitives. **Landed:** `Core::merge`/`own_over` (reviewed + approved)
++ **`Core::colimit`** (the n-ary join / colimit, + 5 confluence laws — see CURRENT). The
+prism side of "transitive resolution = a colimit" is DONE. **Remaining pairing (pkg-driven,
+I respond):**
+- **Wire the resolver to `colimit`** — pkg swaps its Phase-1 `linked.merge(&own)` loop for
+  one `base.colimit(&parts)` call (drop-in) when it builds transitive resolution. No core
+  edit unless they hit a gap.
+- **Per-package conflict attribution** — only if pkg wants it: `colimit` returns
+  `Vec<CoreMergeConflict>` (no package index, matching `merge`). If the resolver needs
+  "package P clashed," add `colimit_attributed -> Vec<(usize, CoreMergeConflict)>` OR they
+  loop `merge` themselves (they hold the handle). Deferred until asked — conflicts are
+  off the hot path (the version solver prevents them pre-link).
+- Watch for any other prism-side gap pkg surfaces (a registry-introspection method, a
+  semver-aware projection) — fix it IN prism, never let pkg clone it
+  (`feedback_chrysalis_thin_layer`). Registry introspection (`names`/`type_names`) already
+  suffices for linking.

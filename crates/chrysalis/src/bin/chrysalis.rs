@@ -394,8 +394,16 @@ fn cmd_run(args: &[String]) {
             if !manifest.dependencies.is_empty() {
                 let prog_dir = std::path::Path::new(path).parent().map(|d| d.to_path_buf());
                 match chrysalis::resolver::resolve(&manifest, std_modules_at(prog_dir)) {
-                    Ok((core, modules)) => {
-                        std::process::exit(chrysalis::cli::run_command(args, core, modules))
+                    Ok(r) => {
+                        // Pin the resolved graph (reproducible builds). Best-effort —
+                        // a read-only project must not fail the run.
+                        if let Err(e) = chrysalis::lockfile::write(&r.graph, &manifest.dir) {
+                            eprintln!(
+                                "chrysalis: warning: could not write {}: {e}",
+                                chrysalis::lockfile::LOCKFILE
+                            );
+                        }
+                        std::process::exit(chrysalis::cli::run_command(args, r.core, r.modules))
                     }
                     Err(e) => die("resolving dependencies", e),
                 }
