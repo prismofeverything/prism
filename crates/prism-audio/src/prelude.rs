@@ -131,6 +131,10 @@ pub fn audio_exports() -> &'static [(&'static str, &'static str)] {
         ("audio", "Svf"),
         ("audio", "Vca"),
         ("audio", "Envelope"),
+        ("audio", "Slope"),
+        ("audio", "Compare"),
+        ("audio", "SampleHold"),
+        ("audio", "Noise"),
     ]
 }
 

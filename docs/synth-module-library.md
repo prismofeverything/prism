@@ -58,7 +58,8 @@ tests + an export", following the pattern above. Modulation inputs listed are th
 - ✅ **`Oscillator`** — complex VCO (joranalogue Generate / Schlappi Three Body). Inputs:
   `fm_exp` (V/oct), `fm_lin` (through-zero Hz), `pm`, `sync` (hard sync), `pwm`, `am`. Outputs:
   `sine` `saw` `square` `triangle` `sub` (all at once).
-- ⬜ **`Noise`** — white/pink, a seeded xorshift; a `rate` CV for sample-rate-reduced noise.
+- ✅ **`Noise`** — white, a seeded `xorshift` (deterministic, state on a slot); `am` CV. → a
+  `SampleHold` with a clock = random voltages. ⬜ pink/`rate`-reduced variants.
 - ⬜ **`Wavetable`** — a `pos` CV scanning a table (a digital complex-osc timbre axis).
 
 ### Filters / resonators
@@ -68,20 +69,21 @@ tests + an export", following the pattern above. Modulation inputs listed are th
 - ⬜ **`Comb`** — tuned comb / Karplus-Strong basis (`pitch_cv`, `feedback_cv`).
 
 ### Function generators / envelopes / LFOs  (the Serge universal slope)
-- ⬜ **`Slope`** — the **DUSG / Maths / Contour** core: a single rise→fall slope with `rise_cv`,
-  `fall_cv`, `trigger`, `cycle` (→ LFO/VCO when cycling); outputs `out`, `inv`, `eoc`. THE
-  patch-programmable keystone (env · LFO · VCO · slew · follower from one module).
+- ✅ **`Slope`** — the **DUSG / Maths / Contour** core: a single rise→fall slope with `rise_cv`,
+  `fall_cv`, `time_cv`, `trigger`, `cycle` (→ LFO/VCO when cycling); outputs `out`, `inv`, `eoc`.
+  THE patch-programmable keystone (env · LFO · VCO from one module — `trigger`+no-cycle = AD env,
+  `cycle` = LFO, `time_cv` at V/oct = pitch-tracking VCO).
 - ✅ **`Envelope`** (AD, kept) — a `Slope` specialisation.
 
 ### Modulation utilities / random / slew
-- ⬜ **`SampleHold`** — sample `input` on a `trigger` rising edge; + `slew` (Serge SSG: smooth
-  *and* stepped); a `noise` source normalled in → classic S&H random.
-- ⬜ **`Slew`** — slew limiter / portamento / lag (`rise_cv`, `fall_cv`), also an env follower.
+- ✅ **`SampleHold`** — sample `input` on a `trigger` edge (`stepped`) AND continuously slew toward
+  it (`smooth`) — the Serge **SSG** in one. Noise → `input` + a clock → `trigger` = random voltages;
+  a stepped CV → `input`, no trigger = a slew limiter / glide. (Subsumes a standalone `Slew`.)
 - ⬜ **`Chaos`** — a chaotic system (Schlappi Three Body flavour): coupled oscillators / a map.
 
 ### Logic / comparators / counters  (Schlappi binary-as-music)
-- ⬜ **`Compare`** — comparator (joranalogue Compare 2): `input` vs `threshold_cv` → gate; +
-  window + min/max/rectify outputs.
+- ✅ **`Compare`** — comparator + analog logic (joranalogue Compare 2 / Schlappi Boundary): `input`
+  vs `threshold_cv` → `gate`/`inv`; `min`/`max` of `input` & `b`; `rect` (full-wave). Stateless.
 - ⬜ **`Logic`** — AND/OR/XOR/flip-flop over gate Signals.
 - ⬜ **`Counter`** — the **Nibbler**: clocked binary accumulator; per-bit gate outs + a stepped
   CV out (D/A); `clock`, `reset`, `up_down` — rhythms + melodies from counting.

@@ -1,0 +1,58 @@
+# generative.ys — a self-playing patch: the modules clock, sample, and shape THEMSELVES.
+#
+#   chrysalis run packages/synth/examples/generative.ys --time 4    # render
+#   chrysalis run packages/synth/examples/generative.ys --play      # hear it (sink: audio)
+#
+# No notes are written — the patch generates its own melody, the Serge/Schlappi way:
+#   * a fast cycling Slope is the CLOCK (its `eoc` is the beat);
+#   * a slow cycling Slope WANDERS (a free-running CV);
+#   * a SampleHold samples the wanderer on each beat -> a stepped pitch (the melody);
+#   * a one-shot Slope is the per-beat PLUCK envelope;
+#   * one Oscillator is the voice: its `fm_exp` is the stepped pitch (2-octave range),
+#     its `am` is the envelope (so it needs no VCA — the osc modulates its own level);
+#   * a resonant Svf colours it.
+# Every wire is the same Signal — CV ≡ audio, everything modulating everything.
+from audio import Oscillator, Slope, SampleHold, Svf
+
+composite Generative ~{} ->{ out :: Signal @ out } (
+  out: [0.0] |
+  clock: [0.0] |
+  wander: [0.0] |
+  pitch: [0.0] |
+  env: [0.0] |
+  tone: [0.0] |
+
+  clk_level: 0.0 | clk_rising: 0.0 | clk_tz: 0.0 |
+  lfo_level: 0.0 | lfo_rising: 0.0 | lfo_tz: 0.0 |
+  sh_held: 0.0 | sh_smooth: 0.0 | sh_tz: 0.0 |
+  env_level: 0.0 | env_rising: 0.0 | env_tz: 0.0 |
+  vco_phase: 0.0 | ic1: 0.0 | ic2: 0.0 |
+
+  # the clock — a fast cycling slope; `eoc` fires each beat (~4.5/s)
+  clock_gen: Slope[rise: 0.001, fall: 0.22, sample_rate: 48000.0, block: 256, cycle: true]
+    ~{level: clk_level, rising: clk_rising, trig_z: clk_tz}
+    ->{level: clk_level, rising: clk_rising, trig_z: clk_tz, eoc: clock} |
+
+  # a slow wandering CV — a cycling slope at a rate unrelated to the clock
+  pitch_lfo: Slope[rise: 0.7, fall: 0.5, sample_rate: 48000.0, block: 256, cycle: true]
+    ~{level: lfo_level, rising: lfo_rising, trig_z: lfo_tz}
+    ->{level: lfo_level, rising: lfo_rising, trig_z: lfo_tz, out: wander} |
+
+  # sample the wanderer at each beat -> a stepped pitch (the generated melody)
+  sh: SampleHold[slew: 0.0005, sample_rate: 48000.0, block: 256]
+    ~{held: sh_held, smooth_v: sh_smooth, trig_z: sh_tz, input: wander, trigger: clock}
+    ->{held: sh_held, smooth_v: sh_smooth, trig_z: sh_tz, stepped: pitch} |
+
+  # a pluck envelope, retriggered each beat
+  env_gen: Slope[rise: 0.003, fall: 0.16, sample_rate: 48000.0, block: 256]
+    ~{level: env_level, rising: env_rising, trig_z: env_tz, trigger: clock}
+    ->{level: env_level, rising: env_rising, trig_z: env_tz, out: env} |
+
+  # the voice: pitch from S&H (fm_depth = 2 octaves), level from the envelope (am)
+  vco: Oscillator[wave: 'Saw', freq: 110.0, amplitude: 0.0, sample_rate: 48000.0, block: 256, fm_depth: 2.0, am_depth: 0.5]
+    ~{phase: vco_phase, fm_exp: pitch, am: env} ->{phase: vco_phase, saw: tone} |
+
+  # a resonant low-pass on the output
+  filt: Svf[cutoff: 2000.0, resonance: 0.4, sample_rate: 48000.0, block: 256]
+    ~{input: tone, ic1: ic1, ic2: ic2} ->{ic1: ic1, ic2: ic2, lp: out}
+)

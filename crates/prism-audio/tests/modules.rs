@@ -4,7 +4,8 @@
 //! (docs/synthesis-bigraphs.md §V, slice A2).
 
 use prism_audio::{
-    render_voice, signal_from_slice, signal_to_vec, Envelope, LowPass, Oscillator, Svf, Vca, Wave,
+    render_voice, signal_from_slice, signal_to_vec, Compare, Envelope, LowPass, Noise, Oscillator,
+    SampleHold, Slope, Svf, Vca, Wave,
 };
 use prism_bigraph::{Process, Value};
 
@@ -308,4 +309,160 @@ fn svf_presents_four_distinct_modes() {
             "notch = lp + hp at {i}"
         );
     }
+}
+
+// ── the universal slope (Serge DUSG / Maths) ─────────────────────────────────
+
+#[test]
+fn slope_one_shot_rises_then_falls() {
+    // Patched `trigger` (held high → one rising edge), no cycle ⇒ one AD envelope.
+    let slope = Slope::new(0.002, 0.002, RATE, BLOCK); // ~96 samples per slope
+    let trig = signal_from_slice(&vec![1.0_f32; BLOCK]);
+    let (mut level, mut rising, mut tz) = (0.0, 0.0, 0.0);
+    let (mut peak, mut eoc_count) = (0.0_f64, 0usize);
+    for _ in 0..3 {
+        let out = slope
+            .update(
+                &Value::tree([
+                    ("level", Value::float(level)),
+                    ("rising", Value::float(rising)),
+                    ("trig_z", Value::float(tz)),
+                    ("trigger", trig.clone()),
+                ]),
+                slope.interval(),
+            )
+            .into_value()
+            .unwrap();
+        level = out.get_field("level").unwrap().as_f64().unwrap();
+        rising = out.get_field("rising").unwrap().as_f64().unwrap();
+        tz = out.get_field("trig_z").unwrap().as_f64().unwrap();
+        for s in signal_to_vec(out.get_field("out").unwrap()) {
+            peak = peak.max(s as f64);
+        }
+        for e in signal_to_vec(out.get_field("eoc").unwrap()) {
+            if e > 0.5 {
+                eoc_count += 1;
+            }
+        }
+    }
+    assert!(peak > 0.95, "the slope rose to ~1 (peak {peak})");
+    assert!(level < 0.05, "and fell back to ~0 (final {level})");
+    assert_eq!(eoc_count, 1, "exactly one end-of-cycle pulse for a one-shot");
+}
+
+#[test]
+fn slope_cycles_as_an_lfo() {
+    // `cycle: true` ⇒ self-retriggering = an LFO, no trigger needed.
+    let mut slope = Slope::new(0.002, 0.002, RATE, BLOCK);
+    slope.cycle = true;
+    let (mut level, mut rising, mut tz) = (0.0, 0.0, 0.0);
+    let (mut eoc_count, mut lo, mut hi) = (0usize, 1.0_f64, 0.0_f64);
+    for _ in 0..12 {
+        let out = slope
+            .update(
+                &Value::tree([
+                    ("level", Value::float(level)),
+                    ("rising", Value::float(rising)),
+                    ("trig_z", Value::float(tz)),
+                ]),
+                slope.interval(),
+            )
+            .into_value()
+            .unwrap();
+        level = out.get_field("level").unwrap().as_f64().unwrap();
+        rising = out.get_field("rising").unwrap().as_f64().unwrap();
+        tz = out.get_field("trig_z").unwrap().as_f64().unwrap();
+        for s in signal_to_vec(out.get_field("out").unwrap()) {
+            lo = lo.min(s as f64);
+            hi = hi.max(s as f64);
+        }
+        for e in signal_to_vec(out.get_field("eoc").unwrap()) {
+            if e > 0.5 {
+                eoc_count += 1;
+            }
+        }
+    }
+    assert!(eoc_count >= 5, "cycles repeatedly ({eoc_count} eoc pulses)");
+    assert!(hi > 0.9 && lo < 0.1, "the LFO sweeps the full range ({lo}..{hi})");
+}
+
+// ── comparator + analog logic ────────────────────────────────────────────────
+
+#[test]
+fn compare_gates_and_analog_logic() {
+    let cmp = Compare::new(0.0, BLOCK); // threshold 0
+    let input: Vec<f32> = (0..BLOCK)
+        .map(|i| (i as f32 / BLOCK as f32) * 2.0 - 1.0) // ramp -1 → +1
+        .collect();
+    let out = cmp
+        .update(
+            &Value::tree([
+                ("input", signal_from_slice(&input)),
+                ("b", signal_from_slice(&vec![0.5_f32; BLOCK])),
+            ]),
+            cmp.interval(),
+        )
+        .into_value()
+        .unwrap();
+    let gate = signal_to_vec(out.get_field("gate").unwrap());
+    let max = signal_to_vec(out.get_field("max").unwrap());
+    let rect = signal_to_vec(out.get_field("rect").unwrap());
+    assert!(gate[0] == 0.0 && gate[BLOCK - 1] == 1.0, "gates at the threshold");
+    assert!(max.iter().all(|&m| m >= 0.5 - 1e-6), "max(input, 0.5) ≥ 0.5");
+    assert!((rect[0] - 1.0).abs() < 0.02, "full-wave rectify: |−1| = 1");
+}
+
+// ── sample & hold / slew (Serge SSG) ─────────────────────────────────────────
+
+#[test]
+fn samplehold_holds_the_value_at_the_trigger() {
+    let sh = SampleHold::new(0.0001, RATE, BLOCK); // ~instant slew (stepped)
+    let input: Vec<f32> = (0..BLOCK).map(|i| i as f32 / BLOCK as f32).collect();
+    let mut trig = vec![0.0_f32; BLOCK];
+    trig[100] = 1.0; // a trigger pulse
+    let out = sh
+        .update(
+            &Value::tree([
+                ("held", Value::float(0.0)),
+                ("smooth_v", Value::float(0.0)),
+                ("trig_z", Value::float(0.0)),
+                ("input", signal_from_slice(&input)),
+                ("trigger", signal_from_slice(&trig)),
+            ]),
+            sh.interval(),
+        )
+        .into_value()
+        .unwrap();
+    let stepped = signal_to_vec(out.get_field("stepped").unwrap());
+    assert!(stepped[50] == 0.0, "holds the initial value before the trigger");
+    let expected = 100.0 / BLOCK as f32;
+    assert!(
+        (stepped[BLOCK - 1] - expected).abs() < 0.01,
+        "holds input sampled at the trigger ({} ≈ {expected})",
+        stepped[BLOCK - 1]
+    );
+}
+
+// ── noise / random source ────────────────────────────────────────────────────
+
+#[test]
+fn noise_is_bounded_spread_and_deterministic() {
+    let noise = Noise::new(BLOCK);
+    let run = || {
+        signal_to_vec(
+            noise
+                .update(&Value::tree([("seed", Value::Int(12345))]), noise.interval())
+                .into_value()
+                .unwrap()
+                .get_field("out")
+                .unwrap(),
+        )
+    };
+    let a = run();
+    assert_eq!(a.len(), BLOCK);
+    assert!(a.iter().all(|&s| (-1.0..=1.0).contains(&s)), "bounded [-1, 1]");
+    let mean = a.iter().sum::<f32>() / BLOCK as f32;
+    let var = a.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / BLOCK as f32;
+    assert!(var > 0.1, "full-band noise has spread (var {var})");
+    assert_eq!(a, run(), "seeded noise is reproducible");
 }

@@ -90,6 +90,17 @@ pub fn scale(z: &Value, s: f64) -> Value {
     of(re * s, im * s)
 }
 
+/// ℂ division `a / b = a·conj(b) / |b|²`. Returns `0` if `b == 0` (used by the
+/// rank-1 phase recovery in `factorize`, where the denominator is pre-checked
+/// nonzero).
+pub fn div(a: &Value, b: &Value) -> Value {
+    let d = abs2(b);
+    if d == 0.0 {
+        return zero();
+    }
+    scale(&mul(a, &conj(b)), 1.0 / d)
+}
+
 /// Negation `-z`.
 pub fn neg(z: &Value) -> Value {
     let (re, im) = parts(z);

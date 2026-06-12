@@ -18,11 +18,15 @@ use prism_bigraph::factory::ProcessRegistry;
 use prism_bigraph::process::ProcessNode;
 use prism_bigraph::{Core, Engine, Schema, Value};
 
+use crate::compare::Compare;
 use crate::envelope::Envelope;
 use crate::lowpass::LowPass;
+use crate::noise::Noise;
 use crate::oscillator::Oscillator;
 use crate::render::render;
+use crate::samplehold::SampleHold;
 use crate::signal::signal_registry;
+use crate::slope::Slope;
 use crate::svf::Svf;
 use crate::vca::Vca;
 
@@ -40,6 +44,18 @@ pub fn register_audio(reg: &mut ProcessRegistry) {
     reg.register("Vca", |c| ProcessNode::Process(Box::new(Vca::from_config(&c))));
     reg.register("Envelope", |c| {
         ProcessNode::Process(Box::new(Envelope::from_config(&c)))
+    });
+    reg.register("Slope", |c| {
+        ProcessNode::Process(Box::new(Slope::from_config(&c)))
+    });
+    reg.register("Compare", |c| {
+        ProcessNode::Process(Box::new(Compare::from_config(&c)))
+    });
+    reg.register("SampleHold", |c| {
+        ProcessNode::Process(Box::new(SampleHold::from_config(&c)))
+    });
+    reg.register("Noise", |c| {
+        ProcessNode::Process(Box::new(Noise::from_config(&c)))
     });
 }
 
