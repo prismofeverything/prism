@@ -1,0 +1,52 @@
+# sequence.ys — a sequenced West-Coast melody from the new modules.
+#
+#   chrysalis run packages/synth/examples/sequence.ys --time 4    # render
+#   chrysalis run packages/synth/examples/sequence.ys --play      # hear it (sink: audio)
+#
+# A cycling Slope is the CLOCK. A Sequencer steps an 8-note pattern (the `steps` are CV
+# in octaves) -> the VCO pitch. The same clock triggers a Slope ENVELOPE, which does two
+# jobs at once (CV ≡ audio): it sets the voice level (the osc `am` input — no VCA) AND
+# it drives a WAVEFOLDER (`fold_cv`), so every note's timbre blooms bright on the attack
+# and folds back as it decays — the West-Coast move. A resonant filter finishes it.
+from audio import Oscillator, Slope, Sequencer, Fold, Svf
+
+composite Sequence ~{} ->{ out :: Signal @ out } (
+  out: [0.0] |
+  clock: [0.0] |
+  pitch: [0.0] |
+  env: [0.0] |
+  tone: [0.0] |
+  shaped: [0.0] |
+
+  clk_level: 0.0 | clk_rising: 0.0 | clk_tz: 0.0 |
+  seq_index: 0.0 | seq_clk_z: 0.0 | seq_rst_z: 0.0 |
+  env_level: 0.0 | env_rising: 0.0 | env_tz: 0.0 |
+  vco_phase: 0.0 | ic1: 0.0 | ic2: 0.0 |
+
+  # the clock (~5.5 beats/s)
+  clock_gen: Slope[rise: 0.001, fall: 0.18, sample_rate: 48000.0, block: 256, cycle: true]
+    ~{level: clk_level, rising: clk_rising, trig_z: clk_tz}
+    ->{level: clk_level, rising: clk_rising, trig_z: clk_tz, eoc: clock} |
+
+  # the melody — 8 steps of pitch CV in octaves (up and back down)
+  seq: Sequencer[steps: [0.0, 0.25, 0.5, 0.42, 0.75, 0.5, 0.25, 0.0], sample_rate: 48000.0, block: 256]
+    ~{index: seq_index, clk_z: seq_clk_z, rst_z: seq_rst_z, clock: clock}
+    ->{index: seq_index, clk_z: seq_clk_z, rst_z: seq_rst_z, cv: pitch} |
+
+  # the per-note envelope (pluck), retriggered by the clock
+  env_gen: Slope[rise: 0.002, fall: 0.14, sample_rate: 48000.0, block: 256]
+    ~{level: env_level, rising: env_rising, trig_z: env_tz, trigger: clock}
+    ->{level: env_level, rising: env_rising, trig_z: env_tz, out: env} |
+
+  # the voice — pitch from the sequencer, level from the envelope (osc `am`, no VCA)
+  vco: Oscillator[wave: 'Saw', freq: 110.0, amplitude: 0.0, sample_rate: 48000.0, block: 256, fm_depth: 1.0, am_depth: 0.6]
+    ~{phase: vco_phase, fm_exp: pitch, am: env} ->{phase: vco_phase, saw: tone} |
+
+  # a wavefolder whose drive is the envelope — bright attack, mellow tail (West Coast)
+  shaper: Fold[fold: 1.0, block: 256, fold_depth: 2.5]
+    ~{input: tone, fold_cv: env} ->{out: shaped} |
+
+  # resonant low-pass on the output
+  filt: Svf[cutoff: 2500.0, resonance: 0.3, sample_rate: 48000.0, block: 256]
+    ~{input: shaped, ic1: ic1, ic2: ic2} ->{ic1: ic1, ic2: ic2, lp: out}
+)

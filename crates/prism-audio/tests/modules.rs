@@ -4,8 +4,8 @@
 //! (docs/synthesis-bigraphs.md §V, slice A2).
 
 use prism_audio::{
-    render_voice, signal_from_slice, signal_to_vec, Compare, Envelope, LowPass, Noise, Oscillator,
-    SampleHold, Slope, Svf, Vca, Wave,
+    render_voice, signal_from_slice, signal_to_vec, Compare, Counter, Envelope, Fold, LowPass,
+    Noise, Oscillator, RingMod, SampleHold, Sequencer, Slope, Svf, Vca, Wave,
 };
 use prism_bigraph::{Process, Value};
 
@@ -465,4 +465,120 @@ fn noise_is_bounded_spread_and_deterministic() {
     let var = a.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / BLOCK as f32;
     assert!(var > 0.1, "full-band noise has spread (var {var})");
     assert_eq!(a, run(), "seeded noise is reproducible");
+}
+
+// ── wavefolder ───────────────────────────────────────────────────────────────
+
+#[test]
+fn fold_passes_small_signals_and_folds_large_ones() {
+    // |x| ≤ 1 at unity drive ⇒ identity.
+    let fold = Fold::new(1.0, BLOCK);
+    let mild: Vec<f32> = (0..BLOCK).map(|i| 0.5 * (i as f32 * 0.1).sin()).collect();
+    let out = signal_to_vec(
+        fold.update(&Value::tree([("input", signal_from_slice(&mild))]), fold.interval())
+            .into_value()
+            .unwrap()
+            .get_field("out")
+            .unwrap(),
+    );
+    for i in 0..BLOCK {
+        assert!((out[i] - mild[i]).abs() < 1e-4, "|x|<1 passes through");
+    }
+    // Hard drive folds: bounded, and more zero-crossings (= added harmonics).
+    let hard = Fold::new(3.0, BLOCK);
+    let sine: Vec<f32> = (0..BLOCK)
+        .map(|i| (i as f32 / BLOCK as f32 * std::f32::consts::TAU * 4.0).sin())
+        .collect();
+    let folded = signal_to_vec(
+        hard.update(&Value::tree([("input", signal_from_slice(&sine))]), hard.interval())
+            .into_value()
+            .unwrap()
+            .get_field("out")
+            .unwrap(),
+    );
+    assert!(folded.iter().all(|&s| s.abs() <= 1.0 + 1e-5), "folded output is bounded");
+    let zc = |b: &[f32]| b.windows(2).filter(|w| w[0].signum() != w[1].signum()).count();
+    assert!(zc(&folded) > zc(&sine), "folding adds zero-crossings (harmonics)");
+}
+
+// ── ring modulator ───────────────────────────────────────────────────────────
+
+#[test]
+fn ringmod_multiplies_four_quadrant() {
+    let rm = RingMod::new(BLOCK);
+    let a = vec![0.5_f32; BLOCK];
+    let b: Vec<f32> = (0..BLOCK).map(|i| if i % 2 == 0 { 0.4 } else { -0.4 }).collect();
+    let out = signal_to_vec(
+        rm.update(
+            &Value::tree([("a", signal_from_slice(&a)), ("b", signal_from_slice(&b))]),
+            rm.interval(),
+        )
+        .into_value()
+        .unwrap()
+        .get_field("out")
+        .unwrap(),
+    );
+    for i in 0..BLOCK {
+        assert!((out[i] - 0.5 * b[i]).abs() < 1e-5, "out = a·b");
+    }
+    assert!(out[0] > 0.0 && out[1] < 0.0, "four-quadrant: sign follows b");
+}
+
+// ── binary counter (Schlappi Nibbler) ────────────────────────────────────────
+
+#[test]
+fn counter_counts_clock_edges_in_binary() {
+    let counter = Counter::new(BLOCK);
+    let mut clock = vec![0.0_f32; BLOCK];
+    for &i in &[10usize, 11, 40, 41, 70, 71] {
+        clock[i] = 1.0; // 3 pulses → 3 rising edges
+    }
+    let out = counter
+        .update(
+            &Value::tree([
+                ("count", Value::Int(0)),
+                ("clk_z", Value::float(0.0)),
+                ("rst_z", Value::float(0.0)),
+                ("clock", signal_from_slice(&clock)),
+            ]),
+            counter.interval(),
+        )
+        .into_value()
+        .unwrap();
+    assert_eq!(out.get_field("count").unwrap().as_i64().unwrap(), 3, "3 clocks → count 3");
+    let cv = signal_to_vec(out.get_field("cv").unwrap());
+    assert!((cv[BLOCK - 1] - 3.0 / 15.0).abs() < 1e-4, "cv = count/15 staircase");
+    // 3 = 0b0011 → b0=1, b1=1, b2=0.
+    assert_eq!(signal_to_vec(out.get_field("b0").unwrap())[BLOCK - 1], 1.0);
+    assert_eq!(signal_to_vec(out.get_field("b2").unwrap())[BLOCK - 1], 0.0);
+}
+
+// ── step sequencer ───────────────────────────────────────────────────────────
+
+#[test]
+fn sequencer_steps_through_the_list() {
+    let seq = Sequencer::new(vec![0.1, 0.2, 0.3], BLOCK);
+    let mut clock = vec![0.0_f32; BLOCK];
+    for &i in &[20usize, 21, 60, 61] {
+        clock[i] = 1.0; // 2 clocks → 0 → 1 → 2
+    }
+    let out = seq
+        .update(
+            &Value::tree([
+                ("index", Value::Int(0)),
+                ("clk_z", Value::float(0.0)),
+                ("rst_z", Value::float(0.0)),
+                ("clock", signal_from_slice(&clock)),
+            ]),
+            seq.interval(),
+        )
+        .into_value()
+        .unwrap();
+    let cv = signal_to_vec(out.get_field("cv").unwrap());
+    assert!((cv[0] - 0.1).abs() < 1e-4, "starts on step 0");
+    assert!((cv[30] - 0.2).abs() < 1e-4, "step 1 after the first clock");
+    assert!((cv[BLOCK - 1] - 0.3).abs() < 1e-4, "step 2 after the second clock");
+    let trig = signal_to_vec(out.get_field("trig").unwrap());
+    assert_eq!(trig[20], 1.0, "a trigger pulse on advance");
+    assert_eq!(trig[21], 0.0, "the trigger is one sample wide");
 }

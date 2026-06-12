@@ -1,0 +1,30 @@
+# circuit.ys — gate-spec constructors for the quantum CIRCUIT abstraction.
+# ─────────────────────────────────────────────────────────────────────────
+#
+# A circuit is a LIST of gate specs; `state.run(circuit)` folds them over a
+# `Qubits` register in ONE tick (the interpreter lives in the substrate,
+# `crates/chrysalis/src/quantum.rs`). A spec is transparent DATA —
+#
+#   h(0)            == {op: 'h',     qubits: [0]}
+#   cnot(0, 1)      == {op: 'cnot',  qubits: [0, 1]}
+#   phase(0, 1.57)  == {op: 'phase', qubits: [0], params: [1.57]}
+#
+# so a circuit can be built programmatically, inspected, transformed, and reused.
+# Import: `from .circuit import h, cnot, phase, ...`.
+
+# Single-qubit gates.
+def h(q) = {op: 'h', qubits: [q]}
+def x(q) = {op: 'x', qubits: [q]}
+def y(q) = {op: 'y', qubits: [q]}
+def z(q) = {op: 'z', qubits: [q]}
+def s(q) = {op: 's', qubits: [q]}
+def t(q) = {op: 't', qubits: [q]}
+
+# Parametrized phase / rotation gates (angle in radians).
+def phase(q, a) = {op: 'phase', qubits: [q], params: [a]}
+def rx(q, a)    = {op: 'rx', qubits: [q], params: [a]}
+def ry(q, a)    = {op: 'ry', qubits: [q], params: [a]}
+def rz(q, a)    = {op: 'rz', qubits: [q], params: [a]}
+
+# Two-qubit.
+def cnot(c, t) = {op: 'cnot', qubits: [c, t]}

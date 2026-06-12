@@ -46,12 +46,12 @@ abstraction; e.g. Bell = `H ; CNOT` built from library gates, not a hand-rolled 
   gate layers + no circuit abstraction. Human steered: **complex-FIRST** + ALL explorations
   (CHSH / Grover-DJ / QFT / comms).
 - [DONE 2026-06-11] **Complex amplitudes — the foundational unlock.** See **Done** below.
-- [NEXT, in order] (a) generalize `tensor`/`factorize` to complex (today float-only — a
-  latent gap once S/T/Y states are tensored; #10); (b) the **Circuit** abstraction (fold a
-  gate list over a Register in one tick — the "tool"; Bell/GHZ as compositions; #11);
-  (c) the **explorations** (CHSH first — entanglement != classical; then Grover/DJ, QFT,
-  superdense/BB84; #12); (d) measurement-with-collapse + factorize-driven `_divide` (Q5);
-  (e) **mesh-mode** (LOCC classical wire -> a `mesh:` link; teleportation across machines, M2).
+- [DONE 2026-06-11] (a) complex `tensor`/`factorize` (#10) + (b) the **Circuit** abstraction
+  (#11). See **Done**.
+- [NEXT, in order] (c) the **explorations** (CHSH first — entanglement != classical; then
+  Grover/DJ, QFT, superdense/BB84; #12); (d) measurement-with-collapse + factorize-driven
+  `_divide` (Q5); (e) **mesh-mode** (LOCC classical wire -> a `mesh:` link; teleportation
+  across machines, M2); plus a clean tensor/factorize DUALITY `.ys` demo (the round-trip law).
 - Open design point parked with **unify**: the surface value-method dispatch for `Complex`
   (a bare `array[[2]]` carries no `_type` tag; method dispatch keys off the tag/`Foreign`
   name). Quantum needs only the Rust arithmetic + the type (tag-independent), so this is
@@ -74,6 +74,18 @@ abstraction; e.g. Bell = `H ; CNOT` built from library gates, not a hand-rolled 
   scope stays joint per physics) — M3; not yet demoed.
 
 ## Done
+- **Complex `tensor`/`factorize` + the Circuit abstraction.** 2026-06-11.
+  **Correctness (#10):** `prelude::tensor` now ℂ-multiplies amplitudes; `prelude::factorize`
+  generalized to rank-1 over ℂ (the real ± sign became a per-row complex PHASE) + a new
+  `complex::div`. Reduces EXACTLY to the real algorithm for real inputs (the 28 tests
+  unchanged). Proven: (i|1⟩)⊗|0⟩ factorizes + round-trips; (|00⟩+i|11⟩)/√2 is correctly NOT
+  separable. **Circuit abstraction (#11, the "tool"):** a circuit = a LIST of gate specs
+  (`{op, qubits, params}` — transparent DATA); `Qubits.run(circuit)` folds them in ONE tick
+  (`apply_gate_spec` interpreter in `quantum.rs`; unknown op errors loudly). Surface
+  constructors in `packages/quantum/ys/circuit.ys` (h/x/y/z/s/t/cnot/phase/rx/ry/rz). Demo
+  `quantum-circuit.ys`: **Bell = `[h(0), cnot(0,1)]`, GHZ = `[h(0), cnot(0,1), cnot(1,2)]`**
+  as compositions (not hand-rolled), + `H;S;H` carrying complex amplitudes through a circuit.
+  9 quantum lib tests + 28 suite green.
 - **Complex amplitudes — the foundational unlock (#68; human-prioritized).** 2026-06-11.
   The shared **`Complex` sort** in `crates/prism-std/src/complex.rs` (per categorical-core
   §6b: `array[[2]]` re/im; `add/sub/mul/scale/neg/conj/abs/abs2/arg/from_phase/rotate`;

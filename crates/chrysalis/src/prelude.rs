@@ -10,6 +10,7 @@ use indexmap::IndexMap;
 use prism_bigraph::composite::Composite;
 use prism_bigraph::{Core, ProcessNode, ProcessRegistry};
 use prism_schema::{Key, MethodError, MethodRegistry, Value};
+use prism_std::complex;
 
 use crate::compile::ModuleRegistry;
 
@@ -366,11 +367,11 @@ pub fn tensor(a: &Value, b: &Value) -> Result<Value, MethodError> {
     })?;
     let mut joint: IndexMap<Key, Value> = IndexMap::new();
     for (ka, va) in map_a {
-        let amp_a = va.as_f64().unwrap_or(0.0);
         for (kb, vb) in map_b {
-            let amp_b = vb.as_f64().unwrap_or(0.0);
             let combined_key = format!("{}{}", ka.as_str(), kb.as_str());
-            joint.insert(Key::from(combined_key.as_str()), Value::float(amp_a * amp_b));
+            // ℂ multiplication of amplitudes (float-coercing: a real amplitude is
+            // re+0i, so real ⊗ real stays a bare float — byte-identical).
+            joint.insert(Key::from(combined_key.as_str()), complex::mul(va, vb));
         }
     }
     Ok(Value::Map(joint))
@@ -441,11 +442,11 @@ pub fn factorize(joint: &Value, split: &Value) -> Result<Value, MethodError> {
         }
     }
 
-    // Build the joint matrix: (left_bits, right_bits) → amplitude. Implicit
-    // zero for missing entries.
+    // Build the joint matrix: (left_bits, right_bits) → COMPLEX amplitude.
+    // Implicit zero for missing entries.
     let mut left_keys: Vec<String> = Vec::new();
     let mut right_keys: Vec<String> = Vec::new();
-    let mut matrix: IndexMap<(String, String), f64> = IndexMap::new();
+    let mut matrix: IndexMap<(String, String), Value> = IndexMap::new();
     for (key, val) in map {
         let s = key.as_str();
         let l = s[..k].to_string();
@@ -456,15 +457,20 @@ pub fn factorize(joint: &Value, split: &Value) -> Result<Value, MethodError> {
         if !right_keys.contains(&r) {
             right_keys.push(r.clone());
         }
-        let amp = val.as_f64().unwrap_or(0.0);
-        matrix.insert((l, r), amp);
+        matrix.insert((l, r), val.clone());
     }
+    let m_at = |l: &str, r: &str| -> Value {
+        matrix
+            .get(&(l.to_string(), r.to_string()))
+            .cloned()
+            .unwrap_or_else(complex::zero)
+    };
 
-    // Find a seed row: any left_key whose row has nonzero norm.
+    // Find a seed row: any left_key with nonzero ℂ-norm (‖row i‖ = √Σ_j |M[i,j]|²).
     let row_norm = |li: &str| -> f64 {
         right_keys
             .iter()
-            .map(|rj| matrix.get(&(li.to_string(), rj.clone())).copied().unwrap_or(0.0).powi(2))
+            .map(|rj| matrix.get(&(li.to_string(), rj.to_string())).map_or(0.0, complex::abs2))
             .sum::<f64>()
             .sqrt()
     };
@@ -474,52 +480,57 @@ pub fn factorize(joint: &Value, split: &Value) -> Result<Value, MethodError> {
     };
     let a_seed = row_norm(&seed_row);
 
-    // Candidate factors: a[i] = sqrt(Σ_j |M[i,j]|²); b[j] = M[seed, j] / a[seed].
+    // Candidate factors: a[i] = ‖row i‖ (magnitude only, real); b[j] = the
+    // normalized seed row M[seed, j] / ‖row seed‖ (complex). The per-row phase
+    // is recovered + verified below.
     let mut a_map: IndexMap<Key, Value> = IndexMap::new();
     for li in &left_keys {
         a_map.insert(Key::from(li.as_str()), Value::float(row_norm(li)));
     }
     let mut b_map: IndexMap<Key, Value> = IndexMap::new();
     for rj in &right_keys {
-        let v = matrix.get(&(seed_row.clone(), rj.clone())).copied().unwrap_or(0.0) / a_seed;
-        b_map.insert(Key::from(rj.as_str()), Value::float(v));
+        b_map.insert(
+            Key::from(rj.as_str()),
+            complex::scale(&m_at(&seed_row, rj), 1.0 / a_seed),
+        );
     }
 
-    // Verification: for every (i, j), check M[i,j] ≈ a[i] * b[j] (with the row
-    // sign — `row_norm` is always nonneg, so any negative `b[j]` from the seed
-    // row gets propagated). For each non-seed row, also check that all
-    // entries share a consistent sign relative to the seed row.
+    // Verification: for every row i, M[i,j] must equal a[i]·b[j] up to ONE
+    // per-row unit phase φ_i (the rank-1 condition over ℂ — the real case's ±
+    // sign generalized to a complex phase). Inconsistent φ across a row ⇒ not
+    // separable; the recovered φ_i is folded back into a[i].
     const TOL: f64 = 1e-6;
     for li in &left_keys {
-        let a_i = a_map.get(&Key::from(li.as_str())).and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let a_i = row_norm(li);
         if a_i < 1e-12 {
             continue;
         }
-        // Determine the sign multiplier from the first nonzero column.
-        let mut sign: Option<f64> = None;
+        let mut phase: Option<Value> = None;
         for rj in &right_keys {
-            let m_ij = matrix.get(&(li.clone(), rj.clone())).copied().unwrap_or(0.0);
-            let b_j = b_map.get(&Key::from(rj.as_str())).and_then(|v| v.as_f64()).unwrap_or(0.0);
-            if b_j.abs() < 1e-12 {
-                if m_ij.abs() > TOL {
+            let m_ij = m_at(li, rj);
+            let b_j = b_map
+                .get(&Key::from(rj.as_str()))
+                .cloned()
+                .unwrap_or_else(complex::zero);
+            if complex::abs(&b_j) < 1e-12 {
+                if complex::abs(&m_ij) > TOL {
                     return Ok(separable_result(false, IndexMap::new(), IndexMap::new()));
                 }
                 continue;
             }
-            let s_ij = m_ij / (a_i * b_j);
-            if sign.is_none() {
-                sign = Some(s_ij);
-            } else if (sign.unwrap() - s_ij).abs() > TOL {
-                return Ok(separable_result(false, IndexMap::new(), IndexMap::new()));
+            // φ = M[i,j] / (a[i]·b[j]); rank-1 ⇒ the same unit phase for all j.
+            let phi = complex::div(&m_ij, &complex::scale(&b_j, a_i));
+            match &phase {
+                None => phase = Some(phi),
+                Some(p) => {
+                    if complex::abs(&complex::sub(p, &phi)) > TOL {
+                        return Ok(separable_result(false, IndexMap::new(), IndexMap::new()));
+                    }
+                }
             }
         }
-        // Apply the sign to a[i].
-        if let Some(s) = sign {
-            if s.abs() < 1e-12 {
-                continue;
-            }
-            let signed = a_i * s.signum();
-            a_map.insert(Key::from(li.as_str()), Value::float(signed));
+        if let Some(p) = phase {
+            a_map.insert(Key::from(li.as_str()), complex::mul(&complex::of(a_i, 0.0), &p));
         }
     }
 

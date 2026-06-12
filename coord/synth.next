@@ -157,20 +157,22 @@ definer + the `Complex` sort THERE with `unify`; build the per-domain demos HERE
 - **PATCH-PROGRAMMABLE MODULE LIBRARY — started (human direction: joranalogue / Serge / Schlappi).**
   Founding law (`docs/synth-module-library.md`): ONE `Signal`, **CV ≡ audio**, every parameter a
   **modulation input** (`base + Σ cv·depth`, unpatched = 0 = no mod), multi-output, cross-patchable.
-  Foundation `src/modulation.rs` (`cv_in`/`at`/`rising_edge`/`modulated_freq`). **FIVE fully-
+  Foundation `src/modulation.rs` (`cv_in`/`at`/`rising_edge`/`modulated_freq`). **TEN fully-
   modulatable kernels (all backward-compatible, unpatched ⇒ old behaviour):** **`Oscillator`** complex
-  VCO (`fm_exp` V/oct / `fm_lin` / `pm` / `sync` / `pwm` / `am` → `sine`/`saw`/`square`/`triangle`/
-  `sub`); **`Svf`** multimode TPT filter/resonator (`cutoff_cv`+`res_cv` → `lp`/`hp`/`bp`/`notch`);
-  **`Slope`** the Serge DUSG universal function gen (`trigger`/`cycle`/`rise_cv`/`fall_cv`/`time_cv` →
-  env *or* LFO *or* pitch-tracking VCO; outs `out`/`inv`/`eoc`); **`Compare`** comparator + analog
-  logic (`gate`/`inv`/`min`/`max`/`rect`); **`SampleHold`** Serge SSG (stepped S&H + smooth slew).
-  Examples: `cross-mod.ys` (one LFO → VCO pitch AND filter cutoff) + `generative.ys` (a SELF-PLAYING
-  patch — clock samples a wandering slope into stepped pitch, plucks an env per beat, voice via osc
-  fm+am so no VCA needed). 41 prism-audio tests green; 0-chrysalis held. **`.ys` GOTCHA: `in` is a
-  reserved word** — module audio input port is `input` (flagged to lang). Add-a-module recipe: kernel
-  + `from_config` + `register_audio` + `audio_exports` + tests. **NEXT (roadmap in
-  `docs/synth-module-library.md`):** `Noise` / `Fold` wavefolder / `Counter` (Nibbler) / `Sequencer`
-  / `Mix` / `RingMod` / `Delay`→reverb. Library-first, examples follow.
+  VCO (`fm_exp`/`fm_lin`/`pm`/`sync`/`pwm`/`am` → `sine`/`saw`/`square`/`triangle`/`sub`); **`Svf`**
+  multimode TPT filter/resonator (`cutoff_cv`+`res_cv` → `lp`/`hp`/`bp`/`notch`); **`Slope`** Serge
+  DUSG universal function gen (env/LFO/VCO from one module; `out`/`inv`/`eoc`); **`Compare`**
+  comparator + analog logic; **`SampleHold`** Serge SSG (stepped + smooth); **`Noise`** seeded random;
+  **`Fold`** wavefolder (analytic triangle fold; West-Coast when `fold_cv`←env); **`RingMod`**
+  4-quadrant; **`Counter`** Schlappi Nibbler (4-bit, `b0..b3` = clock dividers + `cv` D/A);
+  **`Sequencer`** (`.ys` `steps` list → `cv`+`trig`; the sequence is DATA). Examples: `cross-mod.ys`,
+  `generative.ys` (self-playing), `sequence.ys` (8-step melody + envelope-driven wavefolder). 46
+  prism-audio tests green; 0-chrysalis held. **`.ys` GOTCHA: `in` is reserved** — module audio input
+  port is `input` (flagged to lang). **Add-a-module recipe:** kernel `Process` + `from_config` +
+  `patch.rs::register_audio` + `prelude::audio_exports` + a `tests/modules.rs` test. **NEXT (roadmap
+  in `docs/synth-module-library.md`):** `Mix`/`Matrix` · `Logic` · `Clock`/`ClockDiv` · `Lpg`
+  (Buchla low-pass gate) · `Ladder` filter · `Chaos` (Three Body) · `Delay`→reverb (needs a
+  buffer-on-state strategy). Library-first, examples follow.
 - **`.ys` PATCHES ARE NOW AUDIBLE — the device as a SINK on the engine (the M4-ward seam).**
   `packages/synth/ys/live.ys` is a CONTINUOUS audio engine (oscillator as a live composite child
   writing the `out` Signal each tick — one engine tick = one block, vs `tone.ys`'s one-shot

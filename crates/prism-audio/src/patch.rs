@@ -19,12 +19,16 @@ use prism_bigraph::process::ProcessNode;
 use prism_bigraph::{Core, Engine, Schema, Value};
 
 use crate::compare::Compare;
+use crate::counter::Counter;
 use crate::envelope::Envelope;
+use crate::fold::Fold;
 use crate::lowpass::LowPass;
 use crate::noise::Noise;
 use crate::oscillator::Oscillator;
 use crate::render::render;
+use crate::ringmod::RingMod;
 use crate::samplehold::SampleHold;
+use crate::sequencer::Sequencer;
 use crate::signal::signal_registry;
 use crate::slope::Slope;
 use crate::svf::Svf;
@@ -56,6 +60,18 @@ pub fn register_audio(reg: &mut ProcessRegistry) {
     });
     reg.register("Noise", |c| {
         ProcessNode::Process(Box::new(Noise::from_config(&c)))
+    });
+    reg.register("Fold", |c| {
+        ProcessNode::Process(Box::new(Fold::from_config(&c)))
+    });
+    reg.register("RingMod", |c| {
+        ProcessNode::Process(Box::new(RingMod::from_config(&c)))
+    });
+    reg.register("Counter", |c| {
+        ProcessNode::Process(Box::new(Counter::from_config(&c)))
+    });
+    reg.register("Sequencer", |c| {
+        ProcessNode::Process(Box::new(Sequencer::from_config(&c)))
     });
 }
 

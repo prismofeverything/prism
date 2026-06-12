@@ -1,0 +1,42 @@
+# quantum-circuit.ys — the CIRCUIT abstraction: explore quantum systems by
+# composing canonical gates into a list, then `state.run(circuit)`.
+# ─────────────────────────────────────────────────────────────────────────
+#
+# A circuit is DATA — a list of gate specs (see `circuit.ys`). `run` folds it
+# over a `Qubits` register in ONE tick (no `--time N` propagation chain). The
+# canonical entangled states are now COMPOSITIONS, not hand-rolled amplitude
+# literals:
+#   Bell = H(0) ; CNOT(0,1)
+#   GHZ  = H(0) ; CNOT(0,1) ; CNOT(1,2)
+#
+# Run: `chrysalis run packages/quantum/ys/quantum-circuit.ys --time 0`
+from .circuit import h, s, cnot, phase
+
+def q1 :: Qubits = {'0': 1.0}
+def q2 :: Qubits = {'00': 1.0}
+def q3 :: Qubits = {'000': 1.0}
+
+# ── Canonical entangled states, AS circuits ───────────────────────────
+def bell = q2.run([h(0), cnot(0, 1)])              # (|00> + |11>)/sqrt(2)
+def ghz  = q3.run([h(0), cnot(0, 1), cnot(1, 2)])  # (|000> + |111>)/sqrt(2)
+
+# ── A circuit is just data — build it programmatically ────────────────
+# H ; S ; H on |0>: the S inserts a complex phase, so the output amplitudes
+# are genuinely complex `[re, im]` — a circuit that needs the ℂ substrate.
+def my_circuit = [h(0), s(0), h(0)]
+def hsh = q1.run(my_circuit)
+
+# ── Parametrized: Hadamard, a pi/4 phase, Hadamard ────────────────────
+def tilted = q1.run([h(0), phase(0, 0.7853981), h(0)])
+
+composite CircuitDemo ~{} ->{
+  bell   :: Qubits,
+  ghz    :: Qubits,
+  hsh    :: Qubits,
+  tilted :: Qubits
+} (
+  bell:   bell |
+  ghz:    ghz |
+  hsh:    hsh |
+  tilted: tilted
+)

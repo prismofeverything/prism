@@ -84,19 +84,23 @@ tests + an export", following the pattern above. Modulation inputs listed are th
 ### Logic / comparators / counters  (Schlappi binary-as-music)
 - ✅ **`Compare`** — comparator + analog logic (joranalogue Compare 2 / Schlappi Boundary): `input`
   vs `threshold_cv` → `gate`/`inv`; `min`/`max` of `input` & `b`; `rect` (full-wave). Stateless.
+- ✅ **`Counter`** — the **Nibbler**: clocked 4-bit binary accumulator; `clock`/`reset`; outputs the
+  per-bit gates `b0`..`b3` (clock ÷2/÷4/÷8/÷16 — an instant rhythm section) + a stepped `cv` (D/A).
 - ⬜ **`Logic`** — AND/OR/XOR/flip-flop over gate Signals.
-- ⬜ **`Counter`** — the **Nibbler**: clocked binary accumulator; per-bit gate outs + a stepped
-  CV out (D/A); `clock`, `reset`, `up_down` — rhythms + melodies from counting.
 
 ### Shapers
-- ⬜ **`Fold`** — wavefolder (joranalogue Fold 6 / Serge wave multipliers): `fold_cv`, `bias_cv`.
-- ⬜ **`Rectify`** / **`Clip`** / **`Drive`** — waveshapers (West-Coast timbre).
-- ⬜ **`RingMod`** — four-quadrant multiplier (`a × b`; a VCA is the two-quadrant case).
+- ✅ **`Fold`** — wavefolder (joranalogue Fold 6 / Serge wave multipliers / Buchla): `fold_cv` drive
+  + `bias_cv` (asymmetry → even harmonics); analytic triangle fold. *Drive `fold_cv` with an env =
+  West-Coast timbre.*
+- ✅ **`RingMod`** — four-quadrant multiplier (`a · b`; a VCA is the two-quadrant case).
+- ⬜ **`Rectify`** / **`Clip`** / **`Drive`** — more waveshapers.
 
 ### Sequencing / clocks
-- ⬜ **`Sequencer`** — step sequencer (joranalogue Step 8): `clock`, `reset`; a `steps` list +
-  per-step gate; CV + gate outs.
-- ⬜ **`Clock`** / **`ClockDiv`** — master clock + dividers/multipliers (`rate_cv`).
+- ✅ **`Sequencer`** — step sequencer (joranalogue Step 8): `clock`/`reset` step a `.ys` `steps`
+  list → a held `cv` (a melody/staircase) + a `trig` pulse per step. The sequence is DATA (a
+  reaction could rewrite it live — the homoiconic angle).
+- ⬜ **`Clock`** / **`ClockDiv`** — master clock + dividers/multipliers (`rate_cv`). (A cycling
+  `Slope`'s `eoc` is a clock today; `Counter`'s bits are dividers.)
 - ⬜ **`Quantizer`** — snap a CV to a scale (`scale`, `input` → quantized pitch CV).
 
 ### Mixers / routing / VCAs

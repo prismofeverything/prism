@@ -228,6 +228,54 @@ fn m_rz(theta: f64) -> [[Value; 2]; 2] {
     ]
 }
 
+// ── Circuits ─────────────────────────────────────────────────────────────
+//
+// A CIRCUIT is a list of gate SPECS — `{op, qubits: [...], params: [...]}` —
+// transparent DATA (inspectable, composable, serializable). `state.run(circuit)`
+// folds the specs over the register in ONE step (no per-gate process chain / no
+// `--time N` propagation), interpreting each spec through the same gates the
+// methods use. The surface constructors (`h(0)`, `cnot(0,1)`, …) live in the
+// `packages/quantum/ys/circuit.ys` library.
+
+/// Apply one gate spec to a register. Unknown `op` is an error (not a silent
+/// no-op) so a typo'd circuit fails loudly.
+fn apply_gate_spec(state: &Value, gate: &Value) -> Result<Value, MethodError> {
+    let op = gate
+        .get_field("op")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| bad("run", "each gate spec needs an `op` string"))?
+        .to_string();
+    let qubits: Vec<usize> = gate
+        .get_field("qubits")
+        .and_then(|v| v.as_list().map(<[Value]>::to_vec))
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
+        .map(|n| n.max(0) as usize)
+        .collect();
+    let q = |i: usize| qubits.get(i).copied().unwrap_or(0);
+    let theta = |i: usize| {
+        gate.get_field("params")
+            .and_then(|v| v.as_list().and_then(|xs| xs.get(i).cloned()))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0)
+    };
+    Ok(match op.as_str() {
+        "h" | "hadamard" => apply_1q(state, q(0), &m_h()),
+        "x" | "pauli_x" => apply_1q(state, q(0), &m_x()),
+        "y" | "pauli_y" => apply_1q(state, q(0), &m_y()),
+        "z" | "pauli_z" => apply_1q(state, q(0), &m_z()),
+        "s" => apply_1q(state, q(0), &m_s()),
+        "t" => apply_1q(state, q(0), &m_t()),
+        "phase" => apply_1q(state, q(0), &m_phase(theta(0))),
+        "rx" => apply_1q(state, q(0), &m_rx(theta(0))),
+        "ry" => apply_1q(state, q(0), &m_ry(theta(0))),
+        "rz" => apply_1q(state, q(0), &m_rz(theta(0))),
+        "cnot" | "cx" => cnot(state, q(0), q(1)),
+        other => return Err(bad("run", &format!("unknown gate op `{other}`"))),
+    })
+}
+
 // ── Method registrations ─────────────────────────────────────────────────
 
 /// Register a single-qubit gate as `state.<name>(q)` — `apply_1q` with the gate's
@@ -307,6 +355,19 @@ pub fn register_quantum_methods(m: &mut MethodRegistry) {
     reg_1q_param(m, "rx", m_rx);
     reg_1q_param(m, "ry", m_ry);
     reg_1q_param(m, "rz", m_rz);
+    // run(circuit) — fold a list of gate specs over the register (the circuit
+    // abstraction; one tick). circuit = `[{op, qubits: [...], params: [...]}, …]`.
+    m.register(TYPE_NAME, "run", |recv, args| -> MethodResult {
+        let circuit = args
+            .first()
+            .and_then(|v| v.as_list())
+            .ok_or_else(|| bad("run", "expected run(circuit) — a list of gate specs"))?;
+        let mut state = stamp(recv);
+        for gate in circuit {
+            state = apply_gate_spec(&state, gate)?;
+        }
+        Ok(state)
+    });
     // measure(seed) — Born-rule sample over |amp|²; returns the observed
     // basis-state key (a String), deterministic given the seed.
     m.register(TYPE_NAME, "measure", |recv, args| -> MethodResult {
@@ -470,5 +531,63 @@ mod tests {
         let plus = apply_1q(&ket("0"), 0, &m_h());
         let total: f64 = amps(&plus).iter().map(|(_, a)| complex::abs2(a)).sum();
         assert!((total - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn complex_tensor_then_factorize_is_separable() {
+        // (i|1⟩) ⊗ |0⟩ = i|10⟩ — a genuinely-complex SEPARABLE joint state.
+        let i_one = apply_1q(&ket("1"), 0, &m_s()); // S|1⟩ = i|1⟩
+        let joint = crate::prelude::tensor(&bare(&i_one), &bare(&ket("0"))).unwrap();
+        assert_eq!(complex::parts(joint.as_map().unwrap().get("10").unwrap()), (0.0, 1.0));
+        // factorize at k=1 recovers separability over ℂ.
+        let f = crate::prelude::factorize(&joint, &Value::Int(1)).unwrap();
+        assert_eq!(f.get_field("separable"), Some(&Value::Bool(true)));
+        // And the factors tensor back to the original (round-trip).
+        let a = f.get_field("a").unwrap();
+        let b = f.get_field("b").unwrap();
+        let back = crate::prelude::tensor(a, b).unwrap();
+        assert_eq!(complex::parts(back.as_map().unwrap().get("10").unwrap()), (0.0, 1.0));
+    }
+
+    #[test]
+    fn complex_entangled_state_is_not_separable() {
+        // (|00⟩ + i|11⟩)/√2 — a complex Bell-like state, rank 2, NOT separable.
+        let s = 1.0 / std::f64::consts::SQRT_2;
+        let state = build([
+            ("00".to_string(), complex::of(s, 0.0)),
+            ("11".to_string(), complex::of(0.0, s)),
+        ]);
+        let f = crate::prelude::factorize(&bare(&state), &Value::Int(1)).unwrap();
+        assert_eq!(f.get_field("separable"), Some(&Value::Bool(false)));
+    }
+
+    #[test]
+    fn run_circuit_builds_bell_from_gate_specs() {
+        // The circuit abstraction: Bell = H(0) ; CNOT(0,1) over |00⟩, composed as
+        // a gate-spec list and folded by `run` — dispatched through the registry.
+        let gate = |op: &str, qs: &[i64]| {
+            let mut m: IndexMap<Key, Value> = IndexMap::new();
+            m.insert(Key::from("op"), Value::String(op.into()));
+            m.insert(
+                Key::from("qubits"),
+                Value::List(qs.iter().map(|n| Value::Int(*n)).collect()),
+            );
+            Value::Map(m)
+        };
+        let circuit = Value::List(vec![gate("h", &[0]), gate("cnot", &[0, 1])]);
+        let mut reg = MethodRegistry::new();
+        register_quantum_methods(&mut reg);
+        let bell = reg
+            .dispatch(&build([("00".to_string(), complex::one())]), "run", &[circuit])
+            .unwrap();
+        let s = 1.0 / std::f64::consts::SQRT_2;
+        assert!((amp(&bell, "00").0 - s).abs() < 1e-12);
+        assert!((amp(&bell, "11").0 - s).abs() < 1e-12);
+        assert_eq!(amp(&bell, "01"), (0.0, 0.0));
+        // An unknown op fails loudly.
+        let bad_circuit = Value::List(vec![gate("nope", &[0])]);
+        assert!(reg
+            .dispatch(&build([("0".to_string(), complex::one())]), "run", &[bad_circuit])
+            .is_err());
     }
 }

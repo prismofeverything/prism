@@ -229,4 +229,17 @@ mod tests {
         assert!(close(arg(&i()), std::f64::consts::FRAC_PI_2));
         assert!(close(arg(&one()), 0.0));
     }
+
+    #[test]
+    fn division_inverts_multiplication() {
+        // (a·b)/b == a.
+        let a = array(3.0, 4.0);
+        let b = array(1.0, -2.0);
+        let q = div(&mul(&a, &b), &b);
+        assert!(close(re(&q), 3.0) && close(im(&q), 4.0));
+        // 1/i = -i.
+        assert_eq!(parts(&div(&one(), &i())), (0.0, -1.0));
+        // Division by zero is defined as 0 (the factorize guard never hits it).
+        assert_eq!(parts(&div(&one(), &zero())), (0.0, 0.0));
+    }
 }

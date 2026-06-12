@@ -17,12 +17,16 @@ pub mod envelope;
 pub mod factory;
 pub mod instrument;
 pub mod compare;
+pub mod counter;
+pub mod fold;
 pub mod lowpass;
 /// The universal modulation layer — CV ≡ audio; every parameter a `Signal` input.
 pub mod modulation;
 pub mod noise;
 pub mod oscillator;
+pub mod ringmod;
 pub mod samplehold;
+pub mod sequencer;
 pub mod slope;
 pub mod patch;
 /// The audio domain's runnable Core (`audio_core`, chrysalis-free) + the `.ys`
@@ -59,8 +63,12 @@ pub use signal::{
     silence, SIGNAL,
 };
 pub use compare::Compare;
+pub use counter::Counter;
+pub use fold::Fold;
 pub use noise::Noise;
+pub use ringmod::RingMod;
 pub use samplehold::SampleHold;
+pub use sequencer::Sequencer;
 pub use slope::Slope;
 pub use svf::Svf;
 pub use vca::Vca;
