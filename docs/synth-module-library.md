@@ -60,14 +60,14 @@ tests + an export", following the pattern above. Modulation inputs listed are th
   `sine` `saw` `square` `triangle` `sub` (all at once).
 - ✅ **`Noise`** — white, a seeded `xorshift` (deterministic, state on a slot); `am` CV. → a
   `SampleHold` with a clock = random voltages. ⬜ pink/`rate`-reduced variants.
-- ⬜ **`Wavetable`** — a `pos` CV scanning a table (a digital complex-osc timbre axis).
+- ✅ **`Wavetable`** — morphs through sine→triangle→saw→pulse by a `pos_cv` (`fm_exp`/`am`); the digital complex-osc timbre axis.
 
 ### Filters / resonators
 - ✅ **`Svf`** — multimode TPT state-variable (joranalogue Filter 8): `cutoff_cv` (V/oct),
   `res_cv`; outputs `lp` `hp` `bp` `notch`; self-oscillates = a resonator. ✅ **`LowPass`** (1-pole, kept).
 - ✅ **`Ladder`** — 4-pole **Moog transistor-ladder** (`cutoff_cv` V/oct + `res_cv`; `tanh` drive
   for the Moog saturation; `out` = 4-pole, `lp2` = a 2-pole tap) — the warm/resonant color beside the SVF.
-- ⬜ **`Comb`** — tuned comb / Karplus-Strong basis (`pitch_cv`, `feedback_cv`).
+- ✅ **`Comb`** — tuned feedback comb = a **Karplus-Strong string**: excite `input` with a burst, it rings at `pitch_cv` with `feedback_cv`/`damping`; interpolated read. (buffer on the struct)
 
 ### Function generators / envelopes / LFOs  (the Serge universal slope)
 - ✅ **`Slope`** — the **DUSG / Maths / Contour** core: a single rise→fall slope with `rise_cv`,
@@ -94,13 +94,13 @@ tests + an export", following the pattern above. Modulation inputs listed are th
   + `bias_cv` (asymmetry → even harmonics); analytic triangle fold. *Drive `fold_cv` with an env =
   West-Coast timbre.*
 - ✅ **`RingMod`** — four-quadrant multiplier (`a · b`; a VCA is the two-quadrant case).
-- ⬜ **`Rectify`** / **`Clip`** / **`Drive`** — more waveshapers.
+- ✅ **`Shaper`** — `rect` (full-wave) · `clip` (hard) · `drive` (tanh soft-clip) at once, `drive_cv` into them — the saturation family (`Fold` is the wrapping one).
 
 ### Sequencing / clocks
 - ✅ **`Sequencer`** — step sequencer (joranalogue Step 8): `clock`/`reset` step a `.ys` `steps`
   list → a held `cv` (a melody/staircase) + a `trig` pulse per step. The sequence is DATA (a
   reaction could rewrite it live — the homoiconic angle).
-- ⬜ **`ClockDiv`** — clock multipliers/swing on top of `Clock` (÷N is `Counter`'s bits today).
+- ✅ **`ClockDiv`** — divide a `clock` by an arbitrary `div` (triplets/5s/polymeter; `Counter`'s bits do power-of-2); `trig`+`gate`+`reset`.
 - ✅ **`Quantizer`** — snap a pitch CV to a `.ys` `scale` (nearest degree, octave-aware) → in-key
   melodies; emits a `gate` pulse on each note change (→ an envelope `trigger`).
 
@@ -109,8 +109,8 @@ tests + an export", following the pattern above. Modulation inputs listed are th
 - ✅ **`Lpg`** — Buchla/Serge **low-pass gate**: a `ping` lights a modeled vactrol that opens the
   filter AND the VCA together and decays naturally (louder = brighter — the West-Coast pluck, no env).
 - ✅ **`Mix`** — 4-channel mixer with a CV level per channel (a VCA on each input, then a sum).
-  ⬜ **`Matrix`** (joranalogue Morph 4) — a crossfading routing matrix.
-- ⬜ **`Pan`** — stereo/quad placement (ties to the ES-9 multichannel fan-out, A8/spatial).
+- ✅ **`Matrix`** — a 4-way morphing crossfader (joranalogue Morph 4): `morph_cv` (0…3) blends `in1`..`in4`.
+- ✅ **`Pan`** — equal-power stereo placement (`pan_cv` → `left`/`right`); autopan with an LFO/Chaos. (full stereo *playback* = a later AudioOut channel extension)
 
 ### Time
 - ✅ **`Delay`** — delay line: `time_cv` (modulate for chorus/flanger), `feedback_cv`, `mix_cv`;
@@ -126,7 +126,7 @@ tests + an export", following the pattern above. Modulation inputs listed are th
   (`out = input`) so the same patch renders offline AND plays under `--features realtime`; no device
   ⇒ silent passthrough. (Impl: the `!Send` `cpal::Stream` lives on a spawned audio thread, `AudioOut`
   holds the Send ring producer — the ring is the boundary.)
-- ⬜ **`AudioIn`** — the input device as a SOURCE (mic/line/duplex). ⬜ a `web:` served face (a
+- ✅ **`AudioIn`** — the input device as a SOURCE (mic/line/duplex), the dual of `AudioOut`: cpal callback fills a ring (its thread), `update` drains a block. Realtime; a silence stub otherwise. ⬜ a `web:` served face (a
   bigraph as a live page) is the *other* world boundary (`mesh` owns it).
 
 ## How it composes (the bigger picture)

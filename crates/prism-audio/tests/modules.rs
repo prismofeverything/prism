@@ -4,9 +4,10 @@
 //! (docs/synthesis-bigraphs.md §V, slice A2).
 
 use prism_audio::{
-    render_voice, signal_from_slice, signal_to_vec, AudioOut, Chaos, Clock, Compare, Counter, Delay,
-    Envelope, Fold, Ladder, Logic, LowPass, Lpg, Mix, Noise, Oscillator, Quantizer, RingMod,
-    SampleHold, Sequencer, Slope, Svf, Vca, Wave,
+    render_voice, signal_from_slice, signal_to_vec, AudioIn, AudioOut, Chaos, Clock, ClockDiv, Comb,
+    Compare, Counter, Delay, Envelope, Fold, Ladder, Logic, LowPass, Lpg, Matrix, Mix, Noise,
+    Oscillator, Pan, Quantizer, RingMod, SampleHold, Sequencer, Shaper, Slope, Svf, Vca, Wave,
+    Wavetable,
 };
 use prism_bigraph::{Process, Value};
 
@@ -863,4 +864,161 @@ fn delay_echoes_after_its_time() {
     );
     assert!(out[100].abs() < 0.01, "silent before the delay time");
     assert!(out[240] > 0.5, "the impulse re-emerges ~5 ms later ({})", out[240]);
+}
+
+// ── comb / Karplus-Strong string ─────────────────────────────────────────────
+
+#[test]
+fn comb_rings_when_excited() {
+    let comb = Comb::from_config(&Value::tree([
+        ("pitch", Value::float(220.0)),
+        ("feedback", Value::float(0.98)),
+        ("block", Value::Int(BLOCK as i64)),
+        ("sample_rate", Value::float(RATE)),
+    ]));
+    let burst: Vec<f32> = (0..BLOCK).map(|i| if i < 64 { 0.5 } else { 0.0 }).collect();
+    let silence = vec![0.0_f32; BLOCK];
+    let rms = |o: &[f32]| (o.iter().map(|x| (x * x) as f64).sum::<f64>() / o.len() as f64).sqrt();
+    let mut last = Vec::new();
+    for k in 0..30 {
+        let inp = if k == 0 { &burst } else { &silence };
+        last = signal_to_vec(
+            comb.update(&Value::tree([("input", signal_from_slice(inp))]), comb.interval())
+                .into_value()
+                .unwrap()
+                .get_field("out")
+                .unwrap(),
+        );
+    }
+    assert!(rms(&last) > 0.001, "the string still rings 30 blocks after one pluck ({})", rms(&last));
+}
+
+// ── wavetable ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn wavetable_morphs_through_shapes() {
+    let render = |pos: f32| {
+        let wt = Wavetable::from_config(&Value::tree([
+            ("freq", Value::float(220.0)),
+            ("pos", Value::float(pos as f64)),
+            ("block", Value::Int(BLOCK as i64)),
+        ]));
+        signal_to_vec(
+            wt.update(&Value::tree([("phase", Value::float(0.0))]), wt.interval())
+                .into_value()
+                .unwrap()
+                .get_field("out")
+                .unwrap(),
+        )
+    };
+    let sine = render(0.0);
+    let saw = render(2.0);
+    assert!(sine != saw, "pos morphs the waveshape");
+    assert!(sine.iter().all(|&s| s.abs() <= 1.001), "bounded");
+    let max_jump = |b: &[f32]| b.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0f32, f32::max);
+    assert!(max_jump(&saw) > max_jump(&sine), "saw is sharper than sine (more harmonics)");
+}
+
+// ── shaper ────────────────────────────────────────────────────────────────────
+
+#[test]
+fn shaper_clips_and_drives() {
+    let sh = Shaper::from_config(&Value::tree([("drive", Value::float(2.0)), ("block", Value::Int(BLOCK as i64))]));
+    let out = sh
+        .update(&Value::tree([("input", signal_from_slice(&vec![0.8_f32; BLOCK]))]), sh.interval())
+        .into_value()
+        .unwrap();
+    // 0.8 × 2 = 1.6 → clip clamps to 1.0; tanh(1.6) ≈ 0.92 (soft).
+    assert!((signal_to_vec(out.get_field("clip").unwrap())[0] - 1.0).abs() < 1e-5, "hard clip");
+    let d = signal_to_vec(out.get_field("drive").unwrap())[0];
+    assert!(d > 0.9 && d < 1.0, "tanh soft-clips just under 1 ({d})");
+}
+
+// ── matrix crossfader ─────────────────────────────────────────────────────────
+
+#[test]
+fn matrix_crossfades_between_inputs() {
+    let at_morph = |m: f32| {
+        let mat = Matrix::from_config(&Value::tree([("morph", Value::float(m as f64)), ("block", Value::Int(BLOCK as i64))]));
+        signal_to_vec(
+            mat.update(
+                &Value::tree([
+                    ("in1", signal_from_slice(&vec![1.0_f32; BLOCK])),
+                    ("in2", signal_from_slice(&vec![2.0_f32; BLOCK])),
+                ]),
+                mat.interval(),
+            )
+            .into_value()
+            .unwrap()
+            .get_field("out")
+            .unwrap(),
+        )[0]
+    };
+    assert!((at_morph(0.0) - 1.0).abs() < 1e-5, "morph 0 → in1");
+    assert!((at_morph(1.0) - 2.0).abs() < 1e-5, "morph 1 → in2");
+    assert!((at_morph(0.5) - 1.5).abs() < 1e-5, "morph 0.5 → blend");
+}
+
+// ── pan ───────────────────────────────────────────────────────────────────────
+
+#[test]
+fn pan_is_equal_power() {
+    let lr = |pan: f32| {
+        let p = Pan::from_config(&Value::tree([("pan", Value::float(pan as f64)), ("block", Value::Int(BLOCK as i64))]));
+        let out = p
+            .update(&Value::tree([("input", signal_from_slice(&vec![1.0_f32; BLOCK]))]), p.interval())
+            .into_value()
+            .unwrap();
+        (
+            signal_to_vec(out.get_field("left").unwrap())[0],
+            signal_to_vec(out.get_field("right").unwrap())[0],
+        )
+    };
+    let (l, r) = lr(-1.0);
+    assert!(l > 0.99 && r < 0.01, "hard left");
+    let (l, r) = lr(1.0);
+    assert!(r > 0.99 && l < 0.01, "hard right");
+    let (l, r) = lr(0.0);
+    assert!((l - r).abs() < 1e-5 && (l - 0.707).abs() < 0.01, "center ≈ equal power 0.707");
+}
+
+// ── clock divider ─────────────────────────────────────────────────────────────
+
+#[test]
+fn clockdiv_divides_by_n() {
+    let cd = ClockDiv::from_config(&Value::tree([("div", Value::Int(3)), ("block", Value::Int(BLOCK as i64))]));
+    let mut clock = vec![0.0_f32; BLOCK];
+    for k in 0..9 {
+        let i = 10 + k * 20; // 9 pulses, each 2 samples wide
+        clock[i] = 1.0;
+        clock[i + 1] = 1.0;
+    }
+    let out = cd
+        .update(
+            &Value::tree([
+                ("clock", signal_from_slice(&clock)),
+                ("count", Value::float(0.0)),
+                ("clk_z", Value::float(0.0)),
+                ("rst_z", Value::float(0.0)),
+            ]),
+            cd.interval(),
+        )
+        .into_value()
+        .unwrap();
+    let trigs = signal_to_vec(out.get_field("trig").unwrap()).iter().filter(|&&t| t > 0.5).count();
+    assert_eq!(trigs, 3, "9 pulses ÷ 3 = 3 output pulses");
+}
+
+// ── audio input (the stub, no device) ────────────────────────────────────────
+
+#[test]
+fn audioin_stub_is_silent() {
+    // In the default (no-realtime) build, AudioIn is a silence source — so a duplex patch
+    // still compiles + renders offline (the device path is the realtime build).
+    let ai = AudioIn::from_config(&Value::tree([("block", Value::Int(BLOCK as i64))]));
+    let out = signal_to_vec(
+        ai.update(&Value::map(), ai.interval()).into_value().unwrap().get_field("out").unwrap(),
+    );
+    assert_eq!(out.len(), BLOCK);
+    assert!(out.iter().all(|&s| s == 0.0), "the no-device input stub is silent");
 }

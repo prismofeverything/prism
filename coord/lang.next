@@ -28,12 +28,23 @@ structural functor; domains declare views.
       VALUE, not a runtime factory). Tests `tests/functor_definer.rs` (parse · round-trip ·
       contextual). The construction is an ordinary `Expr` whose free names bind to the matched
       generator's fields at APPLY time (like a reactum) — which is why `=>` is the arrow.
-- [ ] **Slice 2 — APPLY = the functorial LIFT (lang ⋈ core).** `apply(functor, bigraph)` walks the
-      bigraph; for each node whose control = a mapped generator, substitutes its construction (binding
-      the node fields), preserving `|` parallel + nesting (functoriality). Structurally a STRUCTURE-
-      PRESERVING reaction family — reuse the matcher/substitution (`find_matches`/`instantiate`).
-      Expose `apply_functor(functor, state)`; pair core on the algebra/eval entry. A PARTIAL functor
-      delegates uncovered generators to the structural default (composition).
+- [x] **Slice 2 — APPLY = the functorial LIFT. DONE + green @ tick 31 (suite 286/0).** PAIRED w/ core
+      (their concrete framing landed the split clean). `apply_functor(FunctorName, state)` is a SPECIAL
+      FORM in `eval_call` (the functor is a bare control `Expr::Term`, looked up by name — not eval'd):
+      `eval_apply_functor` builds a `RuleFunctor` from the mappings — each construction → a reactum
+      `Pattern` via `eval_pattern`, then **core's** `prism_schema::functor::functor_rule(Gen, reactum)`
+      (core builds the single-node redex `{_type:Gen}` + owns the fire-once guard) → `RuleFunctor::new`
+      → **core's** `apply_functor(&rf, &state)`. **THIN: lang builds the rules + calls; the BRS-to-
+      fixpoint + the functoriality/fire-once laws are core's op** (no fixpoint in chrysalis — the
+      `ChrysalisBrs` trap, [[feedback_chrysalis_thin_layer]]). The KEY recognition (mine, core blessed):
+      **a functor IS an exhaustive single-node BRS** (mappings = rules, one-pass = the lift) — folds
+      functors into the reaction spine, Felleisen-clean. E2E `tests/functor_definer.rs
+      apply_functor_lifts_a_relabel_over_a_bigraph` (Foo → Bar through core's sweep).
+- [ ] **Slice 2b — RESTRUCTURING constructions (render-style, lang ⋈ core).** A relabel reactum
+      keeps children via the delta; a construction that REPLACES a node but RE-NESTS its children
+      (`Cell => Group[children: …]`) needs the redex to capture children as a SITE — core flagged it;
+      ping them the redex-site shape, build the construction surface. Plus first-class functor VALUES
+      (a bare functor control → a value, vs today's lookup-by-name).
 - [ ] **Slice 3 — render rides it (viz/mesh).** The markup prop (`prism-viz` Svg-as-`Value`) + the
       generic STRUCTURAL functor (any bigraph → its place+link as SVG); domains then declare views
       (`OrganismBoard :: Colony -> Svg`). The display face dual to `quote` (categorical-core §7b).

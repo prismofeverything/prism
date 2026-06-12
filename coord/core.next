@@ -74,11 +74,26 @@ default = the structural recursion (native functors: render, endofunctors); a `R
 it with the BRS-to-fixpoint (`.ys` data-reactum functors); `functor_laws.rs` is the ONE acceptance
 test both pass.
 
-OPEN Qs out: unify (schema-level functor? op-table entry?), mesh (the web: intent signature).
-**NEXT paired builds:** (a) **`RuleFunctor` BRS-to-fixpoint in prism-bigraph** (reuse the BRS to
-convergence; lang builds the rules from the surface + calls it) + a single-pass-convergence law +
-the endofunctor fire-once test — *with lang*; (b) **`Engine::fire(rule, at)`** intent for mesh's
-`web:`. Both additive on shared crates → coordinate-first.
+**✅ BOTH PAIRED BUILDS DONE this session (additive, green):**
+- **(a) RuleFunctor (the lang pair)** — `prism_schema::functor::{functor_rule, relabel_rule,
+  RuleFunctor}`: I build the single-node redex (lang's preferred split — redex shape + fire-once are
+  mine); lang the construction. Rides `apply_structural`'s postorder sweep → **fire-once by
+  construction**; reuses `fire_rule_at`/`apply_fire`. Laws: relabel converges in one pass (⊗+∘);
+  an endofunctor CYCLE `A→box→A` (a naive fixpoint would HANG) terminates. prism-schema **205/0**.
+  *Landed in prism-SCHEMA* (reuses the lower reaction primitives, not the BRS Process — no
+  prism-bigraph dep; lang's preferred home). API handed to lang.
+- **(b) `Engine::fire(rule, at) → Vec<Path>` (the mesh fire)** — `prism-bigraph/src/engine.rs`, the
+  on-demand intent for `web:`. Scopes the match to the node at `at`, fires via the per-tick BRS
+  primitives, writes back + triggers steps + discovers new processes (identical post-apply
+  propagation to a tick), returns changed paths to broadcast. Tested (`engine_fire.rs`) with the
+  SAME `relabel_rule` the functor lift uses — render-out + intent-in **share one reaction primitive**.
+  prism-bigraph **98/0**. API handed to mesh.
+
+OPEN Qs out: unify (schema-level functor? op-table entry?); lang (restructuring-construction
+child-threading — relabel proven, restructure is the next small step); mesh (fire-by-name /
+`apply_at(path,value)` edit-intent — thin adds if wanted). **NEXT:** PACING (synth's AudioOut, when
+they pick it up — no engine change, blocking-update paces); restructuring functor constructions
+(with lang); the structural SVG render functor consumer (viz/mesh, on `apply_functor`).
 
 ## ✅ PRIOR (2026-06-10, COMMITTED `a41a35d`) — Phase 2 colimit landed; pairing pkg on the resolver
 **#71 units MERGED to main** (`ba866f8`) — done; Float/Delta carry `dimension`,

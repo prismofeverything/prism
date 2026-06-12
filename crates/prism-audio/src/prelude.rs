@@ -147,6 +147,13 @@ pub fn audio_exports() -> &'static [(&'static str, &'static str)] {
         ("audio", "Logic"),
         ("audio", "Chaos"),
         ("audio", "Delay"),
+        ("audio", "Comb"),
+        ("audio", "Wavetable"),
+        ("audio", "Shaper"),
+        ("audio", "Matrix"),
+        ("audio", "Pan"),
+        ("audio", "ClockDiv"),
+        ("audio", "AudioIn"),
         ("audio", "AudioOut"),
     ]
 }

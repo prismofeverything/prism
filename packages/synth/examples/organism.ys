@@ -1,0 +1,67 @@
+# organism.ys — a whole generative TRACK from the library at once: a Moog-ladder bass and
+# a chaos-morphed wavetable lead, sequenced, plucked, mixed, and echoed. Ten+ modules in
+# one self-playing patch — the library showing off.
+#
+#   chrysalis run packages/synth/examples/organism.ys --time 16   # plays
+#
+#   * Clock → the beat (trig advances the sequencers, gate plucks the lead);
+#   * a Lorenz Chaos slowly morphs the lead's wavetable position;
+#   * BASS: a Sequencer → a saw → a 4-pole Ladder filter (continuous Moog bassline);
+#   * LEAD: a Sequencer → a Wavetable (pos = chaos) → an Lpg (the per-beat pluck);
+#   * a CV Mix sums them, a Delay adds echo, AudioOut plays it.
+from audio import Clock, Chaos, Sequencer, Oscillator, Ladder, Wavetable, Lpg, Mix, Delay, AudioOut
+
+composite Organism ~{} ->{ out :: Signal @ out } (
+  out: [0.0] |
+  played: [0.0] |
+  beat: [0.0] |
+  bgate: [0.0] |
+  cwander: [0.0] |
+  bass_pitch: [0.0] |
+  bass_tone: [0.0] |
+  bass: [0.0] |
+  lead_pitch: [0.0] |
+  lead_tone: [0.0] |
+  lead: [0.0] |
+  mixed: [0.0] |
+
+  clk_phase: 0.0 | clk_rst: 0.0 |
+  cx: 0.0 | cy: 0.0 | cz: 0.0 |
+  bseq_idx: 0.0 | bseq_cz: 0.0 | bseq_rz: 0.0 |
+  bosc_phase: 0.0 | lad_y1: 0.0 | lad_y2: 0.0 | lad_y3: 0.0 | lad_y4: 0.0 |
+  lseq_idx: 0.0 | lseq_cz: 0.0 | lseq_rz: 0.0 |
+  wt_phase: 0.0 | lpg_vac: 0.0 | lpg_z: 0.0 |
+
+  # the beat: trig advances the sequencers, gate plucks the lead
+  clock: Clock[rate: 4.0, width: 0.3, sample_rate: 48000.0, block: 256]
+    ~{phase: clk_phase, rst_z: clk_rst} ->{phase: clk_phase, rst_z: clk_rst, gate: bgate, trig: beat} |
+
+  # a Lorenz wander to morph the lead timbre
+  chaos: Chaos[rate: 2.0, block: 256]
+    ~{cx: cx, cy: cy, cz: cz} ->{cx: cx, cy: cy, cz: cz, x: cwander} |
+
+  # BASS — a sequenced saw through a 4-pole Moog ladder (a continuous bassline)
+  bseq: Sequencer[steps: [0.0, 0.0, 0.583, 0.25], sample_rate: 48000.0, block: 256]
+    ~{index: bseq_idx, clk_z: bseq_cz, rst_z: bseq_rz, clock: beat}
+    ->{index: bseq_idx, clk_z: bseq_cz, rst_z: bseq_rz, cv: bass_pitch} |
+  bosc: Oscillator[wave: 'Saw', freq: 55.0, amplitude: 0.35, sample_rate: 48000.0, block: 256, fm_depth: 1.0]
+    ~{phase: bosc_phase, fm_exp: bass_pitch} ->{phase: bosc_phase, saw: bass_tone} |
+  ladder: Ladder[cutoff: 420.0, resonance: 0.55, sample_rate: 48000.0, block: 256]
+    ~{input: bass_tone, y1: lad_y1, y2: lad_y2, y3: lad_y3, y4: lad_y4}
+    ->{y1: lad_y1, y2: lad_y2, y3: lad_y3, y4: lad_y4, out: bass} |
+
+  # LEAD — a wavetable whose pos chaos-morphs, plucked by the LPG off the clock gate
+  lseq: Sequencer[steps: [0.583, 0.75, 0.583, 1.0, 0.75, 0.583], sample_rate: 48000.0, block: 256]
+    ~{index: lseq_idx, clk_z: lseq_cz, rst_z: lseq_rz, clock: beat}
+    ->{index: lseq_idx, clk_z: lseq_cz, rst_z: lseq_rz, cv: lead_pitch} |
+  wt: Wavetable[freq: 220.0, sample_rate: 48000.0, block: 256, fm_depth: 1.0, pos: 1.0, pos_depth: 1.5]
+    ~{phase: wt_phase, fm_exp: lead_pitch, pos_cv: cwander} ->{phase: wt_phase, out: lead_tone} |
+  lpg: Lpg[sample_rate: 48000.0, block: 256, rise: 0.002, fall: 0.18]
+    ~{input: lead_tone, ping: bgate, vactrol: lpg_vac, z: lpg_z} ->{vactrol: lpg_vac, z: lpg_z, out: lead} |
+
+  # MIX the two voices, ECHO, and play
+  mixer: Mix[l1: 0.8, l2: 0.6, block: 256] ~{in1: bass, in2: lead} ->{out: mixed} |
+  delay: Delay[time: 0.19, feedback: 0.35, mix: 0.3, max: 1.0, sample_rate: 48000.0, block: 256]
+    ~{input: mixed} ->{out: out} |
+  speaker: AudioOut[sample_rate: 48000.0, block: 256] ~{input: out} ->{out: played}
+)

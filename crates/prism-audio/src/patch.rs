@@ -18,9 +18,12 @@ use prism_bigraph::factory::ProcessRegistry;
 use prism_bigraph::process::ProcessNode;
 use prism_bigraph::{Core, Engine, Schema, Value};
 
+use crate::audioin::AudioIn;
 use crate::audioout::AudioOut;
 use crate::chaos::Chaos;
 use crate::clock::Clock;
+use crate::clockdiv::ClockDiv;
+use crate::comb::Comb;
 use crate::compare::Compare;
 use crate::counter::Counter;
 use crate::delay::Delay;
@@ -30,18 +33,22 @@ use crate::fold::Fold;
 use crate::ladder::Ladder;
 use crate::lowpass::LowPass;
 use crate::lpg::Lpg;
+use crate::matrix::Matrix;
 use crate::mix::Mix;
 use crate::noise::Noise;
 use crate::oscillator::Oscillator;
+use crate::pan::Pan;
 use crate::quantizer::Quantizer;
 use crate::render::render;
 use crate::ringmod::RingMod;
 use crate::samplehold::SampleHold;
 use crate::sequencer::Sequencer;
+use crate::shaper::Shaper;
 use crate::signal::signal_registry;
 use crate::slope::Slope;
 use crate::svf::Svf;
 use crate::vca::Vca;
+use crate::wavetable::Wavetable;
 
 /// Register the standard audio modules as config-driven process factories, so a
 /// patch value's `{address: "local:Oscillator", config: …}` nodes can be
@@ -101,6 +108,23 @@ pub fn register_audio(reg: &mut ProcessRegistry) {
     });
     reg.register("Delay", |c| {
         ProcessNode::Process(Box::new(Delay::from_config(&c)))
+    });
+    reg.register("Comb", |c| ProcessNode::Process(Box::new(Comb::from_config(&c))));
+    reg.register("Wavetable", |c| {
+        ProcessNode::Process(Box::new(Wavetable::from_config(&c)))
+    });
+    reg.register("Shaper", |c| {
+        ProcessNode::Process(Box::new(Shaper::from_config(&c)))
+    });
+    reg.register("Matrix", |c| {
+        ProcessNode::Process(Box::new(Matrix::from_config(&c)))
+    });
+    reg.register("Pan", |c| ProcessNode::Process(Box::new(Pan::from_config(&c))));
+    reg.register("ClockDiv", |c| {
+        ProcessNode::Process(Box::new(ClockDiv::from_config(&c)))
+    });
+    reg.register("AudioIn", |c| {
+        ProcessNode::Process(Box::new(AudioIn::from_config(&c)))
     });
     reg.register("AudioOut", |c| {
         ProcessNode::Process(Box::new(AudioOut::from_config(&c)))
