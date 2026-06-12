@@ -509,6 +509,7 @@ fn def_kind(d: &Def) -> &'static str {
         Def::Contract(_) => "contract",
         Def::Reaction(_) => "reaction",
         Def::Pattern(_) => "pattern",
+        Def::Functor(_) => "functor",
         Def::Unit(_) => "unit",
         Def::Context(_) => "context",
         Def::Function(_) => "function",

@@ -34,6 +34,14 @@ pub fn unparse(program: &Program) -> String {
 
 fn unparse_def(def: &Def) -> String {
     match def {
+        Def::Functor(f) => {
+            let mut s = format!("functor {} :: {} -> {} (\n", f.name, f.source, f.target);
+            for (generator, construction) in &f.mappings {
+                s.push_str(&format!("  {} => {},\n", generator, unparse_expr(construction)));
+            }
+            s.push(')');
+            s
+        }
         Def::Type(t) => {
             let mut s = format!("type {} = {}", t.name, unparse_type_repr(&t.representation));
             if !t.methods.is_empty() {

@@ -10,10 +10,11 @@
 # The VCO's `saw` feeds the state-variable filter; the filter's `lp` is the output. This
 # is the joranalogue/Serge ethos: rich modulation inputs on every module, all speaking
 # the same Signal, cross-patched freely.
-from audio import Oscillator, Svf
+from audio import Oscillator, Svf, AudioOut
 
 composite CrossMod ~{} ->{ out :: Signal @ out } (
   out: [0.0] |
+  played: [0.0] |
   lfo: [0.0] |
   vco: [0.0] |
   lfo_phase: 0.0 |
@@ -31,5 +32,9 @@ composite CrossMod ~{} ->{ out :: Signal @ out } (
 
   # the filter — resonant low-pass, cutoff swept by the SAME LFO (cutoff_depth in octaves)
   filt: Svf[cutoff: 800.0, resonance: 0.6, sample_rate: 48000.0, block: 256, cutoff_depth: 2.0]
-    ~{input: vco, ic1: ic1, ic2: ic2, cutoff_cv: lfo} ->{ic1: ic1, ic2: ic2, lp: out}
+    ~{input: vco, ic1: ic1, ic2: ic2, cutoff_cv: lfo} ->{ic1: ic1, ic2: ic2, lp: out} |
+
+  # the device as a SINK IN THE GRAPH — taps the `out` bus, drives the
+  # device, and its back-pressure paces the engine (no --play flag).
+  speaker: AudioOut[sample_rate: 48000.0, block: 256] ~{input: out} ->{out: played}
 )

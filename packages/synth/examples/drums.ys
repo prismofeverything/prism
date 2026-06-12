@@ -8,10 +8,11 @@
 # kick = a sine boop (osc `am` ← a fast envelope); hat = Noise gated by a fast envelope
 # via RingMod (a × b — ring mod as a VCA). Both sum into one `out` bus (the additive
 # Signal reconcile IS the mixer).
-from audio import Oscillator, Slope, Counter, Noise, RingMod
+from audio import Oscillator, Slope, Counter, Noise, RingMod, AudioOut
 
 composite Drums ~{} ->{ out :: Signal @ out } (
   out: [0.0] |
+  played: [0.0] |
   clock: [0.0] |
   b0: [0.0] |
   b1: [0.0] |
@@ -48,5 +49,9 @@ composite Drums ~{} ->{ out :: Signal @ out } (
     ->{level: he_level, rising: he_rising, trig_z: he_tz, out: hat_env} |
   noise_gen: Noise[block: 256, amplitude: 0.35]
     ~{seed: noise_seed} ->{seed: noise_seed, out: noise} |
-  hat: RingMod[block: 256] ~{a: noise, b: hat_env} ->{out: out}
+  hat: RingMod[block: 256] ~{a: noise, b: hat_env} ->{out: out} |
+
+  # the device as a SINK IN THE GRAPH — taps the `out` bus, drives the
+  # device, and its back-pressure paces the engine (no --play flag).
+  speaker: AudioOut[sample_rate: 48000.0, block: 256] ~{input: out} ->{out: played}
 )

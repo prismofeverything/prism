@@ -41,10 +41,17 @@ the `protocol`/codec layer, the `.ys` `mesh:` surface, the CRDT `mesh_safety` op
       (`prism-viz` deps `prism-bigraph` → can't call it → a `Fn(&Value,f64)->String` seam;
       ship `default_render` = place-graph-as-nested-HTML, schema-only). Tests: `web.rs` unit
       2/2 + `chrysalis/tests/web_serve.rs` (bump.ys → serve → step → state changed) 1/1.
-      **NEXT (Slice 0b+):** (a) SSE push (rung 2, replace the implicit poll); (b) the `fire(rule,
-      at)` intent (Slice 2); (c) pair **viz/spatial** on the rich render functor (link graph +
-      SVG, the ONE `Render` over markup/SVG/3D — injected); (d) the declared `web:` face
-      (wired-in-is-live) + tetrahedron as a `.ys` package (pkg). [[mesh_as_protocol]]
+      **RENDER FUNCTOR LANDED (2026-06-12)** on core's `prism_schema::functor::apply_functor`
+      (functorial-by-construction): `prism-viz/src/render.rs` — `StructuralRender impl Functor`
+      (node → nested SVG box, leaf → inline `key = value`) + `render_bigraph(state, time) → SVG`,
+      INJECTED into `serve_web` by chrysalis (promoted prism-viz dev-dep → dep). The place graph
+      as Milner's nested regions. Tests: render.rs 2/2 + web_serve now asserts the SVG path.
+      **NEXT (Slice 0b+):** (a) `fire(rule, at)` intent — core is building `Engine::fire`; I sent
+      the shape (`{kind:fire, rule, at}` → `Engine::fire(&mut self, rule, at) -> Result<bool,String>`);
+      wire it the moment it lands (Slice 2); (b) SSE push (rung 2); (c) `enabled(at)` enumeration
+      so the browser OFFERS clickable redexes; (d) the link graph in the render (viz/spatial to
+      grow — `resolve_link` → edges); (e) the declared `web:` face + tetrahedron `.ys` package.
+      [[mesh_as_protocol]]
 - [ ] **pkg P4b — wire `RemoteRegistry` (pkg's, in chrysalis) onto the transport.** The
       transport is SHIPPED + green (see Done); pkg calls `registry::{versions,fetch,publish,
       checksum}` + hosts `RegistryServer`. Recommended split posted to `to_pkg`: `fetch`

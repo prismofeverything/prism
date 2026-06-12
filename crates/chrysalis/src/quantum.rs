@@ -347,6 +347,47 @@ fn key_matches(key: &str, pattern: &str) -> bool {
             .all(|(k, p)| p == '*' || k == p)
 }
 
+/// Projective measurement of a single qubit WITH collapse (Q5 / the measurement
+/// the protocols need). Born-rule samples qubit `q`, PROJECTS the register onto
+/// the outcome, RENORMALIZES, and returns `{outcome: '0'|'1', state: <collapsed
+/// Qubits>, prob}`. Unlike `measure` (which only samples a classical outcome and
+/// leaves the register untouched), this returns the post-measurement STATE — so a
+/// measured qubit's entangled partners collapse too, and `.state` chains.
+fn observe(state: &Value, q: usize, seed: &Value) -> Result<Value, MethodError> {
+    let prob_of = |bit_c: char| -> f64 {
+        amps(state)
+            .iter()
+            .filter(|(k, _)| bit(k, q) == Some(bit_c))
+            .map(|(_, a)| complex::abs2(a))
+            .sum()
+    };
+    let (p0, p1) = (prob_of('0'), prob_of('1'));
+    // Sample the outcome through the same Born-rule primitive `measure` uses.
+    let mut dist: IndexMap<Key, Value> = IndexMap::new();
+    dist.insert(Key::from("0"), Value::float(p0));
+    dist.insert(Key::from("1"), Value::float(p1));
+    let outcome = crate::prelude::sample(&Value::Map(dist), seed)?;
+    let outcome_char = outcome.as_str().and_then(|s| s.chars().next()).unwrap_or('0');
+    let p = if outcome_char == '1' { p1 } else { p0 };
+    let norm = p.sqrt();
+    // Project onto the measured outcome and renormalize by 1/√p.
+    let collapsed = if norm > 1e-12 {
+        build(
+            amps(state)
+                .into_iter()
+                .filter(|(k, _)| bit(k, q) == Some(outcome_char))
+                .map(|(k, a)| (k, complex::scale(&a, 1.0 / norm))),
+        )
+    } else {
+        stamp(state)
+    };
+    let mut out: IndexMap<Key, Value> = IndexMap::new();
+    out.insert(Key::from("outcome"), outcome);
+    out.insert(Key::from("state"), collapsed);
+    out.insert(Key::from("prob"), Value::float(p));
+    Ok(Value::Map(out))
+}
+
 // ── Method registrations ─────────────────────────────────────────────────
 
 /// Register a single-qubit gate as `state.<name>(q)` — `apply_1q` with the gate's
@@ -482,6 +523,16 @@ pub fn register_quantum_methods(m: &mut MethodRegistry) {
             dist.insert(Key::from(k.as_str()), Value::float(complex::abs2(&a)));
         }
         crate::prelude::sample(&Value::Map(dist), seed)
+    });
+    // observe(qubit, seed) — projective single-qubit measurement WITH collapse;
+    // returns `{outcome, state, prob}` (the post-measurement register chains via
+    // `.state`). This is the measurement entangled protocols need.
+    m.register(TYPE_NAME, "observe", |recv, args| -> MethodResult {
+        let q = qubit_index(args, 0, "observe")?;
+        let seed = args
+            .get(1)
+            .ok_or_else(|| bad("observe", "expected observe(qubit, seed)"))?;
+        observe(recv, q, seed)
     });
 }
 
@@ -737,5 +788,38 @@ mod tests {
         assert_eq!(amp(&swap_gate(&ket("10"), 0, 1), "01"), (1.0, 0.0));
         assert_eq!(amp(&swap_gate(&ket("01"), 0, 1), "10"), (1.0, 0.0));
         assert_eq!(amp(&swap_gate(&ket("11"), 0, 1), "11"), (1.0, 0.0));
+    }
+
+    #[test]
+    fn observe_collapses_and_renormalizes() {
+        // Measuring q0 of |+⟩ collapses it to ONE basis state, renormalized.
+        let plus = apply_1q(&ket("0"), 0, &m_h());
+        let m = observe(&plus, 0, &Value::Int(7)).unwrap();
+        let collapsed = m.get_field("state").unwrap();
+        let nonzero = amps(collapsed).iter().filter(|(_, a)| complex::abs2(a) > 1e-12).count();
+        assert_eq!(nonzero, 1, "measurement collapses to one basis state");
+        let total: f64 = amps(collapsed).iter().map(|(_, a)| complex::abs2(a)).sum();
+        assert!((total - 1.0).abs() < 1e-12, "post-measurement state is renormalized");
+
+        // Measuring q0 of a Bell pair collapses q1 to MATCH: ⟨Z⊗Z⟩ = +1.
+        let bell = cnot(&apply_1q(&ket("00"), 0, &m_h()), 0, 1);
+        let bm = observe(&bell, 0, &Value::Int(7)).unwrap();
+        assert!((correlation(bm.get_field("state").unwrap()) - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn complex_qubits_survive_the_stream_codec() {
+        // The Qubits stream codec is serialize/realize (identity + re-tag). A
+        // COMPLEX amplitude [re, im] must cross a serve-process boundary unchanged
+        // — the basis for streaming tensor/factor over genuinely complex states.
+        let m = QubitsTypeMethods;
+        let reg = TypeRegistry::new();
+        let schema = Schema::Map { value: Box::new(Schema::float()) };
+        let state = build([("0".to_string(), complex::one()), ("1".to_string(), complex::i())]);
+        let wire = m.serialize(&reg, &schema, &state);
+        let back = m.realize(&reg, &schema, &wire);
+        assert_eq!(complex::parts(back.as_map().unwrap().get("1").unwrap()), (0.0, 1.0));
+        // Re-tagged as Qubits so methods dispatch again after crossing.
+        assert_eq!(back.get_field("_type").and_then(|v| v.as_str()), Some("Qubits"));
     }
 }

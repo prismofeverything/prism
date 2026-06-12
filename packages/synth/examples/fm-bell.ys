@@ -9,10 +9,11 @@
 # An inharmonic carrier:modulator ratio (220 : 280) gives the metallic, bell-like
 # spectrum; a harmonic ratio (e.g. 220 : 440) would sound like an electric piano. The
 # modulator's `sine` drives the carrier's `pm` input (CV ≡ audio — audio-rate phase mod).
-from audio import Oscillator, Slope
+from audio import Oscillator, Slope, AudioOut
 
 composite FmBell ~{} ->{ out :: Signal @ out } (
   out: [0.0] |
+  played: [0.0] |
   clock: [0.0] |
   env: [0.0] |
   modsig: [0.0] |
@@ -38,5 +39,9 @@ composite FmBell ~{} ->{ out :: Signal @ out } (
   # the CARRIER — 220 Hz, phase-modulated by the modulator (pm_depth = FM index scale),
   # level shaped by the same envelope
   car_osc: Oscillator[wave: 'Sine', freq: 220.0, amplitude: 0.0, sample_rate: 48000.0, block: 256, pm_depth: 5.0, am_depth: 0.5]
-    ~{phase: car_phase, pm: modsig, am: env} ->{phase: car_phase, sine: out}
+    ~{phase: car_phase, pm: modsig, am: env} ->{phase: car_phase, sine: out} |
+
+  # the device as a SINK IN THE GRAPH — taps the `out` bus, drives the
+  # device, and its back-pressure paces the engine (no --play flag).
+  speaker: AudioOut[sample_rate: 48000.0, block: 256] ~{input: out} ->{out: played}
 )

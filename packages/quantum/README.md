@@ -71,6 +71,8 @@ The bigraph reading of each — and the physics — is in
 | `quantum-grover.ys` | **Grover's search**: find the marked item with certainty (1 iteration) |
 | `quantum-qft.ys` | the **Quantum Fourier Transform** — genuinely complex amplitudes |
 | `quantum-superdense.ys` | **superdense coding**: 2 classical bits via 1 transmitted qubit |
+| `quantum-measure.ys` | **measurement with collapse** (`observe`): measuring one qubit collapses its entangled partner |
+| `quantum-phase-estimation.ys` | **quantum phase estimation** (core of Shor): reads an eigenphase via controlled-U + inverse-QFT + measurement |
 | `quantum-bell-measure.ys` | a Bell state (from gates) measured 4× — always `00`/`11` (perfect correlation) |
 | `quantum-interference.ys` | single-qubit interference through a handler (algebraic effects) |
 | `quantum-engine.ys` / `quantum-engine-measure.ys` | gates as engine PROCESSES, wired in a place graph (+ a `Measure` step) |

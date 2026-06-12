@@ -419,6 +419,10 @@ pub fn compile_with_core(
             // and instantiate through the generic `Composite` factory
             // (registered below) via `Composite::from_config`.
             Def::Composite(_) => {}
+            // A `functor` is a first-class VALUE / declaration (categorical-core §4), not
+            // a runtime process — no per-name factory. Its application (the lift) is a
+            // later slice (lang ⋈ core).
+            Def::Functor(_) => {}
             Def::Process(process_def) => {
                 register_process_factory(
                     &mut registry,

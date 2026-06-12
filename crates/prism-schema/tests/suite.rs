@@ -28,6 +28,8 @@ mod fire_across_composites;
 mod fire_keying;
 #[path = "fold_unfurl.rs"]
 mod fold_unfurl;
+#[path = "functor_laws.rs"]
+mod functor_laws;
 #[path = "reaction_data.rs"]
 mod reaction_data;
 #[path = "tensor_by_schema.rs"]

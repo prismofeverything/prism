@@ -8,10 +8,11 @@
 # jobs at once (CV ≡ audio): it sets the voice level (the osc `am` input — no VCA) AND
 # it drives a WAVEFOLDER (`fold_cv`), so every note's timbre blooms bright on the attack
 # and folds back as it decays — the West-Coast move. A resonant filter finishes it.
-from audio import Oscillator, Slope, Sequencer, Fold, Svf
+from audio import Oscillator, Slope, Sequencer, Fold, Svf, AudioOut
 
 composite Sequence ~{} ->{ out :: Signal @ out } (
   out: [0.0] |
+  played: [0.0] |
   clock: [0.0] |
   pitch: [0.0] |
   env: [0.0] |
@@ -48,5 +49,9 @@ composite Sequence ~{} ->{ out :: Signal @ out } (
 
   # resonant low-pass on the output
   filt: Svf[cutoff: 2500.0, resonance: 0.3, sample_rate: 48000.0, block: 256]
-    ~{input: shaped, ic1: ic1, ic2: ic2} ->{ic1: ic1, ic2: ic2, lp: out}
+    ~{input: shaped, ic1: ic1, ic2: ic2} ->{ic1: ic1, ic2: ic2, lp: out} |
+
+  # the device as a SINK IN THE GRAPH — taps the `out` bus, drives the
+  # device, and its back-pressure paces the engine (no --play flag).
+  speaker: AudioOut[sample_rate: 48000.0, block: 256] ~{input: out} ->{out: played}
 )

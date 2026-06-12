@@ -81,12 +81,35 @@ pub fn serve_web_default(engine: Engine, addr: impl std::net::ToSocketAddrs) -> 
 
 fn serve_web_arc(engine: Engine, render: Render, addr: impl std::net::ToSocketAddrs) -> std::io::Result<WebServer> {
     let engine: SharedEngine = Arc::new(Mutex::new(engine));
-    let handler = {
-        let engine = Arc::clone(&engine);
-        move |req: &http::Request| route(req, &engine, &render)
+    let handler = WebHandler {
+        engine: Arc::clone(&engine),
+        render,
     };
     let server = HttpServer::start(addr, handler)?;
     Ok(WebServer { server, engine })
+}
+
+/// The web boundary's handler — a struct (not a bare closure) so it can override
+/// [`http::Handler::content_type`]: the shell is `text/html` and the rendered state
+/// is `image/svg+xml`, so a browser renders them instead of trying to parse JSON.
+struct WebHandler {
+    engine: SharedEngine,
+    render: Render,
+}
+
+impl http::Handler for WebHandler {
+    fn handle(&self, req: &http::Request) -> (&'static str, String) {
+        route(req, &self.engine, &self.render)
+    }
+
+    /// Everything the web boundary serves is `text/html`: the shell is HTML, and the
+    /// rendered state is HTML (the `default_render`) OR a standalone `<svg>` — which a
+    /// browser also renders inline within text/html, and which the shell `innerHTML`s
+    /// regardless. One type covers both renders; the key fix is that it is NOT
+    /// `application/json` (which made the browser try to JSON-parse the page).
+    fn content_type(&self, _path: &str) -> &'static str {
+        "text/html; charset=utf-8"
+    }
 }
 
 /// The web handler: serve the shell, render the state, apply an intent. The HTTP
@@ -278,15 +301,20 @@ mod tests {
     }
 
     #[test]
-    fn shell_is_served_and_state_renders() {
+    fn shell_is_html_not_json_and_state_renders() {
         let (schema, state) = counter_state();
         let engine = Engine::from_state(schema, state, Core::new()).unwrap();
         let server = serve_web_default(engine, "127.0.0.1:0").unwrap();
         let base = server.base_url();
 
-        let shell = ureq::get(&base).call().unwrap().into_string().unwrap();
-        assert!(shell.contains("bigraph viewer"));
-        let state = ureq::get(&format!("{base}/state")).call().unwrap().into_string().unwrap();
-        assert!(state.contains("count"));
+        // The shell MUST be text/html — NOT application/json (else the browser tries to
+        // JSON-parse the page: "JSON.parse: unexpected character at line 1 column 1").
+        let resp = ureq::get(&base).call().unwrap();
+        assert_eq!(resp.content_type(), "text/html");
+        assert!(resp.into_string().unwrap().contains("bigraph viewer"));
+
+        let sresp = ureq::get(&format!("{base}/state")).call().unwrap();
+        assert_eq!(sresp.content_type(), "text/html");
+        assert!(sresp.into_string().unwrap().contains("count"));
     }
 }

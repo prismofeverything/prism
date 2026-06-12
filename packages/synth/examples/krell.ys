@@ -9,10 +9,11 @@
 # next note's pitch (the VCO `fm_exp`) AND the Slope's own `time_cv` — so every cycle has
 # a fresh, random duration and pitch. Self-patching is first-class here: an output feeds
 # its own module's input. Endlessly evolving generative music from four modules.
-from audio import Oscillator, Slope, SampleHold, Noise, Svf
+from audio import Oscillator, Slope, SampleHold, Noise, Svf, AudioOut
 
 composite Krell ~{} ->{ out :: Signal @ out } (
   out: [0.0] |
+  played: [0.0] |
   eoc: [0.0] |
   rnd: [0.0] |
   noise: [0.0] |
@@ -42,5 +43,9 @@ composite Krell ~{} ->{ out :: Signal @ out } (
     ~{phase: vco_phase, fm_exp: rnd, am: env} ->{phase: vco_phase, sine: tone} |
 
   filt: Svf[cutoff: 2200.0, resonance: 0.5, sample_rate: 48000.0, block: 256]
-    ~{input: tone, ic1: ic1, ic2: ic2} ->{ic1: ic1, ic2: ic2, lp: out}
+    ~{input: tone, ic1: ic1, ic2: ic2} ->{ic1: ic1, ic2: ic2, lp: out} |
+
+  # the device as a SINK IN THE GRAPH — taps the `out` bus, drives the
+  # device, and its back-pressure paces the engine (no --play flag).
+  speaker: AudioOut[sample_rate: 48000.0, block: 256] ~{input: out} ->{out: played}
 )

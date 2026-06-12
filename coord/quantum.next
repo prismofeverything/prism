@@ -50,8 +50,19 @@ abstraction; e.g. Bell = `H ; CNOT` built from library gates, not a hand-rolled 
   (#11). See **Done**.
 - [DONE 2026-06-12] (P) **full `.ys` parity (#13)** — demos re-expressed on the gate layer; the
   Q5-blocked protocols (teleportation/locc) flagged. See **Done**.
-- [NEXT, in order] **Explorations DONE** (CHSH, Deutsch–Jozsa, Grover, QFT, superdense; BB84 =
-  optional tail — random bases + sifting). The substrate-deepening fronts now: (d)
+- [NEXT — DISTRIBUTED quantum, all 3 picked by the human]
+  **#1 streaming tensor/factor: LARGELY EXISTS** — `quantum-lifecycle-stream.ys` factorizes a
+  joint into two `serve-process` stream children (split) + tensors them back (merge), the
+  divide↔tensor duality distributed; complex amplitudes survive the stream codec
+  (`complex_qubits_survive_the_stream_codec`, verified). Remaining: an optional clean
+  *complex* streaming demo.
+  **#2 classical channel over a `mesh:` link** — the natural next BUILD: reuse mesh M1; LOCC /
+  teleportation's classical bit crosses a `mesh:` link between Alice/Bob composites (only classical
+  String crosses; quantum stays local). grand-synthesis M2. Coordinate with `mesh`.
+  **#3 typed QUANTUM LINK** (#36 §VIII) — entanglement across a composite boundary: a core/mesh
+  SUBSTRATE feature (link types: quantum vs classical), the deep enabler of true distributed
+  teleportation/entanglement. Multi-session; pair `core` + `mesh`.
+  Plus the older fronts: (d)
   **measure-with-collapse + factorize-driven `_divide` (Q5)** — also UNBLOCKS a clean
   teleportation/locc re-expression (the parity tail). (e) **mesh-mode** (LOCC wire -> a `mesh:`
   link; teleportation across machines, M2).
@@ -77,6 +88,16 @@ abstraction; e.g. Bell = `H ; CNOT` built from library gates, not a hand-rolled 
   scope stays joint per physics) — M3; not yet demoed.
 
 ## Done
+- **Q5 measurement-with-collapse + clean re-expressions + phase estimation.** 2026-06-12.
+  `observe(qubit, seed)` — projective single-qubit measurement that COLLAPSES + renormalizes,
+  returning `{outcome, state, prob}` (`quantum.rs`; `quantum-measure.ys` shows a Bell partner
+  collapsing). With it, the Q5-blocked protocols re-expressed CLEAN (gate methods + observe, no
+  hand-rolled amplitudes): **teleportation** (`quantum-teleportation.ys` — fidelity 1.0, Bob
+  reconstructs |ψ> via observe-collapse + conditional Z/X; test now fidelity-based) and **LOCC**
+  (`quantum-locc.ys` — `alice_bit == bob_bit`, eval-time). Plus **phase estimation**
+  (`quantum-phase-estimation.ys` — 2-qubit QPE of U=S reads φ=1/4 as '01' exactly; the
+  measurement-extracts-a-phase core of Shor). 14 quantum lib + 38 suite green. (Build broke
+  mid-turn on lang's in-flight `Def::Functor` — flagged; lang fixed it; recovered.)
 - **Superdense coding (#12) — the explorations capstone.** 2026-06-12. Send 2 classical bits with
   ONE transmitted qubit: Alice Pauli-encodes (00→I, 01→X, 10→Z, 11→XZ) onto her half of a
   pre-shared Bell pair; Bob Bell-measures `[cnot, h]` and recovers both bits with P=1.

@@ -292,7 +292,7 @@ composite WritesSynths ~{} ->{ out :: Signal } (
     }
 
     // A CONTINUOUS `.ys` engine — one tick = one audio block — built via the same
-    // `build_engine` seam `run_ys_realtime` (the device sink) uses. The oscillator is
+    // `build_engine` seam the device sink path uses. The oscillator is
     // a live composite child writing the `out` Signal each tick (vs PATCH_YS's one-shot
     // `instantiate`). Device-free proof of the `.ys` → audible path: tick it a few
     // blocks, each a fresh 220 Hz block with the phase carried across ticks.

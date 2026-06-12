@@ -7,10 +7,11 @@
 # clock -> sequencer (bass pattern) -> VCO pitch; the same clock triggers an envelope
 # that does double duty (CV ≡ audio): it sweeps the filter `cutoff_cv` (the acid squelch,
 # with resonance 0.85) AND sets the voice level (the osc `am`).
-from audio import Oscillator, Slope, Sequencer, Svf
+from audio import Oscillator, Slope, Sequencer, Svf, AudioOut
 
 composite Acid ~{} ->{ out :: Signal @ out } (
   out: [0.0] |
+  played: [0.0] |
   clock: [0.0] |
   pitch: [0.0] |
   env: [0.0] |
@@ -39,5 +40,9 @@ composite Acid ~{} ->{ out :: Signal @ out } (
 
   # the acid: high resonance + the envelope sweeping the cutoff ~3.5 octaves
   filt: Svf[cutoff: 180.0, resonance: 0.85, sample_rate: 48000.0, block: 256, cutoff_depth: 3.5]
-    ~{input: tone, ic1: ic1, ic2: ic2, cutoff_cv: env} ->{ic1: ic1, ic2: ic2, lp: out}
+    ~{input: tone, ic1: ic1, ic2: ic2, cutoff_cv: env} ->{ic1: ic1, ic2: ic2, lp: out} |
+
+  # the device as a SINK IN THE GRAPH — taps the `out` bus, drives the
+  # device, and its back-pressure paces the engine (no --play flag).
+  speaker: AudioOut[sample_rate: 48000.0, block: 256] ~{input: out} ->{out: played}
 )

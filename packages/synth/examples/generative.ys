@@ -12,10 +12,11 @@
 #     its `am` is the envelope (so it needs no VCA — the osc modulates its own level);
 #   * a resonant Svf colours it.
 # Every wire is the same Signal — CV ≡ audio, everything modulating everything.
-from audio import Oscillator, Slope, SampleHold, Svf
+from audio import Oscillator, Slope, SampleHold, Svf, AudioOut
 
 composite Generative ~{} ->{ out :: Signal @ out } (
   out: [0.0] |
+  played: [0.0] |
   clock: [0.0] |
   wander: [0.0] |
   pitch: [0.0] |
@@ -54,5 +55,9 @@ composite Generative ~{} ->{ out :: Signal @ out } (
 
   # a resonant low-pass on the output
   filt: Svf[cutoff: 2000.0, resonance: 0.4, sample_rate: 48000.0, block: 256]
-    ~{input: tone, ic1: ic1, ic2: ic2} ->{ic1: ic1, ic2: ic2, lp: out}
+    ~{input: tone, ic1: ic1, ic2: ic2} ->{ic1: ic1, ic2: ic2, lp: out} |
+
+  # the device as a SINK IN THE GRAPH — taps the `out` bus, drives the
+  # device, and its back-pressure paces the engine (no --play flag).
+  speaker: AudioOut[sample_rate: 48000.0, block: 256] ~{input: out} ->{out: played}
 )

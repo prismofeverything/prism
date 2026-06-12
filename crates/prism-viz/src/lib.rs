@@ -18,8 +18,10 @@ pub mod mol_svg;
 pub mod pattern;
 pub mod pattern_dot;
 pub mod plot;
+pub mod render;
 pub mod svg;
 
+pub use render::{render_bigraph, StructuralRender};
 pub use dot::{
     render_dot, render_state_dot, render_state_dot_with_links, render_to_file,
     save_dot, DotOptions, LinkEdge,

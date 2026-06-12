@@ -981,6 +981,13 @@ impl Parser {
             Tok::Ident(s) if s == "protocol" && matches!(self.peek2(), Tok::Ident(_)) => {
                 self.parse_protocol_def()
             }
+            // `functor Name :: Source -> Target ( Gen => construction, … )` — a
+            // first-class structure-preserving map (categorical-core §4). `functor` is
+            // CONTEXTUAL (a `{functor: …}` field / `def functor` stay ordinary): a def
+            // only when immediately followed by the functor name (an ident).
+            Tok::Ident(s) if s == "functor" && matches!(self.peek2(), Tok::Ident(_)) => {
+                self.parse_functor_def()
+            }
             // `name = expr` binding (e.g. `growth = 0.02`), OR a trailing bare
             // expression — the file's root VALUE, which becomes the implicit
             // `main` (so `Environment[…]` on the last line needs no `main =`).
@@ -2215,6 +2222,38 @@ impl Parser {
         }
         let body = self.parse_body()?;
         Ok(Def::Pattern(crate::ast::PatternDef { name, params, body }))
+    }
+
+    /// `functor Name :: Source -> Target ( Gen => construction, … )` — a first-class
+    /// functor (categorical-core §4). `functor` was matched contextually by the caller; we
+    /// read the name, the `:: Source -> Target` signature, then the `Gen => construction`
+    /// body. Each construction is an ordinary expr — its free names bind to the matched
+    /// generator's fields at apply time (like a reactum), which is why `=>` is the arrow.
+    fn parse_functor_def(&mut self) -> Result<Def, ParseError> {
+        self.bump(); // consume the contextual `functor` ident
+        let name = self.ident()?;
+        self.expect(&Tok::ColonColon)?;
+        let source = self.ident()?;
+        self.expect(&Tok::Arrow)?;
+        let target = self.ident()?;
+        self.expect(&Tok::LParen)?;
+        let mut mappings = Vec::new();
+        while !self.check(&Tok::RParen) {
+            let generator = self.ident()?;
+            self.expect(&Tok::FatArrow)?;
+            let construction = self.parse_expr()?;
+            mappings.push((generator, construction));
+            if !self.accept(&Tok::Comma) {
+                break;
+            }
+        }
+        self.expect(&Tok::RParen)?;
+        Ok(Def::Functor(crate::ast::FunctorDef {
+            name,
+            source,
+            target,
+            mappings,
+        }))
     }
 
     /// A body `( item ("|" item)* )`. An item is a keyed entry (`name: expr`),

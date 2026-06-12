@@ -51,14 +51,9 @@ required-features = ["realtime"]
 name = "play_writes_synths"
 required-features = ["realtime"]
 
-# Hear a `.ys` PATCH — compile a package's continuous audio engine and drive it to
-# the device (the `.ys` → audible seam). Needs the language facet too.
-[[example]]
-name = "play_ys"
-required-features = ["realtime", "ys"]
-
 # Hear the AudioOut SINK — the device wired INTO the graph (no --play): build the
-# engine, just engine.run(), and the in-graph AudioOut drives + paces it.
+# engine, just engine.run(), and the in-graph AudioOut drives + paces it. (This is what
+# `chrysalis run patch.ys` does; kept as a minimal codegen-free dev runner.)
 [[example]]
 name = "play_audioout"
 required-features = ["realtime", "ys"]

@@ -2,19 +2,18 @@
 
 Rich, runnable patches built from the synth module library
 ([`docs/synth-module-library.md`](../../../docs/synth-module-library.md)). Each is a
-continuously-ticking engine that outputs audio on its `out` bus.
+continuously-ticking engine that outputs audio on its `out` bus — and each has an
+**`AudioOut` sink wired in**, so it **plays straight from the CLI**:
 
-**Render** (prints the output `Signal` as JSON):
 ```sh
 chrysalis run packages/synth/examples/<name>.ys --time 4
 ```
 
-**Hear it** — today via the Rust runner (all output to `out`):
-```sh
-cargo run -p prism-audio --features realtime,ys --example play_ys -- packages/synth/examples/<name>.ys out
-```
-…and, once the `--play` sink lands (synth ⋈ pkg ⋈ lang), straight from the CLI:
-`chrysalis run packages/synth/examples/<name>.ys --play`.
+No `--play` flag — *the sink is in the graph* (`docs/web-bigraphs.md` §9): `AudioOut` taps
+the `out` bus, drives the device, and its back-pressure paces the engine, so `--time T`
+plays **T real seconds**. (On a machine with no audio device, `AudioOut` is a silent
+passthrough and the same command just renders the `out` Signal as JSON — render and play
+are one patch, one command.)
 
 | example | what it shows | modules |
 |---|---|---|

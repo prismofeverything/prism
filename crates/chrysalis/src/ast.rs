@@ -450,6 +450,9 @@ pub enum Def {
     Composite(CompositeDef),
     Reaction(ReactionDef),
     Pattern(PatternDef),
+    /// `functor Name :: Source -> Target ( Gen => construction, … )` — a first-class
+    /// structure-preserving map (categorical-core §4). See [`FunctorDef`].
+    Functor(FunctorDef),
     /// `unit name : [dim] = definition` — a unit declaration.
     Unit(UnitDef),
     /// `context Name(params) (...)` — cross-dimension conversion rules.
@@ -612,6 +615,27 @@ pub struct PatternDef {
     pub body: Expr,
 }
 
+/// `functor Name :: Source -> Target ( Gen => construction, … )` — a first-class
+/// **functor** (categorical-core §4): a structure-preserving map from the generators of
+/// the `source` theory/prop to **constructions** (morphisms) in the `target` prop, lifted
+/// by functoriality (preserving `|` parallel + nesting). The forcing consumer is **render**
+/// (target = the markup prop; `OrganismBoard :: Colony -> Svg`). Each `generator =>
+/// construction` is a per-generator rewrite — the construction may reference the
+/// generator's fields, bound per node at apply time (like a reactum references its redex),
+/// which is why `=>` echoes the reaction arrow.
+#[derive(Clone, Debug)]
+pub struct FunctorDef {
+    pub name: Name,
+    /// The source theory/prop whose generators are mapped (e.g. `Colony`).
+    pub source: Name,
+    /// The target prop the constructions live in (e.g. `Svg`).
+    pub target: Name,
+    /// `generator => construction` — each source generator (a control name) to a
+    /// construction expr in the target. A PARTIAL functor delegates uncovered generators
+    /// to the structural default (composition; a later slice).
+    pub mappings: Vec<(Name, Expr)>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Program {
     pub defs: Vec<Def>,
@@ -742,6 +766,7 @@ pub struct EntityView<'a> {
     pub composite: Option<&'a CompositeDef>,
     pub reaction: Option<&'a ReactionDef>,
     pub pattern: Option<&'a PatternDef>,
+    pub functor: Option<&'a FunctorDef>,
     pub type_def: Option<&'a TypeDef>,
     pub contract: Option<&'a ContractDef>,
     pub protocol: Option<&'a ProtocolDef>,
@@ -767,6 +792,7 @@ pub struct EntityDef {
     pub composite: Option<CompositeDef>,
     pub reaction: Option<ReactionDef>,
     pub pattern: Option<PatternDef>,
+    pub functor: Option<FunctorDef>,
     pub type_def: Option<TypeDef>,
     pub contract: Option<ContractDef>,
     pub protocol: Option<ProtocolDef>,
@@ -845,6 +871,7 @@ impl EntityDef {
             Def::Composite(d) => self.composite = Some(d.clone()),
             Def::Reaction(d) => self.reaction = Some(d.clone()),
             Def::Pattern(d) => self.pattern = Some(d.clone()),
+            Def::Functor(d) => self.functor = Some(d.clone()),
             Def::Type(d) => self.type_def = Some(d.clone()),
             Def::Contract(d) => self.contract = Some(d.clone()),
             Def::Protocol(d) => self.protocol = Some(d.clone()),
@@ -1194,6 +1221,7 @@ impl<'a> EntityView<'a> {
             composite: None,
             reaction: None,
             pattern: None,
+            functor: None,
             type_def: None,
             contract: None,
             protocol: None,
@@ -1216,6 +1244,7 @@ impl<'a> EntityView<'a> {
             Def::Composite(d) => self.composite = Some(d),
             Def::Reaction(d) => self.reaction = Some(d),
             Def::Pattern(d) => self.pattern = Some(d),
+            Def::Functor(d) => self.functor = Some(d),
             Def::Type(d) => self.type_def = Some(d),
             Def::Contract(d) => self.contract = Some(d),
             Def::Protocol(d) => self.protocol = Some(d),
@@ -1256,6 +1285,7 @@ pub fn def_name(def: &Def) -> &str {
         Def::Composite(d) => &d.name,
         Def::Reaction(d) => &d.name,
         Def::Pattern(d) => &d.name,
+        Def::Functor(d) => &d.name,
         Def::Unit(d) => &d.name,
         Def::Context(d) => &d.name,
         Def::Type(d) => &d.name,

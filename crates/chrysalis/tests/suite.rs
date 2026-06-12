@@ -68,6 +68,8 @@ mod file_entry;
 mod fixture_sync;
 #[path = "functions.rs"]
 mod functions;
+#[path = "functor_definer.rs"]
+mod functor_definer;
 #[path = "gillespie.rs"]
 mod gillespie;
 #[path = "graph_type.rs"]

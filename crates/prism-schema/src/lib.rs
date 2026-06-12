@@ -2,6 +2,7 @@ pub mod algebra;
 pub mod assembly;
 pub mod diff;
 pub mod fold;
+pub mod functor;
 pub mod merge;
 pub mod mesh;
 pub mod method;

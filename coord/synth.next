@@ -183,12 +183,18 @@ definer + the `Complex` sort THERE with `unify`; build the per-domain demos HERE
   offline (stub) + plays with realtime; no device = silent passthrough. **Send boundary solved**
   (Process is Send+Sync, cpal Stream is !Send): AudioOut holds the Send ring producer, a spawned
   audio thread owns the stream. Builds both configs; passthrough verified (unit test +
-  `examples/play-tone.ys` renders the 220 sine through AudioOut). **PAIRING core+lang:** core verifies
-  `engine.run` tolerates a blocking/pacing `update` (local run; likely ~0 change); lang makes the
-  codegen runner enable `prism-audio/realtime` when `sink:` is set (so AudioOut plays, not the stub) +
-  the run semantics (`--time T` = T real seconds). pkg's --play dispatch RETIRED. *Then: wire AudioOut
-  into all examples so each plays from `chrysalis run`; retire `run_ys_realtime`/`play_ys` (the interim
-  audible path) once that lands.* **(b) more modules** (`docs/synth-module-library.md`): `Mix`/`Matrix`
+  `examples/play-tone.ys` renders the 220 sine through AudioOut). **✅ PLAY COMPLETE (verified e2e):** core blessed the blocking/pacing
+  `update` (0 engine change — inline pass-1 invoke); lang's codegen builds `prism-audio` with
+  `realtime` when `sink:` is set; `chrysalis run examples/<x>.ys --time T` PLAYS (T real seconds,
+  paced — measured 0.64s for 0.5s audio). **AudioOut wired into all 8 continuous examples**
+  (acid/cross-mod/drums/fm-bell/generative/krell/sequence + ys/live; each taps `out`, drives the
+  device, non-invasive so it still renders). **Retired `run_ys_realtime` + the `play_ys` example**
+  (superseded; would double-drive); `play_audioout` kept as a codegen-free dev runner. The instantiate
+  one-shots (tone/stack/writes-synths) stay as render demos. **(a-next) the RENDER dual:** a synth
+  **`Waveform`** render functor (`Signal` → SVG) as a domain view — declare it when lang+core's functor
+  APPLY (slice 2) + mesh's structural render land (the engine `apply_functor` is already in core). Then
+  a synth patch is both HEARD (AudioOut) and SEEN (web: + the Waveform functor). **(b) more modules**
+  (`docs/synth-module-library.md`): `Mix`/`Matrix`
   · `Logic` · `Clock`/`ClockDiv` · `Lpg` · `Ladder` · `Chaos` · `Delay`→reverb (buffer-on-state).
 - **`.ys` PATCHES ARE NOW AUDIBLE — the device as a SINK on the engine (the M4-ward seam).**
   `packages/synth/ys/live.ys` is a CONTINUOUS audio engine (oscillator as a live composite child

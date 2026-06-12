@@ -155,3 +155,23 @@ fn superdense_ys_sends_two_bits_with_one_qubit() {
         assert!((field(&out, msg) - 1.0).abs() < 1e-4, "{msg} should recover with P=1");
     }
 }
+
+#[test]
+fn measure_ys_collapses_the_entangled_partner() {
+    // quantum-measure.ys: observing one qubit of a Bell pair collapses the partner
+    // (Q5). The post-measurement ZZ correlation is +1 — they always agree.
+    let out = run_demo("quantum-measure.ys");
+    assert!((field(&out, "correlation_after") - 1.0).abs() < 1e-4, "partner collapsed to match");
+}
+
+#[test]
+fn phase_estimation_ys_reads_the_eigenphase() {
+    // quantum-phase-estimation.ys: QPE of U=S (eigenphase φ = 1/4 = 0.01₂). The
+    // 2-qubit counting register reads '01' with certainty — the exact 2-bit phase.
+    // This is the measurement-extracts-a-phase core of Shor's algorithm.
+    let out = run_demo("quantum-phase-estimation.ys");
+    assert!((field(&out, "p_01") - 1.0).abs() < 1e-4, "QPE should read φ=1/4 as '01'");
+    assert!(field(&out, "p_00").abs() < 1e-4);
+    assert!(field(&out, "p_10").abs() < 1e-4);
+    assert!(field(&out, "p_11").abs() < 1e-4);
+}

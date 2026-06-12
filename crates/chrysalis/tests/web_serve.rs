@@ -12,7 +12,7 @@ use std::net::TcpStream;
 use chrysalis::parse::parse_file;
 use chrysalis::prelude::{std_core, std_modules};
 use chrysalis::runner::build_engine;
-use prism_bigraph::protocols::web::serve_web_default;
+use prism_bigraph::protocols::web::serve_web;
 
 fn ys(name: &str) -> String {
     format!("{}/ys/{name}", env!("CARGO_MANIFEST_DIR"))
@@ -43,15 +43,19 @@ fn serve_renders_and_an_intent_advances_the_engine() {
     let prog = parse_file(&ys("bump.ys")).expect("parse bump.ys");
     let engine =
         build_engine(&prog, std_core(), std_modules(), &BTreeMap::new()).expect("build engine");
-    let server = serve_web_default(engine, "127.0.0.1:0").expect("serve");
+    // Inject prism-viz's structural render functor (apply_functor → SVG), exactly as
+    // `chrysalis serve` does — so the test covers the real render path.
+    let server = serve_web(engine, prism_viz::render_bigraph, "127.0.0.1:0").expect("serve");
     let base = server.base_url();
 
     // The shell page loads.
     assert!(http(&base, "GET", "/", None).contains("bigraph viewer"), "shell served");
 
-    // Initial render: the place graph (the `v` slot) at t = 0.
+    // Initial render: an SVG of the place graph (the `v` slot) at t = 0.
     let s0 = http(&base, "GET", "/state", None);
-    assert!(s0.contains("v"), "state renders the v slot: {s0}");
+    assert!(s0.contains("<svg"), "state renders as SVG (the functor): {s0}");
+    assert!(s0.contains("<rect"), "the place graph draws nested boxes");
+    assert!(s0.contains("v = 0"), "the v leaf renders inline: {s0}");
     assert!(s0.contains("t = 0"), "the initial clock is zero: {s0}");
 
     // Intents (eval pointed inward): a step, then apply time. The engine steps HERE

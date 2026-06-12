@@ -212,7 +212,13 @@ pub fn serve_web_command(args: &[String], core: Core, modules: ModuleRegistry) -
         }
     };
     let addr = format!("0.0.0.0:{port}");
-    let server = match prism_bigraph::protocols::web::serve_web_default(engine, addr.as_str()) {
+    // Inject prism-viz's structural render FUNCTOR (apply_functor → SVG): the boundary
+    // (prism-bigraph) cannot dep prism-viz, so chrysalis supplies the renderer here.
+    let server = match prism_bigraph::protocols::web::serve_web(
+        engine,
+        prism_viz::render_bigraph,
+        addr.as_str(),
+    ) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("serve on {addr}: {e}");

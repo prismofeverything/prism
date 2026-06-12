@@ -1,0 +1,41 @@
+# quantum-measure.ys — measurement WITH COLLAPSE (Q5).
+# ──────────────────────────────────────────────────────────────────────────
+#
+# `observe(qubit, seed)` is a Born-rule measurement of one qubit that COLLAPSES
+# the register: it samples an outcome, projects onto it, and renormalizes,
+# returning `{outcome, state, prob}` — the classical bit, the post-measurement
+# register, and P(outcome). (`measure(seed)` only samples a classical outcome and
+# leaves the register untouched; `observe` is the one the protocols need.)
+#
+# Measuring ONE qubit of a Bell pair collapses its PARTNER: the entanglement is
+# the reason. After observing q0, qubit 1 is determined — they always agree.
+#
+# Run: `chrysalis run packages/quantum/ys/quantum-measure.ys --time 0`
+from .circuit import h, cnot
+
+def init :: Qubits = {'00': 1.0}
+def bell = init.run([h(0), cnot(0, 1)])     # |Φ+> = (|00> + |11>)/sqrt(2)
+
+# Observe qubit 0 (seed 7).
+def m0        = bell.observe(0, 7)
+def outcome0  = m0.outcome        # '0' or '1'
+def collapsed = m0.state          # |00> or |11> — q1 collapsed to MATCH q0
+
+# The entanglement is gone: q1 is determined. The collapsed state's ZZ correlation
+# is +1 (both qubits equal), whichever outcome occurred, and a second measurement
+# of q1 agrees with q0.
+def correlation_after = collapsed.correlation()    # = 1.0
+def m1       = collapsed.observe(1, 3)
+def outcome1 = m1.outcome         # == outcome0 (perfect correlation)
+
+composite Measure ~{} ->{
+  outcome0          :: String,
+  outcome1          :: String,
+  correlation_after :: float,
+  collapsed         :: Qubits
+} (
+  outcome0:          outcome0 |
+  outcome1:          outcome1 |
+  correlation_after: correlation_after |
+  collapsed:         collapsed
+)

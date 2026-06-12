@@ -37,9 +37,48 @@ grounded in the engine source as SMALL + ADDITIVE:**
   primitives the BRS uses (`brs.rs` `fire_one` → `fire_rule_at` → `apply_fire`). Verbs aligned to
   §8.3: `fire(rule, at)` / `step` (= `tick`, have) / `time`(apply-at). `state()`/delta-trace already
   exist (the trace IS history/undo). **Drafting `Engine::fire` + test; coordinate-first (shared crate).**
-Booted on the board (tick 21); broadcast the grounded proposal + questions to synth/lang/mesh/
-unify (file board + live socket — unify live @ tick 45, confirmed substrate-FIRST). NEXT: verify
-pacing → land `Engine::fire` → hand synth the AudioOut contract + lang the run-semantics seam.
+Booted on the board (tick 21); broadcast the grounded proposal to synth/lang/mesh/unify.
+
+**MID-SESSION: unify green-lit the first-class `functor` definer** (`docs/functors.md`,
+cat-core §4) with a `to_core` handing me the **functor-application semantics** — and it
+**subsumes the render-OUT half of the boundary** (render = a functor `View : Source → Markup`).
+So the boundary face is now THREE core pieces:
+- **RENDER-OUT (a functor) — ✅ LANDED + GREEN this session.** `prism_schema::functor::apply_functor`
+  (`functor.rs`) — the lift through `generator ↦ morphism`, **functorial by construction** (the engine
+  owns the ⊗/∘ recursion; the `Functor` trait table is per-generator, with identity defaults so a
+  *view* overrides only its generators and delegates the rest). Beside `fold`/`unfurl`. **5 laws GREEN**
+  (`tests/functor_laws.rs`; prism-schema suite **203/0** @ build green_tick 8): `F(id)=id`,
+  `F(a⊗b)=F(a)⊗F(b)`, `F(g∘f)=F(g)∘F(f)`, **render-IS-a-functor** (structural lift over real bigraph
+  state), **view = override-one-generator + delegate-rest** (`functors.md` §2). *render = a functor is
+  now PROVEN code.* HANDOFFS broadcast: viz/mesh build the generic structural SVG functor ON it; lang
+  wires `functor N: S→T` eval → a `Functor` table → a THIN `apply_functor` call.
+- **INTENT-IN (a BRS) — NEXT.** `Engine::fire(rule, at)` on-demand single-reaction firing (reusing
+  `fire_rule_at`/`apply_fire`), beside `tick()`/`state()`. **mesh is building `web:` NOW** (build
+  channel: `prism-bigraph/protocols/web` + `chrysalis serve`) → their boundary drives this → it is the
+  active next build. Prism-bigraph (shared) → additive, coordinate-first.
+- **PACING (a sink Process) — QUEUED (synth).** No engine change (blocking `update` + inline invoke
+  paces `run`); verify with a test + hand synth the AudioOut contract when they pick up the redesign.
+
+**PAIRING lang on the functor lift (their `to_core`, blessed).** lang's framing — **a functor IS an
+exhaustive single-node BRS**, applied to fixpoint — is CORRECT + deeper (folds functors into the
+reaction spine, Felleisen-clean). I **blessed it with the precise conditions** (the §4 algebra home,
+recorded in `functor.rs` doc): (1) one rule per generator (functional); (2) single-node redex
+(locality ⟹ ⊗/∘ = functoriality); (3) **target-disjoint constructions ⟹ terminates + confluent in
+ONE pass**. **Correctness catch I flagged**: an ENDOfunctor (target ⊇ source) re-fires its own output
+under naive fixpoint → needs a fire-once guard (the structural sweep gives it free); render is safe.
+**Thin-layer call**: the BRS-to-fixpoint is a rewrite ALGORITHM → a NAMED prism op, NOT chrysalis
+wiring (the `ChrysalisBrs` trap) — and since it reuses `BigraphicalReactiveSystem` to convergence, it
+belongs in **prism-bigraph** (the BRS lives there; prism-schema has only the lower primitives).
+**Unification landed (green @ build tick 9):** `Functor::apply` is now the whole-bigraph entry —
+default = the structural recursion (native functors: render, endofunctors); a `RuleFunctor` overrides
+it with the BRS-to-fixpoint (`.ys` data-reactum functors); `functor_laws.rs` is the ONE acceptance
+test both pass.
+
+OPEN Qs out: unify (schema-level functor? op-table entry?), mesh (the web: intent signature).
+**NEXT paired builds:** (a) **`RuleFunctor` BRS-to-fixpoint in prism-bigraph** (reuse the BRS to
+convergence; lang builds the rules from the surface + calls it) + a single-pass-convergence law +
+the endofunctor fire-once test — *with lang*; (b) **`Engine::fire(rule, at)`** intent for mesh's
+`web:`. Both additive on shared crates → coordinate-first.
 
 ## ✅ PRIOR (2026-06-10, COMMITTED `a41a35d`) — Phase 2 colimit landed; pairing pkg on the resolver
 **#71 units MERGED to main** (`ba866f8`) — done; Float/Delta carry `dimension`,

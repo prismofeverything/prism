@@ -1,0 +1,39 @@
+# quantum-phase-estimation.ys — Quantum Phase Estimation (the core of Shor).
+# ──────────────────────────────────────────────────────────────────────────
+#
+# QPE estimates the phase φ where U|u> = e^(2πiφ)|u>. Here U = S (the phase gate),
+# whose eigenphase on |1> is φ = 1/4 (S|1> = e^(iπ/2)|1>). With 2 counting qubits
+# the estimate is exact: the counting register measures the 2-bit binary fraction
+# of φ = 0.01 = 1/4.
+#
+# Circuit: H on the counting qubits; controlled-U^(2^j) from each counting qubit
+# onto the eigenstate; INVERSE QFT on the counting register; measure. This is the
+# measurement-extracts-a-phase pattern Shor wraps around modular exponentiation.
+#
+# (Probing: this prints P over the 4 counting patterns to show the peak.)
+# Run: `chrysalis run packages/quantum/ys/quantum-phase-estimation.ys --time 0`
+from .circuit import h, cphase, swap
+
+# Counting qubits q0, q1; eigenstate q2 = |1>.
+def init :: Qubits = {'001': 1.0}
+
+def estimate = init.run([
+  h(0), h(1),
+  # controlled-U powers, big-endian: q0 (MSB, place 2) -> U^2 = Z = cphase(π);
+  # q1 (LSB, place 1) -> U^1 = S = cphase(π/2). Phase on |q0 q1> = e^(2πiφ(2q0+q1)).
+  cphase(0, 2, 3.1415927),
+  cphase(1, 2, 1.5707963),
+  # inverse QFT on (q0, q1) = reverse of [h(0), cphase(1,0,π/2), h(1), swap(0,1)].
+  swap(0, 1), h(1), cphase(1, 0, -1.5707963), h(0)
+])
+
+def p_00 = estimate.prob('00*')
+def p_01 = estimate.prob('01*')
+def p_10 = estimate.prob('10*')
+def p_11 = estimate.prob('11*')
+
+composite Qpe ~{} ->{
+  p_00 :: float, p_01 :: float, p_10 :: float, p_11 :: float
+} (
+  p_00: p_00 | p_01: p_01 | p_10: p_10 | p_11: p_11
+)

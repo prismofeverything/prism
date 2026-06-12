@@ -5,13 +5,21 @@ The first prism **domain broken out into a real package** (`docs/packages-decomp
 block-sized `Signal` sort — packaged so a `.ys` patch links and plays it from the CLI.
 
 ```sh
+# the rich patches in examples/ each have an AudioOut sink wired in — they PLAY:
+chrysalis run packages/synth/examples/acid.ys --time 4        # a 303 acid bassline
+chrysalis run packages/synth/examples/generative.ys --time 8  # a self-playing patch
+chrysalis run packages/synth/examples/drums.ys --time 4       # the Nibbler as a drum machine
+
+# the ys/ primitives render their Signal as JSON (offline demos):
 chrysalis run packages/synth/ys/tone.ys           # a 220 Hz sine
-chrysalis run packages/synth/ys/stack.ys          # two oscillators summed (a fifth)
 chrysalis run packages/synth/ys/writes-synths.ys  # a Composite[…] authoring a 2-osc TYPE
 ```
 
-Each prints the rendered `Signal` block(s) as JSON. (Hear them live with
-`cargo run -p prism-audio --features realtime --example play`.)
+The patches in [`examples/`](examples) **play straight from the CLI** — each wires an
+**`AudioOut` sink into the graph** (the world-boundary face, `docs/web-bigraphs.md` §9), so
+the device's back-pressure paces the engine and `--time T` plays T real seconds. No `--play`
+flag. (No audio device → the same command renders the Signal as JSON; see
+[`examples/README.md`](examples/README.md).)
 
 ## How it works — a native package
 

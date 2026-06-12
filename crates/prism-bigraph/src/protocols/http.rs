@@ -31,11 +31,19 @@ pub struct Request {
 
 /// Turns a [`Request`] into `(status line, body)`. The status is a `&'static str`
 /// literal (`"200 OK"`, `"404 Not Found"`, `"409 Conflict"`, …); the body is the
-/// JSON payload. A blanket impl makes any `Fn(&Request) -> (&'static str, String)`
+/// payload. A blanket impl makes any `Fn(&Request) -> (&'static str, String)`
 /// a handler, so callers pass a closure capturing their own state (a `Core`, a
 /// package store) — no boilerplate trait object on their side.
 pub trait Handler: Send + Sync + 'static {
     fn handle(&self, req: &Request) -> (&'static str, String);
+
+    /// The `Content-Type` for a response to `path`. Default `application/json` (the
+    /// rest / registry JSON APIs, and the closure handlers). The web boundary
+    /// overrides it — `text/html` for the shell, `image/svg+xml` for the rendered
+    /// state — so a browser renders the page instead of trying to parse it as JSON.
+    fn content_type(&self, _path: &str) -> &'static str {
+        "application/json"
+    }
 }
 
 impl<F> Handler for F
@@ -153,9 +161,10 @@ fn serve_conn(mut stream: TcpStream, handler: &dyn Handler) -> std::io::Result<(
         body,
     };
     let (status, payload) = handler.handle(&req);
+    let content_type = handler.content_type(&req.path);
 
     let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n\
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\n\
          Content-Length: {}\r\nConnection: close\r\n\r\n{payload}",
         payload.len()
     );

@@ -8,11 +8,16 @@
 #
 # This is the engine shape a realtime device sink drives — one tick = one audio block,
 # pulled forever (vs tone.ys, which renders a single block via instantiate).
-from audio import Oscillator
+from audio import Oscillator, AudioOut
 
 composite Live ~{} ->{ out :: Signal @ out } (
   out: [0.0] |
+  played: [0.0] |
   phase: 0.0 |
   osc: Oscillator[wave: 'Sine', freq: 220.0, amplitude: 0.4, sample_rate: 48000.0, block: 256]
-    ~{phase: phase} ->{phase: phase, out: out}
+    ~{phase: phase} ->{phase: phase, out: out} |
+
+  # the device as a SINK IN THE GRAPH — taps the `out` bus, drives the
+  # device, and its back-pressure paces the engine (no --play flag).
+  speaker: AudioOut[sample_rate: 48000.0, block: 256] ~{input: out} ->{out: played}
 )

@@ -10,8 +10,37 @@ semantics, diagnostics). Read this + `coord/ROSTER.md` + `coord/board.ys` (the l
 cross-agent view) + **`docs/homoiconic-unification.md`** (the shared design you
 implement, stewarded by `unify`). Own `coord/lang.ys` (live heartbeat) and this file
 (durable). Create `coord/lang.ys` from your first heartbeat. Resume from **Now / next**.
-**CURRENT ARC: the PLAY sink** (`docs/domain-libraries.md` §5; synth ⋈ pkg ⋈ lang) — see the
-first Now/next block. (P5c native imports COMPLETE, below it; homoiconic-unification parked.)
+**CURRENT ARC: the `functor` definer** (`docs/functors.md`, categorical-core §4; lang ⋈ core ⋈ viz)
+— the first-class structure-preserving map, render the consumer. See the first Now/next block.
+(World-boundary audio + PLAY sink COMPLETE below; P5c COMPLETE; homoiconic-unification parked.)
+
+## Now / next — the `functor` definer (`docs/functors.md`, categorical-core §4) — CURRENT
+Human GREEN-LIT the first-class `functor` (long-gated). Surface (human-blessed): `functor Name ::
+Source -> Target ( Generator => construction, … )` — `::` type sig, `=>` per-generator mapping
+(distinct from the signature `->`). render is the forcing consumer (MANY views need a *declared*
+functor). lang owns the surface + apply; core the functorial lift; viz/mesh the markup prop +
+structural functor; domains declare views.
+- [x] **Slice 1 — the SURFACE. DONE + green @ tick 29 (suite 283/0).** `FunctorDef` AST
+      (name/source/target + `mappings: Vec<(Name, Expr)>`); contextual `parse_functor_def` (like
+      `protocol`/`link` — `functor <Name>` only; `def functor`/`functor:` stay ordinary);
+      `unparse` round-trip; recognized entity (`functor` slot on `EntityView`/`EntityDef`); the 5
+      `Def`-match sites handled (`def_name`/`def_kind`→"functor"/`compile` no-op — a functor is a
+      VALUE, not a runtime factory). Tests `tests/functor_definer.rs` (parse · round-trip ·
+      contextual). The construction is an ordinary `Expr` whose free names bind to the matched
+      generator's fields at APPLY time (like a reactum) — which is why `=>` is the arrow.
+- [ ] **Slice 2 — APPLY = the functorial LIFT (lang ⋈ core).** `apply(functor, bigraph)` walks the
+      bigraph; for each node whose control = a mapped generator, substitutes its construction (binding
+      the node fields), preserving `|` parallel + nesting (functoriality). Structurally a STRUCTURE-
+      PRESERVING reaction family — reuse the matcher/substitution (`find_matches`/`instantiate`).
+      Expose `apply_functor(functor, state)`; pair core on the algebra/eval entry. A PARTIAL functor
+      delegates uncovered generators to the structural default (composition).
+- [ ] **Slice 3 — render rides it (viz/mesh).** The markup prop (`prism-viz` Svg-as-`Value`) + the
+      generic STRUCTURAL functor (any bigraph → its place+link as SVG); domains then declare views
+      (`OrganismBoard :: Colony -> Svg`). The display face dual to `quote` (categorical-core §7b).
+- [ ] **Recognition tail** (after render proves it): name the codec/units/`compile` as functor
+      instances where clean (Felleisen, not forced). Spine note flagged to unify: a MORPHISM is a
+      functor from the walking-arrow category (`2 -> C`), so `~{in} ->{out}` and `Source -> Target`
+      are the same arrow at different LEVELS (wants a home in §4).
 
 ## Domain
 The chrysalis crate: `crates/chrysalis/src/{parse.rs, ast.rs, eval.rs, compile.rs}` +

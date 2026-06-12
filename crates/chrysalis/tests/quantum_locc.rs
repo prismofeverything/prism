@@ -20,9 +20,8 @@ fn ys_path() -> String {
 
 #[test]
 fn locc_bob_state_matches_alice_bit() {
-    // 3 BSP ticks: H → Measure → ConditionalPrepare.
     let out = Command::new(chrysalis_bin())
-        .args(["run", &ys_path(), "--time", "3"])
+        .args(["run", &ys_path(), "--time", "0"])
         .output()
         .expect("spawn chrysalis run");
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -32,20 +31,18 @@ fn locc_bob_state_matches_alice_bit() {
         "chrysalis run failed:\nstdout: {stdout}\nstderr: {stderr}"
     );
 
-    // The output is the LOCC composite's outputs: alice_state,
-    // classical_wire, bob_state. With default seed=42, classical_wire
-    // resolves to 'b1' (verified empirically) and Bob prepares |1⟩.
+    // LOCC invariant: Bob recovers Alice's classical bit (alice_bit == bob_bit)
+    // and prepares |alice_bit⟩. With default seed 42 both bits are "1".
     assert!(
-        stdout.contains("\"classical_wire\": \"b1\""),
-        "expected classical_wire = 'b1' with default seed=42:\n{stdout}"
-    );
-    // Bob's state should be |1⟩ = {amp_0: 0.0, amp_1: 1.0}.
-    assert!(
-        stdout.contains("\"amp_0\": 0.0"),
-        "Bob's amp_0 should be 0.0 (|1⟩):\n{stdout}"
+        stdout.contains("\"alice_bit\": \"1\""),
+        "expected alice_bit = '1' with seed=42:\n{stdout}"
     );
     assert!(
-        stdout.contains("\"amp_1\": 1.0"),
-        "Bob's amp_1 should be 1.0 (|1⟩):\n{stdout}"
+        stdout.contains("\"bob_bit\": \"1\""),
+        "Bob's bit should MATCH Alice's (classical correlation):\n{stdout}"
+    );
+    assert!(
+        stdout.contains("\"1\": 1.0"),
+        "Bob's state should be |1⟩:\n{stdout}"
     );
 }
