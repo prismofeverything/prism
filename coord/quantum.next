@@ -48,10 +48,14 @@ abstraction; e.g. Bell = `H ; CNOT` built from library gates, not a hand-rolled 
 - [DONE 2026-06-11] **Complex amplitudes — the foundational unlock.** See **Done** below.
 - [DONE 2026-06-11] (a) complex `tensor`/`factorize` (#10) + (b) the **Circuit** abstraction
   (#11). See **Done**.
-- [NEXT, in order] (c) the **explorations** (CHSH first — entanglement != classical; then
-  Grover/DJ, QFT, superdense/BB84; #12); (d) measurement-with-collapse + factorize-driven
-  `_divide` (Q5); (e) **mesh-mode** (LOCC classical wire -> a `mesh:` link; teleportation
-  across machines, M2); plus a clean tensor/factorize DUALITY `.ys` demo (the round-trip law).
+- [NEXT, in order] (P) **full `.ys` parity (#13, human: ALL examples on parity BEFORE new
+  ones)** — re-express the pre-gate-layer demos (bell-state/ghz/engine — hand-rolled amplitudes
+  via `handle`/ast) as gate/circuit compositions so EVERY example rides the primitive layer
+  ([[feedback_rust_ys_boundary]]); some are redundant with `quantum-circuit.ys` (rewrite vs
+  deprecate — ask the human). (c) more **explorations**: Deutsch–Jozsa next (buildable now: H +
+  X + CNOT oracles), then a **CZ / controlled-phase** 2-qubit gate -> Grover + QFT (rides ℂ),
+  then superdense/BB84. (d) measure-with-collapse + factorize-driven `_divide` (Q5). (e)
+  **mesh-mode** (LOCC wire -> a `mesh:` link; teleportation across machines, M2).
 - Open design point parked with **unify**: the surface value-method dispatch for `Complex`
   (a bare `array[[2]]` carries no `_type` tag; method dispatch keys off the tag/`Foreign`
   name). Quantum needs only the Rust arithmetic + the type (tag-independent), so this is
@@ -74,6 +78,25 @@ abstraction; e.g. Bell = `H ; CNOT` built from library gates, not a hand-rolled 
   scope stays joint per physics) — M3; not yet demoed.
 
 ## Done
+- **The Rust↔`.ys` boundary + `.ys` examples as the tested source of truth.** 2026-06-11.
+  Settled the boundary ([[feedback_rust_ys_boundary]]): Rust = PRIMITIVES (type+algebra, hot
+  kernels, irreducible ops — each INSTANTLY `.ys`-callable on registration); `.ys` = COMPOSITIONS
+  (circuits, algorithms, protocols, ALL examples). Applied it: new `quantum-duality.ys` (complex
+  tensor/factorize round-trip + entanglement detection, proven through `.ys` — the i-phase factor
+  is recovered) + `crates/chrysalis/tests/quantum_examples.rs`, a behavior harness that RUNS the
+  new demos (chsh/circuit/gates/duality) and asserts golden VALUES (CHSH S>2 = 2√2, Bell
+  amplitudes, S²=Z, separable flags). REMOVED the Rust CHSH reimplementation — the algorithm IS
+  `quantum-chsh.ys`; Rust keeps only a `correlation` PRIMITIVE test. 10 quantum lib (primitives) +
+  32 suite (incl 4 `.ys` behavior tests) green. *Remaining parity (#13): re-express the
+  hand-rolling demos.*
+- **CHSH / Bell inequality — the first exploration (#12).** 2026-06-11. A circuit-level PROOF
+  that entanglement ≠ classical correlation. New `Qubits.correlation()` = ⟨Z⊗Z⊗…⟩ (parity
+  expectation `Σ|amp|²·(-1)^popcount`). Measure a Bell pair at the optimal CHSH angles
+  (Alice {0, π/2}, Bob {π/4, -π/4}) by rotating each axis with `ry(q, -θ)` then reading the
+  correlator: **S = 2.8284271 = 2√2**, exceeding the classical bound 2 (Tsirelson). Rust test
+  `chsh_exceeds_the_classical_bound` (exact to 1e-9) + `packages/quantum/ys/quantum-chsh.ys`
+  (10 quantum lib tests; 28 suite green). *Next exploration: Deutsch–Jozsa / Grover (need a
+  CZ / controlled-phase 2-qubit gate — the gate set's next addition), then QFT (rides ℂ).*
 - **Complex `tensor`/`factorize` + the Circuit abstraction.** 2026-06-11.
   **Correctness (#10):** `prelude::tensor` now ℂ-multiplies amplitudes; `prelude::factorize`
   generalized to rank-1 over ℂ (the real ± sign became a per-row complex PHASE) + a new

@@ -276,6 +276,20 @@ fn apply_gate_spec(state: &Value, gate: &Value) -> Result<Value, MethodError> {
     })
 }
 
+/// ⟨Z⊗Z⊗…⟩ — the parity correlator `Σ |amp|²·(-1)^{popcount(bitstring)}`. For a
+/// 2-qubit state this is the ZZ correlation `E(·,·)` the CHSH inequality sums;
+/// for n qubits, the full Z-parity expectation. A real expectation value.
+fn correlation(state: &Value) -> f64 {
+    amps(state)
+        .iter()
+        .map(|(k, a)| {
+            let ones = k.chars().filter(|c| *c == '1').count();
+            let sign = if ones % 2 == 0 { 1.0 } else { -1.0 };
+            sign * complex::abs2(a)
+        })
+        .sum()
+}
+
 // ── Method registrations ─────────────────────────────────────────────────
 
 /// Register a single-qubit gate as `state.<name>(q)` — `apply_1q` with the gate's
@@ -367,6 +381,11 @@ pub fn register_quantum_methods(m: &mut MethodRegistry) {
             state = apply_gate_spec(&state, gate)?;
         }
         Ok(state)
+    });
+    // correlation() — ⟨Z⊗Z⊗…⟩, the parity expectation. The ZZ correlator the
+    // CHSH inequality reads after rotating each qubit's measurement axis.
+    m.register(TYPE_NAME, "correlation", |recv, _args| -> MethodResult {
+        Ok(Value::float(correlation(recv)))
     });
     // measure(seed) — Born-rule sample over |amp|²; returns the observed
     // basis-state key (a String), deterministic given the seed.
@@ -589,5 +608,22 @@ mod tests {
         assert!(reg
             .dispatch(&build([("0".to_string(), complex::one())]), "run", &[bad_circuit])
             .is_err());
+    }
+
+    #[test]
+    fn correlation_is_the_zz_parity_expectation() {
+        // The `correlation` PRIMITIVE: ⟨Z⊗Z⟩ = Σ|amp|²·(-1)^popcount. (The CHSH
+        // ALGORITHM built on it lives in `quantum-chsh.ys` and is verified by
+        // running that `.ys` — see `tests/quantum_examples.rs`. Rust tests the
+        // primitive; the `.ys` is the algorithm.)
+        // |Φ+⟩ = (|00⟩+|11⟩)/√2 — perfectly correlated, ⟨ZZ⟩ = +1.
+        let bell = cnot(
+            &apply_1q(&build([("00".to_string(), complex::one())]), 0, &m_h()),
+            0,
+            1,
+        );
+        assert!((correlation(&bell) - 1.0).abs() < 1e-12);
+        // |01⟩ — odd parity, anti-correlated, ⟨ZZ⟩ = -1.
+        assert!((correlation(&build([("01".to_string(), complex::one())])) + 1.0).abs() < 1e-12);
     }
 }

@@ -1,0 +1,39 @@
+# quantum-duality.ys — tensor (JOIN) and factorize (SPLIT) are inverses, over ℂ.
+# ─────────────────────────────────────────────────────────────────────────
+#
+# `tensor` combines two separable registers into one joint register; `factorize`
+# is its inverse — it recovers the factors of a separable joint state, or reports
+# that an entangled one has none. The round-trip law:
+#
+#     factorize(tensor(a, b))  ==  (a, b)        # separable
+#     factorize(entangled)     ==  separable: false
+#
+# This now holds over COMPLEX amplitudes (the ℂ generalization): the demo uses a
+# genuinely-complex separable state and a complex entangled one.
+#
+# Run: `chrysalis run packages/quantum/ys/quantum-duality.ys --time 0`
+
+def plus :: Qubits = {'0': 0.7071, '1': 0.7071}
+def zero :: Qubits = {'0': 1.0}
+
+# A genuinely COMPLEX separable state: (S|+>) ⊗ |0> = ((|0> + i|1>)/sqrt2) ⊗ |0>.
+def s_plus     = plus.s(0)               # (|0> + i|1>)/sqrt(2) — amplitude [0,0.7071] on |1>
+def joint      = s_plus.tensor(zero)     # separable, complex: {'00': 0.7071, '10': [0, 0.7071]}
+def split      = joint.factorize(1.0)    # → {separable: true, a: s_plus, b: zero}
+def recombined = split.a.tensor(split.b) # factorize then re-tensor == joint (round-trip)
+
+# A complex ENTANGLED state — (|00> + i|11>)/sqrt2 — has NO product form.
+def bell_c :: Qubits = {'00': 0.7071, '11': [0.0, 0.7071]}
+def bell_split = bell_c.factorize(1.0)   # → {separable: false}
+
+composite DualityDemo ~{} ->{
+  joint      :: Qubits,
+  recombined :: Qubits,
+  split      :: Factorization,
+  bell_split :: Factorization
+} (
+  joint:      joint |
+  recombined: recombined |
+  split:      split |
+  bell_split: bell_split
+)

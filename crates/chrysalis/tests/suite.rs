@@ -176,6 +176,8 @@ mod programs_as_data;
 mod protocol_surface;
 #[path = "quantum_auto_split.rs"]
 mod quantum_auto_split;
+#[path = "quantum_examples.rs"]
+mod quantum_examples;
 #[path = "quantum_factorize.rs"]
 mod quantum_factorize;
 #[path = "quantum_lifecycle.rs"]

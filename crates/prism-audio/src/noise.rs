@@ -61,8 +61,9 @@ impl Process for Noise {
     }
 
     fn update(&self, state: &Value, _interval: f64) -> Update {
-        // The RNG state rides a slot (an i64); 0 (an unseeded slot) takes the default.
-        let mut seed = state.get_field("seed").and_then(|v| v.as_i64()).unwrap_or(0) as u32;
+        // The RNG state rides a slot as f64 (a u32 is exact in f64; matches the
+        // `overwrite(float)` schema so it survives the apply); 0/unseeded → the default.
+        let mut seed = state.get_field("seed").and_then(|v| v.as_f64()).unwrap_or(0.0) as u32;
         if seed == 0 {
             seed = DEFAULT_SEED;
         }
@@ -81,7 +82,7 @@ impl Process for Noise {
 
         Update::value(Value::tree([
             ("out", signal_from_slice(&out)),
-            ("seed", Value::Int(seed as i64)),
+            ("seed", Value::float(seed as f64)),
         ]))
     }
 

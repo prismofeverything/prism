@@ -228,6 +228,33 @@ This *is* the metacircular north-star, operational — and it is §3's closure w
 keyboard. *Status: potential; pieces exist (partial `to_value`/`from_value`,
 special-cased `compile_reaction`).* 
 
+## 7b. The world-boundary face — render, sinks, the display dual to `quote`
+
+§7 turns the system *inward* (`quote` = bigraph → DATA; `eval` = DATA → running). Its **outward
+dual** is the bigraph's edge with the **world** — a peer, a device, a browser, a file. Every such
+edge is ONE mechanism: a **boundary** = a protocol / sink-source + a **render/codec functor**
+(§4). The transports (`mesh:`/`rest:`/`stream:`) are its peer-backends; two recognitions complete
+it (`web-bigraphs.md`):
+
+- **`render` = `quote` pointed at a displayable target.** The DOM/SVG is *itself a bigraph*
+  (nesting = place; `id`/`href`/`class` = link), so `render : bigraph → DOM-bigraph` is a functor
+  into the markup prop — the *same* `Render` functor as spatial's geometry prop (§9/#65) and
+  `prism-viz` (#11), over different targets. `quote` carries the bigraph inward to the generic
+  `Value`; `render` carries it outward to a *displayable* one. So **the web is the substrate's
+  DISPLAY FACE, dual to the homoiconic `quote` face** — the homoiconic face pointed at a browser.
+- **A sink is a boundary PROCESS; its presence drives the I/O — no flag.** An audio device is a
+  **sink**: an `AudioOut` process you wire a `Signal` into; its back-pressure paces the engine, so
+  *running the graph plays it*. A served face is a `web:` protocol declared on a composite (like a
+  `mesh` link). The native form of I/O is a boundary *element in the bigraph* — a sink process or a
+  declared protocol-face — never an external mode: **"if the boundary is wired in, it is live."**
+
+So **web ⊕ audio ⊕ mesh ⊕ file are ONE world-boundary face** — built once, generic (every `.ys`
+is web-navigable + device-drivable). It makes the M4 one-engine demo *visible and operable*, and
+with the engine in WASM the two faces MERGE at the browser: render = `quote`, interaction =
+`eval` — the reflective tower made operable. *Status: recognized; transports run, `prism-viz`
+does `Value→SVG`; the `web:` protocol + the generic render functor + the `AudioOut` sink are the
+build (`web-bigraphs.md`, `domain-libraries.md` §5).*
+
 ## 8. Discipline — keep it operational (the anti-abstract-nonsense rule)
 
 Category theory earns its place here only by **deleting special cases**, never by

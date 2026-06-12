@@ -77,7 +77,8 @@ impl Process for Sequencer {
 
     fn update(&self, state: &Value, _interval: f64) -> Update {
         let len = self.steps.len().max(1) as i64;
-        let mut index = state.get_field("index").and_then(|v| v.as_i64()).unwrap_or(0);
+        // f64 integer state (matches the `overwrite(float)` schema → survives the apply).
+        let mut index = state.get_field("index").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
         let mut clk_z = state.get_field("clk_z").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let mut rst_z = state.get_field("rst_z").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let clock = cv_in(state, "clock");
@@ -107,7 +108,7 @@ impl Process for Sequencer {
         Update::value(Value::tree([
             ("cv", signal_from_slice(&cv)),
             ("trig", signal_from_slice(&trig)),
-            ("index", Value::Int(index)),
+            ("index", Value::float(index as f64)),
             ("clk_z", Value::float(clk_z)),
             ("rst_z", Value::float(rst_z)),
         ]))

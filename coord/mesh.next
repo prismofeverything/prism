@@ -16,6 +16,21 @@ the `protocol`/codec layer, the `.ys` `mesh:` surface, the CRDT `mesh_safety` op
 `docs/distributed-execution.md`, `docs/grand-synthesis.md` §M1.
 
 ## Now / next
+- [ ] **THE WEB FACE — bigraphs as websites (`docs/web-bigraphs.md`, NEW flagship arc).**
+      A generic web viewer: drop ANY `.ys` (quantum, a project tree, a git repo, ORGANISM)
+      into a live browser page — render the bigraph (place+link), stream state/deltas,
+      send intents (step/apply-time/fire-reaction). **Server-authoritative** (human's
+      choice): engine + BRS on the server, browser = thin render+input client (= ORGANISM's
+      model). The thesis (for unify): the web is the spine's DISPLAY FACE dual to `quote` —
+      HTML *is* a bigraph (nesting=place, id/href=link), render = a FUNCTOR to the markup
+      prop, browser = a protocol boundary, interactions = BRS generators, navigation =
+      fold/unfurl, history = the trace/fold, git/self = reflection. **STATUS: plan written +
+      posted to the board (esp. `to_unify`); BRAKES ON CODE until the human + unify talk the
+      spine through.** Then **Slice 0** = `chrysalis serve <file.ys> --web` (transport rungs:
+      poll → SSE → WS → WASM-peer; the serve boundary is MINE, reusing `protocols/http.rs`;
+      the render functor is viz/spatial). Driver = **TETRAHEDRON** (`../tetrahedron`;
+      `code-collaboration.ys` = the git-as-bigraph explorer). Engine reuse confirmed thin
+      (`from_state → discover_all_processes → tick/run/state`). [[mesh_as_protocol]]
 - [ ] **pkg P4b — wire `RemoteRegistry` (pkg's, in chrysalis) onto the transport.** The
       transport is SHIPPED + green (see Done); pkg calls `registry::{versions,fetch,publish,
       checksum}` + hosts `RegistryServer`. Recommended split posted to `to_pkg`: `fetch`

@@ -1,0 +1,46 @@
+# krell.ys — a self-generating patch that never repeats (the Buchla/Serge "Krell" idiom,
+# named for the FORBIDDEN PLANET soundtrack). The patch feeds back on itself:
+#
+#   chrysalis run packages/synth/examples/krell.ys --time 6
+#   chrysalis run packages/synth/examples/krell.ys --play
+#
+# A cycling Slope is the voice envelope; each time it finishes (`eoc`) it triggers a
+# SampleHold to grab a new value from Noise. That random value (`rnd`) sets BOTH the
+# next note's pitch (the VCO `fm_exp`) AND the Slope's own `time_cv` — so every cycle has
+# a fresh, random duration and pitch. Self-patching is first-class here: an output feeds
+# its own module's input. Endlessly evolving generative music from four modules.
+from audio import Oscillator, Slope, SampleHold, Noise, Svf
+
+composite Krell ~{} ->{ out :: Signal @ out } (
+  out: [0.0] |
+  eoc: [0.0] |
+  rnd: [0.0] |
+  noise: [0.0] |
+  env: [0.0] |
+  tone: [0.0] |
+
+  noise_seed: 0 |
+  sh_held: 0.0 | sh_smooth: 0.0 | sh_tz: 0.0 |
+  sl_level: 0.0 | sl_rising: 0.0 | sl_tz: 0.0 |
+  vco_phase: 0.0 | ic1: 0.0 | ic2: 0.0 |
+
+  noise_gen: Noise[block: 256]
+    ~{seed: noise_seed} ->{seed: noise_seed, out: noise} |
+
+  # grab a new random value each time the slope completes a cycle
+  sh: SampleHold[slew: 0.002, sample_rate: 48000.0, block: 256]
+    ~{held: sh_held, smooth_v: sh_smooth, trig_z: sh_tz, input: noise, trigger: eoc}
+    ->{held: sh_held, smooth_v: sh_smooth, trig_z: sh_tz, stepped: rnd} |
+
+  # the voice envelope — cycling; its SPEED is set by the random value (self-paced)
+  slope_gen: Slope[rise: 0.08, fall: 0.5, sample_rate: 48000.0, block: 256, cycle: true, time_depth: 1.6]
+    ~{level: sl_level, rising: sl_rising, trig_z: sl_tz, time_cv: rnd}
+    ->{level: sl_level, rising: sl_rising, trig_z: sl_tz, out: env, eoc: eoc} |
+
+  # the voice — pitch from the random (2 octaves), level from the cycling envelope
+  vco: Oscillator[wave: 'Sine', freq: 220.0, amplitude: 0.0, sample_rate: 48000.0, block: 256, fm_depth: 2.0, am_depth: 0.5]
+    ~{phase: vco_phase, fm_exp: rnd, am: env} ->{phase: vco_phase, sine: tone} |
+
+  filt: Svf[cutoff: 2200.0, resonance: 0.5, sample_rate: 48000.0, block: 256]
+    ~{input: tone, ic1: ic1, ic2: ic2} ->{ic1: ic1, ic2: ic2, lp: out}
+)

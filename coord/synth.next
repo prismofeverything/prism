@@ -165,14 +165,21 @@ definer + the `Complex` sort THERE with `unify`; build the per-domain demos HERE
   comparator + analog logic; **`SampleHold`** Serge SSG (stepped + smooth); **`Noise`** seeded random;
   **`Fold`** wavefolder (analytic triangle fold; West-Coast when `fold_cv`←env); **`RingMod`**
   4-quadrant; **`Counter`** Schlappi Nibbler (4-bit, `b0..b3` = clock dividers + `cv` D/A);
-  **`Sequencer`** (`.ys` `steps` list → `cv`+`trig`; the sequence is DATA). Examples: `cross-mod.ys`,
-  `generative.ys` (self-playing), `sequence.ys` (8-step melody + envelope-driven wavefolder). 46
-  prism-audio tests green; 0-chrysalis held. **`.ys` GOTCHA: `in` is reserved** — module audio input
-  port is `input` (flagged to lang). **Add-a-module recipe:** kernel `Process` + `from_config` +
-  `patch.rs::register_audio` + `prelude::audio_exports` + a `tests/modules.rs` test. **NEXT (roadmap
-  in `docs/synth-module-library.md`):** `Mix`/`Matrix` · `Logic` · `Clock`/`ClockDiv` · `Lpg`
-  (Buchla low-pass gate) · `Ladder` filter · `Chaos` (Three Body) · `Delay`→reverb (needs a
-  buffer-on-state strategy). Library-first, examples follow.
+  **`Sequencer`** (`.ys` `steps` list → `cv`+`trig`; the sequence is DATA). **SEVEN rich examples**
+  (`packages/synth/examples/` + a README, all output to the `out` bus, all render e2e): `cross-mod`
+  (LFO→pitch+cutoff) · `generative` (self-playing) · `sequence` (melody + env-driven wavefolder) ·
+  `acid` (303, env→resonant-cutoff sweep) · `drums` (Nibbler bits as rhythm — kick/hat summed) ·
+  `krell` (self-generating, S&H feedback) · `fm-bell` (FM, env=index). 46 prism-audio tests green;
+  0-chrysalis held. **Two `.ys` GOTCHAs (durable):** (1) `in` is reserved → module audio input port
+  is `input` (flagged to lang); (2) **integer module state must be `f64`, not `Value::Int`** — Int
+  through an `overwrite(float)` schema coerces → `as_i64` returns None → counters silently reset
+  (Counter/Sequencer/Noise were stuck at 0; fixed). **Add-a-module recipe:** kernel `Process` +
+  `from_config` + `patch.rs::register_audio` + `prelude::audio_exports` + a `tests/modules.rs` test.
+  **NEXT:** **(a) `--play` handoff to pkg+lang IN FLIGHT** — synth side READY (`build_engine` +
+  `prelude::run_realtime` sink-fn + `sink: audio`); pkg does the runner --play dispatch (must enable
+  `prism-audio/realtime`), lang the `--play` flag (docs/domain-libraries.md §5). **(b) more modules**
+  (roadmap in `docs/synth-module-library.md`): `Mix`/`Matrix` · `Logic` · `Clock`/`ClockDiv` · `Lpg`
+  · `Ladder` · `Chaos` · `Delay`→reverb (needs a buffer-on-state strategy).
 - **`.ys` PATCHES ARE NOW AUDIBLE — the device as a SINK on the engine (the M4-ward seam).**
   `packages/synth/ys/live.ys` is a CONTINUOUS audio engine (oscillator as a live composite child
   writing the `out` Signal each tick — one engine tick = one block, vs `tone.ys`'s one-shot

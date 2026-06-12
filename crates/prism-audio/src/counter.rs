@@ -68,7 +68,9 @@ impl Process for Counter {
     }
 
     fn update(&self, state: &Value, _interval: f64) -> Update {
-        let mut count = state.get_field("count").and_then(|v| v.as_i64()).unwrap_or(0);
+        // Integer state is stored as f64 (exact for these small ranges) so it matches the
+        // `overwrite(float)` output schema and survives the engine apply across ticks.
+        let mut count = state.get_field("count").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
         let mut clk_z = state.get_field("clk_z").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let mut rst_z = state.get_field("rst_z").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let clock = cv_in(state, "clock");
@@ -108,7 +110,7 @@ impl Process for Counter {
             ("b1", signal_from_slice(&b1)),
             ("b2", signal_from_slice(&b2)),
             ("b3", signal_from_slice(&b3)),
-            ("count", Value::Int(count)),
+            ("count", Value::float(count as f64)),
             ("clk_z", Value::float(clk_z)),
             ("rst_z", Value::float(rst_z)),
         ]))

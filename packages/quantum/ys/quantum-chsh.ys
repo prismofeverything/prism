@@ -1,0 +1,47 @@
+# quantum-chsh.ys — the CHSH / Bell inequality: a circuit-level PROOF that
+# entanglement is NOT classical correlation.
+# ─────────────────────────────────────────────────────────────────────────
+#
+# Alice and Bob share a Bell pair |Φ+> and each measures their qubit's spin at
+# one of two angles. The CHSH correlator
+#       S = E(a,b) + E(a,b') + E(a',b) - E(a',b')
+# is bounded by |S| <= 2 for ANY local-hidden-variable (classical) theory. Quantum
+# mechanics reaches S = 2√2 ≈ 2.8284 (Tsirelson's bound) — a value no classical
+# correlation can produce. This demo computes it from a circuit.
+#
+# E(θA,θB) = ⟨Z⊗Z⟩ after rotating each qubit's measurement axis by `ry(q, -θ)`
+# (then `correlation()` reads the parity expectation). For |Φ+>, E = cos(θA-θB).
+# Optimal angles: Alice {0, π/2}, Bob {π/4, -π/4}.
+#
+# Run: `chrysalis run packages/quantum/ys/quantum-chsh.ys --time 0`
+from .circuit import h, cnot, ry
+
+def q2 :: Qubits = {'00': 1.0}
+def bell = q2.run([h(0), cnot(0, 1)])    # |Φ+> = (|00> + |11>)/sqrt(2)
+
+# The four correlators (angles in radians; π/4 ≈ 0.78539816, π/2 ≈ 1.57079633).
+def e_ab   = bell.run([ry(0,  0.0),        ry(1, -0.78539816)]).correlation()  # E(0,    π/4)
+def e_ab2  = bell.run([ry(0,  0.0),        ry(1,  0.78539816)]).correlation()  # E(0,   -π/4)
+def e_a2b  = bell.run([ry(0, -1.57079633), ry(1, -0.78539816)]).correlation()  # E(π/2,  π/4)
+def e_a2b2 = bell.run([ry(0, -1.57079633), ry(1,  0.78539816)]).correlation()  # E(π/2, -π/4)
+
+# The CHSH correlator — quantum mechanics blows past the classical limit of 2.
+def chsh_S = e_ab + e_ab2 + e_a2b - e_a2b2
+
+composite ChshDemo ~{} ->{
+  e_ab            :: float,
+  e_ab2           :: float,
+  e_a2b           :: float,
+  e_a2b2          :: float,
+  chsh_S          :: float,
+  classical_bound :: float,
+  tsirelson_bound :: float
+} (
+  e_ab:            e_ab |
+  e_ab2:           e_ab2 |
+  e_a2b:           e_a2b |
+  e_a2b2:          e_a2b2 |
+  chsh_S:          chsh_S |
+  classical_bound: 2.0 |
+  tsirelson_bound: 2.8284271
+)

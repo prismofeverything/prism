@@ -1,0 +1,42 @@
+# fm-bell.ys — FM synthesis: one oscillator modulates another's phase to make bell /
+# electric-piano tones. The MODULATOR's level is the FM index, and an envelope shapes it,
+# so each note rings bright on the attack and settles to a pure tone — the classic DX/FM
+# evolving timbre.
+#
+#   chrysalis run packages/synth/examples/fm-bell.ys --time 6
+#   chrysalis run packages/synth/examples/fm-bell.ys --play
+#
+# An inharmonic carrier:modulator ratio (220 : 280) gives the metallic, bell-like
+# spectrum; a harmonic ratio (e.g. 220 : 440) would sound like an electric piano. The
+# modulator's `sine` drives the carrier's `pm` input (CV ≡ audio — audio-rate phase mod).
+from audio import Oscillator, Slope
+
+composite FmBell ~{} ->{ out :: Signal @ out } (
+  out: [0.0] |
+  clock: [0.0] |
+  env: [0.0] |
+  modsig: [0.0] |
+
+  clk_level: 0.0 | clk_rising: 0.0 | clk_tz: 0.0 |
+  env_level: 0.0 | env_rising: 0.0 | env_tz: 0.0 |
+  mod_phase: 0.0 | car_phase: 0.0 |
+
+  # a slow clock — one bell strike every ~0.7 s
+  clock_gen: Slope[rise: 0.001, fall: 0.7, sample_rate: 48000.0, block: 256, cycle: true]
+    ~{level: clk_level, rising: clk_rising, trig_z: clk_tz}
+    ->{level: clk_level, rising: clk_rising, trig_z: clk_tz, eoc: clock} |
+
+  # a long bell envelope (sets both the FM index and the level)
+  env_gen: Slope[rise: 0.004, fall: 0.6, sample_rate: 48000.0, block: 256]
+    ~{level: env_level, rising: env_rising, trig_z: env_tz, trigger: clock}
+    ->{level: env_level, rising: env_rising, trig_z: env_tz, out: env} |
+
+  # the MODULATOR — a 280 Hz sine whose amplitude (the FM index) is the envelope
+  mod_osc: Oscillator[wave: 'Sine', freq: 280.0, amplitude: 0.0, sample_rate: 48000.0, block: 256, am_depth: 1.0]
+    ~{phase: mod_phase, am: env} ->{phase: mod_phase, sine: modsig} |
+
+  # the CARRIER — 220 Hz, phase-modulated by the modulator (pm_depth = FM index scale),
+  # level shaped by the same envelope
+  car_osc: Oscillator[wave: 'Sine', freq: 220.0, amplitude: 0.0, sample_rate: 48000.0, block: 256, pm_depth: 5.0, am_depth: 0.5]
+    ~{phase: car_phase, pm: modsig, am: env} ->{phase: car_phase, sine: out}
+)

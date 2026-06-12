@@ -545,7 +545,7 @@ fn counter_counts_clock_edges_in_binary() {
         )
         .into_value()
         .unwrap();
-    assert_eq!(out.get_field("count").unwrap().as_i64().unwrap(), 3, "3 clocks → count 3");
+    assert_eq!(out.get_field("count").unwrap().as_f64().unwrap() as i64, 3, "3 clocks → count 3");
     let cv = signal_to_vec(out.get_field("cv").unwrap());
     assert!((cv[BLOCK - 1] - 3.0 / 15.0).abs() < 1e-4, "cv = count/15 staircase");
     // 3 = 0b0011 → b0=1, b1=1, b2=0.

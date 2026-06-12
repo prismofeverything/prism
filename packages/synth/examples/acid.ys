@@ -1,0 +1,43 @@
+# acid.ys — a 303-style acid bassline. The sound is the RESONANT FILTER SWEEP: each note
+# the envelope opens and closes a high-resonance low-pass, so the timbre squelches.
+#
+#   chrysalis run packages/synth/examples/acid.ys --time 4
+#   chrysalis run packages/synth/examples/acid.ys --play
+#
+# clock -> sequencer (bass pattern) -> VCO pitch; the same clock triggers an envelope
+# that does double duty (CV ≡ audio): it sweeps the filter `cutoff_cv` (the acid squelch,
+# with resonance 0.85) AND sets the voice level (the osc `am`).
+from audio import Oscillator, Slope, Sequencer, Svf
+
+composite Acid ~{} ->{ out :: Signal @ out } (
+  out: [0.0] |
+  clock: [0.0] |
+  pitch: [0.0] |
+  env: [0.0] |
+  tone: [0.0] |
+
+  clk_level: 0.0 | clk_rising: 0.0 | clk_tz: 0.0 |
+  seq_index: 0.0 | seq_clk_z: 0.0 | seq_rst_z: 0.0 |
+  env_level: 0.0 | env_rising: 0.0 | env_tz: 0.0 |
+  vco_phase: 0.0 | ic1: 0.0 | ic2: 0.0 |
+
+  clock_gen: Slope[rise: 0.001, fall: 0.14, sample_rate: 48000.0, block: 256, cycle: true]
+    ~{level: clk_level, rising: clk_rising, trig_z: clk_tz}
+    ->{level: clk_level, rising: clk_rising, trig_z: clk_tz, eoc: clock} |
+
+  # a bass pattern in octave-CV (0 = root, 0.583 ≈ +7 semitones, etc.)
+  seq: Sequencer[steps: [0.0, 0.0, 0.583, 0.0, 0.25, 0.0, 0.583, 0.417], sample_rate: 48000.0, block: 256]
+    ~{index: seq_index, clk_z: seq_clk_z, rst_z: seq_rst_z, clock: clock}
+    ->{index: seq_index, clk_z: seq_clk_z, rst_z: seq_rst_z, cv: pitch} |
+
+  env_gen: Slope[rise: 0.003, fall: 0.12, sample_rate: 48000.0, block: 256]
+    ~{level: env_level, rising: env_rising, trig_z: env_tz, trigger: clock}
+    ->{level: env_level, rising: env_rising, trig_z: env_tz, out: env} |
+
+  vco: Oscillator[wave: 'Saw', freq: 55.0, amplitude: 0.0, sample_rate: 48000.0, block: 256, fm_depth: 1.0, am_depth: 0.8]
+    ~{phase: vco_phase, fm_exp: pitch, am: env} ->{phase: vco_phase, saw: tone} |
+
+  # the acid: high resonance + the envelope sweeping the cutoff ~3.5 octaves
+  filt: Svf[cutoff: 180.0, resonance: 0.85, sample_rate: 48000.0, block: 256, cutoff_depth: 3.5]
+    ~{input: tone, ic1: ic1, ic2: ic2, cutoff_cv: env} ->{ic1: ic1, ic2: ic2, lp: out}
+)

@@ -1,0 +1,52 @@
+# drums.ys — a drum pattern from BINARY COUNTING (the Schlappi Nibbler idea: counting in
+# binary is inherently musical). A Counter divides the clock; its bit outputs are an
+# instant rhythm section — `b0` (clock/2) triggers the kick, `b1` (clock/4) the hat.
+#
+#   chrysalis run packages/synth/examples/drums.ys --time 4
+#   chrysalis run packages/synth/examples/drums.ys --play
+#
+# kick = a sine boop (osc `am` ← a fast envelope); hat = Noise gated by a fast envelope
+# via RingMod (a × b — ring mod as a VCA). Both sum into one `out` bus (the additive
+# Signal reconcile IS the mixer).
+from audio import Oscillator, Slope, Counter, Noise, RingMod
+
+composite Drums ~{} ->{ out :: Signal @ out } (
+  out: [0.0] |
+  clock: [0.0] |
+  b0: [0.0] |
+  b1: [0.0] |
+  kick_env: [0.0] |
+  hat_env: [0.0] |
+  noise: [0.0] |
+
+  clk_level: 0.0 | clk_rising: 0.0 | clk_tz: 0.0 |
+  cnt_count: 0 | cnt_clk_z: 0.0 | cnt_rst_z: 0.0 |
+  ke_level: 0.0 | ke_rising: 0.0 | ke_tz: 0.0 |
+  he_level: 0.0 | he_rising: 0.0 | he_tz: 0.0 |
+  noise_seed: 0 | kick_phase: 0.0 |
+
+  # the clock (~9/s)
+  clock_gen: Slope[rise: 0.001, fall: 0.11, sample_rate: 48000.0, block: 256, cycle: true]
+    ~{level: clk_level, rising: clk_rising, trig_z: clk_tz}
+    ->{level: clk_level, rising: clk_rising, trig_z: clk_tz, eoc: clock} |
+
+  # the rhythm section — clock divisions out of a binary counter
+  counter: Counter[block: 256]
+    ~{count: cnt_count, clk_z: cnt_clk_z, rst_z: cnt_rst_z, clock: clock}
+    ->{count: cnt_count, clk_z: cnt_clk_z, rst_z: cnt_rst_z, b0: b0, b1: b1} |
+
+  # KICK — a 55 Hz sine boop, triggered by b0 (clock/2)
+  kick_env_gen: Slope[rise: 0.001, fall: 0.13, sample_rate: 48000.0, block: 256]
+    ~{level: ke_level, rising: ke_rising, trig_z: ke_tz, trigger: b0}
+    ->{level: ke_level, rising: ke_rising, trig_z: ke_tz, out: kick_env} |
+  kick: Oscillator[wave: 'Sine', freq: 55.0, amplitude: 0.0, sample_rate: 48000.0, block: 256, am_depth: 0.9]
+    ~{phase: kick_phase, am: kick_env} ->{phase: kick_phase, sine: out} |
+
+  # HAT — noise through a very fast envelope (RingMod gates it), triggered by b1 (clock/4)
+  hat_env_gen: Slope[rise: 0.0003, fall: 0.035, sample_rate: 48000.0, block: 256]
+    ~{level: he_level, rising: he_rising, trig_z: he_tz, trigger: b1}
+    ->{level: he_level, rising: he_rising, trig_z: he_tz, out: hat_env} |
+  noise_gen: Noise[block: 256, amplitude: 0.35]
+    ~{seed: noise_seed} ->{seed: noise_seed, out: noise} |
+  hat: RingMod[block: 256] ~{a: noise, b: hat_env} ->{out: out}
+)
