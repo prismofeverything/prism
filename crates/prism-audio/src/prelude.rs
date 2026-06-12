@@ -70,6 +70,36 @@ pub fn audio_core(block: usize) -> Core {
     core
 }
 
+/// The block size [`core`] (the codegen convention) builds the audio `Core` at — the
+/// `Signal` length the `Signal` type is sized to. A package `.ys` patch wiring an
+/// `Oscillator[…, block: 256]` must agree with the `Signal` type's block, so the
+/// convention pins one default; a patch needing another size builds its own
+/// [`audio_core`] (the realtime device chooses the device buffer size).
+pub const DEFAULT_BLOCK: usize = 256;
+
+// ── Codegen convention (#67 Phase 5) ────────────────────────────────────────
+//
+// A package whose `project.ys` names this crate as a native dependency
+// (`dependencies: { audio: { native: '../crates/prism-audio' } }`) is run by a
+// generated codegen runner ([`chrysalis::codegen`]) that links this crate and calls
+// `prism_audio::prelude::core()` — the standard zero-arg name a package's run-Core is
+// reached by ([`docs/packages-decomposition.md`] §3; the resolver colimits it in via
+// `resolve_with_natives`). We expose ONLY `core()` — chrysalis-free — and NOT a
+// `modules()` (the own-native convention's import surface): the audio processes reach
+// a `.ys` through `resolve_native`, which surfaces them as `from audio import …` from
+// the colimited Core, so the import surface needs no language facet here. Keeping
+// `core()` chrysalis-free is what lets `synth` be a real package without prism-audio
+// depending on the language ([[synthesizer_project]]).
+
+/// Codegen convention alias — the one [`Core`] this package exposes, at the
+/// [`DEFAULT_BLOCK`] size. Delegates to [`audio_core`]; **chrysalis-free** (it only
+/// touches the substrate), so a native-dependency runner can link this crate without
+/// pulling the language. The resolver `own_over`s it off the std floor (leaving exactly
+/// the audio processes + the `Signal` type) and colimits it into the program's Core.
+pub fn core() -> Core {
+    audio_core(DEFAULT_BLOCK)
+}
+
 /// The audio domain's `.ys` export manifest — plain `(import-group, native-name)`
 /// data, **chrysalis-free**. The domain only DECLARES what it exports; a runner
 /// turns this into the language's import surface ([`audio_modules`]).
@@ -119,6 +149,23 @@ mod tests {
         assert!(
             core.types.type_names().iter().any(|n| *n == SIGNAL),
             "audio_core's type registry carries the Signal type"
+        );
+    }
+
+    /// The **codegen convention** the package runner calls — `prelude::core()`
+    /// (zero-arg) — serves the same audio capabilities + the `Signal` type, in the
+    /// DEFAULT build (no `ys` feature, no chrysalis). This is the entry a
+    /// `packages/synth` native-dependency runner links: its `own_over(std)` is exactly
+    /// the audio processes + `Signal`, which the resolver colimits in conflict-free.
+    #[test]
+    fn core_convention_serves_audio_chrysalis_free() {
+        let core = core();
+        for p in ["Oscillator", "LowPass", "Vca", "Envelope"] {
+            assert!(core.processes.contains(p), "core() should serve `{p}`");
+        }
+        assert!(
+            core.types.type_names().iter().any(|n| *n == SIGNAL),
+            "core() carries the Signal type (rides the resolver colimit)"
         );
     }
 }
@@ -173,7 +220,11 @@ composite Patch ~{} ->{ out :: Signal } (
 
     // THE HEADLINE — a `Composite[…]` expression authors a NEW 2-oscillator module
     // TYPE inline (the synth writes synths, on the surface), instantiate runs it, its
-    // summed Signal bridges out.
+    // summed Signal bridges out. The authored composite carries `interval = block/rate`
+    // (256/48000) so its sub-engine ticks at BLOCK-RATE — without it the inner engine
+    // ticks zero times inside `instantiate(…, 0.05)` and `bus` stays the initial `[0.0]`
+    // (the synth block-rate gotcha; the Rust `stack_voice_node` sets the same interval).
+    // Shipped as the package demo `packages/synth/ys/writes-synths.ys`.
     const WRITES_SYNTHS_YS: &str = "\
 from audio import Oscillator
 composite WritesSynths ~{} ->{ out :: Signal } (
@@ -186,7 +237,8 @@ composite WritesSynths ~{} ->{ out :: Signal } (
         ob: Oscillator[wave: 'Sine', freq: 330.0, amplitude: 0.4, sample_rate: 48000.0, block: 256]
           ~{phase: pb} ->{phase: pb, out: mix}
       },
-      bridge: { inputs: {}, outputs: { out: ['mix'] } }
+      bridge: { inputs: {}, outputs: { out: ['mix'] } },
+      interval: 0.00533333
     ] ~{} ->{ out: bus },
     bus: [0.0]
   }, 0.05).bus

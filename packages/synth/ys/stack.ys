@@ -1,0 +1,20 @@
+# stack.ys — a multi-voice instrument, built and played as a package from the CLI.
+#
+#   chrysalis run packages/synth/ys/stack.ys
+#
+# Two oscillators (220 Hz + a fifth at 330 Hz) summed into ONE shared `Signal` mix bus
+# — the additive `Signal` reconcile IS the mixer (synthesis-bigraphs.md). `instantiate`
+# brings the little sub-bigraph to life and renders it; the summed block lands on `out`.
+# This is the synth assembling an instrument from native oscillator modules, run as a
+# real package over the native `prism-audio` dependency (`from audio import Oscillator`).
+from audio import Oscillator
+
+composite Stack ~{} ->{ out :: Signal } (
+  out: instantiate({
+    mix: [0.0], pa: 0.0, pb: 0.0,
+    oa: Oscillator[wave: 'Sine', freq: 220.0, amplitude: 0.4, sample_rate: 48000.0, block: 256]
+      ~{phase: pa} ->{phase: pa, out: mix},
+    ob: Oscillator[wave: 'Sine', freq: 330.0, amplitude: 0.4, sample_rate: 48000.0, block: 256]
+      ~{phase: pb} ->{phase: pb, out: mix}
+  }, 0.05).mix
+)

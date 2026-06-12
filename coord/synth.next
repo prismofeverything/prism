@@ -24,6 +24,27 @@ the shared `Complex`/`Signal[ℂ]` sort that make cross-domain audio natural), `
 patch/reaction surface).
 
 ## Now / next (priority order)
+> **✅ LATEST (2026-06-11): synth is the FIRST real domain PACKAGE (`packages/synth`).**
+> The decomposition (#63 ⋈ #67, `docs/packages-decomposition.md` §7 step 2) — DONE + GREEN.
+> `packages/synth/project.ys` declares a **native dependency** on `crates/prism-audio`
+> (`dependencies: { audio: { native: '../../crates/prism-audio' } }`); `chrysalis run` takes
+> pkg's codegen path, links prism-audio, calls `prelude::core()`, and colimits `audio_core()`
+> in via `resolve_with_natives`. **Three `.ys` patches render audio from the CLI**
+> (`ys/tone.ys` · `ys/stack.ys` two-osc sum · `ys/writes-synths.ys` = a `Composite[…]`
+> authoring a NEW 2-osc module TYPE inline — *the synth writes synths, as a package*). Key
+> decisions banked in memory `project_synth_package`: (1) chose the **native-DEP** shape over
+> own-native (`native: '.'`) because the own-native codegen body calls `prelude::modules()`
+> (needs chrysalis) while the native-deps body calls only `prelude::core()` — so **prism-audio
+> stays fully chrysalis-free** (only a zero-arg `core()` added; `cargo tree` 0 chrysalis).
+> (2) the colimit is conflict-free because `own_over` is **by-NAME** (`factory.rs:87`), so
+> `audio_core().own_over(std)` = exactly Oscillator/LowPass/Vca/Envelope + Signal. (3) an
+> authored audio composite MUST carry `interval = block/rate` (256/48000) or its sub-engine
+> ticks zero times inside `instantiate(…, 0.05)` → silence; this fixed the previously-unverified
+> headline test. Files: `crates/prism-audio/src/prelude.rs` (`core()` + test) + `packages/synth/`.
+> **A6 Phase 2 is now VERIFIED on the surface, run as a package.** *Next:* the sound-QUALITY pass
+> (the demos render but `writes-synths` has a slight 220/330 energy imbalance + 512-vs-256-sample
+> bus — a gain-staging/block-boundary detail), then InsertFilter (#15) / A4 / A8.
+>
 > **⏯️ ACTIVE ARC (redirected by `unify`, 2026-06-09): A6 — the homoiconic module factory.**
 > The homoiconic face is CLOSED + GREEN (one `quote`/`reify`/`build_rule`; reactions emit
 > transparent DATA; `instantiate` is a `.ys` builtin; `EntityDef::from_value` total over
@@ -126,6 +147,20 @@ another's*, not bespoke glue. Build each as a small functor + a "you HEAR domain
 definer + the `Complex` sort THERE with `unify`; build the per-domain demos HERE.)
 
 ## Done (this arc — all green)
+- **synth IS A REAL PACKAGE (`packages/synth`) — the first domain decomposition (#63 ⋈ #67).**
+  `packages/synth/project.ys` (`dependencies: { audio: { native: '../../crates/prism-audio' } }`)
+  + `ys/{tone,stack,writes-synths}.ys` + a README + the generated `project.lock`. `chrysalis run
+  packages/synth/ys/<patch>.ys` finds the manifest, codegen-generates a runner that links
+  prism-audio, calls `prism_audio::prelude::core()`, and colimits `audio_core()` in through
+  `resolve_with_natives` — **all three patches render audio from the CLI** (Goertzel-confirmed).
+  prism-audio side: a chrysalis-free zero-arg **`prelude::core()`** (the codegen convention,
+  delegating to `audio_core(DEFAULT_BLOCK=256)`) + a `core_convention_serves_audio_chrysalis_free`
+  test. **Fixed the headline test** `a_ys_expression_authors_a_two_oscillator_module_type` (was
+  unverified/silent): the authored `Composite[…]` needed `interval: 256/48000` (block-rate) — its
+  sub-engine ticked 0× inside `instantiate(…, 0.05)`. Green: default 31 + `--features ys` 4; `cargo
+  tree -p prism-audio` 0 chrysalis (native-DEP shape keeps the domain language-free — the own-native
+  runner body would call `prelude::modules()`, pulling chrysalis; the native-deps body calls only
+  `core()`). Paired w/ pkg (zero resolver/codegen change needed). Memory `project_synth_package`.
 - **LAYERING FIX — `audio_core()` is CHRYSALIS-FREE (the human caught the smell).** The audio domain
   (DSP + processes + types + *assembling its Core*) is independent of the LANGUAGE, so prism-audio
   must not be downstream of chrysalis. `audio_core()` (`src/prelude.rs`) now assembles the full audio

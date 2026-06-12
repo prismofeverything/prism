@@ -1,0 +1,18 @@
+# tone.ys — a single-oscillator audio patch, run as a real package from the CLI.
+#
+#   chrysalis run packages/synth/ys/tone.ys
+#
+# `from audio import Oscillator` reaches the native prism-audio crate through the
+# package's `native:` dependency (the codegen runner links it + colimits `audio_core()`
+# in). `:: Signal` is the block-sized audio type, riding the same colimit. `Tone` is a
+# composite entry with no `main`, so it is invoked compositionally — it renders one
+# 256-sample `Signal` block of a 220 Hz sine and reports it on `out`.
+from audio import Oscillator
+
+composite Tone ~{} ->{ out :: Signal } (
+  out: instantiate({
+    mix: [0.0], phase: 0.0,
+    osc: Oscillator[wave: 'Sine', freq: 220.0, amplitude: 0.5, sample_rate: 48000.0, block: 256]
+      ~{phase: phase} ->{phase: phase, out: mix}
+  }, 0.05).mix
+)

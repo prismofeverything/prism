@@ -136,17 +136,29 @@ the natural shape (it mirrors the domain hierarchy) and the resolver's hardest l
 - `spatio-flux` and `prism-audio` already co-locate native + `ys/`; their package
   `project.ys` moves to the new structured manifest (the legacy directive retires in P5).
 
-## 7. Sequencing — Phase-5-first
+## 7. Sequencing — the SYSTEM is done; CONSUME it (decompose) before Phase 4
 
-1. **pkg — Phase 5 (the gate):** the native-dep convergence (`manifest.rs` `native:` source +
-   `resolve_core` linking it via codegen, onto the canonical run-Core; retire the legacy
-   directive). Lands with its consumer: a `.ys` package depending on `prism-audio` natively.
-   *Touches `codegen.rs` / `cli.rs` — coordinate-first with `lang`.*
-2. **Domain agents — expose `domain_core()`:** `std`/`audio`/`sf` have one; **`../manifold`,
-   `../parsimony`, `mapk` add one** (a small additive `prelude` fn, the canonical convention).
-3. **Break out ALL domains** into `packages/<domain>/` (pure-`.ys` + mixed together), `bio`
-   as the umbrella; the monolith empties.
-4. **M4:** a one-engine `project.ys` depending on `bio + quantum + synth`, colimit'd into one
+**Status (2026-06-11).** The package SYSTEM is complete + green — Phases 1–3 (manifest /
+resolver-as-colimit / lockfile / registry / `chrysalis add`) **and** native P5 (the codegen
+runner + the `native:` source; `spatio-flux` migrated to `native: .` and runs e2e). What is
+NOT done is the **consumer**: only `spatio-flux` is a real package; the `chrysalis/ys/`
+monolith (≈50 files) + every other domain are un-broken-out. So **decompose now — *before*
+Phase 4** (publish has no real domain packages to publish until this happens). *Confirmed with
+the human 2026-06-11: synth first, then scale.*
+
+1. [x] **Native P5 (the gate)** — DONE. The codegen runner links a crate's `domain_core()` +
+   colimits it; `spatio-flux` is the proof (`native: .`; kinetics + diffusion e2e).
+2. [ ] **synth FIRST — the next real package (`packages/synth`).** Most ready: `audio_core()`
+   exists, the `.ys` patches are proven (`a_ys_audio_patch_renders_through_run`), P5 is done.
+   A `packages/synth/project.ys` (`native: <prism-audio>`) + the proven patch runs via
+   `chrysalis run` through the codegen runner. *pkg ⋈ synth.* Validates the full stack on a
+   clean mixed domain + is Phase 4's first real publish target.
+3. [ ] **Scale the breakout** — `quantum` (pure-`.ys`), then `manifold`/`spatial`/`bio` (each
+   native domain adds a `domain_core()` first: `../manifold` / `../parsimony` / `mapk`); `bio`
+   the umbrella over `spatio-flux` + `mapk`; the monolith empties into `packages/<domain>/`.
+4. [ ] **Phase 4 (publish + remote registry)** — AFTER real packages exist: publish
+   `spatio-flux` / `synth` / … ; `chrysalis add synth` from the registry.
+5. [ ] **M4:** a one-engine `project.ys` depending on `bio + quantum + synth`, colimit'd into one
    distributed/streaming engine (`grand-synthesis.md`).
 
 ## 8. Owners

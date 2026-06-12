@@ -1,0 +1,33 @@
+# writes-synths.ys — THE HEADLINE: the synth writes synths, as a real package, from
+# the CLI.
+#
+#   chrysalis run packages/synth/ys/writes-synths.ys
+#
+# A `Composite[…]` expression AUTHORS a brand-new two-oscillator module TYPE inline —
+# two detuned sine oscillators (220 Hz + 330 Hz, a fifth) summing into one inner
+# `Signal` mix bus, bridged out as `out`. `instantiate` brings the authored type to
+# life and renders it; its summed `Signal` lands on `bus`. The module type did not
+# exist before this expression — the patch builds the instrument it then plays.
+#
+# Same native-package machinery as `tone.ys`: `from audio import Oscillator` links the
+# native prism-audio crate via the package's `native:` dep; `:: Signal` rides the
+# colimited type registry. The body is the surface form proven by prism-audio's
+# `a_ys_expression_authors_a_two_oscillator_module_type`.
+from audio import Oscillator
+
+composite WritesSynths ~{} ->{ out :: Signal } (
+  out: instantiate({
+    stack: Composite[
+      state: {
+        mix: [0.0], pa: 0.0, pb: 0.0,
+        oa: Oscillator[wave: 'Sine', freq: 220.0, amplitude: 0.4, sample_rate: 48000.0, block: 256]
+          ~{phase: pa} ->{phase: pa, out: mix},
+        ob: Oscillator[wave: 'Sine', freq: 330.0, amplitude: 0.4, sample_rate: 48000.0, block: 256]
+          ~{phase: pb} ->{phase: pb, out: mix}
+      },
+      bridge: { inputs: {}, outputs: { out: ['mix'] } },
+      interval: 0.00533333
+    ] ~{} ->{ out: bus },
+    bus: [0.0]
+  }, 0.05).bus
+)

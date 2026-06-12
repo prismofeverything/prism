@@ -57,12 +57,17 @@ overall; the deep docs hold the content.
   manifest) + **`Core::merge` + `Core::own_over`** (prism-bigraph, additive, 10/10 laws:
   commutative/associative/idempotent + diamond-dedup) + `resolver.rs` + a 2-package path-dep
   consumer that links + runs a dep's process end-to-end; **core reviewed + APPROVED.**
-  **Phase 2 DONE** (resolver-as-colimit + lockfile + semver — the SOUL complete, joint pkg+core).
-  **NEXT (human-steered 2026-06-10): Phase 5 (native-dep convergence) → the DOMAINS-AS-PACKAGES
-  decomposition** (`docs/packages-decomposition.md`): each domain → a package in a top-level
-  `packages/` dir, `bio` an umbrella over spatio-flux + mapk; **the M4 substrate** — a one-engine
-  `project.ys` that deps `bio + quantum + synth` and colimits them into one engine. Identity:
-  **the *librarian of theories*** (builds the CATEGORY theories
+  **The package SYSTEM is COMPLETE + green** — Phases 1–3 (manifest · resolver-as-colimit ·
+  lockfile · registry · `chrysalis add`) **+ native P5** (the codegen runner + `native:` source;
+  `spatio-flux` migrated to `native: .`, runs e2e). Thin-layer held (pkg consumed lang's runner
+  primitives with zero manifest/resolver edits). **STOCK-TAKE (unify, 2026-06-11): the system
+  OUTRAN its consumer** — no `packages/` dir, the `ys/` monolith is intact (≈50 files), only
+  spatio-flux is a real package, `manifold`/`parsimony`/`mapk` lack `domain_core()`. **NEXT
+  (human-confirmed): the DECOMPOSITION, not Phase 4** (publish has no real domains to publish
+  yet) — **synth FIRST** (`packages/synth`: `native: prism-audio` + the proven patch via the
+  codegen runner; pkg ⋈ synth), then scale (quantum/bio/the monolith). Phase 4 DEFERRED until
+  real packages exist. **= the M4 substrate** (a one-engine `project.ys` deps bio+quantum+synth).
+  `docs/packages-decomposition.md` §7. Identity: **the *librarian of theories*** (builds the CATEGORY theories
   live in; soul = theory-composition, Phases 1–2; registry/publish 3–5 = thin reach). OWNS #67.
   **Categorical semantics BINDING — SHARPENED by pkg's implementation (bank these):**
   (1) `Core::merge` is the CALM idempotent join-semilattice, but it is the structural **DUAL** of

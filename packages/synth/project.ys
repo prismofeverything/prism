@@ -1,0 +1,19 @@
+# packages/synth — the AUDIO domain as a real prism package (#63 ⋈ #67).
+#
+# The first domain broken out of the monolith into `packages/<domain>/`
+# (`docs/packages-decomposition.md` §7): synth depends on the native audio crate
+# `prism-audio` (its `audio_core()` — Oscillator / LowPass / Vca / Envelope + the
+# `Signal` type) and runs `.ys` patches against it.
+#
+# `audio` is a NATIVE dependency: chrysalis (a fixed binary) cannot link a domain
+# crate in-process, so `chrysalis run ys/<patch>.ys` finds this manifest, generates +
+# caches a runner that links prism-audio, calls its `prelude::core()`, and colimits it
+# in through `resolve_with_natives` — the SAME resolver a `.ys` path dep uses, the
+# native Core merely supplied (`docs/packages-decomposition.md` §3). A patch then says
+# `from audio import Oscillator` and `:: Signal` (the type rides the colimit). prism-
+# audio stays fully chrysalis-free — only its zero-arg `prelude::core()` is touched.
+def package = {
+  name: 'synth',
+  version: '0.1.0',
+  dependencies: { audio: { native: '../../crates/prism-audio' } },
+}
