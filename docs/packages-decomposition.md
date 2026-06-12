@@ -161,6 +161,33 @@ the human 2026-06-11: synth first, then scale.*
 5. [ ] **M4:** a one-engine `project.ys` depending on `bio + quantum + synth`, colimit'd into one
    distributed/streaming engine (`grand-synthesis.md`).
 
+## 7b. The transitive-native gap (open — the new-dir / `bio` / M4 enabler)
+
+**Found 2026-06-11 via a live external-project test.** `chrysalis new` + a std-only project
+runs from any external dir today, and a project with a **DIRECT** `native:` dep (or a pure-`.ys`
+path dep) works through the codegen runner. But a project that depends on a **mixed package**
+(e.g. `synth`, whose own manifest has `native: audio`) **fails**: codegen's `native_parts`
+collects only the TOP manifest's direct native edges (no recursion), and `has_native_parts`
+checks only the top manifest — so the in-process resolver runs and then errors on the
+*transitive* native (`native dependency 'audio' was not supplied a Core`).
+
+This one gap blocks the three things that matter most:
+- **a new-dir project depending on the domain packages** (the natural external-user flow);
+- **the `bio` umbrella** (it deps `spatio-flux` + `mapk`, both native → transitive natives);
+- **M4** (the one-engine `project.ys` deps `bio + quantum + synth` — all mixed → transitive).
+
+**Fix (pkg ⋈ lang):** the resolver already walks the full DAG for the colimit — collect native
+crates **transitively** along that walk, and trigger the codegen path if **any** package in the
+DAG has native parts (not just the top). The runner links every transitive native crate +
+supplies each `domain_core()` keyed by its edge. Small, well-scoped, and on the **M4 critical
+path** — do it before the scale-up consumes it.
+
+### New-dir project readiness (today, proven live)
+- ✅ **std-only** — `chrysalis new <dir>` + `chrysalis run main.ys` (proven: `count=3.0` from `/tmp`).
+- ✅ **direct `native:` dep** — declare the crate directly → codegen builds + runs the runner.
+- ✅ **pure-`.ys` path/registry deps** — resolved in-process.
+- ❌ **depend on a mixed domain package** (`synth`/`bio`) — blocked on the transitive-native gap.
+
 ## 8. Owners
 
 - **pkg** (leads): Phase 5 (the native convergence) + the breakout + the `packages/` layout.

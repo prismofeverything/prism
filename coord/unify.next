@@ -64,9 +64,11 @@ overall; the deep docs hold the content.
   OUTRAN its consumer** — no `packages/` dir, the `ys/` monolith is intact (≈50 files), only
   spatio-flux is a real package, `manifold`/`parsimony`/`mapk` lack `domain_core()`. **NEXT
   (human-confirmed): the DECOMPOSITION, not Phase 4** (publish has no real domains to publish
-  yet) — **synth FIRST** (`packages/synth`: `native: prism-audio` + the proven patch via the
-  codegen runner; pkg ⋈ synth), then scale (quantum/bio/the monolith). Phase 4 DEFERRED until
-  real packages exist. **= the M4 substrate** (a one-engine `project.ys` deps bio+quantum+synth).
+  yet) — **synth DONE** (`packages/synth`, 3 patches render audio from the CLI — the first real
+  package). **NEXT: close the TRANSITIVE-NATIVE gap** (pkg ⋈ lang — a project depping a mixed
+  package fails on its transitive native; the **new-dir-project + `bio`-umbrella + M4 enabler**,
+  doc §7b), then scale the breakout (quantum/bio/the monolith). Phase 4 DEFERRED until real
+  packages exist. **= the M4 substrate** (a one-engine `project.ys` deps bio+quantum+synth).
   `docs/packages-decomposition.md` §7. Identity: **the *librarian of theories*** (builds the CATEGORY theories
   live in; soul = theory-composition, Phases 1–2; registry/publish 3–5 = thin reach). OWNS #67.
   **Categorical semantics BINDING — SHARPENED by pkg's implementation (bank these):**
