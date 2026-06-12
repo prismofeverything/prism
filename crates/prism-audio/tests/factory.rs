@@ -184,3 +184,49 @@ fn distinct_recipes_author_distinct_types_from_one_rule() {
         "the 2-voice type authored NO centre — a structurally different type ({two_centre})"
     );
 }
+
+#[test]
+fn writes_synths_example_root_then_authored_stack() {
+    // The device-free twin of `examples/play_writes_synths.rs` (the audible
+    // writes-synths demo): a 220 Hz root + a `StackSeed{330, 14, 5}` + the
+    // `stack_factory` BRS over the rack. Rendered offline so the example's AUDIO —
+    // the root throughout, then the authored detuned stack (~330 Hz) blooming in once
+    // the factory fires — is guarded with no audio device. (The example uses a ~2.5 s
+    // BRS interval for an audible *delay*; here the BRS ticks at block-rate so the
+    // fire lands inside the N-block window — the logic is identical.)
+    let root = stack_voice_node(&StackRecipe::super_saw(220.0, 0.0, 1, 0.3), BLOCK, RATE, "mix");
+    let seed = Value::tree([
+        ("_type", Value::String("StackSeed".into())),
+        ("base", Value::float(330.0)),
+        ("spread", Value::float(14.0)),
+        ("voices", Value::float(5.0)),
+    ]);
+    let state = Value::tree([
+        (
+            "rack",
+            Value::tree([("mix", silence(BLOCK)), ("root", root), ("seed", seed)]),
+        ),
+        ("brs", patch_brs_node("rack", BLOCK as f64 / RATE)),
+    ]);
+    let schema = Schema::tree([("rack", Schema::tree([("mix", signal_type())]))]);
+    let out = render_patch_brs(
+        state,
+        schema,
+        vec![stack_factory("mix", BLOCK, RATE, 0.4)],
+        &["rack", "mix"],
+        BLOCK,
+        N,
+    );
+    assert_eq!(out.len(), N * BLOCK, "N blocks rendered");
+
+    // The last block — after the factory has authored + installed the stack: the
+    // 220 Hz root AND the authored stack's centre (330 Hz, an odd voice count) both sound.
+    let tail = &out[(N - 1) * BLOCK..];
+    let e220 = goertzel(tail, 220.0, RATE);
+    let e330 = goertzel(tail, 330.0, RATE);
+    assert!(e220 > 0.05, "the 220 Hz root sounds throughout ({e220})");
+    assert!(
+        e330 > 0.05,
+        "the synth AUTHORED a stack a fifth up and it sounds (~330 Hz, {e330})"
+    );
+}

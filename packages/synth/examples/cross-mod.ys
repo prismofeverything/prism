@@ -1,0 +1,35 @@
+# cross-mod.ys — everything modulates everything, through ONE Signal language.
+#
+#   chrysalis run packages/synth/examples/cross-mod.ys --time 1     # render
+#   chrysalis run packages/synth/examples/cross-mod.ys --play       # hear it (sink: audio)
+#
+# A single 2 Hz LFO (an oscillator run slow) fans out to TWO destinations at once —
+# CV ≡ audio, so its `sine` output is just a Signal patched wherever:
+#   * the VCO's `fm_exp` input  -> pitch vibrato (±0.1 octave)
+#   * the filter's `cutoff_cv`  -> a resonant low-pass sweep (±2 octaves around 800 Hz)
+# The VCO's `saw` feeds the state-variable filter; the filter's `lp` is the output. This
+# is the joranalogue/Serge ethos: rich modulation inputs on every module, all speaking
+# the same Signal, cross-patched freely.
+from audio import Oscillator, Svf
+
+composite CrossMod ~{} ->{ out :: Signal @ out } (
+  out: [0.0] |
+  lfo: [0.0] |
+  vco: [0.0] |
+  lfo_phase: 0.0 |
+  vco_phase: 0.0 |
+  ic1: 0.0 |
+  ic2: 0.0 |
+
+  # the modulator — a slow oscillator; its sine IS the CV
+  lfo_osc: Oscillator[wave: 'Sine', freq: 2.0, amplitude: 1.0, sample_rate: 48000.0, block: 256]
+    ~{phase: lfo_phase} ->{phase: lfo_phase, sine: lfo} |
+
+  # the voice — a 110 Hz saw, its pitch vibrato'd by the LFO (fm_depth scales the CV)
+  vco_osc: Oscillator[wave: 'Saw', freq: 110.0, amplitude: 0.4, sample_rate: 48000.0, block: 256, fm_depth: 0.1]
+    ~{phase: vco_phase, fm_exp: lfo} ->{phase: vco_phase, saw: vco} |
+
+  # the filter — resonant low-pass, cutoff swept by the SAME LFO (cutoff_depth in octaves)
+  filt: Svf[cutoff: 800.0, resonance: 0.6, sample_rate: 48000.0, block: 256, cutoff_depth: 2.0]
+    ~{input: vco, ic1: ic1, ic2: ic2, cutoff_cv: lfo} ->{ic1: ic1, ic2: ic2, lp: out}
+)

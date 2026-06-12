@@ -33,6 +33,7 @@ fn main() {
         "remove" => cmd_remove(rest),
         "install" => cmd_install(rest),
         "update" => cmd_update(rest),
+        "publish" => cmd_publish(rest),
         "bigraph" => cmd_bigraph(rest),
         "check" => cmd_check(rest),
         "format" => cmd_format(rest),
@@ -57,7 +58,7 @@ fn main() {
 fn usage() {
     eprintln!(
         "usage:\n  chrysalis new <dir> [--force]\n  \
-         chrysalis run <file.ys> [--time T] [--<port> SOURCE ...] [--out FILE]\n  \
+         chrysalis run <file.ys> [--time T] [--<port> SOURCE ...] [--out FILE] [--play]\n  \
          chrysalis check <file.ys> [--time T]\n  \
          chrysalis format <file.ys> [-w | --write]\n  \
          chrysalis bigraph <file.ys> | export <file.ys> <out.json> | import <doc.json>\n  \
@@ -548,6 +549,68 @@ fn resolve_and_lock(cmd: &str, update: bool) {
         resolution.graph.len(),
         manifest.dir.join("project.lock").display()
     );
+}
+
+/// `chrysalis publish [--registry <dir|url>] [--force]` — publish the project (its
+/// `project.ys` name + version) into a registry. A **local** registry (a dir) copies the
+/// source to `<registry>/<name>/<version>/` (immutable unless `--force`); a **remote**
+/// registry (an `http://…` URL) packs the source and uploads it over mesh's transport
+/// (always immutable, no `--force`). The registry is `--registry` or the project's
+/// `registry:` field. #67 Phase 4 (P4a local + P4b remote).
+fn cmd_publish(args: &[String]) {
+    let mut registry_arg: Option<String> = None;
+    let mut force = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--registry" => {
+                i += 1;
+                registry_arg = args.get(i).cloned();
+            }
+            "--force" => force = true,
+            other => die("publish", format!("unknown flag `{other}`")),
+        }
+        i += 1;
+    }
+    let cwd = std::env::current_dir().unwrap_or_else(|e| die("publish", format!("cwd: {e}")));
+    let manifest = chrysalis::manifest::Manifest::find(&cwd)
+        .unwrap_or_else(|| die("publish", "no `project.ys` found (run inside a chrysalis project)"));
+    // `--registry` overrides the manifest's `registry:` field. A URL (`http://…`) publishes
+    // over mesh's transport (P4b); a dir copies locally (P4a) — the same pluggable backend.
+    use chrysalis::manifest::RegistryLocation;
+    let location = match &registry_arg {
+        Some(r) if r.starts_with("http://") || r.starts_with("https://") => {
+            RegistryLocation::Url(r.clone())
+        }
+        Some(r) => RegistryLocation::Dir(std::path::PathBuf::from(r)),
+        None => manifest.registry_location().unwrap_or_else(|| {
+            die(
+                "publish",
+                "no registry — pass `--registry <dir|url>` or declare `registry: '…'` in project.ys",
+            )
+        }),
+    };
+    match location {
+        RegistryLocation::Url(url) => {
+            if force {
+                eprintln!(
+                    "publish: --force ignored for a remote registry (a published version is \
+                     always immutable)"
+                );
+            }
+            match chrysalis::registry::publish_remote(&manifest.dir, &url) {
+                Ok(version) => eprintln!("published `{}@{}` to {url}", manifest.name, version),
+                Err(e) => die("publish", e),
+            }
+        }
+        RegistryLocation::Dir(dir) => match chrysalis::registry::publish(&manifest.dir, &dir, force)
+        {
+            Ok((version, dest)) => {
+                eprintln!("published `{}@{}` to {}", manifest.name, version, dest.display())
+            }
+            Err(e) => die("publish", e),
+        },
+    }
 }
 
 fn cmd_check(args: &[String]) {

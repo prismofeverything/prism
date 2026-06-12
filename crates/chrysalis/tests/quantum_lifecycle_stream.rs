@@ -25,7 +25,9 @@ fn chrysalis_bin() -> &'static str {
 
 fn ys_path() -> String {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    format!("{manifest}/ys/quantum-lifecycle-stream.ys")
+    // The demo lives in the `quantum` package (#67 decomposition); reach it from
+    // this crate's dir (`crates/chrysalis`) via `../../packages/quantum/ys`.
+    format!("{manifest}/../../packages/quantum/ys/quantum-lifecycle-stream.ys")
 }
 
 fn run_at_time(t: u64) -> String {

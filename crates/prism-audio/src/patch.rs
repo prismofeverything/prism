@@ -23,6 +23,7 @@ use crate::lowpass::LowPass;
 use crate::oscillator::Oscillator;
 use crate::render::render;
 use crate::signal::signal_registry;
+use crate::svf::Svf;
 use crate::vca::Vca;
 
 /// Register the standard audio modules as config-driven process factories, so a
@@ -35,6 +36,7 @@ pub fn register_audio(reg: &mut ProcessRegistry) {
     reg.register("LowPass", |c| {
         ProcessNode::Process(Box::new(LowPass::from_config(&c)))
     });
+    reg.register("Svf", |c| ProcessNode::Process(Box::new(Svf::from_config(&c))));
     reg.register("Vca", |c| ProcessNode::Process(Box::new(Vca::from_config(&c))));
     reg.register("Envelope", |c| {
         ProcessNode::Process(Box::new(Envelope::from_config(&c)))

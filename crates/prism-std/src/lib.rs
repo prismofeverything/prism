@@ -4,11 +4,13 @@
 //! add their own natives on top; this is the part that is *prism* work, not a
 //! particular demo.
 
+pub mod complex;
 pub mod mass_action;
 pub mod math;
 pub mod process_runner;
 pub mod simulate;
 
+pub use complex::register_complex_type;
 pub use mass_action::{integrator, register_methods, stochastic};
 pub use process_runner::RunProcess;
 pub use simulate::Simulate;

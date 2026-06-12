@@ -140,6 +140,8 @@ mod package_native;
 mod package_path_dep;
 #[path = "package_registry.rs"]
 mod package_registry;
+#[path = "package_remote_registry.rs"]
+mod package_remote_registry;
 #[path = "package_transitive.rs"]
 mod package_transitive;
 #[path = "package_transitive_native.rs"]
@@ -182,6 +184,8 @@ mod quantum_lifecycle;
 mod quantum_lifecycle_stream;
 #[path = "quantum_locc.rs"]
 mod quantum_locc;
+#[path = "quantum_package_runs.rs"]
+mod quantum_package_runs;
 #[path = "quantum_self_decohere.rs"]
 mod quantum_self_decohere;
 #[path = "quantum_teleportation.rs"]

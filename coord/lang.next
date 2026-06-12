@@ -10,8 +10,8 @@ semantics, diagnostics). Read this + `coord/ROSTER.md` + `coord/board.ys` (the l
 cross-agent view) + **`docs/homoiconic-unification.md`** (the shared design you
 implement, stewarded by `unify`). Own `coord/lang.ys` (live heartbeat) and this file
 (durable). Create `coord/lang.ys` from your first heartbeat. Resume from **Now / next**.
-**CURRENT ARC: packages / P5c native imports** (paired w/ `pkg`) — see the first Now/next
-block + `docs/packages-decomposition.md` §3. (The homoiconic-unification arc below is parked.)
+**CURRENT ARC: the PLAY sink** (`docs/domain-libraries.md` §5; synth ⋈ pkg ⋈ lang) — see the
+first Now/next block. (P5c native imports COMPLETE, below it; homoiconic-unification parked.)
 
 ## Domain
 The chrysalis crate: `crates/chrysalis/src/{parse.rs, ast.rs, eval.rs, compile.rs}` +
@@ -23,6 +23,33 @@ and any eval rung **CALL** prism (`Core::instantiate`, `discover_processes`,
 `prism_schema::reaction`), never clone a runtime algorithm. `feedback_schema_algebra` —
 a new instantiate op is a NAMED algebra op + laws + tests, not ad-hoc munging.
 `feedback_no_half_measures` — every slice ships with its consuming test.
+
+## Now / next — the PLAY sink (`docs/domain-libraries.md` §5) — synth ⋈ pkg ⋈ lang (CURRENT)
+The OUTPUT boundary: `chrysalis run <x>.ys --play` drives a sink-declaring package to its device
+through the codegen runner (vs offline JSON). Driving the whole feature coordinate-first (human OK,
+"help synth"). synth shipped `packages/synth` (first domain package, audible via a Rust example);
+this makes it audible from the CLI.
+- [x] **Pieces (built, lib-green @ tick 24; e2e verifying):**
+  - `manifest.rs` (pkg's, coordinate-first): `sink: Option<String>` + parse — names the part (a
+    native-dep edge) whose device receives the engine. Test `parses_a_sink_field`.
+  - `codegen.rs` (mine): `run_play` + `render_play_runner` — `--play` routes a sink package to a
+    SEPARATE `<name>-play` runner cache that BUILDS the engine (`chrysalis::runner::build_engine`) +
+    drives it to `<sink>::prelude::run_realtime(engine, seconds)`; the sink crate compiled
+    `--features realtime`. `find_sink` resolves `sink:`→the native crate; `build_and_exec` factored
+    (offline + play share it). Tests `find_sink_resolves_a_native_edge`, `renders_a_play_runner`.
+  - `prism-audio/src/prelude.rs` (synth's, coordinate-first): `run_realtime(engine, seconds)` behind
+    `realtime` — wraps `device::run_realtime` (bus `out`, block 256 / 48k). **KEY: takes a BUILT
+    engine → PLAY needs only `realtime`, NOT `ys` → prism-audio stays chrysalis-free even for play.**
+  - `packages/synth/project.ys` (synth's): `sink: 'audio'`. bin `usage()`: `[--play]`.
+- [x] **Verified (e2e) + regression-clean.** `chrysalis run packages/synth/ys/live.ys --play --time 1`
+      generates the `synth-play` runner, builds it (prism-audio `realtime`→gorgon/pipewire/cpal), builds
+      the engine, and drives `live.ys` to the device → **exit 0** (`run_realtime` returned `Ok`, so a
+      block stream was produced). chrysalis lib 80 + suite 270 / 0 (green @ tick 25). `domain-libraries.md`
+      §5 updated to BUILT (unify's doc — flagged on the board). Actual audible sound = synth's hardware
+      confirm (their `play_ys` example already does).
+- [ ] **Follow-ups** (not blocking): the OWN-native sink (a `native: '.'` package whose own crate is the
+      sink — synth is dep-shape, not exercised); a `--bus`/duration convention beyond `out` + `--time`;
+      the same `sink:` for `spatial`→display.
 
 ## Now / next — packages / P5c (native imports) — PAIRED w/ `pkg` (CURRENT ARC)
 The package system is `pkg`'s domain (a package = a `Core` + manifest; linking = `Core::colimit`;

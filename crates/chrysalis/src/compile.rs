@@ -740,6 +740,9 @@ pub(crate) fn build_type_registry_extending(
     let mut types = base.cloned().unwrap_or_else(TypeRegistry::new);
     register_user_types(&mut types, program);
     crate::quantum::register_quantum_type(&mut types);
+    // The shared `Complex` sort (#68, categorical-core §6b) — quantum amplitudes,
+    // manifold phase+amplitude, synth analytic signal. `array[[2]]` (re, im).
+    prism_std::register_complex_type(&mut types);
     // The `Reaction` type — a reaction at rest as transmittable DATA (AlChemy).
     // A `:: Reaction` / `:: map[Reaction]` slot AUTO-reifies a chrysalis Rule to
     // the closure-free `Foreign(FOREIGN_REACTION, …)` form the BRS reads as a

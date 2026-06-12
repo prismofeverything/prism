@@ -361,7 +361,7 @@ appropriate structural intent each tick:
 Visible at three `--time` snapshots: `--time 0` shows the initial
 joint system, `--time 1` shows the split state, `--time 2+` shows
 the merged state. Three distinct phases in the place graph,
-deterministically. Demo: `crates/chrysalis/ys/quantum-lifecycle.ys`;
+deterministically. Demo: `packages/quantum/ys/quantum-lifecycle.ys`;
 regression: `tests/quantum_lifecycle.rs` (4 tests).
 
 **Caveats / remaining work toward full Q4**:
@@ -432,4 +432,5 @@ classical-channeled.
   bigraph foundations.
 - `docs/effects-and-handlers.md` §XI — the algebraic-effects framing.
 - `docs/exploring-the-computational-unknown.md` — broader landscape.
-- `crates/chrysalis/ys/quantum-*.ys` — the running demos.
+- `packages/quantum/ys/quantum-*.ys` — the running demos (the `quantum`
+  package; #67 decomposition).

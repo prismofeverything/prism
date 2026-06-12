@@ -17,6 +17,8 @@ pub mod envelope;
 pub mod factory;
 pub mod instrument;
 pub mod lowpass;
+/// The universal modulation layer — CV ≡ audio; every parameter a `Signal` input.
+pub mod modulation;
 pub mod oscillator;
 pub mod patch;
 /// The audio domain's runnable Core (`audio_core`, chrysalis-free) + the `.ys`
@@ -25,6 +27,7 @@ pub mod prelude;
 pub mod reactions;
 pub mod render;
 pub mod signal;
+pub mod svf;
 pub mod vca;
 pub mod voice;
 pub mod wav;
@@ -51,6 +54,7 @@ pub use signal::{
     register_signal, signal_from_slice, signal_registry, signal_schema, signal_to_vec, signal_type,
     silence, SIGNAL,
 };
+pub use svf::Svf;
 pub use vca::Vca;
 pub use wav::write_wav_i16;
 pub use wave::Wave;

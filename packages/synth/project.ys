@@ -12,8 +12,13 @@
 # native Core merely supplied (`docs/packages-decomposition.md` §3). A patch then says
 # `from audio import Oscillator` and `:: Signal` (the type rides the colimit). prism-
 # audio stays fully chrysalis-free — only its zero-arg `prelude::core()` is touched.
+# `sink: 'audio'` declares the OUTPUT boundary (`docs/domain-libraries.md` §5): a
+# `chrysalis run ys/<patch>.ys --play` drives the engine to prism-audio's device sink
+# (`prelude::run_realtime`) instead of rendering offline JSON. `'audio'` names the
+# native dependency whose crate provides the sink.
 def package = {
   name: 'synth',
   version: '0.1.0',
   dependencies: { audio: { native: '../../crates/prism-audio' } },
+  sink: 'audio',
 }

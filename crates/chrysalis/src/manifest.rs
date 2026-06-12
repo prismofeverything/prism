@@ -38,6 +38,17 @@ pub const MANIFEST_BINDING: &str = "package";
 /// The manifest file name, walked-for up the directory tree.
 pub const MANIFEST_FILE: &str = "project.ys";
 
+/// Where a project's registry lives — the two backends behind the `Registry` trait. A
+/// `registry: '…'` that parses as a URL is a remote backend (#67 Phase 4b); anything else
+/// is a local dir (Phase 3). See [`Manifest::registry_location`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum RegistryLocation {
+    /// A local directory registry (`<dir>/<name>/<version>/`).
+    Dir(PathBuf),
+    /// A remote registry addressed by base URL (`http://host:port`).
+    Url(String),
+}
+
 /// A structured package manifest — the package's identity + its dependency edges.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Manifest {
@@ -58,6 +69,12 @@ pub struct Manifest {
     /// Phase 3, `registry: '<dir>'`, relative to `dir` or absolute); a URL / pluggable
     /// backend in Phase 4. `None` ⇒ the project uses no registry (path/native deps only).
     pub registry: Option<PathBuf>,
+    /// The package's **output sink** (`docs/domain-libraries.md` §5) — the name of the
+    /// part (a native-dep edge, or the own `native:` crate) whose `prelude::run_realtime`
+    /// drives the engine to the world (an audio device; later a display / file / stream).
+    /// `chrysalis run <x>.ys --play` routes a sink-declaring package through the codegen
+    /// runner in play mode; `None` is no sink (offline JSON only). (#67 Phase 5c / §5.)
+    pub sink: Option<String>,
     pub dependencies: Vec<Dependency>,
     pub exports: Vec<String>,
     /// The directory containing `project.ys`. Path dependencies resolve relative to
@@ -161,6 +178,7 @@ impl Manifest {
         };
         let native = string_field(fields, "native").map(PathBuf::from);
         let registry = string_field(fields, "registry").map(PathBuf::from);
+        let sink = string_field(fields, "sink");
         let exports = match fields.get("exports") {
             Some(e) => string_list(e)
                 .ok_or_else(|| "`exports` must be a list of strings".to_string())?,
@@ -176,6 +194,7 @@ impl Manifest {
             version,
             native,
             registry,
+            sink,
             dependencies,
             exports,
             dir: dir.as_ref().to_path_buf(),
@@ -191,6 +210,22 @@ impl Manifest {
                 self.dir.join(r)
             }
         })
+    }
+
+    /// Where the registry lives: a remote URL (`http://…`/`https://…`, the Phase-4b
+    /// backend) or a local dir (Phase 3, resolved against `dir`). `None` ⇒ the project
+    /// uses no registry. The seam `resolver::open_registry` branches on to pick a
+    /// [`RemoteRegistry`](crate::registry::RemoteRegistry) vs a
+    /// [`LocalRegistry`](crate::registry::LocalRegistry) — the pluggable backend.
+    pub fn registry_location(&self) -> Option<RegistryLocation> {
+        let raw = self.registry.as_ref()?;
+        let s = raw.to_string_lossy();
+        if s.starts_with("http://") || s.starts_with("https://") {
+            Some(RegistryLocation::Url(s.into_owned()))
+        } else {
+            // `registry` is `Some`, so `registry_dir` is too.
+            Some(RegistryLocation::Dir(self.registry_dir().unwrap()))
+        }
     }
 
     /// The package's own native crate directory (if any), resolved against `dir`.
@@ -481,6 +516,19 @@ def package = {
         assert_eq!(m.version, None);
         assert!(m.dependencies.is_empty());
         assert!(m.exports.is_empty());
+        assert_eq!(m.sink, None, "no sink unless declared");
+    }
+
+    #[test]
+    fn parses_a_sink_field() {
+        // The output boundary (docs/domain-libraries.md §5): `sink: 'audio'` names the
+        // native-dep edge whose device the codegen runner drives `--play` to.
+        let m = Manifest::parse(
+            "def package = { name: 'synth', sink: 'audio', dependencies: { audio: { native: '../audio' } } }",
+            "/p",
+        )
+        .unwrap();
+        assert_eq!(m.sink, Some("audio".to_string()));
     }
 
     #[test]

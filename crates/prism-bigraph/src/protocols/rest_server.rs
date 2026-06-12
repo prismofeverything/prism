@@ -22,16 +22,13 @@
 //! protocol is a handful of JSON routes.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 
 use prism_schema::algebra;
 use prism_schema::schema::{json_to_value, value_to_json};
 
+use crate::protocols::http::{self, HttpServer};
 use crate::protocols::rest::record_schema;
 
 use crate::core::Core;
@@ -44,14 +41,13 @@ use crate::process::ProcessNode;
 // the map (the rest-concurrency bottleneck, #21).
 type Processes = Arc<Mutex<HashMap<String, Arc<ProcessNode>>>>;
 
-/// An HTTP server exposing a [`ProcessRegistry`] over the rest-process wire
-/// protocol. [`start`](RestProcessServer::start) binds an ephemeral port and
-/// serves on a background thread; drop shuts it down and joins.
+/// An HTTP server exposing a [`Core`]'s processes over the rest-process wire
+/// protocol — the [`route`] handler over the shared [`HttpServer`] plumbing (the
+/// same door [`super::registry`] serves the package store on). Dropping it (the
+/// `HttpServer` field's own `Drop`) shuts down and joins.
 pub struct RestProcessServer {
-    port: u16,
+    server: HttpServer,
     processes: Processes,
-    shutdown: Arc<AtomicBool>,
-    thread: Option<thread::JoinHandle<()>>,
 }
 
 impl RestProcessServer {
@@ -67,59 +63,31 @@ impl RestProcessServer {
 
     /// Start a server bound to `addr` (e.g. `"127.0.0.1:8088"`; port `0` = an
     /// OS-chosen free port — read it back via [`RestProcessServer::port`]).
-    pub fn start_on(
-        core: Core,
-        addr: impl std::net::ToSocketAddrs,
-    ) -> std::io::Result<Self> {
-        let listener = TcpListener::bind(addr)?;
-        let port = listener.local_addr()?.port();
-        listener.set_nonblocking(true)?;
-
+    pub fn start_on(core: Core, addr: impl std::net::ToSocketAddrs) -> std::io::Result<Self> {
         let processes: Processes = Arc::new(Mutex::new(HashMap::new()));
-        let shutdown = Arc::new(AtomicBool::new(false));
         let next_id = Arc::new(AtomicUsize::new(0));
 
-        let thread = {
+        // The per-request handler: route over THIS server's process map + core.
+        // Owned clones (Core is all-Arc; the maps are Arc) make the closure
+        // `'static`, so it serves on the shared `HttpServer` accept loop.
+        let handler = {
             let processes = Arc::clone(&processes);
-            let shutdown = Arc::clone(&shutdown);
-            thread::spawn(move || {
-                while !shutdown.load(Ordering::SeqCst) {
-                    match listener.accept() {
-                        Ok((stream, _)) => {
-                            let core = core.clone(); // cheap: every Core field is an Arc
-                            let processes = Arc::clone(&processes);
-                            let next_id = Arc::clone(&next_id);
-                            thread::spawn(move || {
-                                if let Err(e) = handle(stream, &core, &processes, &next_id) {
-                                    eprintln!("rest server: {e}");
-                                }
-                            });
-                        }
-                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                            thread::sleep(Duration::from_millis(5));
-                        }
-                        Err(_) => break,
-                    }
-                }
-            })
+            move |req: &http::Request| {
+                route(&req.method, &req.path, &req.body, &core, &processes, &next_id)
+            }
         };
-
-        Ok(Self {
-            port,
-            processes,
-            shutdown,
-            thread: Some(thread),
-        })
+        let server = HttpServer::start(addr, handler)?;
+        Ok(Self { server, processes })
     }
 
     /// The bound port (use in a `rest` address's `port` field).
     pub fn port(&self) -> u16 {
-        self.port
+        self.server.port()
     }
 
     /// `http://127.0.0.1:{port}` — the base URL clients address.
     pub fn base_url(&self) -> String {
-        format!("http://127.0.0.1:{}", self.port)
+        self.server.base_url()
     }
 
     /// Number of live process instances (initialized but not yet ended). Zero once
@@ -129,61 +97,9 @@ impl RestProcessServer {
     }
 }
 
-impl Drop for RestProcessServer {
-    fn drop(&mut self) {
-        self.shutdown.store(true, Ordering::SeqCst);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
-    }
-}
-
-// ── request handling (hand-rolled HTTP, like the rest_protocol test mock) ──
-
-fn handle(
-    mut stream: TcpStream,
-    core: &Core,
-    processes: &Processes,
-    next_id: &AtomicUsize,
-) -> std::io::Result<()> {
-    let mut reader = BufReader::new(stream.try_clone()?);
-
-    // Request line: METHOD PATH HTTP/1.1
-    let mut request_line = String::new();
-    reader.read_line(&mut request_line)?;
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or("").to_string();
-    let path = parts.next().unwrap_or("").to_string();
-
-    // Headers — we only need Content-Length.
-    let mut content_length = 0usize;
-    loop {
-        let mut header = String::new();
-        let n = reader.read_line(&mut header)?;
-        if n == 0 || header == "\r\n" {
-            break;
-        }
-        if let Some(rest) = header.to_lowercase().strip_prefix("content-length:") {
-            content_length = rest.trim().parse().unwrap_or(0);
-        }
-    }
-    let mut body = vec![0u8; content_length];
-    if content_length > 0 {
-        reader.read_exact(&mut body)?;
-    }
-    let body = String::from_utf8_lossy(&body).into_owned();
-
-    let (status, payload) = route(&method, &path, &body, core, processes, next_id);
-
-    let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n\
-         Content-Length: {}\r\nConnection: close\r\n\r\n{payload}",
-        payload.len()
-    );
-    stream.write_all(response.as_bytes())?;
-    stream.flush()?;
-    Ok(())
-}
+// `route` + its helpers below ARE the rest-process handler; the HTTP plumbing
+// (accept loop, request parsing, response writing) lives in `super::http`, shared
+// with `super::registry` — one HTTP-serve door, two handlers.
 
 fn route(
     method: &str,

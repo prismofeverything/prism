@@ -100,6 +100,27 @@ pub fn core() -> Core {
     audio_core(DEFAULT_BLOCK)
 }
 
+/// The PLAY **sink** convention (`docs/domain-libraries.md` §5) — drive a *built*
+/// [`Engine`](prism_bigraph::Engine) to the audio device for `seconds`, reading the
+/// conventional `out` Signal bus, one engine tick per block. Behind `realtime` ONLY: it
+/// takes a built engine, so the codegen runner — which builds it via
+/// `chrysalis::runner::build_engine` — drives PLAY *without* prism-audio depending on the
+/// language. Play stays chrysalis-free. `chrysalis run <patch>.ys --play` dispatches here
+/// when `project.ys` declares `sink: 'audio'`.
+#[cfg(feature = "realtime")]
+pub fn run_realtime(engine: prism_bigraph::Engine, seconds: f64) -> anyhow::Result<()> {
+    crate::device::run_realtime(
+        engine,
+        &["out"],
+        crate::device::RealtimeOpts {
+            device: None,
+            seconds,
+            block: DEFAULT_BLOCK,
+            sample_rate: 48_000.0,
+        },
+    )
+}
+
 /// The audio domain's `.ys` export manifest — plain `(import-group, native-name)`
 /// data, **chrysalis-free**. The domain only DECLARES what it exports; a runner
 /// turns this into the language's import surface ([`audio_modules`]).
@@ -107,6 +128,7 @@ pub fn audio_exports() -> &'static [(&'static str, &'static str)] {
     &[
         ("audio", "Oscillator"),
         ("audio", "LowPass"),
+        ("audio", "Svf"),
         ("audio", "Vca"),
         ("audio", "Envelope"),
     ]
@@ -257,6 +279,54 @@ composite WritesSynths ~{} ->{ out :: Signal } (
         assert!(
             e220 > 0.02 && e330 > 0.02,
             "the .ys-authored 2-oscillator module ran on the surface: 220 ({e220}) + 330 ({e330})"
+        );
+    }
+
+    // A CONTINUOUS `.ys` engine — one tick = one audio block — built via the same
+    // `build_engine` seam `run_ys_realtime` (the device sink) uses. The oscillator is
+    // a live composite child writing the `out` Signal each tick (vs PATCH_YS's one-shot
+    // `instantiate`). Device-free proof of the `.ys` → audible path: tick it a few
+    // blocks, each a fresh 220 Hz block with the phase carried across ticks.
+    const LIVE_YS: &str = "\
+from audio import Oscillator
+composite Live ~{} ->{ out :: Signal @ out } (
+  out: [0.0] |
+  phase: 0.0 |
+  osc: Oscillator[wave: 'Sine', freq: 220.0, amplitude: 0.4, sample_rate: 48000.0, block: 256]
+    ~{phase: phase} ->{phase: phase, out: out}
+)
+";
+
+    #[test]
+    fn a_continuous_ys_patch_ticks_a_block_per_step() {
+        let prog = chrysalis::parse::parse_program(LIVE_YS).expect("parse");
+        let mut engine = chrysalis::runner::build_engine(
+            &prog,
+            audio_core(256),
+            audio_modules(),
+            &std::collections::BTreeMap::new(),
+        )
+        .expect("build engine");
+
+        // Drive the engine the way the device sink does: one `tick_block` per audio
+        // block, reading the `out` bus.
+        let blocks: Vec<Vec<f32>> = (0..4)
+            .map(|_| crate::render::tick_block(&mut engine, &["out"]))
+            .collect();
+
+        for (i, b) in blocks.iter().enumerate() {
+            assert!(b.len() >= 256, "block {i} is a full Signal ({} samples)", b.len());
+            assert!(
+                goertzel(b, 220.0, 48_000.0) > 0.05,
+                "block {i} sounds at 220 Hz ({})",
+                goertzel(b, 220.0, 48_000.0)
+            );
+        }
+        // The phase carried across ticks — block 1 continues block 0's wave, it is not
+        // the same block replayed. This is what makes it CONTINUOUS audio for the device.
+        assert!(
+            blocks[0] != blocks[1],
+            "the wave advances across ticks (continuous, not a repeated block)"
         );
     }
 }

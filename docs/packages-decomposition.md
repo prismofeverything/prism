@@ -136,30 +136,35 @@ the natural shape (it mirrors the domain hierarchy) and the resolver's hardest l
 - `spatio-flux` and `prism-audio` already co-locate native + `ys/`; their package
   `project.ys` moves to the new structured manifest (the legacy directive retires in P5).
 
-## 7. Sequencing — the SYSTEM is done; CONSUME it (decompose) before Phase 4
+## 7. Sequencing — the SYSTEM is done; the keystone is closed; SCALE the breakout
 
-**Status (2026-06-11).** The package SYSTEM is complete + green — Phases 1–3 (manifest /
-resolver-as-colimit / lockfile / registry / `chrysalis add`) **and** native P5 (the codegen
-runner + the `native:` source; `spatio-flux` migrated to `native: .` and runs e2e). What is
-NOT done is the **consumer**: only `spatio-flux` is a real package; the `chrysalis/ys/`
-monolith (≈50 files) + every other domain are un-broken-out. So **decompose now — *before*
-Phase 4** (publish has no real domain packages to publish until this happens). *Confirmed with
-the human 2026-06-11: synth first, then scale.*
+**Status (2026-06-11).** The package SYSTEM is complete + green — Phases 1–3 + native **P5
+fully done** (the legacy `package` directive RETIRED — one manifest, one codegen path) — and the
+**transitive-native keystone is CLOSED + verified live** (§7b: an external project depending on
+`packages/synth` builds a runner linking `prism-audio` + runs). The first real package
+(`packages/synth`, 3 patches render audio from the CLI) proves the full stack. **What remains is
+the breakout** — every other domain is still in the `chrysalis/ys/` monolith (≈50 files). So the
+**scale-up is the active front + the M4 critical path**; Phase 4 (publish/remote) is a
+*parallel/later* ecosystem feature (M4 itself uses local path deps, not the remote registry).
 
-1. [x] **Native P5 (the gate)** — DONE. The codegen runner links a crate's `domain_core()` +
-   colimits it; `spatio-flux` is the proof (`native: .`; kinetics + diffusion e2e).
-2. [ ] **synth FIRST — the next real package (`packages/synth`).** Most ready: `audio_core()`
-   exists, the `.ys` patches are proven (`a_ys_audio_patch_renders_through_run`), P5 is done.
-   A `packages/synth/project.ys` (`native: <prism-audio>`) + the proven patch runs via
-   `chrysalis run` through the codegen runner. *pkg ⋈ synth.* Validates the full stack on a
-   clean mixed domain + is Phase 4's first real publish target.
-3. [ ] **Scale the breakout** — `quantum` (pure-`.ys`), then `manifold`/`spatial`/`bio` (each
-   native domain adds a `domain_core()` first: `../manifold` / `../parsimony` / `mapk`); `bio`
-   the umbrella over `spatio-flux` + `mapk`; the monolith empties into `packages/<domain>/`.
-4. [ ] **Phase 4 (publish + remote registry)** — AFTER real packages exist: publish
-   `spatio-flux` / `synth` / … ; `chrysalis add synth` from the registry.
-5. [ ] **M4:** a one-engine `project.ys` depending on `bio + quantum + synth`, colimit'd into one
-   distributed/streaming engine (`grand-synthesis.md`).
+1. [x] **Native P5 + the transitive-native keystone** — DONE (§3, §7b). One manifest, one codegen
+   path; a project depending on a mixed package links its transitive natives.
+2. [x] **synth — the first real package** (`packages/synth`, mixed: `native: audio`; 3 patches
+   render audio from the CLI). The proof the full stack works on a clean domain.
+3. [ ] **Scale the breakout (ACTIVE).** In readiness order:
+   - **quantum** — pure-`.ys` (deps `std`): move the `quantum-*.ys` in. No native crate. *Do first.*
+   - **bio** — the umbrella: `mapk` adds a `domain_core()` first (small, like synth did for
+     prism-audio); then `packages/bio` deps `std` + `spatio-flux` (native) + `mapk` (native) + the
+     cell `.ys`. *Exercises transitive native (unblocked); gap-2 (`native: '.'` dep →
+     `resolve_with_own_native`) lands here.*
+   - **manifold** — `../manifold` adds a `domain_core()`; then `packages/manifold` + `kuramoto*.ys`.
+   - **spatial** — `../parsimony` adds a `domain_core()` (bigger — #65, not yet integrated).
+   - **mesh** — clarify (prism-bigraph protocols: a package vs part of `std`/`core`).
+   - the monolith empties into these; `homoiconic`/`ast`/`eval` → a `lang-demos` package.
+4. [ ] **M4** — once `bio + quantum + synth` are packages: a one-engine `project.ys` depping them,
+   colimit'd into one engine (`grand-synthesis.md`). *The payoff.*
+5. [ ] **Phase 4 (publish + remote registry)** — parallel/after: publish the packages; `chrysalis
+   add synth` from a remote registry. The ecosystem goes public (not on the M4 critical path).
 
 ## 7b. The transitive-native gap (✅ CLOSED 2026-06-11, `pkg` — the new-dir / `bio` / M4 enabler)
 

@@ -41,9 +41,16 @@ patch/reaction surface).
 > authored audio composite MUST carry `interval = block/rate` (256/48000) or its sub-engine
 > ticks zero times inside `instantiate(…, 0.05)` → silence; this fixed the previously-unverified
 > headline test. Files: `crates/prism-audio/src/prelude.rs` (`core()` + test) + `packages/synth/`.
-> **A6 Phase 2 is now VERIFIED on the surface, run as a package.** *Next:* the sound-QUALITY pass
-> (the demos render but `writes-synths` has a slight 220/330 energy imbalance + 512-vs-256-sample
-> bus — a gain-staging/block-boundary detail), then InsertFilter (#15) / A4 / A8.
+> **A6 Phase 2 is now VERIFIED on the surface, run as a package.** **+ AUDIBLE:**
+> `examples/play_writes_synths.rs` wires the writes-synths factory to the realtime cpal/gorgon
+> device — a 220 Hz root, then ~2.5s in the `stack_factory` AUTHORS a detuned 5-osc stack a fifth
+> up and it blooms onto the mix bus (the audible twin of `writes-synths.ys`; mirrors `play.rs`).
+> Run: `cargo run -p prism-audio --features realtime --example play_writes_synths`. Audio guarded
+> DEVICE-FREE by `tests/factory.rs::writes_synths_example_root_then_authored_stack` (the offline
+> twin). NOTE: realtime needs the **gorgon LIB** (`../gorgon/src/lib.rs`, a sibling repo — pull it;
+> it `pub mod audio` for `device.rs`; pulls pipewire). *Next:* the sound-QUALITY pass (the demos
+> render but `writes-synths` has a slight 220/330 imbalance + 512-vs-256-sample bus — gain-staging/
+> block-boundary), then InsertFilter (#15) / A4 / A8.
 >
 > **⏯️ ACTIVE ARC (redirected by `unify`, 2026-06-09): A6 — the homoiconic module factory.**
 > The homoiconic face is CLOSED + GREEN (one `quote`/`reify`/`build_rule`; reactions emit
@@ -147,6 +154,36 @@ another's*, not bespoke glue. Build each as a small functor + a "you HEAR domain
 definer + the `Complex` sort THERE with `unify`; build the per-domain demos HERE.)
 
 ## Done (this arc — all green)
+- **PATCH-PROGRAMMABLE MODULE LIBRARY — started (human direction: joranalogue / Serge / Schlappi).**
+  Founding law (`docs/synth-module-library.md`): ONE `Signal`, **CV ≡ audio**, every parameter a
+  **modulation input** (`base + Σ cv·depth`, unpatched = 0 = no mod), multi-output, cross-patchable.
+  Foundation `src/modulation.rs` (`cv_in`/`at`/`rising_edge`/`modulated_freq`). Two flagship
+  fully-modulatable kernels: **`Oscillator`** is now a complex VCO (inputs `fm_exp` V/oct / `fm_lin`
+  through-zero / `pm` / `sync` / `pwm` / `am`; outputs `sine`/`saw`/`square`/`triangle`/`sub` at
+  once) and **`Svf`** a multimode TPT state-variable filter/resonator (`cutoff_cv`+`res_cv`; outputs
+  `lp`/`hp`/`bp`/`notch`). Both BACKWARD-COMPATIBLE (unpatched ⇒ old behaviour; tone/stack/live
+  unchanged). `packages/synth/examples/cross-mod.ys`: one LFO modulates VCO pitch AND filter cutoff
+  through the universal Signal — renders e2e. 11 module tests green; 0-chrysalis held. **`.ys`
+  GOTCHA: `in` is a reserved word** — module audio input port is `input`, not `in` (flagged to lang
+  for a contextual-keyword fix). **NEXT (roadmap in the doc):** the Serge universal **`Slope`** (DUSG
+  — env/LFO/VCO/slew from one module, the patch-programmable keystone), then `Compare` / `SampleHold`
+  (SSG) / `Counter` (Nibbler) / `Fold` / `Sequencer` / `Mix` / `Delay`. Library-first, examples follow.
+- **`.ys` PATCHES ARE NOW AUDIBLE — the device as a SINK on the engine (the M4-ward seam).**
+  `packages/synth/ys/live.ys` is a CONTINUOUS audio engine (oscillator as a live composite child
+  writing the `out` Signal each tick — one engine tick = one block, vs `tone.ys`'s one-shot
+  `instantiate`). It compiles to a prism `Engine` via a new **`chrysalis::runner::build_engine`**
+  (an ADDITIVE pub wrapper over the private `engine_for` — the seam a domain sink drives; lang's
+  file, coordinate-claimed + green) and is driven to the cpal/gorgon device by **`prism_audio::
+  device::run_ys_realtime`** (behind `ys`+`realtime`). Run: `cargo run -p prism-audio --features
+  realtime,ys --example play_ys` (plays `live.ys`; argv overrides the path/bus). Verified
+  device-free by `prelude::ys_surface::a_continuous_ys_patch_ticks_a_block_per_step` (build the
+  engine, tick 4 blocks, each a fresh 220 Hz block, phase carried). **Why it composes with
+  mesh/streaming/parallel:** the device is just another SINK on the SAME BSP engine those drive —
+  `run_realtime` is `invoke_trace`'s tick loop with the device as the sink. Default suite 32 + ys
+  surface 3 green; prism-audio still 0-chrysalis in the default tree. **NEXT:** `chrysalis run
+  <patch>.ys --play` via the codegen runner (lang+pkg) — open Q: how a package DECLARES a sink so
+  the generic runner dispatches `--play` to the domain device. Then parallel-voice-composites +
+  a `mesh:`-control distributed jam, both audible (M4).
 - **synth IS A REAL PACKAGE (`packages/synth`) — the first domain decomposition (#63 ⋈ #67).**
   `packages/synth/project.ys` (`dependencies: { audio: { native: '../../crates/prism-audio' } }`)
   + `ys/{tone,stack,writes-synths}.ys` + a README + the generated `project.lock`. `chrysalis run

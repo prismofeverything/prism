@@ -1,0 +1,125 @@
+# quantum.next — durable resume for the `quantum` agent
+
+<!-- The per-agent fractal of NEXT-SESSION.md. DURABLE (survives reboot);
+     coord/quantum.ys is the LIVE heartbeat, rebuilt from here on boot.
+     Edit ONLY your own quantum.ys + quantum.next (monotone, per-source). -->
+
+## ⏯️ ON BOOT
+You are `quantum` — you OWN the **quantum domain**: quantum bigraphs (#36), algebraic
+effects/handlers (#35), and the **robust quantum-exploration library** the human asked for
+("rich and useful, not a toy — a TOOL to explore quantum systems in general"). **Boot live
+in ONE command:** `chrysalis coord set quantum task='booting'` (creates/owns
+`coord/quantum.ys` + joins the board through the gated codec — NEVER hand-edit a heartbeat;
+ROSTER §How it works). Then read this, `coord/ROSTER.md`, `coord/board.ys` (who is live),
+`docs/quantum-bigraphs.md`, `docs/effects-and-handlers.md`, `coord/unify.next` (the overall /
+M0–M5 + the categorical spine). Edit ONLY `coord/quantum.ys` (live) + this file (durable).
+The chrysalis binary is at `/mnt/data/archive/prism-target/debug/chrysalis` (custom target
+dir; `cargo metadata` confirms). Resume from **Now / next**.
+
+## Domain
+Quantum bigraphs: the link graph IS the entanglement graph; a composite is the
+entanglement scope (holds the joint amplitude); `tensor`/`divide` are the join/split
+duality (`docs/quantum-bigraphs.md`). The substrate is **std**: `meta::handle` (effects),
+`meta::sample` (Born-rule measurement), `meta::tensor` / `meta::factorize`, and the `Qubits`
+type with `.cnot` / `.tensor` / `.factorize` / `.separable` methods. Surface:
+`packages/quantum/` (19 demos, pure-`.ys`). Adjacent: `core` / `lang` (substrate + surface),
+`mesh` (quantum over a mesh link — M3/M4), `unify` (the shared `Complex` / `Signal[ℂ]` sort,
+#64/#68; the M4 one-engine).
+
+## Identity — the †-compact prop
+Every domain is a presented theory; quantum is the **dagger-compact prop** — unitary
+ℂ-linear maps; cups/caps = entanglement (a Bell pair is a cup); the dagger = adjoint /
+measurement. `fold`/`unfurl` = the compact cup/cap = entanglement = the same maneuver
+distribution uses. Quantum shares the `Complex` sort with manifold (quantum = unitary,
+manifold = dissipative; one ℂ-linear category, Selinger CPM). The library should make this
+structure first-class: gates as morphisms, circuits as composition, the bigraph as wiring.
+
+## Now / next
+**Vision (human, 2026-06-11):** make quantum a RICH, USEFUL, GENERAL tool — canonical
+types + gates + registers + circuits + measurement as composable primitives to explore ANY
+quantum system, fully working across LOCAL / STREAM / MESH modes. Generalize from the
+bespoke demos (bell / ghz / teleportation) to a LIBRARY (a gate set + a circuit
+abstraction; e.g. Bell = `H ; CNOT` built from library gates, not a hand-rolled amplitude).
+
+- [DONE] **Survey + critical eval** (3 sub-agents). Finding: primitives REAL, orchestration
+  toy; ROOT gap = real-only amplitudes (blocking Y/S/T/phase/rotations/QFT) + two drifted
+  gate layers + no circuit abstraction. Human steered: **complex-FIRST** + ALL explorations
+  (CHSH / Grover-DJ / QFT / comms).
+- [DONE 2026-06-11] **Complex amplitudes — the foundational unlock.** See **Done** below.
+- [NEXT, in order] (a) generalize `tensor`/`factorize` to complex (today float-only — a
+  latent gap once S/T/Y states are tensored; #10); (b) the **Circuit** abstraction (fold a
+  gate list over a Register in one tick — the "tool"; Bell/GHZ as compositions; #11);
+  (c) the **explorations** (CHSH first — entanglement != classical; then Grover/DJ, QFT,
+  superdense/BB84; #12); (d) measurement-with-collapse + factorize-driven `_divide` (Q5);
+  (e) **mesh-mode** (LOCC classical wire -> a `mesh:` link; teleportation across machines, M2).
+- Open design point parked with **unify**: the surface value-method dispatch for `Complex`
+  (a bare `array[[2]]` carries no `_type` tag; method dispatch keys off the tag/`Foreign`
+  name). Quantum needs only the Rust arithmetic + the type (tag-independent), so this is
+  unify+manifold's #68 catalog call, not a quantum blocker.
+
+### Known unfinished (from the docs — confirm/expand via the survey)
+- **#36 Q4** — auto-merge on a cross-composite gate (COMPILE-TIME form): detect
+  `CNOT(a.q, b.q)` in source, inject `tensor(a, b)` then apply. Needs sibling-composite
+  addressing. (Runtime lifecycle form done — `quantum-lifecycle.ys`.)
+- **#36 Q5** — a Divider STEP that turns a `factorize` verdict into a structural `_divide`
+  via the schema (`divide_by_schema` / `tensor_by_schema`, #39) rather than explicit
+  `_remove`/`_add`; `fold`/`unfurl` as named algebra ops.
+- **#35 effects slices 2–10** — wrap protocol/method/apply as effects + a `log` effect
+  (2–6); engine-time state-representation parameter + categorical-constraint typing (7–8);
+  a quantum handler BUNDLE + a `measure` handler with state-collapse (9–10).
+- Canonical **gate set** (X / Y / Z / S / T / CZ / SWAP / Toffoli / rotations) — mostly
+  MISSING as a library; only H/CNOT-style appear inline in the demos.
+- A **circuit** abstraction (compose gates declaratively) — MISSING; the "tool" core.
+- Quantum over a **mesh link** (a LOCC classical channel as a mesh CRDT; the entanglement
+  scope stays joint per physics) — M3; not yet demoed.
+
+## Done
+- **Complex amplitudes — the foundational unlock (#68; human-prioritized).** 2026-06-11.
+  The shared **`Complex` sort** in `crates/prism-std/src/complex.rs` (per categorical-core
+  §6b: `array[[2]]` re/im; `add/sub/mul/scale/neg/conj/abs/abs2/arg/from_phase/rotate`;
+  **float→complex coercion + exact-real collapse** — the migration hinge) — 6 lib tests
+  (i²=−1, |3+4i|=5, from_phase). `Qubits` migrated `map[float] → complex amplitudes` with the
+  **full single-qubit gate set** (X/Y/Z/H/S/T/phase/Rx/Ry/Rz + `h/x/y/z` aliases) as ONE
+  general `apply_1q(state, q, U)` + a 2×2 matrix per gate (the gate-library-as-data seam) —
+  6 gate unit tests. `measure` now uses `|amp|²`. Backward-compat is EXACT (a bare float is
+  `re+0i`; an exactly-real result collapses to a bare float), so the **28 quantum integration
+  tests stay green**. `Complex` registered into the Core (`compile.rs` →
+  `prism_std::register_complex_type`). New `packages/quantum/ys/quantum-gates.ys`
+  (auto-covered by the smoke sweep) shows S|1⟩=i|1⟩, Y|0⟩=i|1⟩, T|1⟩=e^{iπ/4}, S²=Z, and
+  **Bell = `H;CNOT` composed from library gates** (no hand-rolled amplitudes). Total: **40
+  tests green.** Coordinated on the board: claimed the #68 lift (manifold had it queued but
+  is parked; flagged unify on the dispatch decision). Navigated two shared-tree build races
+  (mesh `protocols/registry.rs`, pkg `codegen.rs`) — confirmed upstream-not-mine via file
+  mtimes, batched, re-ran green. *Next: complex `tensor`/`factorize` (#10), the Circuit
+  abstraction (#11), the explorations (#12).*
+- **The breakout — `packages/quantum` (the first PURE-`.ys` domain package).** 2026-06-11.
+  Pure-`.ys`, std floor (no native crate; `meta` + `Qubits` ride std). Moved 19 demos
+  (`quantum-*.ys` + `effects-handle-demo.ys`) from the monolith into `packages/quantum/ys/`
+  + co-located `ast.ys` (the AST-builder lib, shared with the monolith's `hand-built-*`
+  demos — stays there too until a `lang-demos` package). `project.ys` (name quantum, 0.1.0,
+  std implicit, like synth) + README. Repointed the 6 path-loading tests
+  (`quantum_{teleportation,locc,lifecycle,lifecycle_stream,auto_split,self_decohere}.rs`) to
+  `../../packages/quantum/ys/` + added `quantum_package_runs.rs` (a run-sweep smoke harness,
+  the package analogue of `ys_files_run.rs`; registered in `suite.rs`). Verified GREEN on the
+  current tree: 28 quantum tests + the 20-file package run-sweep. Monolith emptied of
+  quantum. `docs/quantum-bigraphs.md` paths updated. (Coordination note: caught `mesh`
+  mid-save once — `prism-bigraph` protocols/registry — confirmed via mtimes it was upstream,
+  not mine; the board carries no timestamps so liveness = file mtime.)
+
+## Coordinate (build DAG — ROSTER §Build coordination)
+Downstream of schema → bigraph → chrysalis. Your `.ys` lives in `packages/quantum/`
+(monotone, new dir). Your tests live in `crates/chrysalis/tests/quantum_*.rs` + the
+`suite.rs` registry (a SHARED seam — coordinate-first / keep-it-green when adding a module).
+Run tests: `cargo test -p chrysalis --test suite quantum`. New quantum CAPABILITIES that
+need a substrate change (a `Complex` sort, a new HostFn/method, `divide_by_schema` for the
+Divider) are CORE's domain — pair, do not clone (`feedback_chrysalis_thin_layer`).
+
+## Hard rules (durable)
+- **Thin chrysalis / call prism.** Matching/firing/division/tensor already exist
+  (`meta::tensor` / `factorize`, the `Qubits` methods, the BRS, `divide_by_schema`) — call
+  them, never clone.
+- **Closed algebra.** A new quantum state op = a named algebra op + laws + tests, not ad-hoc.
+- **Robust across modes.** A canonical primitive must work LOCAL, STREAM (serve-process),
+  and MESH (link) — the composite is the entanglement scope, the boundary is the codec.
+- **The board is `.ys`-as-data.** Heartbeat prose avoids `{}` (interpolation) + lone `'`
+  (double them). Edit via `chrysalis coord set` ONLY.

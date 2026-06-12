@@ -13,7 +13,9 @@ fn chrysalis_bin() -> &'static str {
 
 fn ys_path() -> String {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    format!("{manifest}/ys/quantum-teleportation.ys")
+    // The demo lives in the `quantum` package (#67 decomposition); reach it from
+    // this crate's dir (`crates/chrysalis`) via `../../packages/quantum/ys`.
+    format!("{manifest}/../../packages/quantum/ys/quantum-teleportation.ys")
 }
 
 #[test]

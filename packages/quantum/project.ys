@@ -1,0 +1,26 @@
+# packages/quantum — the QUANTUM domain as a real prism package (#35/#36 ⋈ #67).
+#
+# The first PURE-`.ys` domain broken out of the monolith into `packages/<domain>/`
+# (`docs/packages-decomposition.md` §7). Unlike `synth` (which depends on a native
+# audio crate), quantum needs NO native crate: the quantum substrate — algebraic
+# effects (`meta::handle`), Born-rule measurement (`meta::sample`), tensor /
+# factorize (`meta::tensor` / `meta::factorize`), and the `Qubits` type with its
+# `tensor`/`factorize`/`cnot`/… methods — already rides the std floor (`std_core`).
+#
+# So quantum's only dependency is std, the IMPLICIT base every package shares
+# (`resolver::resolve`'s `base: std_core()`), exactly as `synth` declares only its
+# native `audio` edge and lets std ride underneath. A demo runs IN-PROCESS:
+#
+#     chrysalis run packages/quantum/ys/quantum-teleportation.ys --time 4
+#
+# No codegen runner (that is the native path); pure `.ys` resolves against std.
+#
+# The AST-builder helpers (`ys/ast.ys`, imported `from .ast` by the bell /
+# interference / effects demos) are co-located as a package-local library until the
+# shared `lang-demos` / `examples` package lands (`docs/packages-decomposition.md`
+# §4), at which point they become a path dependency. The monolith keeps its own
+# `ast.ys` copy for the `hand-built-*` cell demos that have not yet broken out.
+def package = {
+  name: 'quantum',
+  version: '0.1.0',
+}

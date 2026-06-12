@@ -1,0 +1,63 @@
+# quantum-gates.ys — the canonical single-qubit gate set, as `Qubits` methods.
+# ─────────────────────────────────────────────────────────────────────────
+#
+# Every single-qubit gate is `state.<gate>(qubit)` — the descriptive name OR a
+# short alias (`h`/`x`/`y`/`z`) — dispatched on the `Qubits` type. In the
+# substrate (`crates/chrysalis/src/quantum.rs`) each is ONE operation,
+# `apply_1q(state, q, U)`, with a 2x2 complex matrix `U` — the gate library as
+# DATA, not N hand-written amplitude bodies.
+#
+# The point of this demo: COMPLEX amplitudes. The phase gates S / T / Y / phase
+# produce genuine `[re, im]` amplitudes (the shared `Complex` sort, #68,
+# categorical-core 6b); the real gates H / X / Z / CNOT keep bare-float
+# amplitudes (real is just `re + 0i`, so the pre-complex demos are unchanged).
+#
+# Run: `chrysalis run packages/quantum/ys/quantum-gates.ys --time 0`
+
+def zero :: Qubits = {'0': 1.0, '1': 0.0}    # |0>
+def one  :: Qubits = {'1': 1.0, '0': 0.0}    # |1>
+def two_zero :: Qubits = {'00': 1.0, '01': 0.0, '10': 0.0, '11': 0.0}  # |00>
+
+# ── Real gates keep real (bare-float) amplitudes ──────────────────────
+def h_zero = zero.hadamard(0)        # (|0> + |1>)/sqrt(2)
+def x_zero = zero.x(0)               # |1>
+def z_one  = one.z(0)                # -|1>
+
+# ── Complex gates: amplitudes become [re, im] ─────────────────────────
+def s_one  = one.s(0)                # S|1> = i|1>          -> '1': [0, 1]
+def t_one  = one.t(0)                # T|1> = e^(i pi/4)|1>
+def y_zero = zero.y(0)               # Y|0> = i|1>
+def p_one  = one.phase(0, 1.5707963) # phase(pi/2)|1> = i|1>
+
+# ── Gate identities (composition is just chaining) ────────────────────
+def s_squared = one.s(0).s(0)        # S^2 = Z  -> -|1>
+def t_fourth  = one.t(0).t(0).t(0).t(0)  # T^4 = Z -> -|1>
+
+# ── A circuit from library gates: the Bell state IS `H ; CNOT` ────────
+# No hand-rolled amplitude literals — the entangled state is composed from
+# the canonical gates, the way the tool is meant to be used.
+def bell = two_zero.hadamard(0).cnot(0, 1)   # (|00> + |11>)/sqrt(2)
+
+composite GateShowcase ~{} ->{
+  h_zero    :: Qubits,
+  x_zero    :: Qubits,
+  z_one     :: Qubits,
+  s_one     :: Qubits,
+  t_one     :: Qubits,
+  y_zero    :: Qubits,
+  p_one     :: Qubits,
+  s_squared :: Qubits,
+  t_fourth  :: Qubits,
+  bell      :: Qubits
+} (
+  h_zero:    h_zero |
+  x_zero:    x_zero |
+  z_one:     z_one |
+  s_one:     s_one |
+  t_one:     t_one |
+  y_zero:    y_zero |
+  p_one:     p_one |
+  s_squared: s_squared |
+  t_fourth:  t_fourth |
+  bell:      bell
+)

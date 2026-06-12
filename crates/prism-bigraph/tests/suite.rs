@@ -66,6 +66,8 @@ mod protocol_types;
 mod reaction_creates_process;
 #[path = "reaction_data_as_state.rs"]
 mod reaction_data_as_state;
+#[path = "registry_transport.rs"]
+mod registry_transport;
 #[path = "rest_engine.rs"]
 mod rest_engine;
 #[path = "rest_protocol.rs"]

@@ -16,18 +16,37 @@ the `protocol`/codec layer, the `.ys` `mesh:` surface, the CRDT `mesh_safety` op
 `docs/distributed-execution.md`, `docs/grand-synthesis.md` §M1.
 
 ## Now / next
+- [ ] **pkg P4b — wire `RemoteRegistry` (pkg's, in chrysalis) onto the transport.** The
+      transport is SHIPPED + green (see Done); pkg calls `registry::{versions,fetch,publish,
+      checksum}` + hosts `RegistryServer`. Recommended split posted to `to_pkg`: `fetch`
+      returns a `Value`, pkg's `source` materializes a cache dir → `PathBuf` (resolver loads
+      it like a path dep). Stand by to add `fetch_to_dir` / pack-unpack helpers if pkg asks,
+      and to coordinate the remote transport as a pluggable backend (auth/capability-refs).
 - [ ] **Transport generalization** — address+auth = capability refs; pluggable
-      transport (QUIC / Noise / relay); Tailscale demoted to ONE backend.
-      (grand-synthesis M1 #6; categorical-core §4/§9.)
+      transport (QUIC / Noise / relay); Tailscale demoted to ONE backend. The registry
+      transport (Done) is the FIRST pluggable-backend instance + names the auth seam
+      (publish tokens, sha256 over the FNV checksum). (grand-synthesis M1 #6; cat-core §4/§9.)
 - [ ] **HPC octree (#27)** — spatial domain decomposition + halo exchange + FMM
       aggregation + a cluster backend (the planet-scale phase).
 - [ ] **Support the domains over the mesh** — synth A8 (net jam) and manifold's
       distributed Demo 3 both reuse `LiveField` + the `.ys`-mesh-link ↔ `MeshReplica`
       binding. Pair when they reach it.
 - [ ] δ-state CRDT refinement — ship deltas (not full states) via `apply` once rest
-      delta-in (#5) lands (bandwidth).
+      delta-in (#5) lands (bandwidth). Also makes a **mirror registry** efficient
+      (gossip package deltas, not the whole store snapshot).
+- [ ] *(simplify follow-up, optional)* the FNV `checksum`/`hash_value` in `registry.rs`
+      could move to a shared `prism-schema` content-hash util if another consumer wants it.
 
 ## Done (this arc)
+- **pkg P4b remote-registry TRANSPORT — SHIPPED + green** (prism-bigraph 96 suite + 43 lib
+  + 6 new). The registry is a **CRDT of theories made literal**: a grow-only `map[name →
+  map[version → Const<package>]]`, gated by `mesh_safety` (the closure-invariant PROOF, not
+  a slogan) — the **keyed projection** of the mesh's full-state gossip. *Reuse not clone:*
+  extracted `protocols/http.rs` (ONE `HttpServer` accept-loop door; refactored `rest_server`
+  onto it) + built `protocols/registry.rs` (`RegistryServer` + `versions`/`fetch`/`publish` +
+  a deterministic FNV `checksum`) on it — same door, same boundary byte-codec, same `algebra`
+  join. Two registries `merge`-converge with no coordinator (`tests/registry_transport.rs`).
+  pkg owns `RemoteRegistry` (chrysalis); seam in `to_pkg`. [[mesh_as_protocol]]
 - **mesh M1 ladder COMPLETE:** closure invariant → `mesh:` protocol → live bridge →
   `.ys` surface+gate → runtime → distributed → N-peer → continuous gossip → SWIM
   (auto-discovery + failure detection) → `LiveField`.

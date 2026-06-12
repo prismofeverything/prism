@@ -44,3 +44,15 @@ ys = ["dep:chrysalis"]
 [[example]]
 name = "play"
 required-features = ["realtime"]
+
+# Hear the synth WRITE a synth — the stack_factory authors a detuned stack live
+# (the audible twin of packages/synth/ys/writes-synths.ys).
+[[example]]
+name = "play_writes_synths"
+required-features = ["realtime"]
+
+# Hear a `.ys` PATCH — compile a package's continuous audio engine and drive it to
+# the device (the `.ys` → audible seam). Needs the language facet too.
+[[example]]
+name = "play_ys"
+required-features = ["realtime", "ys"]

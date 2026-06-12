@@ -99,3 +99,35 @@ mod realtime {
 
 #[cfg(feature = "realtime")]
 pub use realtime::{run_realtime, RealtimeOpts};
+
+/// Play a `.ys` patch through the speakers — the `.ys` → audible seam. Compile the
+/// source to an [`Engine`](prism_bigraph::Engine) via chrysalis's `build_engine` (the
+/// SAME engine `chrysalis run` builds — thin layer, no cloned compile), then drive it
+/// through [`run_realtime`], routing the bus at `out_path` to the device.
+///
+/// The patch must be a **continuously-ticking** engine — one engine tick = one audio
+/// block: an oscillator (or voice composite) as a live child writing a `Signal` port
+/// each tick (e.g. `packages/synth/ys/live.ys`), NOT a one-shot `instantiate(…)` render
+/// (which produces a single block and stops). `out_path` is that bus in the engine
+/// state (e.g. `["out"]`). Behind both `ys` (the language facet) and `realtime` (the
+/// device). The same engine a mesh / streaming / parallel run drives — the device is
+/// just another sink on it.
+#[cfg(all(feature = "realtime", feature = "ys"))]
+pub fn run_ys_realtime(
+    src: &str,
+    core: prism_bigraph::Core,
+    modules: chrysalis::compile::ModuleRegistry,
+    out_path: &[&str],
+    opts: RealtimeOpts,
+) -> anyhow::Result<()> {
+    let program = chrysalis::parse::parse_program(src)
+        .map_err(|e| anyhow::anyhow!("parse .ys patch: {e}"))?;
+    let engine = chrysalis::runner::build_engine(
+        &program,
+        core,
+        modules,
+        &std::collections::BTreeMap::new(),
+    )
+    .map_err(|e| anyhow::anyhow!("build engine from .ys: {e}"))?;
+    run_realtime(engine, out_path, opts)
+}

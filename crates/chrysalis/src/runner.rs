@@ -239,6 +239,23 @@ fn engine_for(
     Ok((engine, entry))
 }
 
+/// Build (but do NOT run) the discovered [`Engine`] for a composite `.ys` program —
+/// the seam a custom **sink / driver** needs (a realtime audio device, a streaming
+/// driver, a bespoke test harness): obtain the engine, then tick it however the sink
+/// demands (one block per device callback, one step per stream frame, …) and read its
+/// output bus by path. This is the SAME engine [`invoke`] / [`invoke_trace`] build,
+/// exposed so a downstream domain can drive it with its own clock — the realtime
+/// device sink is precisely [`invoke_trace`]'s tick loop with the device as the sink.
+/// `args` seed the entry's `[config]` params + `~{inputs}` (the t=0 frame).
+pub fn build_engine(
+    program: &Program,
+    core: Core,
+    modules: ModuleRegistry,
+    args: &BTreeMap<String, String>,
+) -> Result<Engine, RunError> {
+    engine_for(program, core, modules, args).map(|(engine, _entry)| engine)
+}
+
 /// **Compositional invocation** — run a `.ys` file as its entry composite, with
 /// the command line bound to that composite's interface (decision #24): each
 /// `[config]` param and `~{input}` is filled from `args` (or its default), the

@@ -30,10 +30,10 @@ use std::path::{Path, PathBuf};
 use prism_bigraph::{Core, CoreMergeConflict};
 
 use crate::compile::{compile_with_core, ModuleRegistry};
-use crate::manifest::{Dependency, DependencySource, Manifest};
+use crate::manifest::{Dependency, DependencySource, Manifest, RegistryLocation};
 use crate::parse::parse_program_in;
 use crate::prelude::{std_core, std_modules};
-use crate::registry::{LocalRegistry, Registry};
+use crate::registry::{LocalRegistry, RemoteRegistry, Registry};
 use crate::version::Version;
 
 /// The conventional library entry of a `.ys` package (Cargo's `src/lib.rs`).
@@ -110,7 +110,7 @@ fn resolve_inner(
         base: std_core(),
         base_modules,
         native_cores,
-        registry: manifest.registry_dir().map(LocalRegistry::new),
+        registry: open_registry(manifest),
         lock,
         root_dir: manifest.dir.clone(),
         memo: BTreeMap::new(),
@@ -178,14 +178,28 @@ pub struct NativeCrateRef {
 /// resolver already walks the full DAG (and `resolve_native` resolves a transitive edge
 /// once its Core is supplied); this collects the native crates along the SAME walk so the
 /// runner can link them all. Deduped by crate dir (a shared native crate links once).
+/// Open the project's registry backend (#67): a remote URL ⇒ a [`RemoteRegistry`] over
+/// mesh's transport (fetched packages cached under `target/registry-cache/`); a local dir
+/// ⇒ a [`LocalRegistry`]; no `registry` ⇒ `None`. The pluggable-backend seam — every
+/// caller sees one `dyn Registry`, blind to where the package bytes come from.
+fn open_registry(manifest: &Manifest) -> Option<Box<dyn Registry>> {
+    match manifest.registry_location()? {
+        RegistryLocation::Dir(dir) => Some(Box::new(LocalRegistry::new(dir))),
+        RegistryLocation::Url(url) => {
+            let cache = manifest.dir.join("target").join("registry-cache");
+            Some(Box::new(RemoteRegistry::new(url, cache)))
+        }
+    }
+}
+
 pub fn collect_native_crates(manifest: &Manifest) -> Result<Vec<NativeCrateRef>, String> {
-    let registry = manifest.registry_dir().map(LocalRegistry::new);
+    let registry = open_registry(manifest);
     let mut out = Vec::new();
     let mut seen_packages = BTreeSet::new();
     let mut seen_crates = BTreeSet::new();
     collect_native_rec(
         manifest,
-        registry.as_ref(),
+        registry.as_deref(),
         &mut out,
         &mut seen_packages,
         &mut seen_crates,
@@ -195,7 +209,7 @@ pub fn collect_native_crates(manifest: &Manifest) -> Result<Vec<NativeCrateRef>,
 
 fn collect_native_rec(
     manifest: &Manifest,
-    registry: Option<&LocalRegistry>,
+    registry: Option<&dyn Registry>,
     out: &mut Vec<NativeCrateRef>,
     seen_packages: &mut BTreeSet<PathBuf>,
     seen_crates: &mut BTreeSet<PathBuf>,
@@ -246,8 +260,9 @@ struct Resolver {
     base: Core,
     base_modules: ModuleRegistry,
     native_cores: HashMap<String, Core>,
-    /// The project's registry (from `Manifest::registry`), resolving registry deps.
-    registry: Option<LocalRegistry>,
+    /// The project's registry (from `Manifest::registry`), resolving registry deps — a
+    /// LOCAL dir or a REMOTE URL backend, behind the one `Registry` trait.
+    registry: Option<Box<dyn Registry>>,
     /// The project's `project.lock` (if present + honored) — pins registry deps to a
     /// recorded version for reproducible builds. `None` when updating or absent.
     lock: Option<Vec<crate::lockfile::LockedPackage>>,

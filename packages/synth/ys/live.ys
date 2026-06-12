@@ -1,0 +1,18 @@
+# live.ys — a CONTINUOUSLY-ticking audio patch (vs the one-shot render of tone.ys).
+#
+# The oscillator is a live composite CHILD: every engine tick it produces one fresh
+# 256-sample block onto the `out` Signal slot and advances its own phase. Run for a
+# few blocks of logical time:
+#
+#   chrysalis run packages/synth/ys/live.ys --time 0.02
+#
+# This is the engine shape a realtime device sink drives — one tick = one audio block,
+# pulled forever (vs tone.ys, which renders a single block via instantiate).
+from audio import Oscillator
+
+composite Live ~{} ->{ out :: Signal @ out } (
+  out: [0.0] |
+  phase: 0.0 |
+  osc: Oscillator[wave: 'Sine', freq: 220.0, amplitude: 0.4, sample_rate: 48000.0, block: 256]
+    ~{phase: phase} ->{phase: phase, out: out}
+)

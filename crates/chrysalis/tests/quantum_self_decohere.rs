@@ -17,7 +17,12 @@ fn chrysalis_bin() -> &'static str {
 }
 
 fn ys_path() -> String {
-    format!("{}/ys/quantum-self-decohere.ys", env!("CARGO_MANIFEST_DIR"))
+    // The demo lives in the `quantum` package (#67 decomposition); reach it from
+    // this crate's dir (`crates/chrysalis`) via `../../packages/quantum/ys`.
+    format!(
+        "{}/../../packages/quantum/ys/quantum-self-decohere.ys",
+        env!("CARGO_MANIFEST_DIR")
+    )
 }
 
 fn run_at_time(t: u64) -> String {

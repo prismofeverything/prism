@@ -183,6 +183,32 @@ mesh transport gets); integrity (checksums). *Consumer:* publish `prism-std`, `a
 (prism-audio), `spatio-flux` as the first packages; a fresh project `chrysalis add audio` →
 A6's module factory rides it from the registry. **The ecosystem goes live.**
 
+> **✅ DONE (2026-06-11, `pkg` ⋈ `mesh`). Phase 4 — publish, local AND remote.**
+> - **P4a — `chrysalis publish` (local).** `chrysalis publish [--registry <dir>] [--force]`
+>   copies the project's source into `<registry>/<name>/<version>/` (`registry::publish` —
+>   excludes `project.lock`/`target`/hidden; a version is **immutable**, refuse overwrite
+>   unless `--force`). Verified e2e: `publish greet@1.0.0` → `chrysalis add greet --version
+>   ^1.0` → `chrysalis run` resolves `greet` *from the registry* and runs.
+> - **P4b — the REMOTE registry (the pluggable-backend generalization, *reuse not clone*).**
+>   `mesh` shipped the **transport** (`prism_bigraph::protocols::registry` — a keyed
+>   immutable `Value` store over ONE extracted HTTP door, checksum-verified, gated by a CRDT
+>   `mesh_safety` proof). `pkg` wired the consumer: **`RemoteRegistry`** (the same `Registry`
+>   trait, backed by the wire), a **pack/unpack codec** (`map[relpath → file-string]`, sharing
+>   the publish exclusion policy), **`open_registry`** (a `registry:` *URL* ⇒ `RemoteRegistry`,
+>   a dir ⇒ `LocalRegistry` — the seam every caller is blind behind), **`publish_remote`**, and
+>   `chrysalis publish` URL-dispatch. `RemoteRegistry::source` fetches the package `Value`,
+>   unpacks it to `target/registry-cache/`, and returns a dir the resolver loads **exactly
+>   like a path dep** — so the `Registry` trait is unchanged and *transitive-over-remote falls
+>   out for free* (the resolver holds a `Box<dyn Registry>`).
+> - **e2e (`package_remote_registry`):** publish `foo@{1.0.0,1.2.0}` to a live `RegistryServer`
+>   over HTTP → a consumer with `registry: '<url>'` + `foo: { version: '^1.0' }` resolves the
+>   highest satisfying version *over the wire*, caches it, links it, and **runs `foo`'s `Tick`
+>   to n=5.0**. A package OUTSIDE this dir publishes to a server and resolves over the wire —
+>   **the M4 enabler.** chrysalis lib 80 + suite 270, 0 failed.
+> - **Remaining tails:** gap-2 (transitive *own-native*, for bio) + checksum-in-lock (pin a
+>   content hash for full reproducibility — `mesh`'s `checksum()` is ready). *First published
+>   packages* (`prism-std`/`audio`/`spatio-flux`) is now an unblocked consumer step.
+
 **Phase 5 — native-dep + workspace polish.** The native-dependency dimension (a `.ys`
 project depending on a native crate's `domain_core()` — bridges the registry + cargo,
 **rewriting the #13 codegen path onto the canonical run-Core**, dissolving the last

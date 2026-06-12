@@ -64,11 +64,15 @@ overall; the deep docs hold the content.
   OUTRAN its consumer** — no `packages/` dir, the `ys/` monolith is intact (≈50 files), only
   spatio-flux is a real package, `manifold`/`parsimony`/`mapk` lack `domain_core()`. **NEXT
   (human-confirmed): the DECOMPOSITION, not Phase 4** (publish has no real domains to publish
-  yet) — **synth DONE** (`packages/synth`, 3 patches render audio from the CLI — the first real
-  package). **NEXT: close the TRANSITIVE-NATIVE gap** (pkg ⋈ lang — a project depping a mixed
-  package fails on its transitive native; the **new-dir-project + `bio`-umbrella + M4 enabler**,
-  doc §7b), then scale the breakout (quantum/bio/the monolith). Phase 4 DEFERRED until real
-  packages exist. **= the M4 substrate** (a one-engine `project.ys` deps bio+quantum+synth).
+  yet) — **synth DONE** (first real package, audio from the CLI) + the **TRANSITIVE-NATIVE keystone
+  CLOSED + verified live** (an external project depping `synth` renders — `count=3.0` through a
+  runner linking prism-audio). P5c fully done (legacy directive retired — one manifest, one
+  path). **NOW: SCALE the breakout** (the active front + the M4 critical path) — `quantum` first
+  (pure-`.ys`), then `bio` (mapk `domain_core()` + the umbrella), `manifold`, `spatial`; the
+  monolith empties. **M4** = a one-engine `project.ys` depping bio+quantum+synth. Phase 4
+  (publish/remote) **GREEN-LIT in parallel** (human, 2026-06-11) — the transport reuses the mesh,
+  independent of the breakout, does NOT block M4. **`quantum` booting** (first breakout package,
+  pure-`.ys` — move the 15 `quantum-*.ys` into `packages/quantum`). **= the M4 substrate** (a one-engine `project.ys` deps bio+quantum+synth).
   `docs/packages-decomposition.md` §7. Identity: **the *librarian of theories*** (builds the CATEGORY theories
   live in; soul = theory-composition, Phases 1–2; registry/publish 3–5 = thin reach). OWNS #67.
   **Categorical semantics BINDING — SHARPENED by pkg's implementation (bank these):**
