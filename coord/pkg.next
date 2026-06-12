@@ -90,14 +90,28 @@ compose without conflict.** (You are NOT "Cargo for `.ys`"; a Cargo-like surface
   (the mesh-transport generalization).
 
 ## Now / next — the 5 phases (full detail in `docs/packages-ecosystem.md`)
-Each phase SHIPS with its consumer (`feedback_no_half_measures`). **Phases 1–2 are the soul
-(theory-composition) — BOTH DONE (2026-06-10).** The charter says **PAUSE here to CONSUME
-them** (a real multi-package `.ys` project — spatio-flux + a synth lib) before the registry
-ecosystem (Phases 3–5). Resume at **Phase 3 (the registry + `chrysalis add` + fetch/cache)** —
-a local dir-based index first; `chrysalis add` reuses the `coord set` homoiconic edit (read →
-parse → set field → unparse → gate → write) on `project.ys` + `project.lock`. (Phases 1–2
-lifted `coord/board.ys` as the mental prototype — the board IS a path-import + merge-link of N
-`.ys` packages.)
+**ALL FIVE PHASES DONE (2026-06-10 → 06-12).** The package ecosystem is COMPLETE: a package =
+a `Core` + a manifest; linking = `Core::colimit`; resolution = confluence over the DAG; the
+registry is a poset over `name × version`; publish ships it (local dir AND remote HTTP). The
+soul (theory-composition, Phases 1–2) was proven first, then the reach (registry / native /
+publish, 3–5) grown on top — each phase landed with its consumer test. **Resume at the
+CONSUMERS + the tails below.** The board itself stays the living proof of Phase 1
+(`coord/board.ys` = N `.ys` packages, path-imported, merge-linked, converging with no coordinator).
+
+**▶ NEXT SESSION — pick one (all unblocked; none load-bearing-blocked):**
+1. **First PUBLISHED package** — the ecosystem's headline consumer. `quantum` + `synth` are
+   already real breakout packages (`packages/quantum/`, `packages/synth/`); `chrysalis publish`
+   one to a `RegistryServer` (mesh's `RegistryServer::start_on`) and `chrysalis add` it from a
+   fresh project over the wire. Proves the M4 "package from another host" story with a REAL
+   domain, not a fixture. **(Coordinate with quantum/synth — their package, your mechanism.)**
+2. **checksum-in-lock** (reproducibility pin) — record mesh's `checksum(&Value)` in
+   `project.lock`; the resolver verifies a fetched package against the pin on resolve. Small,
+   high-value; mesh's primitive is ready. (`registry.rs` + `lockfile.rs`.)
+3. **gap-2: transitive own-native** (`resolve_with_own_native`) — a `.ys` path dep that is
+   itself `native: '.'` (own crate + its own `.ys` deps). Deferred since P5; **`bio` needs it**
+   the moment it has an own-native dependency. Build when bio boots, or pre-emptively.
+4. **Workspaces** (a multi-package repo: one `project.ys` with members) — the last structural
+   piece; lets a domain umbrella (`bio`) hold sub-packages.
 - [x] **Phase 1 — manifest-as-data + a PATH dependency + `Core::merge` linking. ✅ DONE
   (2026-06-10).** `manifest.rs` (`.ys`-data manifest), `Core::merge` **+ `Core::own_over`**
   (prism-bigraph, 10/10 laws), `resolver.rs` (→ linked Core + import surface), the `chrysalis
@@ -122,9 +136,28 @@ lifted `coord/board.ys` as the mental prototype — the board IS a path-import +
     → `1.2.0`). Verified on the real binary (`install` wrote a pinned lock; `remove` cleared it).
   - **Remaining:** native-dep `install`/`update` (today they route to `chrysalis run`/codegen);
     a content-addressed cache (Phase 4-ward).
-- [ ] **Phase 4 — publish + remote registry** (`chrysalis publish`; HTTP backend with
-  `mesh`; checksums). *Consumer:* publish prism-std / audio / spatio-flux; `chrysalis add
-  audio` from the registry.
+- [x] **Phase 4 — publish + remote registry. ✅ DONE (2026-06-11 P4a · 2026-06-12 P4b; lib 80
+  / suite 270).** The ecosystem went LIVE + REMOTE:
+  - **P4a — `chrysalis publish` (local).** `registry::publish` copies source into
+    `<registry>/<name>/<version>/` (immutable unless `--force`; excludes lock/target/hidden).
+    Verified: `publish greet@1.0.0` → `add` → `run` resolves it from the registry.
+  - **P4b — the REMOTE registry (`pkg` ⋈ `mesh`, *reuse not clone*).** `mesh` shipped the
+    **transport** (`prism_bigraph::protocols::registry` — a keyed immutable `Value` store over
+    ONE extracted HTTP door, checksum-verified, CRDT-`mesh_safety`-gated). `pkg` wired the
+    consumer: **`RemoteRegistry`** (same `Registry` trait, backed by the wire), a **pack/unpack
+    codec** (`map[relpath → file-string]`, sharing the publish exclusion policy), **`open_registry`**
+    (`registry:` URL ⇒ remote, dir ⇒ local — the seam every caller is blind behind),
+    **`publish_remote`**, `chrysalis publish` URL-dispatch. `RemoteRegistry::source` fetches →
+    unpacks to `target/registry-cache/` → returns a dir the resolver loads like a path dep, so
+    the trait is UNCHANGED and *transitive-over-remote is free* (the resolver holds a
+    `Box<dyn Registry>`).
+  - **Consumer** `tests/package_remote_registry.rs`: publish `foo@{1.0,1.2}` to a live
+    `RegistryServer` over HTTP → a consumer with `registry: '<url>'` resolves `^1.0` → 1.2.0 over
+    the wire, caches, links, RUNS to n=5.0. **A remote package links identically to a local one —
+    the M4 enabler.**
+  - **Tails:** checksum-in-lock (pin a content hash; mesh's `checksum()` ready) · first PUBLISHED
+    real package (quantum/synth) · `chrysalis install` prefetch-over-the-wire (publish + resolve
+    already land it; an explicit prefetch verb is polish).
 - [x] **Phase 5 — native-dep. ✅ DONE (2026-06-11, `pkg` ⋈ `lang`; jumped here FIRST per the
   human + unify — `docs/packages-decomposition.md`).** The native convergence COMPLETE +
   verified on a real crate: **P5a** both native shapes (`native:` DEP source + a package's OWN

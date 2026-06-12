@@ -24,6 +24,55 @@ the shared `Complex`/`Signal[ℂ]` sort that make cross-domain audio natural), `
 patch/reaction surface).
 
 ## Now / next (priority order)
+> **⏯️ LATEST (2026-06-12): the M/R ORGANISM — Slice 0 DONE + AUDIBLE; ecosystem axis written.**
+> Human direction: `organism.ys` must be a REAL M/R (Rosen metabolism–repair) organism —
+> self-reference + reconfigure as it plays, not a static track. Plan: **`docs/organism.md`**
+> (unify's 5 slices; the M/R synth IS the categorical spine as one running object). Canonical
+> M/R: **`../bigraph/bigraph/metabolism.py`** (sorts F/Φ/B in membrane-cells; the reaction set IS
+> the closure). Memory `project_mr_organism`.
+>
+> **DONE — Slice 0: the M/R metabolism, sonified + playing.** Reactions (`.ys`, mapk-style
+> `redex => reactum`): `repair` (Φ catalyses B→F), `replicate` (B catalyses F→Φ — "where Φ comes
+> from"), `degrade_F`/`degrade_Phi` (ENTROPY on all roles), `divide` (a full cell splits). Run by
+> `BRS[rules, mode: 'gillespie']`. **Self-heals** (seed with NO Φ → `replicate` regenerates it),
+> conserves, divides 1→2 — VERIFIED `crates/chrysalis/tests/mr_cell.rs` (3 tests green). Sonified
+> by two NEW prism-audio kernels: **`MembraneVoice`** (a cell sounds its F/Φ/B blend — F=saw,
+> Φ=triangle, B=sub) + **`ColonyVoice`** (one pentatonic note per membrane → division = a new
+> note). Files: `crates/prism-audio/src/{membranevoice,colonyvoice}.rs` (registered lib/patch/
+> prelude); `packages/synth/examples/{mr-cell,mr-organism,mr-colony}.ys`.
+>
+> **HEAR IT — both off the same `build_engine`:** WAV → `cargo run -p prism-audio --features ys
+> --example render_organism -- packages/synth/examples/mr-colony.ys 20 out.wav` (NEW example
+> `crates/prism-audio/examples/render_organism.rs`); realtime → `--features realtime,ys --example
+> play_audioout -- <patch.ys> <secs>` (the in-graph `AudioOut` drives the device). Rendered:
+> mr-colony.wav peak 0.935, mr-organism.wav peak 0.450.
+>
+> **VERIFIED mechanics for the next slices:** `Signal` IS an additive mix bus (a shared Signal
+> slot sums — `signal.rs`: additive reconcile / replace apply; the human's "SignalBus" is already
+> Signal — and yes any `Custom` type can be a link schema). Self-patching (Slice 1) wiring =
+> kuramoto-style exposed `@` ports + the Signal bus (a process can NOT output to a link var
+> directly — attach read+write via an exposed port; see `kuramoto.ys`'s mean-field). Division 1→2
+> works; REPEATED growth needs UNIQUE daughter keys (the fixed `bud` key collides + loses atoms —
+> `?c.divide()` mints `<mother>_0/_1`, `reaction_divide.rs`). The old `fixtures::mr` (tier-1 #3) is
+> INCOMPLETE (no entropy, no divide, catalysts not conserved) — built complete fresh; do NOT lean
+> on it.
+>
+> **PICK UP HERE — two next moves (human's call, either is audible):**
+> 1. **Slice 1 — self-patching.** Link-rewriting reactions rewire the LINK graph (the patch);
+>    F/Φ/B become patch roles (F=wired module, Φ=patcher, B=unpatched). `patch` (`Φ | s:Source
+>    ~{bus:!} => Φ | s:Source ~{bus:~mix}`), `unpatch`, `modulate` (multiple cables + a hyperedge
+>    bus — richer than mapk's one bond). The M/R cycle BECOMES the patching; sound reflects the
+>    wiring via the render functor (`apply_functor` — co-build w/ core+lang). Mechanism verified.
+> 2. **Ecosystem E0 — selection** (`docs/ecosystem.md`, the GENERATIVE ⋈ SELECTIVE axis): a
+>    selective functor `Signal→fitness` scores each cell's rendered sound → fitness-weighted
+>    `divide`/`prune` (same BRS rates, no new engine). You HEAR the colony get more consonant over
+>    a run. Then E1 (selector-as-DATA) → E2 (coevolution = open-ended). Extends the closure: M/R =
+>    closure to EFFICIENT cause; the ecosystem = closure of FINAL cause (the system defines its own
+>    ends).
+> **Slice 2** (rules-as-products keystone — a meta-reaction whose reactum is reaction-DATA, Φ a
+> genuine product; #60/#61 AlChemy) is the deep keystone — **core standing by**. unify stewards
+> `docs/organism.md` + will fold in `docs/ecosystem.md`. **All changes UNCOMMITTED (human runs git).**
+
 > **✅ LATEST (2026-06-11): synth is the FIRST real domain PACKAGE (`packages/synth`).**
 > The decomposition (#63 ⋈ #67, `docs/packages-decomposition.md` §7 step 2) — DONE + GREEN.
 > `packages/synth/project.ys` declares a **native dependency** on `crates/prism-audio`

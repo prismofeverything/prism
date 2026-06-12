@@ -1629,7 +1629,7 @@ is the full target.
     recognizable convention; freeing the contract onto its own keyword keeps type
     and contract visually distinct. **Enforcement is a migration** (parser flips
     type-position `:`→`::`; the port contract `:: C`→`fulfills C`; unparser emits
-    the new forms; regenerate every `.ys` + the docs/GUIDE; update parse tests) —
+    the new forms; regenerate every `.ys` + the primer; update parse tests) —
     NEXT-SESSION task. Do it while the syntax is young.
 
 ## Open design decisions

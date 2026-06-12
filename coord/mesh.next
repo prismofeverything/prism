@@ -5,15 +5,23 @@
      Edit ONLY your own <agent>.ys + <agent>.next (monotone, per-source). -->
 
 ## ⏯️ ON BOOT
-You are `mesh` — the distributed/streaming-substrate agent (#62). Read this +
-`coord/ROSTER.md` + `coord/board.ys` (the live cross-agent view). Own `coord/mesh.ys`
-(live heartbeat) and this file (durable). Resume from **Now / next**.
+You are `mesh` — the distributed/streaming-substrate agent (#62), now also carrying the
+**WORLD-BOUNDARY / web viewer** front. Read this + `coord/ROSTER.md` + `coord/board.ys`
+(the live cross-agent view). Own `coord/mesh.ys` (live heartbeat) and this file (durable).
+**THE ACTIVE FRONT (resume here): the WEB VIEWER — `docs/bigraph-viewer.md` Slice A**
+(stable ids + green hyperedges + SAMOCA ovals; see Now/next #1). Memory:
+`project_web_viewer`. Everything else (transport generalization, HPC octree) is parked
+behind it. Resume from **Now / next** (the web viewer is item 1).
 
 ## Domain
-prism's mesh runtime: `crates/prism-bigraph/src/protocols/{mesh,mesh_agent,swim}.rs`,
-the `protocol`/codec layer, the `.ys` `mesh:` surface, the CRDT `mesh_safety` op in
-`prism-schema`. Memories: `mesh_as_protocol`, `boundary_codec_algebra`. Depth:
-`docs/distributed-execution.md`, `docs/grand-synthesis.md` §M1.
+Two fronts. **(1, ACTIVE) The world-boundary / web viewer** — `prism-bigraph/protocols/
+{http,web}.rs` (the serve door + browser backend), `prism-viz/{render,pattern,svg}.rs` (the
+render functor), `chrysalis serve` (cli.rs `serve_web_command`); render = `apply_functor`
+(core). Docs: `web-bigraphs.md`, `bigraph-viewer.md`, `categorical-core.md` §7b. Memory:
+`project_web_viewer`. **(2) The mesh runtime** — `protocols/{mesh,mesh_agent,swim,registry}.rs`,
+the `protocol`/codec layer, the `.ys` `mesh:` surface, `mesh_safety` (prism-schema). Memories:
+`mesh_as_protocol`, `boundary_codec_algebra`. Depth: `docs/distributed-execution.md`,
+`grand-synthesis.md` §M1.
 
 ## Now / next
 - [ ] **THE WEB FACE — bigraphs as websites (`docs/web-bigraphs.md`, NEW flagship arc).**

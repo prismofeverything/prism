@@ -1,0 +1,65 @@
+# mr-colony.ys — the M/R organism as a COLONY, audible (docs/organism.md Slice 0).
+#
+# Several voice-cells live in one `world`. ONE metabolism BRS runs the verified
+# closure over ALL of them — repair / replicate / degrade (self-healing) and
+# `divide` (a full cell splits). A ColonyVoice sonifies the WHOLE colony: one
+# blended note per cell (pitch from its key, a pentatonic chord), its timbre the
+# cell's F/Φ/B mix. So you HEAR the colony live — each note morphing as its cell
+# metabolises, the chord shifting as cells divide and decay.
+#
+# (Repeated unbounded division awaits unique daughter keys — see tests/mr_cell.rs
+# mr_colony_grows_by_division; the cycle + a first split are what you hear here.)
+#
+#   chrysalis run packages/synth/examples/mr-colony.ys --time 20   # plays
+from audio import ColonyVoice, AudioOut
+
+reaction repair (
+  (cell: Membrane (cat: Phi | sub: B | rest: ?rest))
+  => (cell: Membrane (cat: Phi | sub: F | rest: ?rest))
+) rate ( 3.0 )
+
+reaction replicate (
+  (cell: Membrane (cat: B | sub: F | rest: ?rest))
+  => (cell: Membrane (cat: B | sub: Phi | rest: ?rest))
+) rate ( 2.0 )
+
+reaction degrade_F (
+  (cell: Membrane (atom: F | rest: ?rest))
+  => (cell: Membrane (atom: B | rest: ?rest))
+) rate ( 1.0 )
+
+reaction degrade_Phi (
+  (cell: Membrane (atom: Phi | rest: ?rest))
+  => (cell: Membrane (atom: F | rest: ?rest))
+) rate ( 0.6 )
+
+reaction divide (
+  (target: Membrane (fa: F | fb: F | pa: Phi | pb: Phi | ba: B | bb: B | rest: ?rest) | others: ?others)
+  => (target: Membrane (f: F | p: Phi | b: B | rest: ?rest) | bud: Membrane (f: F | p: Phi | b: B) | others: ?others)
+) rate ( 0.4 )
+
+composite MRColony ->{ out :: Signal @ out } (
+  out: [0.0] |
+  played: [0.0] |
+  t: 0.0 |
+
+  # a small colony — varied blends, so the chord starts wide (bright cells + deep cells)
+  world: World (
+    c0: Membrane ( f0: F | f1: F | f2: F | f3: F | p0: Phi | b0: B | b1: B ) |
+    c1: Membrane ( f0: F | f1: F | p0: Phi | p1: Phi | p2: Phi | b0: B | b1: B ) |
+    c2: Membrane ( f0: F | p0: Phi | b0: B | b1: B | b2: B | b3: B | b4: B ) |
+    c3: Membrane ( f0: F | f1: F | p0: Phi | p1: Phi | b0: B | b1: B | b2: B )
+  ) |
+
+  # ONE metabolism over the whole colony — the verified self-healing closure + divide
+  brs: BRS[
+    rules: [repair, replicate, degrade_F, degrade_Phi, divide],
+    mode: 'gillespie', seed: 11, max_per_tick: 1000
+  ] ~{state: world} ->{state: world} |
+
+  # the colony sings — one pentatonic note per cell, timbre = its F/Φ/B blend
+  colony: ColonyVoice[base: 110.0, sample_rate: 48000.0, block: 256, gain: 0.5, full: 7.0]
+    ~{t: t, world: world} ->{t: t, out: out} |
+
+  speaker: AudioOut[sample_rate: 48000.0, block: 256] ~{input: out} ->{out: played}
+)

@@ -1,0 +1,55 @@
+# mr-organism.ys — the M/R closure, made AUDIBLE (docs/organism.md Slice 0).
+#
+# One self-healing voice-cell. A membrane holds role-atoms F/Phi/B; the
+# metabolism BRS rewrites them (repair/replicate/degrade — the verified closure,
+# tests/mr_cell.rs); a MembraneVoice SONIFIES the cell's current F/Phi/B blend
+# (F→saw/bright, Phi→triangle/mellow, B→sub/deep). As the cycle runs you HEAR the
+# metabolism: entropy darkens + deepens it, repair/replication brighten it.
+#
+# Seeded with NO Phi — the cell starts deep (B-heavy) and bright (F), then the
+# closure regenerates Phi and the timbre comes alive. AudioOut plays it.
+#
+#   chrysalis run packages/synth/examples/mr-organism.ys --time 12   # plays
+from audio import MembraneVoice, AudioOut
+
+reaction repair (
+  (cell: Membrane (cat: Phi | sub: B | rest: ?rest))
+  => (cell: Membrane (cat: Phi | sub: F | rest: ?rest))
+) rate ( 3.0 )
+
+reaction replicate (
+  (cell: Membrane (cat: B | sub: F | rest: ?rest))
+  => (cell: Membrane (cat: B | sub: Phi | rest: ?rest))
+) rate ( 2.0 )
+
+reaction degrade_F (
+  (cell: Membrane (atom: F | rest: ?rest))
+  => (cell: Membrane (atom: B | rest: ?rest))
+) rate ( 1.0 )
+
+reaction degrade_Phi (
+  (cell: Membrane (atom: Phi | rest: ?rest))
+  => (cell: Membrane (atom: F | rest: ?rest))
+) rate ( 0.6 )
+
+composite MROrganism ->{ out :: Signal @ out } (
+  out: [0.0] |
+  played: [0.0] |
+  v_phase: 0.0 |
+
+  world: World ( cell: Membrane (
+    f0: F | f1: F | b0: B | b1: B | b2: B | b3: B
+  ) ) |
+
+  # the metabolism — the verified self-healing closure rewrites the atoms
+  brs: BRS[
+    rules: [repair, replicate, degrade_F, degrade_Phi],
+    mode: 'gillespie', seed: 7, max_per_tick: 1000
+  ] ~{state: world} ->{state: world} |
+
+  # the cell sings its F/Phi/B blend
+  voice: MembraneVoice[pitch: 110.0, sample_rate: 48000.0, block: 256, gain: 0.45, full: 6.0]
+    ~{phase: v_phase, cell: world} ->{phase: v_phase, out: out} |
+
+  speaker: AudioOut[sample_rate: 48000.0, block: 256] ~{input: out} ->{out: played}
+)

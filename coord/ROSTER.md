@@ -9,8 +9,10 @@ and coordinates through the shared mesh board.
 **This roster is the project's own structure applied to us** — a fractal of prism:
 the **domains** are the specializations; **`unify`** is the functors that connect
 them; **`core`/`lang`** are the shared substrate; **`simplify`** is the reduction
-to normal form; and the **mesh board** is the link that keeps us converged. Role =
-purview = lens; the lens shapes the work (that is the emergent "personality").
+to normal form; **`primer`** is the *exposition* — the translation of the whole
+into a form humans apprehend directly, with the executable primer as its nexus;
+and the **mesh board** is the link that keeps us converged. Role = purview = lens;
+the lens shapes the work (that is the emergent "personality").
 
 Not all active at once — roles boot in and out as the work calls. A role can split
 (e.g. `reaction` out of `core`, `perf` out of `simplify`) or merge when small.
@@ -22,6 +24,7 @@ These are the anti-silo mechanism. They keep the convergence real.
 | role | purview | owns (≈ NEXT-SESSION cat) |
 |---|---|---|
 | **unify** | the categorical SPINE — actively CONNECT the domains: cross-domain functors/couplings, the one-engine thesis, the generative-core program. The "look at everything and connect it" role. | `categorical-core.md`, `grand-synthesis.md`, `generative-core.md`; #59, #64 (cat E) |
+| **primer** | the EXPOSITION / on-ramp — owns **all docs + their coherence**: translate the whole project into something humans apprehend directly, keep it linked + fresh, and **orchestrate which agent stewards which domain doc**. The executable `docs/chrysalis-primer.md` is the **nexus** (its every block is run by a test, so it cannot drift). The **outward form of `unify`**: unify unifies the *structure* (the code / the spine), primer unifies the *vision* (the whole made apprehensible). | `README.md`, `docs/chrysalis-primer.md`, `docs/README.md` (the index); all-docs coherence (cat F) |
 | **simplify** | REDUCE — remove redundant paths, find the unifying mechanism, "one way to do each thing" (wei-qi / Felleisen gate), the unification audit. `/simplify` + `/code-review` as a standing role. | the audit #46; cross-tree (cat E/G) |
 | **core** | the SUBSTRATE everyone builds on — the schema algebra + the engine + the reaction/BRS machinery. Builds new algebra ops / engine capabilities domains need. | `prism-schema`, `prism-bigraph` (engine, reaction). #5/#15/#30/#60 (cat E). *(may split: `reaction` = the BRS/AlChemy rewriting layer)* |
 | **lang** | the chrysalis SURFACE — parse / eval / compile / check, language semantics, diagnostics. The surface every domain writes `.ys` against. | `crates/chrysalis`; #10/#14/#16/#17 (cat F) |
@@ -48,10 +51,14 @@ These mirror `grand-synthesis.md` §1's table (one engine, many specializations)
 - **pkg** — *queued* — #67 the packages / dependency ecosystem; boots SOLO once the current
   arcs land, to lay a principled foundation. Charter: `coord/pkg.next`; plan:
   `docs/packages-ecosystem.md`.
+- **primer** — the docs / exposition layer (*new role, 2026-06-12*): README overhauled +
+  `docs/README.md` index shipped; the primer rewrite (folding in + retiring the GUIDE) in
+  flight. Charter: `coord/primer.next`.
 
 ## How it works
 
-- **Boot — ONE command, you are live:** the human assigns you a role; run
+- **Boot — ONE command, you are live:** the human assigns you a role (invoke
+  **`/boot <role>`**); run
   **`chrysalis coord set <role> task='booting — reading <role>.next'`** FIRST. That
   **creates `coord/<role>.ys`** from the canonical skeleton if it is absent (boot into the
   heartbeat in one step) and **joins `coord/board.ys`** (import + mesh-link entry) — all
@@ -206,3 +213,18 @@ the deep docs (`docs/grand-synthesis.md`, `docs/categorical-core.md`,
 `docs/NEXT-SESSION.md`). It is in `unify` — not a shared file everyone edits — because
 the overall is just unify's domain, so it stays single-writer/per-source: the same
 monotone discipline, applied to the overall itself.
+
+## Doc stewardship — the signoff (built into the heartbeat)
+
+Docs get the same treatment as code: each agent signs off the docs it stewards via a
+**`stewards`** field on its `coord/<role>.ys` heartbeat (doc → current-as-of date), at
+session-end. The board renders the live map (`chrysalis run coord/board.ys`); staleness
+becomes visible. Two tiers — a **test-net** for executable docs (the primer's doctest)
+and the **signoff** for prose. `primer` orchestrates (fills unstewarded gaps, pings stale
+signoffs, keeps cross-doc coherence) and is the **catch-all steward** for the README, the
+primer, the doc index, and any doc outside a defined role. Mechanism + the stewardship
+map: [`../docs/doc-stewardship.md`](../docs/doc-stewardship.md).
+
+The **session-end sign-off ceremony** (invoke `/signoff`) is the wind-down dual of the
+boot command: it updates your `coord/<role>.next`, signs off your stewarded docs, and
+parks your heartbeat — symmetric open and close.

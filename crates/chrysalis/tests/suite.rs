@@ -126,6 +126,8 @@ mod metacircular_node_rung;
 mod module_merge;
 #[path = "mr.rs"]
 mod mr;
+#[path = "mr_cell.rs"]
+mod mr_cell;
 #[path = "nested_composite.rs"]
 mod nested_composite;
 #[path = "one_shot_steps.rs"]

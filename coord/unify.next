@@ -10,144 +10,117 @@ You are `unify` — you actively CONNECT the domains and steward the overall. **
 ONE command:** `chrysalis coord set unify task='booting'` (creates/owns `coord/unify.ys` +
 joins the board through the gated codec — NEVER hand-edit a heartbeat; ROSTER §How it works).
 Then read this, `coord/ROSTER.md`, `docs/grand-synthesis.md`, `docs/categorical-core.md`,
-`docs/NEXT-SESSION.md`. Own `coord/unify.ys` (live) and this file (durable). Then read
-each agent's `coord/<agent>.next` for their detail. This file is the navigational
-overall; the deep docs hold the content.
+`docs/NEXT-SESSION.md`. Then the session's deep docs (the convergence): **`docs/organism.md`**
+(THE M5 convergence — the spine become one self-producing audible object), **`docs/functors.md`**
+(the `functor` definer), **`docs/web-bigraphs.md`** + `categorical-core.md` **§7b** (the
+world-boundary / DISPLAY face), **`docs/packages-decomposition.md`** + **`docs/domain-libraries.md`**
+(the breakout). Own `coord/unify.ys` (live) and this file (durable). Then read each agent's
+`coord/<agent>.next`. **NEW sibling: `primer`** owns the EXPOSITION (docs coherence + the README +
+the executable primer) — the *outward* face of unify; coordinate doc-coherence with it, keep the
+spine *content* yourself.
 
 ## The convergence map (why this is ONE project)
-- **One engine.** biology / quantum / synthesis are the SAME machine — prism's BRS +
-  the closed schema algebra + the mesh — over `node · link · couple · split ·
-  distribute · generate`. Each domain instantiates the columns; nothing is bespoke.
-- **The categorical spine** (`categorical-core.md`): domains = presented symmetric
-  monoidal theories (props/Lawvere); couplings & protocols = functors; `fold`/`unfurl`
-  = cup/cap = entanglement = M/R-closure = reflection.
-- **Three convergences, one idea:** confluence (rewrite) · CRDT (replicas) · dynamical
-  attractor (phase-lock) — Demo 2 STACKED the last two over a socket.
-- **The CALM axis** (monotone ⟺ coordination-free) governs BOTH the substrate (mesh)
-  AND our own workflow (per-source files vs the shared build invariant). See ROSTER.
+- **One engine.** biology / quantum / synthesis / spatial are the SAME machine — prism's BRS +
+  the closed schema algebra + the mesh — each domain a presentation over it. Nothing bespoke.
+- **The categorical spine** (`categorical-core.md`): domains = presented theories; couplings +
+  protocols = **functors** (the `functor` definer is now BUILDING — §4 / `functors.md`);
+  `fold`/`unfurl` = cup/cap = entanglement = **M/R-closure = reflection** (§3).
+- **The world-boundary / DISPLAY face** (§7b, forged this session): the bigraph's edge with the
+  world is ONE mechanism — **web** (the display face, dual to `quote`: render = `quote`-into-DOM)
+  ⊕ **audio** (the `AudioOut` sink *process*) ⊕ **mesh** ⊕ file. Native I/O, not external glue
+  (`web-bigraphs.md`, `domain-libraries.md` §5).
+- **Convergence = the fixpoint** (§5): confluence · CRDT · dynamical attractor — and **the
+  organism's life = the catalytic-cycle attractor; death = its collapse.**
+- **THE ORGANISM** (`organism.md`) — synth's M/R synthesizer = the spine become ONE
+  self-producing, audible, visible object. **M/R closure = quote/eval = reflection = the closed
+  category, *instantiated*.** The whole project flows into it (M5).
+- **The CALM axis** governs the substrate (mesh) AND our workflow (per-source vs the build
+  invariant). The coord board + `coord/build.sh` (the build channel, automated) dogfood it.
 
-## Cross-agent index (the fractal's children)
-- `mesh` → `coord/mesh.next` — mesh **M1 COMPLETE** (the full ladder + Demo 2 live);
-  next: transport generalization, HPC octree (#27).
-- `manifold` → `coord/manifold.next` — Demo 2 live (R 0.980); building **Demo 3**
-  (plastic Kuramoto — the network learns its own wiring).
-- `synth` → `coord/synth.next` — **A3 audible** done (gorgon-as-lib + device + `play`);
-  next: A8 distributed jam over the mesh.
-- `lang` → `coord/lang.next` — the chrysalis surface. HOMOICONIC: **Stages 1, 2a, 2b, 4c
-  DONE** (round-trip total · `compile_reaction` dissolved · one `build_rule` lowering core ·
-  `Reaction[]`/`Pattern()` constructors · param-gap solved — `X[args]` calls a function ·
-  **all reaction producers now emit transparent DATA → FLAT/RICH dissolved for reactions**).
-  Next: **4a** (pair w/ core — a `.ys` `eval` op calling `Core::instantiate_spec`) + the
-  Axis-A `from_value`-completeness (reaction/function/type reify).
-- `simplify` → `coord/simplify.next` — REDUCE. HOMOICONIC: **Stage 3 DONE** — invariants
-  #1 (one instantiate/lowering core; reactions ×3 surfaces + patterns) + #2 (round-trip
-  totality, build-failing witness) PINNED green. Finding: the `pattern`-definer *value* form
-  is missing (only `Pattern[]` constructor is a value) — doc overclaims or a TODO (unify to
-  settle). Next: **invariant #3 guard** ("no second eval", lands with 4a) + verify the
-  Stage-1/2 collapses left no dead builders + the #46 homoiconic-surface audit tail.
-- `core` → `coord/core.next` — the substrate. **`#71 units` MERGED to main (`ba866f8`, 2026-06-10)**
-  — the coordinated non-monotone event is DONE: `Float`/`Delta` carry a `dimension` in the TYPE
-  (erased from the value — zero-cost), `resolve`/`generalize` thread it as proper semilattices
-  (proptest-pinned), chrysalis lowers a `Quantity` end-to-end, and wiring-dimension is first-class
-  `algebra::dimension_conflict` (the `instantiate_spec` orphan retired). *Pull main + rebuild once.*
-  (Prior arc: HOMOICONIC Stage 4c + the 4a node rung `Core::instantiate_spec` + the type-as-data
-  `schema_codec`.) **Now PAIRING pkg** — reviewed + **APPROVED** `Core::merge`/`own_over` (in
-  prism-bigraph, additive, 10/10 laws); available for the **resolver-as-colimit**.
-- `pkg` → `coord/pkg.next` — **Phase 1 SHIPPED + GREEN (2026-06-10).** `manifest.rs` (`.ys`-data
-  manifest) + **`Core::merge` + `Core::own_over`** (prism-bigraph, additive, 10/10 laws:
-  commutative/associative/idempotent + diamond-dedup) + `resolver.rs` + a 2-package path-dep
-  consumer that links + runs a dep's process end-to-end; **core reviewed + APPROVED.**
-  **The package SYSTEM is COMPLETE + green** — Phases 1–3 (manifest · resolver-as-colimit ·
-  lockfile · registry · `chrysalis add`) **+ native P5** (the codegen runner + `native:` source;
-  `spatio-flux` migrated to `native: .`, runs e2e). Thin-layer held (pkg consumed lang's runner
-  primitives with zero manifest/resolver edits). **STOCK-TAKE (unify, 2026-06-11): the system
-  OUTRAN its consumer** — no `packages/` dir, the `ys/` monolith is intact (≈50 files), only
-  spatio-flux is a real package, `manifold`/`parsimony`/`mapk` lack `domain_core()`. **NEXT
-  (human-confirmed): the DECOMPOSITION, not Phase 4** (publish has no real domains to publish
-  yet) — **synth DONE** (first real package, audio from the CLI) + the **TRANSITIVE-NATIVE keystone
-  CLOSED + verified live** (an external project depping `synth` renders — `count=3.0` through a
-  runner linking prism-audio). P5c fully done (legacy directive retired — one manifest, one
-  path). **NOW: SCALE the breakout** (the active front + the M4 critical path) — `quantum` first
-  (pure-`.ys`), then `bio` (mapk `domain_core()` + the umbrella), `manifold`, `spatial`; the
-  monolith empties. **M4** = a one-engine `project.ys` depping bio+quantum+synth. Phase 4
-  (publish/remote) **GREEN-LIT in parallel** (human, 2026-06-11) — the transport reuses the mesh,
-  independent of the breakout, does NOT block M4. **`quantum` booting** (first breakout package,
-  pure-`.ys` — move the 15 `quantum-*.ys` into `packages/quantum`). **= the M4 substrate** (a one-engine `project.ys` deps bio+quantum+synth).
-  `docs/packages-decomposition.md` §7. Identity: **the *librarian of theories*** (builds the CATEGORY theories
-  live in; soul = theory-composition, Phases 1–2; registry/publish 3–5 = thin reach). OWNS #67.
-  **Categorical semantics BINDING — SHARPENED by pkg's implementation (bank these):**
-  (1) `Core::merge` is the CALM idempotent join-semilattice, but it is the structural **DUAL** of
-  `mesh_safety`, not a literal reuse — `mesh_safety` classifies whether a schema-**STATE** reconcile
-  is CALM; `merge` **IS** a CALM join over **registry ENTRIES** (same property, different carrier,
-  no `mesh_safety` call typechecks). (2) **`Core::own_over` is the keystone discovery:** a compiled
-  Core bundles the shared std/per-compile floor, so a *package theory* = the Core **projected off
-  that floor** (`own_over`) — and that projection is **exactly what makes the shared base the
-  colimit's apex (contributed once), so `merge` over a dep DAG is a true COLIMIT, not a
-  false-conflicting union.** The theory predicted "merge D once at the apex"; pkg found the apex
-  (the std floor) + the projection (`own_over`) that realises it. Resolution = confluence; registry
-  = a poset over `name × version`; lockfile = the chosen conflict-free section; semver = a
-  compatibility functor. Recognition banked: **`coord/board.ys` IS Phase 1's prototype.** Plan:
-  `docs/packages-ecosystem.md`.
-- *(future, add a `<agent>.ys`+`.next` pair when booted: `bio`, `quantum`, `spatial` —
-  see ROSTER for the role map.)*
+## Cross-agent index (the fractal's children) — refreshed 2026-06-12
+- `primer` → `coord/primer.next` — **NEW (the outward face of unify).** Owns the EXPOSITION:
+  `README`, `docs/chrysalis-primer.md` (the executable nexus — every block run by a test, cannot
+  drift), `docs/README.md` (the index), all-docs coherence; orchestrates which agent stewards which
+  domain doc. **unify unifies the STRUCTURE (the spine/code); primer unifies the VISION (the whole
+  made apprehensible).** Hand doc-coherence to primer; keep the spine *content*.
+- `pkg` → `coord/pkg.next` — **the package ECOSYSTEM is COMPLETE (P1–P5, local + remote publish).**
+  a package = a Core; linking = the colimit (`own_over`-then-`merge`, the diamond linked once);
+  registry = a poset over `name × version`; the registry of theories. NEXT: the **breakout**
+  packages — **`bio` umbrella (urgent, ties to the organism)** + manifold + spatial + the organism
+  package; gap-2 (transitive own-native) lands at bio. `packages-decomposition.md`.
+- `synth` → `coord/synth.next` — **`packages/synth` shipped** (the audio LIBRARY; the `AudioOut`
+  sink PLAYS from `chrysalis run` — no flag, the world-boundary native). **NOW DRIVING THE
+  ORGANISM** (`organism.md`) — Slice 0: the M/R metabolism sonified (the chorus that unravels to
+  silence). The audio render functor (`Structure → Signal`).
+- `core` → `coord/core.next` — substrate. `#71` units on main. **The functor-application ENGINE
+  LANDED** (`prism_schema::functor`, `apply_functor`, functoriality-by-construction + 5 laws incl.
+  render-is-a-functor). **PAIRS synth on the organism KEYSTONE (Slice 2 — rules-as-products =
+  AlChemy made M/R).** TODO: `apply_functor` in the schema-algebra op table (my bless — go).
+- `lang` → `coord/lang.next` — the chrysalis surface. Canonical run-Core done. **The FUNCTOR
+  definer is BUILDING** — the lift `apply_functor(F, state)` via core; **functor = an exhaustive
+  single-node BRS** (the §4 recognition in code, functors are IN the reaction spine). NEXT: the
+  structural render functor (w/ viz) + the rules-as-products path (w/ core+synth). `functors.md`.
+- `mesh` → `coord/mesh.next` — M1 done; **the WEB-BIGRAPHS RFC + the viewer**
+  (`web-bigraphs.md`, `bigraph-viewer.md`) = the display face; extracted the ONE http door pkg's
+  P4b reused. NEXT: web **Slice 0** (the structural render functor + the `web:` serve boundary —
+  every `.ys` navigable) + the Side↔TopDown **natural transformation** (η via interval-morphisms —
+  my spine home, §7b/§8).
+- `quantum` → `coord/quantum.next` — **`packages/quantum` DONE** (20 `.ys` — the quantum LIBRARY +
+  examples). Banked **primitives-vs-compositions** (`feedback_rust_ys_boundary`): Rust =
+  primitives/perf/new-base, `.ys` = compositions/examples/tests — governs EVERY domain (elevate to
+  `docs/rust-ys-boundary.md`).
+- `manifold` → `coord/manifold.next` — Kuramoto Demos 1–3; the dynamical-attractor convergence
+  (§5) = the organism's life/death axis. Breakout: needs a `domain_core()` + a package.
+- `simplify` → `coord/simplify.next` — REDUCE / the one-door guards / the #46 audit / the
+  coord-board guards. Standing role.
+- *(NOT YET BOOTED: **`bio`** — the urgent breakout: ties synth-audio to cell-metabolism, the
+  organism reaching the cell (M/R closure IS grow/divide); **`spatial`** — the 3D render functor +
+  the octree, the other render target.)*
 
 ## Overall roadmap (M0–M5 — depth in `grand-synthesis.md`)
 - **M1 (the mesh)** — ✅ DONE.
-- **M2 (a domain over the mesh)** — 🚧 STARTED: Demo 2 (manifold, distributed + live).
-- **M3** — reactions / AlChemy over the mesh (rules crossing the boundary).
-- **M4** — the one-engine demo: a single distributed/streaming mesh running a
-  biological **+** quantum **+** synth process, coupled through shared links.
-- **M5** — the living demo (categorical-core §M5).
+- **M2 (a domain over the mesh)** — ✅ Demo 2 (manifold, distributed + live).
+- **M3 (reactions / AlChemy over the mesh)** — 🚧 the **rules-as-products / AlChemy** IS the
+  organism's keystone (Slice 2); distributed = the ecology horizon.
+- **M4 (the one-engine demo)** — 🚧 the SUBSTRATE = the packages (a `project.ys` depping
+  bio+quantum+synth, colimit'd into one engine); **the ORGANISM is its heart.**
+- **M5 (the living demo)** — 🌱 **THE ORGANISM** (`organism.md`) + the **ecology** (explore the
+  space of M/R-closure-fulfilling systems); the **display face** (web) makes it visible + operable.
 
 ## What to unify next
-- **▶▶ NOW (the arc progression).** The **homoiconic face is CLOSED + green** (4a metacircular
-  close · Axis-A 10/12 · FLAT/RICH dissolved · 4 one-door guards). On top of it landed the
-  **canonical run-Core** (synth's finding — one Core through `run`/`compile` + a protocol door,
-  `docs/canonical-run-core.md`) — *a package = a Core*. **In flight:** #71 units (core, isolated
-  worktree) + synth A6 (the homoiconic module factory, riding the run-Core). **Planned + a NEW
-  owner:** the **packages / dependency ecosystem** (#67, `docs/packages-ecosystem.md`) — the
-  **`pkg`** agent owns it SOLO, booting last to lay a principled foundation (manifest → resolver
-  → registry → publish; linking = `Core::merge`; the registry of theories). **Queued:** the
-  metacircular **orchestrator** (`coord/orchestrator.ys`, consumer-in-waiting — blocked on the
-  `load()` relative-import fix it surfaced); a **lang task** — **`.ys` corpus health**
-  (`docs/ys-corpus-health.md`: the demos are smoke-tested not behavior-tested — land
-  `chrysalis run --json` + executable `# Expected:` goldens; the `--json` slice also fixes the
-  keys-only board view). *(The bullet below is now provenance.)*
-- **🟢 THE HOMOICONIC FACE — forged + PINNED** (`docs/homoiconic-unification.md`). Stages
-  1/2/3/4c DONE: one `quote` (`to_value`, total) · one `reify` (`from_value`) · the
-  capitalized constructor IS `quote` of the definer · **one `build_rule` lowering core** ·
-  the param-gap closed (`X[args]` calls a function) · **reactions now emit transparent DATA,
-  uniform with process specs — FLAT/RICH dissolved** · the one-door guards (invariants #1+#2)
-  PIN it against regression. Insight banked: FLAT/RICH was the *reaction-opacity exception*,
-  not a law — it dissolves once the **consumer boundaries eval DATA→runnable** (core's 4c did
-  the rule boundary). **▶ THIS PUSH (roster CONFIRMED: lang + core + simplify, same trio) — three threads,
-  centered on 4a:** (a) **4a — the metacircular close** (the linchpin we kept last): lang
-  builds a first-class `.ys` `eval` that brings a `.ys`-built spec to life by **calling**
-  prism's `Core::instantiate_spec` (`core.rs:165`, live + tested) / `discover_processes`
-  (`engine.rs:1449`) — thin layer, never cloned — so surface-eval and `discover_processes`
-  are ONE operator (`run(p) = instantiate(surface_eval(quote(p)))`; cashes out invariant #3);
-  **4b** folds the `meta` `eval`/`load` (`prelude.rs:329`/`:295`) into that rung. (b) **Axis-A
-  `from_value`-completeness, IN PARALLEL** — `EntityDef::from_value` rebuilds only process/
-  step/composite/binding; make it total (reaction/function rebuild · `type` via core's
-  `schema_codec` · unit/context AST) so "definition-as-data uniform across every kind" is
-  TRUE not overstated; independent of 4a (4a rides the total `Expr::from_value`). (c)
-  **cleanups** — retire `ReactionType::realize` (`rule.rs:474`, after core verifies no other
-  prism consumer) + resolve the **pattern-definer** open Q (build `pattern X` ≡ `def X =
-  Pattern(…)` value form, OR correct the doc — I settle it with lang). Hardens the surface
-  every domain writes `.ys` against — synth A6 + #61 AlChemy are the next consumers (the
-  M4-ward move once the face closes). (= #64 §7 + #30 + #32.)
-- **The `.ys`-mesh-link ↔ `LiveField` binding** is the cross-domain reuse point —
-  synth A8 *and* manifold's distributed Demo 3 both need it. Make it one clean surface.
-- **Hunt duplication** (the simplify instinct): one merge/diff/apply (schema algebra),
-  one BRS, one codec, one mesh — every domain calls them, none clones them.
-- Drive toward **M4**: the first demo where two *different* domains share one mesh.
-- **Build coordination is on the board** (`coord/ROSTER.md` §Build coordination, added pre-boot):
-  the crate DAG induces the agent order **core → lang → simplify**; `build:` is a monotone
-  green-watermark each agent writes on its OWN heartbeat; read peers RAW (`grep build:
-  coord/*.ys`) since the channel can't depend on the binary it rebuilds. Tests **consolidated
-  153 → 7** (one `suite` binary per crate; `autotests = false` + `[[test]] suite` + a generated
-  `tests/suite.rs` of `#[path] mod`s) — runs are now `cargo test -p <crate> --test suite
-  <module>`. *(Consolidation surfaced + I fixed a pre-existing red: 8 quantum/effects `.ys`
-  files still used bare sibling imports after `core`'s explicit-origin flip — completed that
-  migration; full chrysalis suite green. LESSON: run the whole layer, not just targeted tests —
-  it's cheap now.)*
+- **▶▶ THE ORGANISM (the convergence; `organism.md`).** synth DRIVES: **Slice 0** (the M/R
+  metabolism sonified) → **Slice 1** (F/Φ/B as patch roles + the `Structure→Signal` render functor —
+  the music reflects the wiring) → **Slice 2, the KEYSTONE** (rules-as-products = a meta-reaction
+  whose reactum is reaction-DATA, eval'd live = AlChemy made M/R; Φ a genuine product; with core) →
+  **Slice 3** (see it — the SVG render functor + the viewer; viz/mesh) → **Slice 4** (the package; pkg).
+  *Everything reuses existing machinery (the BRS, the homoiconic face, the functor, the sink).*
+  **The standard: one object, not two analogies** — if it runs unforced, the spine is real.
+- **The world-boundary / DISPLAY face** (`web-bigraphs.md`, §7b). mesh builds web Slice 0 (the
+  structural render functor + `web:` serve). My spine home: the natural transformation /
+  **interval-functor** (a morphism = a functor from `2`; an animation = an interval-functor; a
+  natural transformation = a 2-cell) in §7b/§8.
+- **The FUNCTOR definer** (`functors.md`, §4). `apply_functor` landed (core); the definer (lang+core);
+  render functors = the structural default (substrate) + per-domain VIEWS (the organism board /
+  waveform / circuit — declared in each domain library). My follow-up: `apply_functor` in the op table.
+- **The BREAKOUT** (`packages-decomposition.md`, `domain-libraries.md`). **`bio` umbrella (urgent —
+  the organism reaches the cell)**, then manifold, spatial; the `chrysalis/ys/` monolith empties;
+  each domain a **library** (curated generators) + **examples**. primitives-vs-compositions is the
+  discipline (`rust-ys-boundary.md`).
+- **The ECOLOGY horizon** (`organism.md` §7). Explore the space of M/R-closure-fulfilling systems:
+  AlChemy GENERATES/evolves, render NAVIGATES, the mesh DISTRIBUTES, a fitness SEARCHES — the M5
+  living demo become an ecosystem (the diversity of life). *Sequencing: the single organism first.*
+- **unify ⋈ primer.** primer owns doc-COHERENCE (the index, linking, exposition, the README +
+  executable primer); I steward the spine CONTENT (`categorical-core`, `organism`, `functors`, the
+  world-boundary, the decomposition). Point primer at the session's new docs.
+- **Steward follow-ups (mine):** `apply_functor` in the schema-algebra op table · the
+  natural-transformation/interval-functor home (§7b/§8) · fold the world-boundary + the organism
+  into `grand-synthesis.md` (M4/M5) · `rust-ys-boundary.md` (primitives-vs-compositions).
+
+## This session (2026-06-09 → 06-12) — the arc, for provenance
+The coord protocol HARDENED (`coord set` gated codec: create-on-boot + nested/list + the guard;
+`coord/build.sh` automating the build channel). The **package ecosystem** built end-to-end
+(`pkg`, P1–P5) and the **decomposition** begun (synth + quantum packages; each domain → a library
++ examples). The **world-boundary face** forged (web display + the `AudioOut` sink). The
+**`functor` definer** started (render the consumer; many render functors → why a definer). And it
+all converged on **THE ORGANISM** — M/R closure made one audible, self-producing object — now
+building, with the **ecology** (explore the space of all closure-fulfilling systems) as the horizon.

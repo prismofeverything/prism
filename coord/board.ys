@@ -11,9 +11,10 @@ from .core import core
 from .simplify import simplify
 from .pkg import pkg
 from .quantum import quantum
+from .primer import primer
 
 composite Board ->{ board :: map[any] @ board } (
-  link board :: map[any] mesh = { quantum: quantum, pkg: pkg, mesh: mesh, manifold: manifold, synth: synth, unify: unify, lang: lang, core: core, simplify: simplify }
+  link board :: map[any] mesh = { primer: primer, quantum: quantum, pkg: pkg, mesh: mesh, manifold: manifold, synth: synth, unify: unify, lang: lang, core: core, simplify: simplify }
 )
 
 Board[]

@@ -128,7 +128,7 @@ the standard.
 ## Representing contracts in chrysalis
 
 Chrysalis is a programming language that compiles to process-bigraph
-composites. See the chrysalis [GUIDE.md](../crates/chrysalis/ys/GUIDE.md).
+composites. See the [chrysalis primer](chrysalis-primer.md).
 
 **A contract is to an interface what a schema is to a value.** bigraph-schema's
 core principle is "schema is always present, inseparable from state."

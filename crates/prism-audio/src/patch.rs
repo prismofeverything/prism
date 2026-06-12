@@ -23,6 +23,7 @@ use crate::audioout::AudioOut;
 use crate::chaos::Chaos;
 use crate::clock::Clock;
 use crate::clockdiv::ClockDiv;
+use crate::colonyvoice::ColonyVoice;
 use crate::comb::Comb;
 use crate::compare::Compare;
 use crate::counter::Counter;
@@ -34,6 +35,7 @@ use crate::ladder::Ladder;
 use crate::lowpass::LowPass;
 use crate::lpg::Lpg;
 use crate::matrix::Matrix;
+use crate::membranevoice::MembraneVoice;
 use crate::mix::Mix;
 use crate::noise::Noise;
 use crate::oscillator::Oscillator;
@@ -94,6 +96,12 @@ pub fn register_audio(reg: &mut ProcessRegistry) {
     });
     reg.register("Lpg", |c| ProcessNode::Process(Box::new(Lpg::from_config(&c))));
     reg.register("Mix", |c| ProcessNode::Process(Box::new(Mix::from_config(&c))));
+    reg.register("MembraneVoice", |c| {
+        ProcessNode::Process(Box::new(MembraneVoice::from_config(&c)))
+    });
+    reg.register("ColonyVoice", |c| {
+        ProcessNode::Process(Box::new(ColonyVoice::from_config(&c)))
+    });
     reg.register("Quantizer", |c| {
         ProcessNode::Process(Box::new(Quantizer::from_config(&c)))
     });

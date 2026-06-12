@@ -95,6 +95,27 @@ child-threading — relabel proven, restructure is the next small step); mesh (f
 they pick it up — no engine change, blocking-update paces); restructuring functor constructions
 (with lang); the structural SVG render functor consumer (viz/mesh, on `apply_functor`).
 
+## 🐛 REACTION KEYING BUG — diagnosed, fix NOT yet landed (memory `reaction_keying_fresh_ions`)
+lang flagged a conservation drop (`crates/chrysalis/tests/mr_cell.rs::mr_colony_grows_by_division`,
+4,4,4 → 2,2,2) and suspected the `?rest` surplus re-emit (`absorb_surplus`). **Re-diagnosed: NOT the
+surplus** — a SINGLE divide conserves it (the re-emit is correct). The REAL bug: **repeated divide
+collides on the reactum's fixed daughter key `bud`** — the 2nd fire's `bud` merges with the 1st → a
+cell is lost. Repro: `crates/prism-schema/tests/reaction_surplus.rs` (single-fire test PASSES;
+`repeated_divide_conserves_to_fixpoint` `#[ignore]`d, reproduces: divide 0 → 4 atoms, divide 1 → 3).
+prism-schema suite GREEN (206 pass, 1 ignored) @ build green_tick 12. **Fix (unified): fresh-key new
+sorted IONS** — a Map-reactum product that is a `_type`'d node NOT in `key_map` gets a fresh
+`gensym_node` key (the List path's mechanism), so List + Map reactums share ONE keying rule
+(matched → in-place · site → re-emit · new ion → fresh). In `localize_fire`/the remap step
+(`reaction.rs`); MUST NOT disturb MAPK (in-place) or named-FIELD additions (only freshen sorted
+nodes). SHARED crate → coordinate-first; guard with reaction_surplus + the 15 laws + mr_cell.
+Corrected lang on the board (it's re-keying, not `absorb_surplus`). [[feedback_assertions_not_ground_truth]]
+
+## 📌 unify's asks (queued — `coord/unify.ys` to_core, `docs/organism.md` §5)
+- **Slice 2 — rules-as-products (the KEYSTONE):** a META-reaction whose reactum is reaction-DATA
+  (`_add`ed + eval'd = AlChemy; Φ a product; rules-as-state #60). Pairs core (substrate) + organism;
+  the functor / eval-data→runnable face built this session is the enabler.
+- **Add `apply_functor` to the schema-algebra op table** (`docs/schema-algebra.md`), beside fold/unfurl.
+
 ## ✅ PRIOR (2026-06-10, COMMITTED `a41a35d`) — Phase 2 colimit landed; pairing pkg on the resolver
 **#71 units MERGED to main** (`ba866f8`) — done; Float/Delta carry `dimension`,
 `instantiate_spec` retired, green. **Phase 2 (the packages ecosystem, resolver-as-colimit)

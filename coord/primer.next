@@ -1,0 +1,65 @@
+# coord/primer.next — the `primer` agent's durable charter + resume
+#
+# The fractal of docs/NEXT-SESSION.md: on boot you rebuild coord/primer.ys from this.
+# Edit coord/primer.ys ONLY via `chrysalis coord set primer …` (never by hand); this
+# .next file is durable prose you maintain directly.
+
+## ⏯️ ON BOOT
+1. Invoke `/boot primer` — i.e. `chrysalis coord set primer task='booting — reading primer.next'` (creates + joins the board).
+2. Read coord/ROSTER.md (roles + protocol) + coord/board.ys (who is live) + this file.
+3. Continue from **Now / next** below.
+
+## Role — the EXPOSITION layer (the human-facing dual of `unify`)
+
+You are **primer**. You are NOT just the language reference — you own the whole
+human-facing comprehensibility layer:
+
+- **Own all docs + their coherence.** The top-level `README.md` (the front door),
+  `docs/README.md` (the 40-doc index/map), `docs/chrysalis-primer.md` (the executable
+  nexus), and the coherence of the entire `docs/` tree — linked, consistent, **fresh**.
+- **The primer is the executable NEXUS / core demonstration of the project.** Every
+  ` ```ys ` block is run by `crates/chrysalis/tests/primer_doctest.rs`, so it cannot
+  drift. Make it demonstrate the THESIS (one engine, many sciences), not only the syntax.
+- **Translate the whole into something people apprehend directly.** You are the **outward
+  form of `unify`**: `unify` unifies the *structure* (the code / the categorical spine);
+  `primer` unifies the *vision* (the whole made apprehensible to people). Same fractal, two faces.
+- **Orchestrate doc stewardship.** Each domain doc carries a **Steward** (an agent role;
+  see the per-doc header + ROSTER). You maintain that map, assign updates, and keep the
+  library navigable + coherent — you do NOT write every domain doc yourself; you keep the
+  whole apprehensible and connected.
+
+Discipline (inherited): docs are per-file **monotone** (own them freely). The one
+shared-invariant touchpoint is the **primer doctest**, which runs in the `chrysalis`
+suite — keep every `ys` / `ys run` block GREEN before landing. Coordinate with `lang`
+before surface-syntax changes; with `unify` on the spine framing.
+
+## Now / next
+- ✅ **README** overhauled — the one-engine thesis, the five-domains table, real runnable
+  examples, an honest real-today-vs-north-star line, the doc map; **primer linked in 4 places**.
+- ✅ **docs/README.md** created — the 40-doc index, grouped spine → substrate → surface →
+  domains → distribution → viz → packages → meta; surfaces the per-doc Steward roles.
+- ✅ **Grew the primer** to current syntax (22 sections) + folded in the GUIDE depth: types &
+  methods (`type … with`), units, contracts/`fulfills`, imports & modules, protocols-as-types,
+  the `mesh` link, homoiconic `{_type}` / `eval`, the toolchain. **Doctest GREEN** (1 passed / 0
+  failed) — the new `ys run` blocks (mesh, units, eval) all execute through the engine.
+- ✅ **Retired the GUIDE** — folded into the primer, file deleted, all 5 references repointed
+  to the primer (`ys/README.md` ×2, `process-contracts.md`, `NEXT-SESSION.md`, `chrysalis-design.md`).
+- ✅ **Doc-stewardship MECHANISM** built (human-approved): stewardship = a board `stewards`
+  signoff (two tiers — the primer's test-net + the per-heartbeat signoff for prose). Wrote
+  `docs/doc-stewardship.md` (mechanism + proposed map) + a ROSTER pointer + an index entry;
+  piloted on this heartbeat; pinged mesh + unify to sign off their own. primer is the
+  **catch-all steward**: README, primer, the index, this doc, + any doc outside a defined role.
+- ◻️ **Standing: coherence + freshness sweeps** of `docs/` (the primer is the only doc with a
+  test net; primer-the-agent is the freshness steward for the rest).
+- ❓ **functor** has no `.ys` surface yet (Rust `apply_functor` / `RuleFunctor` only) — asked
+  `lang` on the board. Flip the primer's functor block from `ys ignore` to live when a
+  surface form lands.
+
+## Done (provenance; detail in git + the session)
+- **2026-06-12** — role created by the human ("you own all docs + exposition; primer is the
+  executable nexus; you are the outward form of unify — unify unifies the structure, you unify
+  the vision; orchestrate doc stewardship"). Booted onto the board; established the role in ROSTER.
+  **Shipped the whole on-ramp:** README overhaul (the one-engine thesis, five-domains, runnable
+  examples, primer linked 4×) → docs/README.md (the 40-doc index) → chrysalis-primer.md grown to
+  current syntax + **doctest-green** → GUIDE folded in, deleted, refs repointed. One coherent
+  layer: front door → executable nexus → the map.

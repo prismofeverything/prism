@@ -1,0 +1,16 @@
+# functor.ys — the `functor` definer (categorical-core §4): a first-class,
+# structure-preserving map. `functor Name :: Source -> Target ( Gen => construction )`
+# maps each SOURCE generator to a CONSTRUCTION in the target, lifted by functoriality.
+#
+# `Relabel` rewrites every `Foo` node to a `Bar` node; `apply_functor(F, state)` LIFTS it
+# over the whole bigraph. A functor IS an exhaustive single-node BRS (each `=>` is a
+# rewrite rule), so the lift is core's reaction machinery (`prism_schema::functor`),
+# fire-once (endofunctor-safe).
+#
+# Run:  chrysalis run crates/chrysalis/ys/functor.ys
+
+functor Relabel :: Things -> Things (
+  Foo => {_type: 'Bar'},
+)
+
+apply_functor(Relabel, {x: {_type: 'Foo', n: 1.0}})

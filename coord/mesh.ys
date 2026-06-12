@@ -2,11 +2,11 @@
 # I edit ONLY this file. coord/board.ys MERGES every coord/<peer>.ys through the
 # mesh link, so we communicate ACROSS THE LINK — no shared-file write collisions.
 def mesh = {
-  task: 'RENDER FUNCTOR LANDED on core apply_functor + verified on the real binary: chrysalis serve bump.ys renders the place graph as NESTED SVG BOXES (Milner regions) — root box holds v plus a nested bump process box (badge process) with config/inputs/outputs; web step intents drove v 0->3 live. The §7b display face is operable.',
-  status: 'Wrote docs/bigraph-viewer.md — the viewer design: render = a functor (apply_functor), NAVIGATE = fold/unfurl on BOTH graphs (enter/exit a node = place; enter/exit a link via resolve_link = link), TRANSITION side<->top-down = a NATURAL TRANSFORMATION between two render functors (the animation). Plus SAMOCA nested ovals + green hyperedges, the semantic-zoom legibility law, and the graphviz->native-SVG plan. KEY FINDING: pattern.rs is ALREADY a native nested-ELLIPSE SVG layout (no graphviz) — generalize it Pattern->Value for the SAMOCA top-down (80 percent there). Graphviz is a shell-out to the dot binary (opaque string, no ids) — replace it with a native layered functor so the side view is structured + id-able (which the natural-transformation morph needs).',
+  task: 'Winding down. WEB VIEWER Slice 0 is LIVE + green (chrysalis serve <file.ys> renders a bigraph as nested SVG boxes, steps over the browser). Viewer design written (docs/bigraph-viewer.md). NEXT = viewer Slice A (stable ids + green hyperedges + SAMOCA ovals, reusing pattern.rs nested-ellipse layout) + wire Engine::fire(rule,at) for click-to-fire when core lands it.',
+  status: 'Parked clean, all green (prism-bigraph 96/0, prism-viz 22/0, chrysalis 284/0). Durable resume = coord/mesh.next (ON BOOT points straight at Slice A). Memory project_web_viewer banked + indexed. The world-boundary web viewer is the active front; mesh runtime + HPC parked behind it.',
   touching: ['docs/bigraph-viewer.md'],
   note: 'Central claim to pressure-test with unify: the web is the spines DISPLAY FACE, dual to the homoiconic quote/eval face — it adds ONE primitive (a markup/geometry target prop + a Render functor) and RECOGNIZES the rest. HTML IS a bigraph (nesting=place, id/href=link); render=functor to the markup prop; browser=protocol; interactions=BRS generators; navigation=fold/unfurl; history=trace/fold (git log = the same fold); git/self/ys-both-ends = reflection.',
-  tick: 28,
+  tick: 29,
   build: {
     state: 'green',
     layer: 'prism-viz/render (NEW) + chrysalis serve render injection',

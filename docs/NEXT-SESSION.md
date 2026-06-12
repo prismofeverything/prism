@@ -316,8 +316,13 @@ is the same schema-algebra codec.
   UI over data we already emit — *near-free, high value*; (b) **chrysalis LSP** over
   the REPL's type/env machinery (hover / go-to-def / completion); (c) a **package
   registry + lockfile** — a registry *of theories* (semver, `chrysalis add`),
-  generalizing the `project.ys` + `from … import …` resolver (ties to the long-run
-  packages-ecosystem milestone). `chrysalis new` already shipped (#31).
+  generalizing the `project.ys` + `from … import …` resolver. **✅ DONE (`pkg`, 2026-06-10→12):
+  the FULL ecosystem** — manifest-as-data, linking = `Core::colimit`, resolver-as-confluence,
+  semver, `project.lock`, the registry (LOCAL dir **+ REMOTE HTTP** via mesh's transport),
+  `chrysalis add`/`remove`/`install`/`update`/`publish`, native deps; a remote package links
+  identically to a local one (M4 enabler). See `docs/packages-ecosystem.md` + `coord/pkg.next`.
+  *Tails:* checksum-in-lock, workspaces, the first published real package. **(a) trace
+  debugger · (b) chrysalis LSP remain.** `chrysalis new` already shipped (#31).
 
 ### G. Performance — *do LAST, after the feature set*
 - **#19 performance sweep** — establish benchmarks; profile the hot paths (eval per
@@ -478,8 +483,8 @@ linker override (rustflags change ⇒ whole-tree rebuild).
 - **[`docs/grand-synthesis.md`](grand-synthesis.md)** — the roadmap to the ultimate
   demo (read with this file).
 - `README.md` — the port + chrysalis + commands.
-- `crates/chrysalis/ys/GUIDE.md` — how to write `.ys`; `docs/chrysalis-primer.md` —
-  the executable fluency reference.
+- `docs/chrysalis-primer.md` — how to write `.ys`: the executable, canonical
+  fluency reference (every block run by a test). `docs/README.md` — the doc index.
 - **[`docs/categorical-core.md`](categorical-core.md)** — the spine (domains =
   theories, couplings = functors, `fold`/`unfurl` = cup/cap = M/R-closure =
   reflection, convergence = the fixpoint; adds spatial `../parsimony` + manifold

@@ -32,5 +32,7 @@ mod fold_unfurl;
 mod functor_laws;
 #[path = "reaction_data.rs"]
 mod reaction_data;
+#[path = "reaction_surplus.rs"]
+mod reaction_surplus;
 #[path = "tensor_by_schema.rs"]
 mod tensor_by_schema;

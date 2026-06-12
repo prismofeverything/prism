@@ -11,8 +11,9 @@ effects/handlers (#35), and the **robust quantum-exploration library** the human
 in ONE command:** `chrysalis coord set quantum task='booting'` (creates/owns
 `coord/quantum.ys` + joins the board through the gated codec — NEVER hand-edit a heartbeat;
 ROSTER §How it works). Then read this, `coord/ROSTER.md`, `coord/board.ys` (who is live),
-`docs/quantum-bigraphs.md`, `docs/effects-and-handlers.md`, `coord/unify.next` (the overall /
-M0–M5 + the categorical spine). Edit ONLY `coord/quantum.ys` (live) + this file (durable).
+`docs/quantum-bigraphs.md`, `docs/effects-and-handlers.md`, **`docs/quantum-distributed.md`**
+(the distributed arc + the #3 quantum-link design — the active front), `coord/unify.next` (the
+overall / M0–M5 + the categorical spine). Edit ONLY `coord/quantum.ys` (live) + this file (durable).
 The chrysalis binary is at `/mnt/data/archive/prism-target/debug/chrysalis` (custom target
 dir; `cargo metadata` confirms). Resume from **Now / next**.
 
@@ -50,13 +51,20 @@ abstraction; e.g. Bell = `H ; CNOT` built from library gates, not a hand-rolled 
   (#11). See **Done**.
 - [DONE 2026-06-12] (P) **full `.ys` parity (#13)** — demos re-expressed on the gate layer; the
   Q5-blocked protocols (teleportation/locc) flagged. See **Done**.
-- [NEXT — DISTRIBUTED quantum]
-  **#1 streaming tensor/factor: EXISTS** (`quantum-lifecycle-stream.ys` + complex-over-stream
-  verified). **#2 classical channel over a `mesh:` link: DONE** (`locc-alice/bob.ys` +
-  `quantum_locc_mesh.rs` — Alice's bit gossips to Bob; M2). **#3 typed QUANTUM LINK** (#36 §VIII)
-  is the REMAINING direction — entanglement across a composite boundary (link types: quantum vs
-  classical), the deep core/mesh substrate enabler of TRUE distributed teleportation; pair `core` +
-  `mesh`. Multi-session. Plus the older fronts: (d)
+- [▶▶ NEXT SESSION — START HERE] **#3 the typed QUANTUM LINK, Slice A** (in-process quantum link +
+  distributed teleportation in-process). FULL design + the A/B/C slices + the physics constraints
+  are in **`docs/quantum-distributed.md`**. In short: add a `quantum` link modifier beside `mesh`
+  (`link bell :: Qubits quantum = <Bell>`); two composites share the joint `Qubits` via `~bell`
+  (REUSE the shared-link `~link` mechanism); it BYPASSES `mesh_safety` (quantum state is not a
+  CRDT — `mesh_safety` would correctly reject a `Qubits mesh` link). Alice's gates + `observe`
+  update the shared joint state; the collapse determines Bob's qubit; Bob corrects locally. Pair
+  `core` (the link type + the engine's shared-joint-state handling). Then B (the compile-time
+  quantum-vs-classical link gate) + C (distributed transport — teleportation across two machines,
+  the M2 capstone; pair `mesh`).
+- [DISTRIBUTED status] **#1 streaming tensor/factor: EXISTS** (`quantum-lifecycle-stream.ys` +
+  complex-over-stream verified). **#2 classical channel over a `mesh:` link: DONE**
+  (`locc-alice/bob.ys` + `quantum_locc_mesh.rs`; grand-synth M2 — the first distributed quantum
+  demo). **#3: the above.** Plus the older fronts: (d)
   **measure-with-collapse + factorize-driven `_divide` (Q5)** — also UNBLOCKS a clean
   teleportation/locc re-expression (the parity tail). (e) **mesh-mode** (LOCC wire -> a `mesh:`
   link; teleportation across machines, M2).

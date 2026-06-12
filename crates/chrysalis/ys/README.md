@@ -4,9 +4,10 @@ Source files in the chrysalis surface syntax (extension `.ys`, chrYSalis).
 These are **real inputs**: the parser, compiler, and runtime are implemented, so
 each file parses to an AST, compiles to prism runtime artifacts, and runs.
 
-> **Writing your own?** See [**GUIDE.md**](GUIDE.md) — a hands-on walkthrough from
-> a one-liner to a full workflow (values, `def`, processes/steps, composites,
-> imports, contracts, effects).
+> **Writing your own?** See [**the chrysalis primer**](../../../docs/chrysalis-primer.md) —
+> the executable, canonical language reference (values, `def`, processes/steps,
+> composites, methods, reactions, links, mesh, contracts, units, imports,
+> homoiconicity); every example in it is run by a test, so it can't drift.
 
 ## Running them
 
@@ -41,7 +42,8 @@ here parses and round-trips (guarded by `chrysalis/tests/ys_files_roundtrip.rs`)
 
 ## Syntax kernel
 
-A hands-on tutorial is in [GUIDE.md](GUIDE.md); the full design in
+The executable language reference is [the chrysalis
+primer](../../../docs/chrysalis-primer.md); the full design in
 [`docs/chrysalis-design.md`](../../../docs/chrysalis-design.md). The kernel is
 small:
 
