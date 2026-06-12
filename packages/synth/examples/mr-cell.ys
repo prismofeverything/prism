@@ -1,0 +1,51 @@
+# mr-cell.ys — the M/R closure as a reaction network (Rosen metabolism-repair).
+#
+# SLICE 1a: the DYNAMICS only. Atoms are data controls (F/Phi/B); sound comes
+# next. Goal: prove the catalytic cycle SELF-HEALS — this cell starts with NO
+# Phi (only F and B), and Phi must bootstrap back from the other two roles.
+#
+# The closure (../bigraph/bigraph/metabolism.py), three roles inside a membrane:
+#   repair     Phi catalyzes  B -> F    (Phi conserved)  — rebuilds the metabolizer F
+#   replicate  B   catalyzes  F -> Phi  (B conserved)    — rebuilds the repairer Phi ("where Phi comes from")
+#   degrade_F             F -> B         (entropy)
+#   degrade_Phi          Phi -> F        (entropy, the decay chain Phi -> F -> B)
+#
+# SELF-HEAL is structural: any one missing role regenerates from the other two —
+#   no Phi (have F,B): replicate makes Phi   · no F (have Phi,B): repair makes F
+#   no B (have F,Phi): degrade_F makes B.
+#
+# Run: chrysalis run packages/synth/examples/mr-cell.ys --time 40
+
+reaction repair (
+  (cell: Membrane (cat: Phi | sub: B | rest: ?rest))
+  => (cell: Membrane (cat: Phi | sub: F | rest: ?rest))
+) rate ( 3.0 )
+
+reaction replicate (
+  (cell: Membrane (cat: B | sub: F | rest: ?rest))
+  => (cell: Membrane (cat: B | sub: Phi | rest: ?rest))
+) rate ( 2.0 )
+
+reaction degrade_F (
+  (cell: Membrane (atom: F | rest: ?rest))
+  => (cell: Membrane (atom: B | rest: ?rest))
+) rate ( 1.0 )
+
+reaction degrade_Phi (
+  (cell: Membrane (atom: Phi | rest: ?rest))
+  => (cell: Membrane (atom: F | rest: ?rest))
+) rate ( 0.6 )
+
+composite MR[world: map[any]] ->{world :: map[any]} (
+  world: world |
+  brs: BRS[
+    rules: [repair, replicate, degrade_F, degrade_Phi],
+    mode: 'gillespie', seed: 7, max_per_tick: 1000
+  ] ~{state: world} ->{state: world}
+)
+
+# starts with NO Phi — only metabolizers F and substrate B. The closure should
+# regenerate Phi (replicate: B catalyzes F -> Phi) and reach a living mixture.
+MR[ world: World ( cell: Membrane (
+  f0: F | f1: F | b0: B | b1: B | b2: B | b3: B
+) ) ]
