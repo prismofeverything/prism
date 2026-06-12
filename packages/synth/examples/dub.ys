@@ -1,0 +1,47 @@
+# dub.ys — a dub-techno patch: a clocked stab fed through a feedback DELAY (the echo),
+# with CHAOS warbling the delay time (a wandering tape echo). Showcases the new modules.
+#
+#   chrysalis run packages/synth/examples/dub.ys --time 12   # plays
+#
+#   * a Clock sets the stab rhythm (its `gate` pings the gate);
+#   * an Oscillator → Lpg makes each stab (the LPG's natural pluck);
+#   * a Delay with high feedback is the dub echo;
+#   * a Lorenz Chaos source warbles the delay `time_cv` — the echoes wander like tape.
+from audio import Oscillator, Clock, Lpg, Delay, Chaos, AudioOut
+
+composite Dub ~{} ->{ out :: Signal @ out } (
+  out: [0.0] |
+  played: [0.0] |
+  gate: [0.0] |
+  trig: [0.0] |
+  stab: [0.0] |
+  wet: [0.0] |
+  warble: [0.0] |
+
+  clk_phase: 0.0 | clk_rst: 0.0 |
+  vco_phase: 0.0 |
+  lpg_vac: 0.0 | lpg_z: 0.0 |
+  cx: 0.0 | cy: 0.0 | cz: 0.0 |
+
+  # the stab rhythm — 2 hits/sec, a short gate
+  clock: Clock[rate: 2.0, width: 0.12, sample_rate: 48000.0, block: 256]
+    ~{phase: clk_phase, rst_z: clk_rst}
+    ->{phase: clk_phase, rst_z: clk_rst, gate: gate, trig: trig} |
+
+  # the stab — a saw plucked by the low-pass gate off the clock
+  vco: Oscillator[wave: 'Saw', freq: 110.0, amplitude: 0.5, sample_rate: 48000.0, block: 256]
+    ~{phase: vco_phase} ->{phase: vco_phase, saw: stab} |
+  lpg: Lpg[sample_rate: 48000.0, block: 256, rise: 0.002, fall: 0.15]
+    ~{input: stab, ping: gate, vactrol: lpg_vac, z: lpg_z}
+    ->{vactrol: lpg_vac, z: lpg_z, out: wet} |
+
+  # a Lorenz attractor wandering slowly — its `x` warbles the echo time
+  chaos: Chaos[rate: 3.0, block: 256]
+    ~{cx: cx, cy: cy, cz: cz} ->{cx: cx, cy: cy, cz: cz, x: warble} |
+
+  # the dub echo — long feedback, time gently warbled by chaos (tape wow/flutter)
+  delay: Delay[time: 0.28, feedback: 0.6, mix: 0.5, max: 1.0, sample_rate: 48000.0, block: 256, time_depth: 0.02]
+    ~{input: wet, time_cv: warble} ->{out: out} |
+
+  speaker: AudioOut[sample_rate: 48000.0, block: 256] ~{input: out} ->{out: played}
+)

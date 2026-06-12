@@ -13,18 +13,26 @@
 //! unchanged — only the sink differs.
 
 pub mod audioout;
+pub mod chaos;
+pub mod clock;
 pub mod device;
 pub mod envelope;
 pub mod factory;
 pub mod instrument;
 pub mod compare;
 pub mod counter;
+pub mod delay;
 pub mod fold;
+pub mod ladder;
+pub mod logic;
 pub mod lowpass;
+pub mod lpg;
+pub mod mix;
 /// The universal modulation layer — CV ≡ audio; every parameter a `Signal` input.
 pub mod modulation;
 pub mod noise;
 pub mod oscillator;
+pub mod quantizer;
 pub mod ringmod;
 pub mod samplehold;
 pub mod sequencer;
@@ -64,10 +72,18 @@ pub use signal::{
     silence, SIGNAL,
 };
 pub use audioout::AudioOut;
+pub use chaos::Chaos;
+pub use clock::Clock;
 pub use compare::Compare;
 pub use counter::Counter;
+pub use delay::Delay;
 pub use fold::Fold;
+pub use ladder::Ladder;
+pub use logic::Logic;
+pub use lpg::Lpg;
+pub use mix::Mix;
 pub use noise::Noise;
+pub use quantizer::Quantizer;
 pub use ringmod::RingMod;
 pub use samplehold::SampleHold;
 pub use sequencer::Sequencer;

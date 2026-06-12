@@ -19,13 +19,21 @@ use prism_bigraph::process::ProcessNode;
 use prism_bigraph::{Core, Engine, Schema, Value};
 
 use crate::audioout::AudioOut;
+use crate::chaos::Chaos;
+use crate::clock::Clock;
 use crate::compare::Compare;
 use crate::counter::Counter;
+use crate::delay::Delay;
+use crate::logic::Logic;
 use crate::envelope::Envelope;
 use crate::fold::Fold;
+use crate::ladder::Ladder;
 use crate::lowpass::LowPass;
+use crate::lpg::Lpg;
+use crate::mix::Mix;
 use crate::noise::Noise;
 use crate::oscillator::Oscillator;
+use crate::quantizer::Quantizer;
 use crate::render::render;
 use crate::ringmod::RingMod;
 use crate::samplehold::SampleHold;
@@ -73,6 +81,26 @@ pub fn register_audio(reg: &mut ProcessRegistry) {
     });
     reg.register("Sequencer", |c| {
         ProcessNode::Process(Box::new(Sequencer::from_config(&c)))
+    });
+    reg.register("Ladder", |c| {
+        ProcessNode::Process(Box::new(Ladder::from_config(&c)))
+    });
+    reg.register("Lpg", |c| ProcessNode::Process(Box::new(Lpg::from_config(&c))));
+    reg.register("Mix", |c| ProcessNode::Process(Box::new(Mix::from_config(&c))));
+    reg.register("Quantizer", |c| {
+        ProcessNode::Process(Box::new(Quantizer::from_config(&c)))
+    });
+    reg.register("Clock", |c| {
+        ProcessNode::Process(Box::new(Clock::from_config(&c)))
+    });
+    reg.register("Logic", |c| {
+        ProcessNode::Process(Box::new(Logic::from_config(&c)))
+    });
+    reg.register("Chaos", |c| {
+        ProcessNode::Process(Box::new(Chaos::from_config(&c)))
+    });
+    reg.register("Delay", |c| {
+        ProcessNode::Process(Box::new(Delay::from_config(&c)))
     });
     reg.register("AudioOut", |c| {
         ProcessNode::Process(Box::new(AudioOut::from_config(&c)))

@@ -198,6 +198,7 @@ fn resolve_wires_from_process(
 use crate::ports::Interface;
 use crate::process::ProcessNode;
 use crate::topology::{ProcessSpec, Topology};
+use prism_schema::reaction::{apply_fire, find_matches, fire_rule_at, ReactionRule};
 
 /// Scheduling state for a temporal process.
 #[derive(Debug)]
@@ -780,6 +781,55 @@ impl Engine {
         let before = self.time;
         self.advance_to_next_event(f64::INFINITY);
         (self.time > before).then_some(self.time)
+    }
+
+    /// Fire ONE reaction rule **on demand** at (or under) the node at `at` — the
+    /// **intent** surface a world-boundary drives (a `web:` browser click, a control),
+    /// distinct from the per-tick BRS. It reuses the SAME reaction primitives the BRS
+    /// uses (`find_matches` / `fire_rule_at` / `apply_fire`) and the SAME post-apply
+    /// propagation a tick gets — trigger steps on the change, then discover any processes
+    /// the structural change created — so a fired intent behaves exactly like a fire that
+    /// happened during a tick. Returns the changed paths (for the boundary to broadcast
+    /// its delta); empty if the rule does not match at `at`.
+    ///
+    /// `at` is the match scope (empty = the root): the intent fires THIS reaction HERE,
+    /// not wherever the redex happens to match in the tree. The caller (which holds the
+    /// compiled program) maps an intent's rule *name* to its [`ReactionRule`].
+    pub fn fire(&mut self, rule: &ReactionRule, at: &[Key]) -> Vec<Path> {
+        // Scope the match to the targeted node (clone so the immutable read does not
+        // conflict with the write-back below; `apply_fire` clones internally anyway).
+        let scope = if at.is_empty() {
+            self.state.clone()
+        } else {
+            match self.state.get_path(at) {
+                Some(v) => v.clone(),
+                None => return Vec::new(),
+            }
+        };
+        // Match at the ROOT of the scope — the intent targets the node at `at`.
+        let Some(matched) = find_matches(&scope, &rule.redex, None)
+            .into_iter()
+            .find(|m| m.path.is_empty())
+        else {
+            return Vec::new();
+        };
+        let Some(update) = fire_rule_at(rule, &matched) else {
+            return Vec::new();
+        };
+        let new_scope = apply_fire(&scope, &update, Some(self.core.types.as_ref()));
+
+        // Write the rewritten node back, then propagate exactly as a tick does.
+        if at.is_empty() {
+            self.state = new_scope;
+        } else {
+            self.state.set_path(at, new_scope);
+        }
+        let changed: Vec<Path> = vec![at.to_vec()];
+        let step_changes = self.trigger_steps(&changed);
+        let mut discovered = changed;
+        discovered.extend(step_changes);
+        self.discover_processes(&discovered);
+        discovered
     }
 
     /// One simulation step, faithful to process-bigraph's run loop —

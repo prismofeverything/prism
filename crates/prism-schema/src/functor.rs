@@ -68,7 +68,13 @@
 //!
 //! [BRS]: crate::reaction
 
-use crate::value::{StateMap, Value};
+use std::collections::HashMap;
+
+use indexmap::IndexMap;
+
+use crate::reaction::{apply_fire, find_matches, fire_rule_at, Pattern, ReactionRule};
+use crate::registry::TypeRegistry;
+use crate::value::{Key, StateMap, Value};
 
 /// The keys, in priority order, under which a bigraph node names its **generator**
 /// (its control / the atom a functor maps). `_type` is the brand (`#55`); `address`
@@ -180,3 +186,91 @@ pub fn apply_functor<F: Functor + ?Sized>(f: &F, v: &Value) -> Value {
 pub struct Identity;
 
 impl Functor for Identity {}
+
+// ── The rule-based functor: functor = an exhaustive single-node BRS ──────────────────
+
+/// Build the **single-node redex** for a functor mapping. The redex shape is *core's*
+/// correctness domain (condition (2): single-node locality ⟹ `⊗`/`∘` preservation), so
+/// `lang` hands the `(generator, construction)` and CALLS this — it never builds redexes
+/// (the `feedback_chrysalis_thin_layer` split). The redex matches a node by its generator
+/// (`_type`); the `reactum` (the construction) fires as a delta, so a relabel leaves the
+/// node's already-mapped children untouched while a restructuring reactum replaces them.
+pub fn functor_rule(generator: impl Into<Key>, reactum: Pattern) -> ReactionRule {
+    let generator: Key = generator.into();
+    let mut redex = IndexMap::new();
+    redex.insert(
+        Key::from("_type"),
+        Pattern::atom(Value::String(generator.to_string())),
+    );
+    ReactionRule::new(Pattern::Map(redex), reactum)
+}
+
+/// Convenience: the simplest functor mapping — a **relabel** `generator |-> { _type:
+/// target }` (rename the generator; the delta keeps the node's mapped children). The
+/// canonical single-node, target-disjoint rule (target ≠ source ⟹ converges in one pass).
+pub fn relabel_rule(generator: impl Into<Key>, target: impl Into<Key>) -> ReactionRule {
+    let target: Key = target.into();
+    let mut reactum = IndexMap::new();
+    reactum.insert(
+        Key::from("_type"),
+        Pattern::atom(Value::String(target.to_string())),
+    );
+    functor_rule(generator, Pattern::Map(reactum))
+}
+
+/// A **rule-based** functor — the `.ys`-surface impl of [`Functor`]. Each generator's
+/// construction is a reaction rule (built via [`functor_rule`]); applying the functor
+/// fires the generator's rule over each node, reusing the reaction spine
+/// ([`fire_rule_at`] / [`apply_fire`]) — *a functor is an exhaustive single-node BRS*
+/// (the blessed semantics). It overrides nothing structural: it rides
+/// [`Functor::apply`]'s default **postorder sweep**, so each node fires its rule exactly
+/// ONCE — **fire-once by construction**, which is the §3 endofunctor guard (no fixpoint
+/// loop, no shifting-path bookkeeping). `lang` builds the rules from `functor N :: S -> T
+/// ( Gen => constr )` and constructs this; prism applies.
+pub struct RuleFunctor {
+    rules: HashMap<Key, ReactionRule>,
+    types: Option<TypeRegistry>,
+}
+
+impl RuleFunctor {
+    /// A functor from generator-keyed rules (build each with [`functor_rule`] /
+    /// [`relabel_rule`] — the key is the source generator the rule rewrites).
+    pub fn new(rules: HashMap<Key, ReactionRule>) -> Self {
+        Self { rules, types: None }
+    }
+
+    /// Attach the type registry, so a registry-driven reactum sentinel (e.g. `_divide`)
+    /// resolves through `apply_fire`. A plain relabel / restructure needs none.
+    pub fn with_types(mut self, types: TypeRegistry) -> Self {
+        self.types = Some(types);
+        self
+    }
+}
+
+impl Functor for RuleFunctor {
+    fn construct(&self, control: Option<&str>, _node: &StateMap, mapped: StateMap) -> Value {
+        // The node with its children ALREADY mapped (the postorder sweep handled them);
+        // fire the generator's rule over it, root-only — so a child generator is never
+        // double-fired, and the sweep is the sole driver of nesting. No rule for this
+        // generator ⟹ delegate (carry the structurally-mapped node through, = identity).
+        let reassembled = Value::Map(mapped);
+        match control.and_then(|c| self.rules.get(c)) {
+            Some(rule) => {
+                fire_rule_at_root(rule, &reassembled, self.types.as_ref()).unwrap_or(reassembled)
+            }
+            None => reassembled,
+        }
+    }
+}
+
+/// Fire one rule at the ROOT of `node` (match path `[]`) — the single-generator rewrite,
+/// reusing the reaction primitives. Root-only so the postorder sweep (which already
+/// mapped the children) is the sole driver of nesting; a nested generator is never
+/// re-fired here. Returns the image, or `None` if the rule does not match at the root.
+fn fire_rule_at_root(rule: &ReactionRule, node: &Value, types: Option<&TypeRegistry>) -> Option<Value> {
+    let root_match = find_matches(node, &rule.redex, None)
+        .into_iter()
+        .find(|m| m.path.is_empty())?;
+    let update = fire_rule_at(rule, &root_match)?;
+    Some(apply_fire(node, &update, types))
+}

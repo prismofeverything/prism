@@ -69,3 +69,42 @@ fn functor_is_contextual_not_a_reserved_word() {
         "`def functor = …` parses as a binding, not the definer"
     );
 }
+
+// ── slice 2: APPLY — the functorial lift, through core's `prism_schema::functor` ──
+
+#[test]
+fn apply_functor_lifts_a_relabel_over_a_bigraph() {
+    // A RELABEL functor (core proved relabel converges one-pass): `Foo => a Bar node`.
+    // `apply_functor(F, state)` builds a `RuleFunctor` from the mappings (each
+    // construction → a reactum `Pattern` via `eval_pattern`, then core's `functor_rule`)
+    // and calls prism's `apply_functor` — THIN: lang builds + calls, the BRS-to-fixpoint
+    // (fire-once / endofunctor-safe) is core's. The Foo node becomes a Bar; `n` is kept.
+    use std::sync::Arc;
+
+    use chrysalis::eval::Evaluator;
+    use indexmap::IndexMap;
+    use prism_schema::MethodRegistry;
+
+    let src = "functor Relabel :: Things -> Things (\n  \
+               Foo => {_type: 'Bar'},\n)\n\
+               apply_functor(Relabel, {x: {_type: 'Foo', n: 1.0}})\n";
+    let prog = parse_program(src).expect("parses the functor + trailing apply_functor");
+    let main = prog
+        .defs
+        .iter()
+        .find_map(|d| match d {
+            Def::Binding { name, value, .. } if name == "main" => Some(value.clone()),
+            _ => None,
+        })
+        .expect("the trailing `apply_functor(…)` is the `main` value");
+
+    let ev = Evaluator::new(Arc::new(prog), Arc::new(MethodRegistry::new()));
+    let result = ev
+        .eval_value(&main, &IndexMap::new())
+        .expect("apply_functor evaluates through core's lift");
+
+    let s = format!("{result:?}");
+    assert!(s.contains("Bar"), "the Foo node was relabelled to Bar: {s}");
+    assert!(!s.contains("Foo"), "no Foo survives the lift (fire-once relabel): {s}");
+}
+

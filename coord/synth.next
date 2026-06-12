@@ -165,12 +165,21 @@ definer + the `Complex` sort THERE with `unify`; build the per-domain demos HERE
   comparator + analog logic; **`SampleHold`** Serge SSG (stepped + smooth); **`Noise`** seeded random;
   **`Fold`** wavefolder (analytic triangle fold; West-Coast when `fold_cv`←env); **`RingMod`**
   4-quadrant; **`Counter`** Schlappi Nibbler (4-bit, `b0..b3` = clock dividers + `cv` D/A);
-  **`Sequencer`** (`.ys` `steps` list → `cv`+`trig`; the sequence is DATA). **SEVEN rich examples**
+  **`Sequencer`** (`.ys` `steps` list → `cv`+`trig`; the sequence is DATA); **`Ladder`** (Moog 4-pole
+  ladder, `tanh` drive); **`Lpg`** (Buchla/Serge low-pass gate — a `ping` lights a vactrol that opens
+  filter+VCA together = the natural pluck, no env); **`Mix`** (4-ch CV mixer); **`Quantizer`**
+  (`.ys` `scale` snap → in-key melodies + a note-change `gate`); **`Clock`** (master pulse, V/oct
+  rate, gate+trig+reset); **`Logic`** (and/or/xor/nand + a T-flip-flop ÷2); **`Chaos`** (a Lorenz
+  strange attractor → x/y/z); **`Delay`** (echo/chorus/flanger w/ feedback — buffer ON THE STRUCT
+  via `Mutex`, like AudioOut's ring, NO clone-per-tick; fractional interpolated read). **= 18
+  modules.** **Rich examples**
   (`packages/synth/examples/` + a README, all output to the `out` bus, all render e2e): `cross-mod`
   (LFO→pitch+cutoff) · `generative` (self-playing) · `sequence` (melody + env-driven wavefolder) ·
   `acid` (303, env→resonant-cutoff sweep) · `drums` (Nibbler bits as rhythm — kick/hat summed) ·
-  `krell` (self-generating, S&H feedback) · `fm-bell` (FM, env=index). 46 prism-audio tests green;
-  0-chrysalis held. **Two `.ys` GOTCHAs (durable):** (1) `in` is reserved → module audio input port
+  `krell` (self-generating, S&H feedback) · `fm-bell` (FM, env=index) · `west-coast` (in-key
+  Quantizer + Lpg pluck) · `dub` (Clock stab → feedback Delay → Chaos-warbled tape echo) ·
+  `play-tone` (the AudioOut sink). All have **`AudioOut` wired in → they PLAY from `chrysalis run …
+  --time T`** (no flag). 55 prism-audio tests green; 0-chrysalis held. **Two `.ys` GOTCHAs (durable):** (1) `in` is reserved → module audio input port
   is `input` (flagged to lang); (2) **integer module state must be `f64`, not `Value::Int`** — Int
   through an `overwrite(float)` schema coerces → `as_i64` returns None → counters silently reset
   (Counter/Sequencer/Noise were stuck at 0; fixed). **Add-a-module recipe:** kernel `Process` +

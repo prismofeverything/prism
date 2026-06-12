@@ -4,8 +4,10 @@
 //! functor (the structural lift over a real bigraph) and a domain *view* = override one
 //! generator + delegate the rest to the structural default.
 
-use prism_schema::functor::{apply_functor, Functor, Identity};
-use prism_schema::value::{StateMap, Value};
+use std::collections::HashMap;
+
+use prism_schema::functor::{apply_functor, relabel_rule, Functor, Identity, RuleFunctor};
+use prism_schema::value::{Key, StateMap, Value};
 
 fn s(text: &str) -> Value {
     Value::String(text.to_string())
@@ -171,5 +173,65 @@ fn a_view_overrides_one_generator_and_delegates_the_rest() {
         top.get("env").unwrap(),
         &Value::tree([("glucose", Value::Int(10))]),
         "a view delegates un-overridden generators to the structural functor"
+    );
+}
+
+// ── Consumer 3: the RULE-based functor — "a functor IS an exhaustive single-node BRS" ─
+// (lang's framing, blessed). Each generator's construction is a reaction rule; applying
+// the functor fires that rule per node, reusing the reaction spine, riding the same
+// postorder sweep (so the laws above hold for it too, and it is fire-once).
+
+/// A relabel functor from `(generator -> target)` pairs (each a single-node rule via
+/// `relabel_rule`; `core` owns the redex shape, `lang` the constructions).
+fn rule_functor(pairs: &[(&str, &str)]) -> RuleFunctor {
+    let mut rules = HashMap::new();
+    for (g, t) in pairs {
+        rules.insert(Key::from(*g), relabel_rule(*g, *t));
+    }
+    RuleFunctor::new(rules)
+}
+
+#[test]
+fn rule_functor_relabels_converging_in_one_pass() {
+    // a nested + parallel bigraph of source generators A, B.
+    let state = Value::tree([
+        (
+            "n0",
+            Value::tree([("_type", s("A")), ("kid", Value::tree([("_type", s("B"))]))]),
+        ),
+        ("n1", Value::tree([("_type", s("B")), ("x", Value::Int(1))])),
+    ]);
+    let f = rule_functor(&[("A", "box"), ("B", "box")]);
+    let got = apply_functor(&f, &state);
+    let top = got.as_map().unwrap();
+
+    // ⊗ — both top siblings relabeled by their generator's rule…
+    let n0 = top.get("n0").unwrap().as_map().unwrap();
+    let n1 = top.get("n1").unwrap().as_map().unwrap();
+    assert_eq!(n0.get("_type").unwrap(), &s("box"));
+    assert_eq!(n1.get("_type").unwrap(), &s("box"));
+    // ∘ — the nested child relabeled too (the sweep mapped it before firing the parent)…
+    assert_eq!(
+        n0.get("kid").unwrap().as_map().unwrap().get("_type").unwrap(),
+        &s("box")
+    );
+    // …and the relabel delta kept the unmatched field (children preserved).
+    assert_eq!(n1.get("x").unwrap(), &Value::Int(1));
+}
+
+#[test]
+fn rule_functor_endofunctor_cycle_is_fire_once() {
+    // An ENDOfunctor CYCLE (target ⊇ source): A -> box, box -> A. A *naive BRS-to-fixpoint*
+    // would loop forever (A->box->A->box…). The structural sweep fires each node EXACTLY
+    // ONCE, so the output is `box` (A fired once; the box->A rule never re-fires its own
+    // output) and the call TERMINATES — the §3 fire-once guard, for free. (If this were a
+    // global fixpoint without the guard, this test would hang.)
+    let state = Value::tree([("_type", s("A"))]);
+    let f = rule_functor(&[("A", "box"), ("box", "A")]);
+    let got = apply_functor(&f, &state);
+    assert_eq!(
+        got.as_map().unwrap().get("_type").unwrap(),
+        &s("box"),
+        "fire-once: A rewrote to box and the box->A rule did NOT re-fire its own output"
     );
 }

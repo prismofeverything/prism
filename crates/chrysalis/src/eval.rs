@@ -496,6 +496,30 @@ impl Evaluator {
         args: &[Expr],
         env: &IndexMap<Name, Value>,
     ) -> Result<Value, EvalError> {
+        // Special form: `apply_functor(FunctorName, state)` — the functorial LIFT
+        // (categorical-core §4). `FunctorName` is LOOKED UP (not evaluated); the lift
+        // builds a `RuleFunctor` from the functor's `Gen => construction` mappings (each
+        // construction → a reactum `Pattern` via `eval_pattern`, then core's `functor_rule`)
+        // and calls prism's `apply_functor`. THIN: the BRS-to-fixpoint + the fire-once /
+        // endofunctor guard are core's op (`prism_schema::functor`), never re-implemented
+        // here ([[feedback_chrysalis_thin_layer]] — the `ChrysalisBrs` trap).
+        if let Expr::Var(fname) = func {
+            if fname == "apply_functor" && args.len() == 2 {
+                // The functor is a bare control (capitalized → `Expr::Term`), resolved by
+                // NAME — not evaluated (a functor has no value form yet; the lift needs
+                // only its mappings).
+                if let Expr::Term { control: functor_name, .. } = &args[0] {
+                    if self
+                        .program
+                        .entity(functor_name)
+                        .and_then(|e| e.functor)
+                        .is_some()
+                    {
+                        return self.eval_apply_functor(functor_name.as_str(), &args[1], env);
+                    }
+                }
+            }
+        }
         let arg_vals: Vec<Value> = args
             .iter()
             .map(|a| self.eval_value(a, env))
@@ -572,6 +596,43 @@ impl Evaluator {
                 _ => "call target is not a function".into(),
             },
         })
+    }
+
+    /// The functorial LIFT (categorical-core §4) — apply a `.ys` `functor` to a `state`
+    /// bigraph. Build a `RuleFunctor` from the functor's `Gen => construction` mappings —
+    /// each construction lowers to a reactum `Pattern` (`eval_pattern`), then core's
+    /// `functor_rule` builds the single-node redex `{_type: Gen}` — and call
+    /// `prism_schema::functor::apply_functor` (the BRS-to-fixpoint over the postorder
+    /// sweep, fire-once / endofunctor-safe). THIN: chrysalis builds the rules + calls;
+    /// the rewrite algorithm + the laws are prism's ([[feedback_chrysalis_thin_layer]]).
+    fn eval_apply_functor(
+        &self,
+        functor_name: &str,
+        state_expr: &Expr,
+        env: &IndexMap<Name, Value>,
+    ) -> Result<Value, EvalError> {
+        let fd = match self.program.entity(functor_name).and_then(|e| e.functor) {
+            Some(f) => f.clone(),
+            None => {
+                return Err(EvalError::InvalidForm {
+                    context: "apply_functor".into(),
+                    message: format!("no `functor {functor_name}` in scope"),
+                })
+            }
+        };
+        let state = self.eval_value(state_expr, env)?;
+        let mut rules: std::collections::HashMap<Key, prism_schema::reaction::ReactionRule> =
+            std::collections::HashMap::new();
+        for (generator, construction) in &fd.mappings {
+            let mut bindings = RuleBindings::new();
+            let reactum = self.eval_pattern(construction, env, &mut bindings)?;
+            rules.insert(
+                Key::from(generator.as_str()),
+                prism_schema::functor::functor_rule(generator.as_str(), reactum),
+            );
+        }
+        let rule_functor = prism_schema::functor::RuleFunctor::new(rules);
+        Ok(prism_schema::functor::apply_functor(&rule_functor, &state))
     }
 
     /// The LOWER rung of the reflective tower (homoiconic-unification §3 / Stage

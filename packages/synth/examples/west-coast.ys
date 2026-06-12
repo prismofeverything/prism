@@ -1,0 +1,58 @@
+# west-coast.ys — a self-playing, IN-KEY, naturally-plucked generative patch, showing
+# off the new modules: a Quantizer keeps a random melody in scale, and a low-pass GATE
+# (Lpg) gives each note its organic pluck — no envelope, no VCA.
+#
+#   chrysalis run packages/synth/examples/west-coast.ys --time 10   # plays
+#
+#   * a cycling Slope is the clock: `eoc` is the beat, `out` is a per-beat pluck shape;
+#   * Noise → SampleHold (sampled on the beat) → a random value;
+#   * Quantizer snaps it to a minor pentatonic → an in-key pitch (CV ≡ pitch);
+#   * the Oscillator plays it; the Lpg, PINGED by the clock's pluck, opens its filter AND
+#     VCA together and decays naturally (the Buchla/Serge signature — louder is brighter).
+from audio import Oscillator, Slope, SampleHold, Noise, Quantizer, Lpg, AudioOut
+
+composite WestCoast ~{} ->{ out :: Signal @ out } (
+  out: [0.0] |
+  played: [0.0] |
+  beat: [0.0] |
+  pluck: [0.0] |
+  noise: [0.0] |
+  rnd: [0.0] |
+  pitch: [0.0] |
+  voice: [0.0] |
+
+  clk_level: 0.0 | clk_rising: 0.0 | clk_tz: 0.0 |
+  noise_seed: 0 |
+  sh_held: 0.0 | sh_smooth: 0.0 | sh_tz: 0.0 |
+  q_last: 0.0 |
+  vco_phase: 0.0 |
+  lpg_vactrol: 0.0 | lpg_z: 0.0 |
+
+  # the clock — `eoc` triggers the sample, `out` (a fast-rise/slow-fall ramp) pings the gate
+  clock_gen: Slope[rise: 0.001, fall: 0.22, sample_rate: 48000.0, block: 256, cycle: true]
+    ~{level: clk_level, rising: clk_rising, trig_z: clk_tz}
+    ->{level: clk_level, rising: clk_rising, trig_z: clk_tz, eoc: beat, out: pluck} |
+
+  noise_gen: Noise[block: 256, amplitude: 1.0]
+    ~{seed: noise_seed} ->{seed: noise_seed, out: noise} |
+
+  # sample the noise each beat → a random value in [-1, 1]
+  sh: SampleHold[slew: 0.0005, sample_rate: 48000.0, block: 256]
+    ~{held: sh_held, smooth_v: sh_smooth, trig_z: sh_tz, input: noise, trigger: beat}
+    ->{held: sh_held, smooth_v: sh_smooth, trig_z: sh_tz, stepped: rnd} |
+
+  # snap the random value to a minor pentatonic (semitone degrees) — always in key
+  quant: Quantizer[scale: [0.0, 3.0, 5.0, 7.0, 10.0], block: 256]
+    ~{input: rnd, last: q_last} ->{last: q_last, out: pitch} |
+
+  vco: Oscillator[wave: 'Saw', freq: 110.0, amplitude: 0.5, sample_rate: 48000.0, block: 256, fm_depth: 1.0]
+    ~{phase: vco_phase, fm_exp: pitch} ->{phase: vco_phase, saw: voice} |
+
+  # the LOW-PASS GATE — pinged by the clock pluck; filter brightness and amplitude open
+  # and decay together (the natural, acoustic LPG character)
+  lpg: Lpg[sample_rate: 48000.0, block: 256, rise: 0.002, fall: 0.18]
+    ~{input: voice, ping: pluck, vactrol: lpg_vactrol, z: lpg_z}
+    ->{vactrol: lpg_vactrol, z: lpg_z, out: out} |
+
+  speaker: AudioOut[sample_rate: 48000.0, block: 256] ~{input: out} ->{out: played}
+)

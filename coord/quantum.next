@@ -50,19 +50,13 @@ abstraction; e.g. Bell = `H ; CNOT` built from library gates, not a hand-rolled 
   (#11). See **Done**.
 - [DONE 2026-06-12] (P) **full `.ys` parity (#13)** — demos re-expressed on the gate layer; the
   Q5-blocked protocols (teleportation/locc) flagged. See **Done**.
-- [NEXT — DISTRIBUTED quantum, all 3 picked by the human]
-  **#1 streaming tensor/factor: LARGELY EXISTS** — `quantum-lifecycle-stream.ys` factorizes a
-  joint into two `serve-process` stream children (split) + tensors them back (merge), the
-  divide↔tensor duality distributed; complex amplitudes survive the stream codec
-  (`complex_qubits_survive_the_stream_codec`, verified). Remaining: an optional clean
-  *complex* streaming demo.
-  **#2 classical channel over a `mesh:` link** — the natural next BUILD: reuse mesh M1; LOCC /
-  teleportation's classical bit crosses a `mesh:` link between Alice/Bob composites (only classical
-  String crosses; quantum stays local). grand-synthesis M2. Coordinate with `mesh`.
-  **#3 typed QUANTUM LINK** (#36 §VIII) — entanglement across a composite boundary: a core/mesh
-  SUBSTRATE feature (link types: quantum vs classical), the deep enabler of true distributed
-  teleportation/entanglement. Multi-session; pair `core` + `mesh`.
-  Plus the older fronts: (d)
+- [NEXT — DISTRIBUTED quantum]
+  **#1 streaming tensor/factor: EXISTS** (`quantum-lifecycle-stream.ys` + complex-over-stream
+  verified). **#2 classical channel over a `mesh:` link: DONE** (`locc-alice/bob.ys` +
+  `quantum_locc_mesh.rs` — Alice's bit gossips to Bob; M2). **#3 typed QUANTUM LINK** (#36 §VIII)
+  is the REMAINING direction — entanglement across a composite boundary (link types: quantum vs
+  classical), the deep core/mesh substrate enabler of TRUE distributed teleportation; pair `core` +
+  `mesh`. Multi-session. Plus the older fronts: (d)
   **measure-with-collapse + factorize-driven `_divide` (Q5)** — also UNBLOCKS a clean
   teleportation/locc re-expression (the parity tail). (e) **mesh-mode** (LOCC wire -> a `mesh:`
   link; teleportation across machines, M2).
@@ -88,6 +82,15 @@ abstraction; e.g. Bell = `H ; CNOT` built from library gates, not a hand-rolled 
   scope stays joint per physics) — M3; not yet demoed.
 
 ## Done
+- **Distributed #2 — LOCC's classical channel over a `mesh:` link (the first distributed quantum
+  demo; grand-synthesis M2).** 2026-06-12. Two `.ys` peers (`locc-alice.ys`, `locc-bob.ys`) each
+  declare a CRDT-safe `link channel :: map[String] mesh`. Alice measures her |+> and writes the
+  outcome to HER key; ONE gossip round (the mesh M1 runtime — `MeshReplica`/`gossip`/`mesh_links`,
+  REUSED not cloned) replicates the classical String to Bob, who reads it and prepares |bit>. ONLY
+  the classical bit crosses — the quantum stays local (entanglement never split, §VI).
+  `tests/quantum_locc_mesh.rs` drives the gossip (uses `compile_with_core(std_core())` so the
+  `Qubits` methods are present — a bare `compile()` core has the type but not the methods). 39
+  quantum suite green.
 - **Q5 measurement-with-collapse + clean re-expressions + phase estimation.** 2026-06-12.
   `observe(qubit, seed)` — projective single-qubit measurement that COLLAPSES + renormalizes,
   returning `{outcome, state, prob}` (`quantum.rs`; `quantum-measure.ys` shows a Bell partner

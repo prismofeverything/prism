@@ -65,7 +65,8 @@ tests + an export", following the pattern above. Modulation inputs listed are th
 ### Filters / resonators
 - ✅ **`Svf`** — multimode TPT state-variable (joranalogue Filter 8): `cutoff_cv` (V/oct),
   `res_cv`; outputs `lp` `hp` `bp` `notch`; self-oscillates = a resonator. ✅ **`LowPass`** (1-pole, kept).
-- ⬜ **`Ladder`** — 4-pole transistor-ladder (the other classic VCF colour).
+- ✅ **`Ladder`** — 4-pole **Moog transistor-ladder** (`cutoff_cv` V/oct + `res_cv`; `tanh` drive
+  for the Moog saturation; `out` = 4-pole, `lp2` = a 2-pole tap) — the warm/resonant color beside the SVF.
 - ⬜ **`Comb`** — tuned comb / Karplus-Strong basis (`pitch_cv`, `feedback_cv`).
 
 ### Function generators / envelopes / LFOs  (the Serge universal slope)
@@ -79,14 +80,14 @@ tests + an export", following the pattern above. Modulation inputs listed are th
 - ✅ **`SampleHold`** — sample `input` on a `trigger` edge (`stepped`) AND continuously slew toward
   it (`smooth`) — the Serge **SSG** in one. Noise → `input` + a clock → `trigger` = random voltages;
   a stepped CV → `input`, no trigger = a slew limiter / glide. (Subsumes a standalone `Slew`.)
-- ⬜ **`Chaos`** — a chaotic system (Schlappi Three Body flavour): coupled oscillators / a map.
+- ✅ **`Chaos`** — a **Lorenz strange attractor** (Schlappi Three Body flavour): `x`/`y`/`z` orbit forever without repeating; `rate` (× `rate_cv`) from slow CV wander to audio-rate drone.
 
 ### Logic / comparators / counters  (Schlappi binary-as-music)
 - ✅ **`Compare`** — comparator + analog logic (joranalogue Compare 2 / Schlappi Boundary): `input`
   vs `threshold_cv` → `gate`/`inv`; `min`/`max` of `input` & `b`; `rect` (full-wave). Stateless.
 - ✅ **`Counter`** — the **Nibbler**: clocked 4-bit binary accumulator; `clock`/`reset`; outputs the
   per-bit gates `b0`..`b3` (clock ÷2/÷4/÷8/÷16 — an instant rhythm section) + a stepped `cv` (D/A).
-- ⬜ **`Logic`** — AND/OR/XOR/flip-flop over gate Signals.
+- ✅ **`Logic`** — AND/OR/XOR/NAND over two gate Signals + a T-flip-flop (`flip` = ÷2 on `a`); the analog-logic glue for polyrhythms / clock division.
 
 ### Shapers
 - ✅ **`Fold`** — wavefolder (joranalogue Fold 6 / Serge wave multipliers / Buchla): `fold_cv` drive
@@ -99,19 +100,22 @@ tests + an export", following the pattern above. Modulation inputs listed are th
 - ✅ **`Sequencer`** — step sequencer (joranalogue Step 8): `clock`/`reset` step a `.ys` `steps`
   list → a held `cv` (a melody/staircase) + a `trig` pulse per step. The sequence is DATA (a
   reaction could rewrite it live — the homoiconic angle).
-- ⬜ **`Clock`** / **`ClockDiv`** — master clock + dividers/multipliers (`rate_cv`). (A cycling
-  `Slope`'s `eoc` is a clock today; `Counter`'s bits are dividers.)
-- ⬜ **`Quantizer`** — snap a CV to a scale (`scale`, `input` → quantized pitch CV).
+- ⬜ **`ClockDiv`** — clock multipliers/swing on top of `Clock` (÷N is `Counter`'s bits today).
+- ✅ **`Quantizer`** — snap a pitch CV to a `.ys` `scale` (nearest degree, octave-aware) → in-key
+  melodies; emits a `gate` pulse on each note change (→ an envelope `trigger`).
 
 ### Mixers / routing / VCAs
-- ✅ **`Vca`** — linear VCA (`gain` CV). ⬜ **exp/AB** mode; **`Lpg`** (Buchla/Serge low-pass gate).
-- ⬜ **`Mix`** — n-input mixer with per-channel level CV (the additive `Signal` bus is the core);
-  **`Matrix`** (joranalogue Morph 4) — a crossfading routing matrix.
+- ✅ **`Vca`** — linear VCA (`gain` CV). ⬜ exp/AB mode.
+- ✅ **`Lpg`** — Buchla/Serge **low-pass gate**: a `ping` lights a modeled vactrol that opens the
+  filter AND the VCA together and decays naturally (louder = brighter — the West-Coast pluck, no env).
+- ✅ **`Mix`** — 4-channel mixer with a CV level per channel (a VCA on each input, then a sum).
+  ⬜ **`Matrix`** (joranalogue Morph 4) — a crossfading routing matrix.
 - ⬜ **`Pan`** — stereo/quad placement (ties to the ES-9 multichannel fan-out, A8/spatial).
 
 ### Time
-- ⬜ **`Delay`** — delay line (`time_cv`, `feedback_cv`, `mix`) — the basis of echo/chorus/
-  flanger; **large buffer state** (a follow-up needs an efficient buffer-on-state strategy).
+- ✅ **`Delay`** — delay line: `time_cv` (modulate for chorus/flanger), `feedback_cv`, `mix_cv`;
+  echo with feedback, and the basis of reverb. The buffer lives ON THE STRUCT (a `Mutex`, like
+  `AudioOut`'s ring) — no clone-per-tick; fractional read position (interpolated) for smooth time CV.
 - ⬜ **`Reverb`** — FDN/Schroeder over `Delay`s. ⬜ **`Granular`** — grain cloud over a buffer.
 
 ### World boundary — sinks & sources (the device as a graph element)

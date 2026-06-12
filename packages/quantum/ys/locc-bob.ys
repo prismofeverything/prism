@@ -1,0 +1,25 @@
+# locc-bob.ys — Bob's peer in LOCC over a mesh link (grand-synthesis M2).
+# ──────────────────────────────────────────────────────────────────────────
+# Bob reads Alice's classical bit from the shared `map[String] mesh` channel
+# (replicated to him by one gossip round) and conditionally prepares |bit>. No
+# quantum state crosses — only the classical String. Before the bit arrives the
+# channel has no `alice` key, so Bob waits (prepares |0>).
+#
+# Run standalone: `chrysalis run packages/quantum/ys/locc-bob.ys --time 1`.
+process BobReceive[zero :: Qubits = {'0': 1.0}, one :: Qubits = {'1': 1.0}]
+  ~{channel :: map[String], interval :: Float = 1.0}
+  ->{prepared :: overwrite[any]}
+(
+  if 'alice' in channel then
+    (if channel.alice == '1' then {prepared: one} else {prepared: zero})
+  else
+    {prepared: zero}
+)
+
+composite Bob ->{ channel :: map[String] @ channel, prepared :: any @ prepared } (
+  link channel :: map[String] mesh = {} |
+  prepared: 'waiting' |
+  recv: BobReceive ~{channel: ~channel} ->{prepared: prepared}
+)
+
+Bob[]

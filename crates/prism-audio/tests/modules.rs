@@ -4,8 +4,9 @@
 //! (docs/synthesis-bigraphs.md §V, slice A2).
 
 use prism_audio::{
-    render_voice, signal_from_slice, signal_to_vec, AudioOut, Compare, Counter, Envelope, Fold,
-    LowPass, Noise, Oscillator, RingMod, SampleHold, Sequencer, Slope, Svf, Vca, Wave,
+    render_voice, signal_from_slice, signal_to_vec, AudioOut, Chaos, Clock, Compare, Counter, Delay,
+    Envelope, Fold, Ladder, Logic, LowPass, Lpg, Mix, Noise, Oscillator, Quantizer, RingMod,
+    SampleHold, Sequencer, Slope, Svf, Vca, Wave,
 };
 use prism_bigraph::{Process, Value};
 
@@ -608,4 +609,258 @@ fn audioout_passes_the_signal_through() {
         input,
         "AudioOut passes the Signal through (so a patch renders offline + plays with realtime)"
     );
+}
+
+// ── the Moog ladder filter ───────────────────────────────────────────────────
+
+#[test]
+fn ladder_lowpass_attenuates_highs() {
+    let lad = Ladder::new(800.0, 0.2, RATE, BLOCK);
+    let rms = |freq: f64| -> f64 {
+        let osc = Oscillator::new(Wave::Sine, freq, RATE, BLOCK);
+        let (mut phase, mut y, mut acc, mut n) = (0.0, [0.0_f64; 4], 0.0_f64, 0usize);
+        for _ in 0..50 {
+            let ou = osc
+                .update(&Value::tree([("phase", Value::float(phase))]), osc.interval())
+                .into_value()
+                .unwrap();
+            phase = ou.get_field("phase").unwrap().as_f64().unwrap();
+            let fo = lad
+                .update(
+                    &Value::tree([
+                        ("input", ou.get_field("sine").unwrap().clone()),
+                        ("y1", Value::float(y[0])),
+                        ("y2", Value::float(y[1])),
+                        ("y3", Value::float(y[2])),
+                        ("y4", Value::float(y[3])),
+                    ]),
+                    lad.interval(),
+                )
+                .into_value()
+                .unwrap();
+            for (k, key) in ["y1", "y2", "y3", "y4"].iter().enumerate() {
+                y[k] = fo.get_field(key).unwrap().as_f64().unwrap();
+            }
+            for s in signal_to_vec(fo.get_field("out").unwrap()) {
+                acc += (s as f64) * (s as f64);
+                n += 1;
+            }
+        }
+        (acc / n as f64).sqrt()
+    };
+    assert!(rms(200.0) > rms(6000.0) * 2.0, "Moog ladder low-passes: 200 ≫ 6000");
+}
+
+// ── the low-pass gate (Buchla/Serge) ─────────────────────────────────────────
+
+#[test]
+fn lpg_ping_opens_then_decays_naturally() {
+    let lpg = Lpg::new(RATE, BLOCK);
+    let osc = Oscillator::new(Wave::Saw, 200.0, RATE, BLOCK);
+    let (mut phase, mut vac, mut z) = (0.0, 0.0, 0.0);
+    let mut rms = Vec::new();
+    for k in 0..40 {
+        let ou = osc
+            .update(&Value::tree([("phase", Value::float(phase))]), osc.interval())
+            .into_value()
+            .unwrap();
+        phase = ou.get_field("phase").unwrap().as_f64().unwrap();
+        let ping = if k < 2 { 1.0_f32 } else { 0.0 }; // a brief ping at the start
+        let lo = lpg
+            .update(
+                &Value::tree([
+                    ("input", ou.get_field("saw").unwrap().clone()),
+                    ("ping", signal_from_slice(&vec![ping; BLOCK])),
+                    ("vactrol", Value::float(vac)),
+                    ("z", Value::float(z)),
+                ]),
+                lpg.interval(),
+            )
+            .into_value()
+            .unwrap();
+        vac = lo.get_field("vactrol").unwrap().as_f64().unwrap();
+        z = lo.get_field("z").unwrap().as_f64().unwrap();
+        let o = signal_to_vec(lo.get_field("out").unwrap());
+        rms.push((o.iter().map(|x| (x * x) as f64).sum::<f64>() / BLOCK as f64).sqrt());
+    }
+    assert!(rms[2] > 0.02, "LPG opens on the ping ({})", rms[2]);
+    assert!(rms[39] < rms[2] * 0.8, "and decays naturally after it ({} → {})", rms[2], rms[39]);
+}
+
+// ── the quantizer ─────────────────────────────────────────────────────────────
+
+#[test]
+fn quantizer_snaps_to_scale() {
+    let q = Quantizer::new(vec![0.0, 2.0, 4.0, 5.0, 7.0, 9.0, 11.0], BLOCK); // major
+    let snap = |octaves: f32| -> f64 {
+        let out = q
+            .update(
+                &Value::tree([
+                    ("input", signal_from_slice(&vec![octaves; BLOCK])),
+                    ("last", Value::float(f64::NAN)),
+                ]),
+                q.interval(),
+            )
+            .into_value()
+            .unwrap();
+        signal_to_vec(out.get_field("out").unwrap())[0] as f64 * 12.0 // back to semitones
+    };
+    // 3 semitones (not in major) snaps to a scale degree (2 or 4).
+    let s3 = snap(3.0 / 12.0);
+    assert!(
+        [0.0, 2.0, 4.0, 5.0, 7.0, 9.0, 11.0].iter().any(|&d| (s3 - d).abs() < 0.01),
+        "an out-of-scale pitch snaps onto the scale (got {s3})"
+    );
+    // 7 semitones (in scale) stays put.
+    assert!((snap(7.0 / 12.0) - 7.0).abs() < 0.01, "an in-scale pitch is unchanged");
+}
+
+// ── the CV mixer ──────────────────────────────────────────────────────────────
+
+#[test]
+fn mix_sums_channels_by_level() {
+    let mix = Mix::from_config(&Value::tree([
+        ("block", Value::Int(BLOCK as i64)),
+        ("l1", Value::float(0.5)),
+        ("l2", Value::float(0.25)),
+    ]));
+    let out = mix
+        .update(
+            &Value::tree([
+                ("in1", signal_from_slice(&vec![1.0_f32; BLOCK])),
+                ("in2", signal_from_slice(&vec![2.0_f32; BLOCK])),
+            ]),
+            mix.interval(),
+        )
+        .into_value()
+        .unwrap();
+    // 1·0.5 + 2·0.25 = 1.0 (in3/in4 silent, master 1.0)
+    assert!(
+        (signal_to_vec(out.get_field("out").unwrap())[0] - 1.0).abs() < 1e-5,
+        "out = Σ inₖ·levelₖ"
+    );
+}
+
+// ── clock ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn clock_pulses_at_its_rate() {
+    let clk = Clock::from_config(&Value::tree([
+        ("rate", Value::float(200.0)),
+        ("block", Value::Int(BLOCK as i64)),
+        ("sample_rate", Value::float(RATE)),
+    ]));
+    let (mut phase, mut rst_z, mut trigs) = (0.0, 0.0, 0usize);
+    let blocks = 40;
+    for _ in 0..blocks {
+        let out = clk
+            .update(
+                &Value::tree([("phase", Value::float(phase)), ("rst_z", Value::float(rst_z))]),
+                clk.interval(),
+            )
+            .into_value()
+            .unwrap();
+        phase = out.get_field("phase").unwrap().as_f64().unwrap();
+        rst_z = out.get_field("rst_z").unwrap().as_f64().unwrap();
+        for t in signal_to_vec(out.get_field("trig").unwrap()) {
+            if t > 0.5 {
+                trigs += 1;
+            }
+        }
+    }
+    let expected = 200.0 * (blocks as f64 * BLOCK as f64 / RATE); // rate × seconds
+    assert!((trigs as f64 - expected).abs() < 2.0, "≈{expected} pulses ({trigs})");
+}
+
+// ── logic ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn logic_gates_and_flip_flop() {
+    let logic = Logic::from_config(&Value::tree([("block", Value::Int(BLOCK as i64))]));
+    let a = vec![1.0_f32; BLOCK]; // a always high
+    let mut b = vec![0.0_f32; BLOCK];
+    b[..BLOCK / 2].fill(1.0); // b high for the first half
+    let out = logic
+        .update(
+            &Value::tree([
+                ("a", signal_from_slice(&a)),
+                ("b", signal_from_slice(&b)),
+                ("flip_state", Value::float(0.0)),
+                ("a_z", Value::float(0.0)),
+            ]),
+            logic.interval(),
+        )
+        .into_value()
+        .unwrap();
+    let g = |k: &str| signal_to_vec(out.get_field(k).unwrap());
+    assert_eq!(g("and")[0], 1.0); // a&b, both high
+    assert_eq!(g("and")[BLOCK - 1], 0.0); // a=1, b=0
+    assert_eq!(g("or")[BLOCK - 1], 1.0); // a=1
+    assert_eq!(g("xor")[0], 0.0); // 1^1
+    assert_eq!(g("xor")[BLOCK - 1], 1.0); // 1^0
+    assert_eq!(g("flip")[0], 1.0, "flip toggles on a's rising edge");
+}
+
+// ── chaos (Lorenz) ──────────────────────────────────────────────────────────
+
+#[test]
+fn chaos_wanders_bounded_and_deterministic() {
+    let chaos = Chaos::from_config(&Value::tree([
+        ("rate", Value::float(20.0)),
+        ("block", Value::Int(BLOCK as i64)),
+    ]));
+    let run = || {
+        let (mut cx, mut cy, mut cz) = (0.0, 0.0, 0.0);
+        let mut xs: Vec<f32> = Vec::new();
+        for _ in 0..20 {
+            let out = chaos
+                .update(
+                    &Value::tree([
+                        ("cx", Value::float(cx)),
+                        ("cy", Value::float(cy)),
+                        ("cz", Value::float(cz)),
+                    ]),
+                    chaos.interval(),
+                )
+                .into_value()
+                .unwrap();
+            cx = out.get_field("cx").unwrap().as_f64().unwrap();
+            cy = out.get_field("cy").unwrap().as_f64().unwrap();
+            cz = out.get_field("cz").unwrap().as_f64().unwrap();
+            xs.extend(signal_to_vec(out.get_field("x").unwrap()));
+        }
+        xs
+    };
+    let a = run();
+    assert!(a.iter().all(|&s| s.abs() < 3.0), "the attractor stays bounded");
+    let mean = a.iter().sum::<f32>() / a.len() as f32;
+    let var = a.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / a.len() as f32;
+    assert!(var > 1e-4, "it wanders (var {var})");
+    assert_eq!(a, run(), "deterministic from the same seed");
+}
+
+// ── delay ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn delay_echoes_after_its_time() {
+    let delay = Delay::from_config(&Value::tree([
+        ("time", Value::float(5.0 / 1000.0)), // 5 ms = 240 samples @ 48k
+        ("feedback", Value::float(0.0)),
+        ("mix", Value::float(1.0)), // fully wet → out = the delayed signal
+        ("max", Value::float(0.1)),
+        ("block", Value::Int(BLOCK as i64)),
+        ("sample_rate", Value::float(RATE)),
+    ]));
+    let mut imp = vec![0.0_f32; BLOCK];
+    imp[0] = 1.0; // an impulse at sample 0
+    let out = signal_to_vec(
+        delay
+            .update(&Value::tree([("input", signal_from_slice(&imp))]), delay.interval())
+            .into_value()
+            .unwrap()
+            .get_field("out")
+            .unwrap(),
+    );
+    assert!(out[100].abs() < 0.01, "silent before the delay time");
+    assert!(out[240] > 0.5, "the impulse re-emerges ~5 ms later ({})", out[240]);
 }

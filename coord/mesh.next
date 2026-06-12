@@ -51,7 +51,14 @@ the `protocol`/codec layer, the `.ys` `mesh:` surface, the CRDT `mesh_safety` op
       wire it the moment it lands (Slice 2); (b) SSE push (rung 2); (c) `enabled(at)` enumeration
       so the browser OFFERS clickable redexes; (d) the link graph in the render (viz/spatial to
       grow — `resolve_link` → edges); (e) the declared `web:` face + tetrahedron `.ys` package.
-      [[mesh_as_protocol]]
+      **VIEWER DESIGN written: `docs/bigraph-viewer.md`** (render = functor · NAVIGATE =
+      fold/unfurl on BOTH graphs · side⇄top-down = a NATURAL TRANSFORMATION between render
+      functors · SAMOCA nested ovals + green hyperedges · the semantic-zoom legibility law ·
+      Graphviz → native SVG). **Reuse finding:** `prism-viz/pattern.rs` is ALREADY a native
+      nested-ELLIPSE SVG layout — generalize `Pattern → Value` for the SAMOCA top-down (~80%
+      there); Graphviz = a shell-out to the `dot` binary (opaque string, no ids) to retire.
+      **Slices A–E; Slice A (foundation) = stable ids (bigraph path) + the link graph (green
+      hyperedges) + the SAMOCA oval restyle, constant text.** The visual front. [[mesh_as_protocol]]
 - [ ] **pkg P4b — wire `RemoteRegistry` (pkg's, in chrysalis) onto the transport.** The
       transport is SHIPPED + green (see Done); pkg calls `registry::{versions,fetch,publish,
       checksum}` + hosts `RegistryServer`. Recommended split posted to `to_pkg`: `fetch`

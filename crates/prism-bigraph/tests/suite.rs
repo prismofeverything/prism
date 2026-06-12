@@ -22,6 +22,8 @@ mod core_merge;
 mod core_threading_conformance;
 #[path = "cross_composite_reactor.rs"]
 mod cross_composite_reactor;
+#[path = "engine_fire.rs"]
+mod engine_fire;
 #[path = "execution_invariants.rs"]
 mod execution_invariants;
 #[path = "fold_unfurl_consumer.rs"]

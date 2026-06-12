@@ -139,6 +139,14 @@ pub fn audio_exports() -> &'static [(&'static str, &'static str)] {
         ("audio", "RingMod"),
         ("audio", "Counter"),
         ("audio", "Sequencer"),
+        ("audio", "Ladder"),
+        ("audio", "Lpg"),
+        ("audio", "Mix"),
+        ("audio", "Quantizer"),
+        ("audio", "Clock"),
+        ("audio", "Logic"),
+        ("audio", "Chaos"),
+        ("audio", "Delay"),
         ("audio", "AudioOut"),
     ]
 }

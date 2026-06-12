@@ -188,6 +188,8 @@ mod quantum_lifecycle;
 mod quantum_lifecycle_stream;
 #[path = "quantum_locc.rs"]
 mod quantum_locc;
+#[path = "quantum_locc_mesh.rs"]
+mod quantum_locc_mesh;
 #[path = "quantum_package_runs.rs"]
 mod quantum_package_runs;
 #[path = "quantum_self_decohere.rs"]

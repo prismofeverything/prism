@@ -1,0 +1,22 @@
+# locc-alice.ys — Alice's peer in LOCC over a mesh link (grand-synthesis M2).
+# ──────────────────────────────────────────────────────────────────────────
+# Alice measures her |+> qubit and writes the outcome to HER key in a shared,
+# CRDT-safe `map[String] mesh` channel. Only that classical bit (a String) ever
+# crosses to Bob — the quantum state stays local. One gossip round replicates the
+# channel (driven by the mesh runtime; see tests/quantum_locc_mesh.rs).
+#
+# Run standalone: `chrysalis run packages/quantum/ys/locc-alice.ys --time 1`
+# (writes channel.alice = the measured bit).
+process AliceSend[seed :: Float = 42.0, plus :: Qubits = {'0': 0.7071, '1': 0.7071}]
+  ~{channel :: map[String], interval :: Float = 1.0}
+  ->{channel :: map[String]}
+(
+  {channel: {'alice': plus.measure(seed)}}
+)
+
+composite Alice ->{ channel :: map[String] @ channel } (
+  link channel :: map[String] mesh = {} |
+  send: AliceSend ~{channel: ~channel} ->{channel: ~channel}
+)
+
+Alice[]
