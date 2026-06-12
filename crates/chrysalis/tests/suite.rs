@@ -142,6 +142,8 @@ mod package_path_dep;
 mod package_registry;
 #[path = "package_transitive.rs"]
 mod package_transitive;
+#[path = "package_transitive_native.rs"]
+mod package_transitive_native;
 #[path = "parse_auto_key.rs"]
 mod parse_auto_key;
 #[path = "parse_composite.rs"]

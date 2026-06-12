@@ -219,21 +219,30 @@ impl NativeParts {
 /// dependency — a Rust crate chrysalis can't link in-process)? If so, running it needs the
 /// codegen path.
 pub fn has_native_parts(manifest: &PackageManifest) -> bool {
-    manifest.native.is_some() || manifest.dependencies.iter().any(|d| d.source.is_native())
+    // The WHOLE DAG, not just the top: a project depending on a MIXED package (whose
+    // transitive deps are native — e.g. `synth`, with `native: audio`) must route
+    // through codegen too (the transitive-native fix, #67). `collect_native_crates`
+    // walks the dependency graph; a walk error (a broken dep) falls back to the
+    // in-process resolver, which reports it clearly.
+    manifest.native.is_some()
+        || crate::resolver::collect_native_crates(manifest)
+            .map(|crates| !crates.is_empty())
+            .unwrap_or(false)
 }
 
-/// Collect the native parts of `manifest`, reading each crate's Cargo package name.
+/// Collect the native parts of `manifest`: its OWN native crate (the own-native shape)
+/// plus EVERY native crate reachable through the dependency DAG (the transitive-native
+/// fix — `resolver::collect_native_crates`, keyed by each declaring edge so the runner
+/// supplies `native_cores[edge]`). Reads each crate's Cargo package name.
 fn native_parts(manifest: &PackageManifest) -> Result<NativeParts, String> {
     let own = match manifest.native_dir() {
         Some(dir) => Some(NativeCrate::read(dir)?),
         None => None,
     };
     let mut deps = Vec::new();
-    for dep in &manifest.dependencies {
-        if dep.source.is_native() {
-            let krate = NativeCrate::read(dep.resolved_dir(&manifest.dir))?;
-            deps.push((dep.name.clone(), krate));
-        }
+    for native in crate::resolver::collect_native_crates(manifest)? {
+        let krate = NativeCrate::read(native.crate_dir)?;
+        deps.push((native.edge_name, krate));
     }
     Ok(NativeParts { own, deps })
 }

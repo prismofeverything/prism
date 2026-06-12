@@ -196,6 +196,12 @@ native/mixed, so the breakout is gated on it.)*
 > - **P5a — `manifest.rs` native shapes** — a `native:` DEPENDENCY source (`dependencies: {
 >   audio: { native: '../crates/prism-audio' } }`) AND a package's OWN native crate (top-level
 >   `native: '.'`, the co-located mixed shape). `DependencySource::Native` + `Manifest::native`.
+>   **Layering nuance (synth, 2026-06-11):** the **native-DEP** runner body calls only the crate's
+>   zero-arg `prelude::core()` (returns `prism_bigraph::Core`), so a domain crate stays
+>   **chrysalis-free** — `packages/synth` deps `prism-audio` this way; `cargo tree -p prism-audio`
+>   has 0 chrysalis. The **own-native** runner body ALSO calls `prelude::modules()` (a chrysalis
+>   `ModuleRegistry`), so that crate DEPS chrysalis. Rule: a pure native lib → native-DEP shape
+>   (chrysalis-free); a full mixed package with its own import surface (`spatio-flux`) → own-native.
 > - **P5b — `resolver.rs` `resolve_with_natives`** — colimits SUPPLIED native crate Cores
 >   (their `domain_core()`s, keyed by edge name) `own_over` the floor, exactly like a `.ys`
 >   part, surfacing process exports. `tests/package_native.rs` (native Core + `.ys` dep → n=10).

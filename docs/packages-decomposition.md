@@ -161,7 +161,17 @@ the human 2026-06-11: synth first, then scale.*
 5. [ ] **M4:** a one-engine `project.ys` depending on `bio + quantum + synth`, colimit'd into one
    distributed/streaming engine (`grand-synthesis.md`).
 
-## 7b. The transitive-native gap (open — the new-dir / `bio` / M4 enabler)
+## 7b. The transitive-native gap (✅ CLOSED 2026-06-11, `pkg` — the new-dir / `bio` / M4 enabler)
+
+> **Resolved.** `resolver::collect_native_crates` walks the dependency DAG + collects every
+> transitive native crate edge; codegen's `has_native_parts`/`native_parts` now check + collect the
+> WHOLE DAG, so a project depending on a mixed package routes through the runner (which links every
+> transitive native + supplies each `domain_core()`). Plus `compile_lib` tolerates a missing
+> `lib.ys` (a deps-only wrapper like `synth`: manifest + `ys/`, no library → empty own theory, deps
+> passed through). **Verified e2e:** an external-style project depending on `packages/synth` →
+> `chrysalis run` built a runner linking `prism-audio` + ran (`count=3`).
+> `tests/package_transitive_native.rs`. Gap-2 (a transitive OWN-native path dep — `native: '.'`)
+> still needs `resolve_with_own_native`, deferred until `bio`.
 
 **Found 2026-06-11 via a live external-project test.** `chrysalis new` + a std-only project
 runs from any external dir today, and a project with a **DIRECT** `native:` dep (or a pure-`.ys`

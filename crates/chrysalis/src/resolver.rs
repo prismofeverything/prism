@@ -158,6 +158,87 @@ pub fn resolve_core(manifest: &Manifest) -> Result<Core, String> {
     resolve(manifest, std_modules()).map(|r| r.core)
 }
 
+/// One native crate reachable in the dependency DAG (#67 — the transitive-native fix):
+/// the `native_cores` key (the declaring package's edge name = the `from <edge> import`
+/// module) + the crate directory the codegen runner links.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NativeCrateRef {
+    pub edge_name: String,
+    pub crate_dir: PathBuf,
+}
+
+/// Collect EVERY native crate edge reachable from `manifest` through the dependency DAG
+/// — the project's own native deps PLUS those of its transitive `.ys`/registry deps. The
+/// codegen runner links all of these + supplies each `domain_core()` keyed by edge.
+///
+/// **The transitive-native fix** (the M4 / packages-outside-this-dir enabler): a project
+/// depending on a MIXED package (e.g. `synth`, whose manifest has `native: audio`) must
+/// route through codegen, but codegen formerly saw only the TOP manifest's direct native
+/// edges — so the in-process resolver ran and errored on the *transitive* native. The
+/// resolver already walks the full DAG (and `resolve_native` resolves a transitive edge
+/// once its Core is supplied); this collects the native crates along the SAME walk so the
+/// runner can link them all. Deduped by crate dir (a shared native crate links once).
+pub fn collect_native_crates(manifest: &Manifest) -> Result<Vec<NativeCrateRef>, String> {
+    let registry = manifest.registry_dir().map(LocalRegistry::new);
+    let mut out = Vec::new();
+    let mut seen_packages = BTreeSet::new();
+    let mut seen_crates = BTreeSet::new();
+    collect_native_rec(
+        manifest,
+        registry.as_ref(),
+        &mut out,
+        &mut seen_packages,
+        &mut seen_crates,
+    )?;
+    Ok(out)
+}
+
+fn collect_native_rec(
+    manifest: &Manifest,
+    registry: Option<&LocalRegistry>,
+    out: &mut Vec<NativeCrateRef>,
+    seen_packages: &mut BTreeSet<PathBuf>,
+    seen_crates: &mut BTreeSet<PathBuf>,
+) -> Result<(), String> {
+    for dep in &manifest.dependencies {
+        match &dep.source {
+            DependencySource::Native(_) => {
+                let crate_dir = dep.resolved_dir(&manifest.dir);
+                if seen_crates.insert(crate_dir.clone()) {
+                    out.push(NativeCrateRef {
+                        edge_name: dep.name.clone(),
+                        crate_dir,
+                    });
+                }
+            }
+            // Recurse into `.ys` deps (path / registry) — a transitive native lives in
+            // one of their manifests. A package is walked once (cycle / diamond safe).
+            DependencySource::Path(_) => {
+                let dir = dep.resolved_dir(&manifest.dir);
+                if seen_packages.insert(dir.clone()) {
+                    let dep_manifest = Manifest::load(&dir)
+                        .map_err(|e| format!("collecting native deps of `{}`: {e}", dep.name))?;
+                    collect_native_rec(&dep_manifest, registry, out, seen_packages, seen_crates)?;
+                }
+            }
+            DependencySource::Registry => {
+                // A registry dep is walked through the project's registry (the root's,
+                // per the Phase-3 single-registry model). No registry ⇒ unreachable here.
+                if let Some(reg) = registry {
+                    let (_version, dir) = reg
+                        .resolve(&dep.name, &dep.req)
+                        .map_err(|e| format!("collecting native deps of `{}`: {e}", dep.name))?;
+                    if seen_packages.insert(dir.clone()) {
+                        let dep_manifest = Manifest::load(&dir)?;
+                        collect_native_rec(&dep_manifest, registry, out, seen_packages, seen_crates)?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The recursive resolution state: the shared std floor, the import-surface seed, the
 /// supplied native Cores, the memo (one resolved package per NAME — the colimit dedup),
 /// and a cycle guard.
@@ -359,8 +440,15 @@ impl Resolver {
 /// base ⊔ its resolved deps), with `modules` declaring its deps' exports.
 fn compile_lib(dir: &Path, against: &Core, modules: ModuleRegistry) -> Result<Core, String> {
     let entry = dir.join(LIB_ENTRY);
-    let src = std::fs::read_to_string(&entry)
-        .map_err(|e| format!("read library entry {}: {e}", entry.display()))?;
+    let src = match std::fs::read_to_string(&entry) {
+        Ok(src) => src,
+        // No `lib.ys` ⇒ the package has no `.ys` LIBRARY of its own — it is a manifest
+        // that only wires DEPENDENCIES (a native-dep wrapper like `synth`, or a deps-only
+        // umbrella). Its own theory is empty; the Core is just what it compiled against
+        // (its already-linked deps). Distinct from an unreadable file, which errors.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(against.clone()),
+        Err(e) => return Err(format!("read library entry {}: {e}", entry.display())),
+    };
     let program =
         parse_program_in(&src, dir).map_err(|e| format!("parse {}: {e}", entry.display()))?;
     let result = compile_with_core(&program, against.clone(), modules)
