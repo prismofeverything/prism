@@ -16,7 +16,9 @@ use crate::ast::{
 };
 use crate::compile::ModuleRegistry;
 use crate::parse::parse_file;
-use crate::runner::{invoke, invoke_driven, invoke_trace, run, serve_process, serve_stream};
+use crate::runner::{
+    build_engine, invoke, invoke_driven, invoke_trace, run, serve_process, serve_stream,
+};
 
 /// Resolve a `stream` protocol's relative `.ys` `path` against the entry file's
 /// dir (`ys_root`), exactly like a sibling `from cell import` — so a child cell
@@ -165,6 +167,69 @@ fn lower_first(s: &str) -> String {
 /// record), `--trace` (capture the outputs as an Arrow delta-log trace), or
 /// `--in TRACE` (drive the inputs from an Arrow trace — the pipe
 /// `A.ys --trace | B.ys --in -`). Otherwise the file runs as a script.
+/// `chrysalis serve <file.ys> [--port P]` — build the file's engine and serve it as
+/// a live web page (the world-boundary's browser backend; `docs/web-bigraphs.md`
+/// Slice 0). Reuses the run path (`parse_file` → harness → [`build_engine`]), then
+/// **attaches a `web:` boundary** and blocks. Server-authoritative: the browser
+/// renders + posts `step`/`time` intents; the engine steps here. (Slice 0: std /
+/// in-process; native/codegen packages later.)
+pub fn serve_web_command(args: &[String], core: Core, modules: ModuleRegistry) -> i32 {
+    let mut path: Option<String> = None;
+    let mut port: u16 = 8780;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--port" => {
+                i += 1;
+                port = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(port);
+            }
+            flag if flag.starts_with("--") => i += 1, // ignore other flags (Slice 0)
+            p => path = Some(p.to_string()),
+        }
+        i += 1;
+    }
+    let Some(path) = path else {
+        eprintln!("usage: serve <file.ys> [--port P]");
+        return 2;
+    };
+    let mut prog = match parse_file(&path) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("parse {path}: {e}");
+            return 1;
+        }
+    };
+    let ys_root = std::path::Path::new(&path)
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
+    resolve_stream_paths(&mut prog, ys_root);
+    harness_process_entry(&mut prog);
+    let engine = match build_engine(&prog, core, modules, &BTreeMap::new()) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("build {path}: {e}");
+            return 1;
+        }
+    };
+    let addr = format!("0.0.0.0:{port}");
+    let server = match prism_bigraph::protocols::web::serve_web_default(engine, addr.as_str()) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("serve on {addr}: {e}");
+            return 1;
+        }
+    };
+    println!("prism · serving {path}");
+    println!(
+        "  → http://localhost:{}   (open in a browser; Ctrl-C to stop)",
+        server.port()
+    );
+    // Park the main thread: the server runs on its own thread; keep the process alive.
+    loop {
+        std::thread::park();
+    }
+}
+
 pub fn run_command(
     args: &[String],
     core: Core,

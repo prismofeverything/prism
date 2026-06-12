@@ -33,11 +33,18 @@ the `protocol`/codec layer, the `.ys` `mesh:` surface, the CRDT `mesh_safety` op
       `prism-viz` (pair viz; ONE `Render` over markup/SVG/3D) + the serve seam in lang; then
       tetrahedron is a `.ys` package depping it (pkg). Intents = a BRS (`fire`/`step`/`time`).
       Sharpening: generic `serve --web` = ATTACH a `web:` boundary to the root then run (not a
-      mode). **READY for Slice 0 on the human's go.** Then **Slice 0** (transport rungs:
-      poll → SSE → WS → WASM-peer; the serve boundary is MINE, reusing `protocols/http.rs`;
-      the render functor is viz/spatial). Driver = **TETRAHEDRON** (`../tetrahedron`;
-      `code-collaboration.ys` = the git-as-bigraph explorer). Engine reuse confirmed thin
-      (`from_state → discover_all_processes → tick/run/state`). [[mesh_as_protocol]]
+      mode). **SLICE 0 LANDED + green** (2026-06-12): `protocols/web.rs` — `serve_web(engine,
+      render, addr)` on `http.rs` (the serve door's 3RD consumer: rest/registry/web) + the
+      server-authoritative loop (`GET /` shell · `GET /state` server-rendered · `POST /intent`
+      = `step`/`time` → engine.tick/run → re-render) + `chrysalis serve <file.ys>` (cli.rs
+      `serve_web_command` + bin `cmd_serve`, reusing `build_engine`). **Render is INJECTED**
+      (`prism-viz` deps `prism-bigraph` → can't call it → a `Fn(&Value,f64)->String` seam;
+      ship `default_render` = place-graph-as-nested-HTML, schema-only). Tests: `web.rs` unit
+      2/2 + `chrysalis/tests/web_serve.rs` (bump.ys → serve → step → state changed) 1/1.
+      **NEXT (Slice 0b+):** (a) SSE push (rung 2, replace the implicit poll); (b) the `fire(rule,
+      at)` intent (Slice 2); (c) pair **viz/spatial** on the rich render functor (link graph +
+      SVG, the ONE `Render` over markup/SVG/3D — injected); (d) the declared `web:` face
+      (wired-in-is-live) + tetrahedron as a `.ys` package (pkg). [[mesh_as_protocol]]
 - [ ] **pkg P4b — wire `RemoteRegistry` (pkg's, in chrysalis) onto the transport.** The
       transport is SHIPPED + green (see Done); pkg calls `registry::{versions,fetch,publish,
       checksum}` + hosts `RegistryServer`. Recommended split posted to `to_pkg`: `fetch`

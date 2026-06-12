@@ -115,3 +115,43 @@ fn duality_ys_round_trips_and_detects_entanglement() {
     assert!((nested(&out, "joint", "00") - s).abs() < 1e-3);
     assert!((nested(&out, "recombined", "00") - s).abs() < 1e-3);
 }
+
+#[test]
+fn deutsch_jozsa_ys_decides_constant_vs_balanced_in_one_query() {
+    // quantum-deutsch-jozsa.ys: P(inputs = 00) = 1 for a CONSTANT f, 0 for a
+    // BALANCED f — decided in a single query (classically up to 2ⁿ⁻¹+1).
+    let out = run_demo("quantum-deutsch-jozsa.ys");
+    assert!((field(&out, "const0_p00") - 1.0).abs() < 1e-4, "constant f → P(00)=1");
+    assert!((field(&out, "const1_p00") - 1.0).abs() < 1e-4, "constant f → P(00)=1");
+    assert!(field(&out, "bal_x0_p00").abs() < 1e-4, "balanced f → P(00)=0");
+    assert!(field(&out, "bal_xor_p00").abs() < 1e-4, "balanced f → P(00)=0");
+}
+
+#[test]
+fn grover_ys_finds_the_marked_item_with_certainty() {
+    // quantum-grover.ys: one Grover iteration (n=2) finds the marked item w with
+    // probability 1 — for each of three different marks.
+    let out = run_demo("quantum-grover.ys");
+    assert!((field(&out, "found_11") - 1.0).abs() < 1e-4, "Grover should find |11⟩");
+    assert!((field(&out, "found_10") - 1.0).abs() < 1e-4, "Grover should find |10⟩");
+    assert!((field(&out, "found_01") - 1.0).abs() < 1e-4, "Grover should find |01⟩");
+}
+
+#[test]
+fn qft_ys_is_uniform_on_zero_and_round_trips() {
+    // quantum-qft.ys: QFT|000⟩ is uniform (P of any basis = 1/8), and QFT then
+    // inverse-QFT recovers the input |001⟩ exactly.
+    let out = run_demo("quantum-qft.ys");
+    assert!((field(&out, "uniform_p000") - 0.125).abs() < 1e-3, "QFT|000⟩ uniform → P=1/8");
+    assert!((field(&out, "round_trip") - 1.0).abs() < 1e-3, "QFT⁻¹∘QFT = identity");
+}
+
+#[test]
+fn superdense_ys_sends_two_bits_with_one_qubit() {
+    // quantum-superdense.ys: each of the four 2-bit messages is recovered with
+    // certainty — two classical bits delivered via one transmitted qubit.
+    let out = run_demo("quantum-superdense.ys");
+    for msg in ["recv_00", "recv_01", "recv_10", "recv_11"] {
+        assert!((field(&out, msg) - 1.0).abs() < 1e-4, "{msg} should recover with P=1");
+    }
+}

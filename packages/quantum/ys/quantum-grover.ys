@@ -1,0 +1,49 @@
+# quantum-grover.ys — Grover's search: find a MARKED item among N = 2ⁿ in O(√N).
+# ──────────────────────────────────────────────────────────────────────────
+#
+# For n = 2 qubits (N = 4 items), ONE Grover iteration finds the marked item w
+# with CERTAINTY (probability 1). The recipe:
+#   H⊗H        — uniform superposition over all 4 items
+#   oracle(w)  — flip the PHASE of |w⟩
+#   diffusion  — invert about the mean (amplify the marked amplitude)
+# where diffusion = H⊗H ; flip-phase(|00⟩) ; H⊗H, and a phase-flip is built from
+# `cz` (which flips |11⟩) conjugated by `x` gates. Classically you'd query the
+# oracle ~N/2 times; Grover needs one.
+#
+# Run: `chrysalis run packages/quantum/ys/quantum-grover.ys --time 0`
+from .circuit import h, x, cz
+
+def init :: Qubits = {'00': 1.0}
+
+# Search for w = 11 — oracle = cz (already flips |11⟩'s phase). diffusion = H⊗H ;
+# flip|00⟩ (= x⊗x ; cz ; x⊗x) ; H⊗H.
+def found_11 = init.run([
+  h(0), h(1),
+  cz(0, 1),
+  h(0), h(1), x(0), x(1), cz(0, 1), x(0), x(1), h(0), h(1)
+]).prob('11')
+
+# Search for w = 10 — oracle marks |10⟩: x(1) maps |10⟩→|11⟩, cz, x(1) maps back.
+def found_10 = init.run([
+  h(0), h(1),
+  x(1), cz(0, 1), x(1),
+  h(0), h(1), x(0), x(1), cz(0, 1), x(0), x(1), h(0), h(1)
+]).prob('10')
+
+# Search for w = 01 — oracle marks |01⟩ via x(0).
+def found_01 = init.run([
+  h(0), h(1),
+  x(0), cz(0, 1), x(0),
+  h(0), h(1), x(0), x(1), cz(0, 1), x(0), x(1), h(0), h(1)
+]).prob('01')
+
+# Each run finds its marked item with probability 1.0 — one query, not ~N/2.
+composite Grover ~{} ->{
+  found_11 :: float,
+  found_10 :: float,
+  found_01 :: float
+} (
+  found_11: found_11 |
+  found_10: found_10 |
+  found_01: found_01
+)

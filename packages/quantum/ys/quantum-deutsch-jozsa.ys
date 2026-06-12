@@ -1,0 +1,41 @@
+# quantum-deutsch-jozsa.ys — the Deutsch–Jozsa algorithm.
+# ──────────────────────────────────────────────────────────────────────────
+#
+# Given f: {0,1}ⁿ → {0,1} PROMISED to be either CONSTANT (same value on every
+# input) or BALANCED (0 on half the inputs, 1 on the other half), decide which in
+# ONE quantum query — classically it can take up to 2ⁿ⁻¹+1 queries.
+#
+# n = 2 input qubits (q0, q1) + 1 ancilla (q2), ancilla started in |1>. An oracle
+# U_f maps |x>|y> → |x>|y ⊕ f(x)>. With the ancilla in |->, U_f kicks a phase
+# (-1)^f(x) back onto |x> (phase kickback). The circuit is:
+#       H on all qubits ; oracle ; H on the input qubits
+# After it, P(inputs = 00) = 1 if f is CONSTANT, 0 if f is BALANCED — read with
+# `prob('00*')` ('*' = the don't-care ancilla). The whole algorithm is a circuit;
+# only the oracle changes.
+#
+# Run: `chrysalis run packages/quantum/ys/quantum-deutsch-jozsa.ys --time 0`
+from .circuit import h, x, cnot
+
+def init :: Qubits = {'001': 1.0}
+
+# f(x) = 0           (constant) — oracle is the identity (no gates).
+def const0  = init.run([h(0), h(1), h(2),                          h(0), h(1)]).prob('00*')
+# f(x) = 1           (constant) — oracle flips the ancilla unconditionally.
+def const1  = init.run([h(0), h(1), h(2), x(2),                    h(0), h(1)]).prob('00*')
+# f(x) = x0          (balanced) — oracle is CNOT(q0, ancilla).
+def bal_x0  = init.run([h(0), h(1), h(2), cnot(0, 2),              h(0), h(1)]).prob('00*')
+# f(x) = x0 ⊕ x1     (balanced) — oracle is CNOT(q0, anc) ; CNOT(q1, anc).
+def bal_xor = init.run([h(0), h(1), h(2), cnot(0, 2), cnot(1, 2),  h(0), h(1)]).prob('00*')
+
+# const* → 1.0 (CONSTANT); bal_* → 0.0 (BALANCED). One query each.
+composite DeutschJozsa ~{} ->{
+  const0_p00  :: float,
+  const1_p00  :: float,
+  bal_x0_p00  :: float,
+  bal_xor_p00 :: float
+} (
+  const0_p00:  const0 |
+  const1_p00:  const1 |
+  bal_x0_p00:  bal_x0 |
+  bal_xor_p00: bal_xor
+)

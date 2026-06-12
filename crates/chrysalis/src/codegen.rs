@@ -283,19 +283,32 @@ fn read_crate_name(crate_dir: &Path) -> Result<String, String> {
 /// unit-testable. Links `chrysalis` + each native crate; the `run` body depends on the
 /// part shape (own-native-only → `run_command` directly; native deps → the resolver).
 /// Assumes own+deps was rejected upstream (`run_structured`).
+///
+/// `sink` (the crate named by `project.ys`'s `sink:`) is the **world-boundary** crate — it
+/// is compiled `--features realtime` so a wired-in device sink process (`AudioOut`) drives
+/// the device when the patch runs (`docs/domain-libraries.md` §5). With no `sink:`, the
+/// crate's sink process compiles to its stub (a passthrough render) — no flag, no mode.
 fn render_structured_runner(
     manifest_name: &str,
     parts: &NativeParts,
+    sink: Option<&NativeCrate>,
     chrysalis_dir: &Path,
     bin_name: &str,
 ) -> (String, String) {
-    // [dependencies]: chrysalis + each distinct native crate.
+    // [dependencies]: chrysalis + each distinct native crate; the SINK crate gets the
+    // `realtime` feature (its device boundary is live in the graph).
     let mut crate_deps = String::new();
     for c in parts.crates() {
+        let feats = if sink.is_some_and(|s| s.cargo_name == c.cargo_name) {
+            ", features = [\"realtime\"]"
+        } else {
+            ""
+        };
         crate_deps.push_str(&format!(
-            "{name} = {{ path = {dir:?} }}\n",
+            "{name} = {{ path = {dir:?}{feats} }}\n",
             name = c.cargo_name,
             dir = c.crate_dir,
+            feats = feats,
         ));
     }
     let cargo_toml = format!(
@@ -568,12 +581,18 @@ pub fn run_structured(manifest: &PackageManifest, subcommand: &str, args: &[Stri
         );
         return 1;
     }
-    // PLAY mode (`docs/domain-libraries.md` §5): a `--play` flag + a `sink:` declaration
-    // drive the engine to the domain's device sink instead of rendering offline JSON.
+    // `--play` (the BRIDGE — being retired): the prior explicit-mode runner. The
+    // world-boundary model (`docs/domain-libraries.md` §5) makes a wired-in `AudioOut`
+    // sink play through the ORDINARY run below (its `sink:` crate is built `realtime`), so
+    // `--play` is redundant — kept until the normal-play path is e2e-proven, then deleted
+    // (Felleisen — a wired-in sink IS the play).
     if args.iter().any(|a| a == "--play") {
         return run_play(manifest, &parts, subcommand, args);
     }
 
+    // The sink crate (named by `sink:`) is compiled `--features realtime` so a wired-in
+    // device sink (`AudioOut`) is live in the graph; with no `sink:`, no crate gets it.
+    let sink = manifest.sink.as_deref().and_then(|s| find_sink(s, &parts));
     let layout = match Layout::resolve(&manifest.name) {
         Ok(l) => l,
         Err(e) => {
@@ -581,8 +600,13 @@ pub fn run_structured(manifest: &PackageManifest, subcommand: &str, args: &[Stri
             return 1;
         }
     };
-    let (cargo_toml, main_rs) =
-        render_structured_runner(&manifest.name, &parts, &layout.chrysalis_dir, &layout.bin_name);
+    let (cargo_toml, main_rs) = render_structured_runner(
+        &manifest.name,
+        &parts,
+        sink,
+        &layout.chrysalis_dir,
+        &layout.bin_name,
+    );
     build_and_exec(&layout, &cargo_toml, &main_rs, subcommand, args)
 }
 
@@ -684,13 +708,15 @@ mod tests {
                 ("audio".into(), nc("prism-audio", "/crates/prism-audio")),
             ],
         };
+        // No `sink:` → no crate gets the `realtime` feature.
         let (cargo, main) =
-            render_structured_runner("app", &parts, Path::new("/cz"), "chrysalis_runner_app");
+            render_structured_runner("app", &parts, None, Path::new("/cz"), "chrysalis_runner_app");
         // Cargo.toml links chrysalis + each native crate (by Cargo package name + path).
         assert!(cargo.contains("chrysalis = { path = \"/cz\" }"));
         assert!(cargo.contains("spatio-flux = { path = \"/crates/spatio-flux\" }"));
         assert!(cargo.contains("prism-audio = { path = \"/crates/prism-audio\" }"));
         assert!(cargo.contains("[workspace]"), "standalone crate");
+        assert!(!cargo.contains("realtime"), "no sink: → no realtime feature");
         // main.rs supplies each native edge's Core to the resolver, keyed by edge name,
         // using the crate's Rust ident (`-` → `_`) for the `prelude::core()` call.
         assert!(main
@@ -714,6 +740,7 @@ mod tests {
         let (cargo, main) = render_structured_runner(
             "spatio-flux",
             &parts,
+            None,
             Path::new("/cz"),
             "chrysalis_runner_spatio_flux",
         );
@@ -741,7 +768,7 @@ mod tests {
                 ("b".into(), nc("shared", "/c/shared")),
             ],
         };
-        let (cargo, main) = render_structured_runner("app", &parts, Path::new("/cz"), "bin");
+        let (cargo, main) = render_structured_runner("app", &parts, None, Path::new("/cz"), "bin");
         assert_eq!(
             cargo.matches("shared = { path").count(),
             1,
@@ -749,6 +776,31 @@ mod tests {
         );
         assert!(main.contains("native_cores.insert(\"a\""));
         assert!(main.contains("native_cores.insert(\"b\""));
+    }
+
+    #[test]
+    fn sink_crate_gets_realtime_in_the_normal_runner() {
+        // A `sink:` package (synth → sink `audio`) → the NORMAL runner compiles the sink
+        // crate `--features realtime`, so a wired-in `AudioOut` is live in the graph and
+        // `chrysalis run patch.ys` PLAYS — no `--play` flag (docs/domain-libraries.md §5).
+        let parts = NativeParts {
+            own: None,
+            deps: vec![
+                ("audio".into(), nc("prism-audio", "/crates/prism-audio")),
+                ("fx".into(), nc("prism-fx", "/crates/prism-fx")),
+            ],
+        };
+        let sink = find_sink("audio", &parts);
+        let (cargo, main) =
+            render_structured_runner("synth", &parts, sink, Path::new("/cz"), "chrysalis_runner_synth");
+        // ONLY the sink crate gets `realtime`; the other native crate does not.
+        assert!(cargo.contains(
+            "prism-audio = { path = \"/crates/prism-audio\", features = [\"realtime\"] }"
+        ));
+        assert!(cargo.contains("prism-fx = { path = \"/crates/prism-fx\" }"));
+        assert!(!cargo.contains("prism-fx = { path = \"/crates/prism-fx\", features"));
+        // It is the ORDINARY run path — no separate play body.
+        assert!(main.contains("chrysalis::cli::run_command"));
     }
 
     #[test]

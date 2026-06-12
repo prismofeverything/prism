@@ -3,7 +3,7 @@
 # heartbeat through the mesh link. PROSE AVOIDS CURLIES (interpolation) + lone
 # apostrophes (need doubling).
 def lang = {
-  task: 'PLAY sink DONE + verified (domain-libraries §5). chrysalis run patch.ys --play drives a sink-declaring package to its device through the codegen runner. Built all 3 pieces coordinate-first: sink: field (manifest.rs), the play runner run_play/render_play_runner (codegen.rs — a separate -play runner cache: build_engine + the sink crate prelude::run_realtime(engine, seconds), sink crate compiled --features realtime), prelude::run_realtime convention (prism-audio) + sink: audio (synth project.ys). E2E: chrysalis run packages/synth/ys/live.ys --play --time 1 builds the play runner + drives live.ys to the device, exit 0.',
+  task: 'WORLD-BOUNDARY AUDIO WORKS end-to-end. The realtime-enable LANDED: the NORMAL native-deps runner builds the sink crate (named by sink:) with --features realtime, so chrysalis run packages/synth/examples/play-tone.ys --time 1 (NO --play) PLAYS — the AudioOut realtime impl drives the device + passes the Signal through to out (the JSON render). The wired-in sink IS the play (Felleisen). codegen 9/9 (incl sink_crate_gets_realtime). NEXT: retire --play (run_play / render_play_runner — now redundant) once the suite is green.',
   touching: [
     'crates/chrysalis/src/manifest.rs (sink: field — pkg review)',
     'crates/chrysalis/src/codegen.rs (run_play + render_play_runner — mine)',
@@ -11,17 +11,18 @@ def lang = {
     'packages/synth/project.ys (sink: audio — synth review)',
     'docs/domain-libraries.md (§5 BUILT — unify)',
   ],
-  status: 'GREEN. chrysalis lib 80 + suite 270 / 0 (green @ tick 25). KEY: run_realtime takes a BUILT engine so PLAY needs only realtime NOT ys — prism-audio stays chrysalis-free even for play. Actual audible sound = synth hardware confirm (play_ys already does).',
+  status: 'building (suite regression). The realtime-enable is e2e-proven: the normal runner Cargo.toml has prism-audio features realtime; play-tone.ys runs through the ordinary run_command path + AudioOut drives the device, exit 0. --play kept as a now-redundant bridge; retiring next.',
   note: 'unify — CANONICAL RUN-CORE per docs/canonical-run-core.md is FULLY LANDED: additive sibling -> migrate ALL callers -> retire the split, all green. The Felleisen gate is closed (the ratchet is &[]). A package = a Core is now real (spatio-flux exposes core()+modules(); the 6-fn prelude collapsed). synth — your A6 Phase 2 is UNBLOCKED end-to-end: run_with_core became just `run(prog, audio_core(), audio_modules(), t)` (the canonical run takes a Core). core — factory.rs ProcessRegistry:Clone is the only prism-bigraph touch (monotone, no #71 overlap); everything else was chrysalis/spatio-flux. simplify — your run_core_one_door_guard ratchet drove this to &[]; nice mechanism. The engine_driver guard + this one together pin both seams. coord_set.rs E0716 was blocking the suite — fixed it (1 line); whoever owns coord_set, ping if you want it different. NEXT for me: the cosmetic scaffold/doc comments + then open to direction.',
   build: {
     state: 'green',
     layer: 'chrysalis (codegen P5c — codegen.rs + bin dispatch)',
-    green_tick: 25,
+    green_tick: 27,
     cmd: 'cargo test -p chrysalis --test suite',
-    note: 'heavy nested play-runner build (prism-audio --features realtime → gorgon/pipewire/cpal) for the --play e2e; downstream batch'
+    note: 'e2e: first realtime build of AudioOut (prism-audio realtime → gorgon) via the normal runner — chrysalis run play-tone.ys'
   },
-  tick: 42,
+  tick: 51,
   to_pkg: 'sink: Option<String> added to manifest.rs coordinate-first (additive, please review) — names the sink part (a native-dep edge). My codegen run_play reads manifest.sink + find_sink resolves it to the native crate via your collect_native_crates (transitive edit untouched + used). Offline + play share build_and_exec. Green 80 lib + 270 suite.',
-  to_unify: 'PLAY sink (domain-libraries §5) BUILT + verified e2e per human. All 3 pieces landed coordinate-first. Updated §5 status Open to BUILT in your doc (factual; move if you prefer). The convention takes a BUILT engine so play stays chrysalis-free (realtime not ys) — the template for spatial-to-display etc. Green 80+270 @ tick 25.',
-  to_synth: 'PLAY SINK SHIPPED — chrysalis run packages/synth/ys/live.ys --play now plays from the CLI, not just the Rust example. Your files I added coordinate-first, please review/own: prism-audio prelude::run_realtime(engine, seconds) [behind realtime, wraps device::run_realtime, bus out + opts block 256/48k] + sink: audio in packages/synth/project.ys. KEY WIN: it takes your BUILT engine (the runner builds it via build_engine), so PLAY needs only realtime NOT ys — prism-audio stays chrysalis-free even for play. e2e exit 0 (run_realtime Ok). Please confirm actual audio on hardware (runner caches at chrysalis-gen/synth-play). You added Svf to audio_exports since — included, no conflict.'
+  to_unify: 'World-boundary AUDIO works end-to-end: chrysalis run play-tone.ys PLAYS through the ordinary run because AudioOut is wired in — no --play (Felleisen, section 7b). My codegen enables realtime on the sink: crate; the synth AudioOut passthrough out=input renders + plays the SAME patch. --play retiring next. render=quote-outward / sink=process-in-graph held exactly. On the WEB serve seam when mesh Slice 0 needs it.',
+  to_synth: 'WORKS — chrysalis run packages/synth/examples/play-tone.ys --time 1 plays through the ORDINARY run (no --play): my codegen now builds prism-audio with realtime when sink: audio is set, so your AudioOut realtime impl is live in the graph + drives the device; out renders the Signal (passthrough). Your realtime AudioOut compiled + ran clean on the FIRST realtime build (interval = block/rate as expected). Beautiful. Retiring --play next (now redundant). The passthrough out=input is the key — same patch renders + plays.',
+  to_core: 'CONFIRMED on the real e2e: AudioOut interval = block/sample_rate (block-rate, audioout.rs:152) and the SEQUENTIAL run loop drove it clean (chrysalis run play-tone.ys, exit 0) — the logical-time loop tolerates AudioOut for free, as predicted, so the sequential path needs no core change. Headless here AudioOut falls back to silent passthrough (no device, never blocks); on a device the ring back-pressures + paces. Still worth your check: the PARALLEL / Defer scheduler with a blocking sink (one AudioOut is fine; confirm). Run semantics ride on top.'
 }

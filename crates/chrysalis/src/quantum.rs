@@ -167,6 +167,38 @@ fn apply_1q(state: &Value, q: usize, u: &[[Value; 2]; 2]) -> Value {
     }))
 }
 
+/// Apply a single-qubit unitary `u` to `target`, CONTROLLED on `control` being
+/// |1⟩ — the generalization of CNOT (= controlled-X). Basis states with the
+/// control unset pass through unchanged; with it set, `u` spreads `target` as in
+/// `apply_1q`. `cz` = controlled-`m_z`, `cphase` = controlled-`m_phase`, etc.
+fn apply_controlled_1q(state: &Value, c: usize, t: usize, u: &[[Value; 2]; 2]) -> Value {
+    build(amps(state).into_iter().flat_map(|(k, a)| {
+        if bit(&k, c) != Some('1') {
+            vec![(k, a)]
+        } else {
+            let b = if bit(&k, t) == Some('1') { 1 } else { 0 };
+            let k0 = with_bit(&k, t, '0');
+            let k1 = with_bit(&k, t, '1');
+            vec![
+                (k0, complex::mul(&u[0][b], &a)),
+                (k1, complex::mul(&u[1][b], &a)),
+            ]
+        }
+    }))
+}
+
+/// SWAP qubits `a` and `b` — exchange their bits in every basis key (a pure
+/// permutation; carries each amplitude unchanged). Needed for the QFT bit-reversal.
+fn swap_gate(state: &Value, a: usize, b: usize) -> Value {
+    build(amps(state).into_iter().map(|(k, amp)| {
+        let mut chars: Vec<char> = k.chars().collect();
+        if a < chars.len() && b < chars.len() {
+            chars.swap(a, b);
+        }
+        (chars.into_iter().collect(), amp)
+    }))
+}
+
 // The canonical single-qubit matrices — the gate library's data.
 fn m_x() -> [[Value; 2]; 2] {
     [[complex::zero(), complex::one()], [complex::one(), complex::zero()]]
@@ -272,6 +304,9 @@ fn apply_gate_spec(state: &Value, gate: &Value) -> Result<Value, MethodError> {
         "ry" => apply_1q(state, q(0), &m_ry(theta(0))),
         "rz" => apply_1q(state, q(0), &m_rz(theta(0))),
         "cnot" | "cx" => cnot(state, q(0), q(1)),
+        "cz" => apply_controlled_1q(state, q(0), q(1), &m_z()),
+        "cphase" | "cp" => apply_controlled_1q(state, q(0), q(1), &m_phase(theta(0))),
+        "swap" => swap_gate(state, q(0), q(1)),
         other => return Err(bad("run", &format!("unknown gate op `{other}`"))),
     })
 }
@@ -288,6 +323,28 @@ fn correlation(state: &Value) -> f64 {
             sign * complex::abs2(a)
         })
         .sum()
+}
+
+/// `Σ |amp|²` over basis keys matching `pattern` — the marginal measurement
+/// probability. `pattern` is a bitstring with `*` as a per-qubit wildcard, so
+/// `prob('00*')` is the probability the first two qubits measure `0` (any third).
+/// The discriminator algorithms like Deutsch–Jozsa read off the final state.
+fn pattern_prob(state: &Value, pattern: &str) -> f64 {
+    amps(state)
+        .iter()
+        .filter(|(k, _)| key_matches(k, pattern))
+        .map(|(_, a)| complex::abs2(a))
+        .sum()
+}
+
+/// A basis key matches a `*`-wildcard pattern (same length; each position is `*`
+/// or an exact bit).
+fn key_matches(key: &str, pattern: &str) -> bool {
+    key.len() == pattern.len()
+        && key
+            .chars()
+            .zip(pattern.chars())
+            .all(|(k, p)| p == '*' || k == p)
 }
 
 // ── Method registrations ─────────────────────────────────────────────────
@@ -352,6 +409,26 @@ pub fn register_quantum_methods(m: &mut MethodRegistry) {
     m.register(TYPE_NAME, "cnot", |recv, args| -> MethodResult {
         Ok(cnot(recv, qubit_index(args, 0, "cnot")?, qubit_index(args, 1, "cnot")?))
     });
+    // cz(control, target) — controlled-Z (symmetric; flips the phase of |11⟩).
+    m.register(TYPE_NAME, "cz", |recv, args| -> MethodResult {
+        let c = qubit_index(args, 0, "cz")?;
+        let t = qubit_index(args, 1, "cz")?;
+        Ok(apply_controlled_1q(recv, c, t, &m_z()))
+    });
+    // cphase(control, target, theta) — controlled phase rotation.
+    m.register(TYPE_NAME, "cphase", |recv, args| -> MethodResult {
+        let c = qubit_index(args, 0, "cphase")?;
+        let t = qubit_index(args, 1, "cphase")?;
+        let theta = args
+            .get(2)
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| bad("cphase", "expected cphase(control, target, theta)"))?;
+        Ok(apply_controlled_1q(recv, c, t, &m_phase(theta)))
+    });
+    // swap(a, b) — exchange two qubits.
+    m.register(TYPE_NAME, "swap", |recv, args| -> MethodResult {
+        Ok(swap_gate(recv, qubit_index(args, 0, "swap")?, qubit_index(args, 1, "swap")?))
+    });
     // The canonical single-qubit gate set — each the descriptive name plus a short
     // alias, dispatched through `apply_1q` + the matrix.
     reg_1q(m, "hadamard", m_h);
@@ -386,6 +463,15 @@ pub fn register_quantum_methods(m: &mut MethodRegistry) {
     // CHSH inequality reads after rotating each qubit's measurement axis.
     m.register(TYPE_NAME, "correlation", |recv, _args| -> MethodResult {
         Ok(Value::float(correlation(recv)))
+    });
+    // prob(pattern) — Σ|amp|² over basis keys matching `pattern` (`*` = wildcard);
+    // the marginal measurement probability (e.g. `prob('00*')`).
+    m.register(TYPE_NAME, "prob", |recv, args| -> MethodResult {
+        let pattern = args
+            .first()
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| bad("prob", "expected prob(pattern) — a bitstring with '*' wildcards"))?;
+        Ok(Value::float(pattern_prob(recv, pattern)))
     });
     // measure(seed) — Born-rule sample over |amp|²; returns the observed
     // basis-state key (a String), deterministic given the seed.
@@ -625,5 +711,31 @@ mod tests {
         assert!((correlation(&bell) - 1.0).abs() < 1e-12);
         // |01⟩ — odd parity, anti-correlated, ⟨ZZ⟩ = -1.
         assert!((correlation(&build([("01".to_string(), complex::one())])) + 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn prob_is_the_marginal_measurement_probability() {
+        // H|0⟩ ⊗ |0⟩ = (|00⟩+|10⟩)/√2: P('*0')=1, P('00')=0.5, P('1*')=0.5.
+        let s = apply_1q(&build([("00".to_string(), complex::one())]), 0, &m_h());
+        assert!((pattern_prob(&s, "*0") - 1.0).abs() < 1e-12);
+        assert!((pattern_prob(&s, "00") - 0.5).abs() < 1e-12);
+        assert!((pattern_prob(&s, "1*") - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn cz_flips_only_the_eleven_phase() {
+        // Controlled-Z flips the phase of |11⟩ and leaves |00⟩/|01⟩/|10⟩ alone.
+        assert_eq!(amp(&apply_controlled_1q(&ket("11"), 0, 1, &m_z()), "11"), (-1.0, 0.0));
+        assert_eq!(amp(&apply_controlled_1q(&ket("10"), 0, 1, &m_z()), "10"), (1.0, 0.0));
+        assert_eq!(amp(&apply_controlled_1q(&ket("01"), 0, 1, &m_z()), "01"), (1.0, 0.0));
+        assert_eq!(amp(&apply_controlled_1q(&ket("00"), 0, 1, &m_z()), "00"), (1.0, 0.0));
+    }
+
+    #[test]
+    fn swap_exchanges_two_qubits() {
+        // swap(0,1): |10⟩ ↔ |01⟩, |00⟩/|11⟩ fixed.
+        assert_eq!(amp(&swap_gate(&ket("10"), 0, 1), "01"), (1.0, 0.0));
+        assert_eq!(amp(&swap_gate(&ket("01"), 0, 1), "10"), (1.0, 0.0));
+        assert_eq!(amp(&swap_gate(&ket("11"), 0, 1), "11"), (1.0, 0.0));
     }
 }

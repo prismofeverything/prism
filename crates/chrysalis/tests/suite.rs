@@ -238,6 +238,8 @@ mod units_engine;
 mod units_in_schema;
 #[path = "unparse_roundtrip.rs"]
 mod unparse_roundtrip;
+#[path = "web_serve.rs"]
+mod web_serve;
 #[path = "ys_files_roundtrip.rs"]
 mod ys_files_roundtrip;
 #[path = "ys_files_run.rs"]

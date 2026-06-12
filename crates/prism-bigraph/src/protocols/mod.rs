@@ -11,11 +11,13 @@ pub mod registry;
 pub mod swim;
 pub mod rest;
 pub mod rest_server;
+pub mod web;
 
 pub use http::HttpServer;
 pub use mesh::{mesh_links, MeshProtocol, MeshReplica};
 pub use mesh_agent::{GossipHandle, LiveField, MeshAgent};
 pub use registry::RegistryServer;
+pub use web::{serve_web, serve_web_default, WebServer};
 pub use swim::Membership;
 pub use parallel::{ParallelProcess, ParallelProtocol};
 pub use rest::{RestProcess, RestProtocol};

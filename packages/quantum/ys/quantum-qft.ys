@@ -1,0 +1,59 @@
+# quantum-qft.ys — the Quantum Fourier Transform (the quantum DFT).
+# ──────────────────────────────────────────────────────────────────────────
+#
+# The QFT maps |x> -> (1/sqrt(N)) Σ_k e^(2πi·xk/N) |k>  (N = 2^n) — the heart of
+# Shor's algorithm and phase estimation. On n qubits the circuit is: for each
+# qubit, an H followed by controlled-PHASE rotations R_m = cphase(2π/2^m) from the
+# qubits below it, then a final swap (bit reversal).
+#
+# This is the first algorithm whose amplitudes are GENUINELY COMPLEX — the
+# controlled phases spin each amplitude around the unit circle — so it is the
+# payoff for the shared `Complex` substrate (#68). `qft_001` below shows the
+# `[re, im]` amplitudes directly.
+#
+# (pi/2 ≈ 1.5707963, pi/4 ≈ 0.7853982.)
+#
+# Run: `chrysalis run packages/quantum/ys/quantum-qft.ys --time 0`
+from .circuit import h, cphase, swap
+
+def init_000 :: Qubits = {'000': 1.0}
+def init_001 :: Qubits = {'001': 1.0}
+
+# 3-qubit QFT.
+def qft_000 = init_000.run([
+  h(0), cphase(1, 0, 1.5707963), cphase(2, 0, 0.7853982),
+  h(1), cphase(2, 1, 1.5707963),
+  h(2),
+  swap(0, 2)
+])
+def qft_001 = init_001.run([
+  h(0), cphase(1, 0, 1.5707963), cphase(2, 0, 0.7853982),
+  h(1), cphase(2, 1, 1.5707963),
+  h(2),
+  swap(0, 2)
+])
+
+# QFT|000> is the uniform superposition: every amplitude is 1/sqrt(8), so the
+# probability of any single basis outcome is 1/8 = 0.125.
+def uniform_p000 = qft_000.prob('000')
+
+# Round-trip: QFT then INVERSE-QFT (reverse the gate order, negate the phases)
+# recovers the input |001> exactly.
+def round_trip = init_001.run([
+  h(0), cphase(1, 0, 1.5707963), cphase(2, 0, 0.7853982),
+  h(1), cphase(2, 1, 1.5707963), h(2), swap(0, 2),
+  swap(0, 2), h(2), cphase(2, 1, -1.5707963),
+  h(1), cphase(2, 0, -0.7853982), cphase(1, 0, -1.5707963), h(0)
+]).prob('001')
+
+composite Qft ~{} ->{
+  qft_000      :: Qubits,
+  qft_001      :: Qubits,
+  uniform_p000 :: float,
+  round_trip   :: float
+} (
+  qft_000:      qft_000 |
+  qft_001:      qft_001 |
+  uniform_p000: uniform_p000 |
+  round_trip:   round_trip
+)

@@ -56,3 +56,9 @@ required-features = ["realtime"]
 [[example]]
 name = "play_ys"
 required-features = ["realtime", "ys"]
+
+# Hear the AudioOut SINK — the device wired INTO the graph (no --play): build the
+# engine, just engine.run(), and the in-graph AudioOut drives + paces it.
+[[example]]
+name = "play_audioout"
+required-features = ["realtime", "ys"]

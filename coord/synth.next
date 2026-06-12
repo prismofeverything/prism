@@ -175,11 +175,21 @@ definer + the `Complex` sort THERE with `unify`; build the per-domain demos HERE
   through an `overwrite(float)` schema coerces → `as_i64` returns None → counters silently reset
   (Counter/Sequencer/Noise were stuck at 0; fixed). **Add-a-module recipe:** kernel `Process` +
   `from_config` + `patch.rs::register_audio` + `prelude::audio_exports` + a `tests/modules.rs` test.
-  **NEXT:** **(a) `--play` handoff to pkg+lang IN FLIGHT** — synth side READY (`build_engine` +
-  `prelude::run_realtime` sink-fn + `sink: audio`); pkg does the runner --play dispatch (must enable
-  `prism-audio/realtime`), lang the `--play` flag (docs/domain-libraries.md §5). **(b) more modules**
-  (roadmap in `docs/synth-module-library.md`): `Mix`/`Matrix` · `Logic` · `Clock`/`ClockDiv` · `Lpg`
-  · `Ladder` · `Chaos` · `Delay`→reverb (needs a buffer-on-state strategy).
+  **NEXT:** **(a) WORLD-BOUNDARY FACE — `--play` RETIRED; the device is a SINK IN THE GRAPH**
+  (unify unification, `docs/web-bigraphs.md` §9 + `categorical-core`). Built **`AudioOut`**
+  (`prism-audio/src/audioout.rs`): wire a `Signal` into `input` → it drives the device; the device
+  drain BACK-PRESSURES `update()` → PACES the engine to real-time. So `chrysalis run patch.ys`
+  *plays* because the sink is wired in (no flag). Passthrough (`out=input`) → same patch renders
+  offline (stub) + plays with realtime; no device = silent passthrough. **Send boundary solved**
+  (Process is Send+Sync, cpal Stream is !Send): AudioOut holds the Send ring producer, a spawned
+  audio thread owns the stream. Builds both configs; passthrough verified (unit test +
+  `examples/play-tone.ys` renders the 220 sine through AudioOut). **PAIRING core+lang:** core verifies
+  `engine.run` tolerates a blocking/pacing `update` (local run; likely ~0 change); lang makes the
+  codegen runner enable `prism-audio/realtime` when `sink:` is set (so AudioOut plays, not the stub) +
+  the run semantics (`--time T` = T real seconds). pkg's --play dispatch RETIRED. *Then: wire AudioOut
+  into all examples so each plays from `chrysalis run`; retire `run_ys_realtime`/`play_ys` (the interim
+  audible path) once that lands.* **(b) more modules** (`docs/synth-module-library.md`): `Mix`/`Matrix`
+  · `Logic` · `Clock`/`ClockDiv` · `Lpg` · `Ladder` · `Chaos` · `Delay`→reverb (buffer-on-state).
 - **`.ys` PATCHES ARE NOW AUDIBLE — the device as a SINK on the engine (the M4-ward seam).**
   `packages/synth/ys/live.ys` is a CONTINUOUS audio engine (oscillator as a live composite child
   writing the `out` Signal each tick — one engine tick = one block, vs `tone.ys`'s one-shot

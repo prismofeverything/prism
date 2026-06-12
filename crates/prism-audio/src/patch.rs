@@ -18,6 +18,7 @@ use prism_bigraph::factory::ProcessRegistry;
 use prism_bigraph::process::ProcessNode;
 use prism_bigraph::{Core, Engine, Schema, Value};
 
+use crate::audioout::AudioOut;
 use crate::compare::Compare;
 use crate::counter::Counter;
 use crate::envelope::Envelope;
@@ -72,6 +73,9 @@ pub fn register_audio(reg: &mut ProcessRegistry) {
     });
     reg.register("Sequencer", |c| {
         ProcessNode::Process(Box::new(Sequencer::from_config(&c)))
+    });
+    reg.register("AudioOut", |c| {
+        ProcessNode::Process(Box::new(AudioOut::from_config(&c)))
     });
 }
 

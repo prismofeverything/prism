@@ -29,6 +29,7 @@ fn main() {
     match cmd.as_str() {
         "new" => cmd_new(rest),
         "run" => cmd_run(rest),
+        "serve" => cmd_serve(rest),
         "add" => cmd_add(rest),
         "remove" => cmd_remove(rest),
         "install" => cmd_install(rest),
@@ -421,6 +422,20 @@ fn cmd_run(args: &[String]) {
     let ys_root =
         entry_path.and_then(|p| std::path::Path::new(&p).parent().map(|d| d.to_path_buf()));
     std::process::exit(chrysalis::cli::run_command(
+        args,
+        std_core(),
+        std_modules_at(ys_root),
+    ));
+}
+
+/// `chrysalis serve <file.ys> [--port P]` — serve the file as a live web page (the
+/// world-boundary's browser backend, `docs/web-bigraphs.md` Slice 0). Like `run`, but
+/// attaches a `web:` boundary instead of running offline. Slice 0: std / in-process.
+fn cmd_serve(args: &[String]) {
+    let entry_path = args.iter().find(|a| !a.starts_with("--")).cloned();
+    let ys_root =
+        entry_path.and_then(|p| std::path::Path::new(&p).parent().map(|d| d.to_path_buf()));
+    std::process::exit(chrysalis::cli::serve_web_command(
         args,
         std_core(),
         std_modules_at(ys_root),

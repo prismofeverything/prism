@@ -1,0 +1,22 @@
+# play-tone.ys — the world-boundary face: the audio device is a SINK IN THE GRAPH.
+#
+#   chrysalis run packages/synth/examples/play-tone.ys            # plays (with realtime)
+#   chrysalis run packages/synth/examples/play-tone.ys --time 0   # renders the Signal (offline)
+#
+# An `AudioOut` process takes the oscillator's Signal on its `input` and drives the
+# output device; the device's real-time drain back-pressures the engine, so the patch
+# *plays* simply because the sink is wired in — no `--play` flag (docs/web-bigraphs.md
+# §9). `AudioOut` passes through (`out = input`), so the SAME patch renders offline (the
+# Signal flows to `out`) and plays under `--features realtime`.
+from audio import Oscillator, AudioOut
+
+composite PlayTone ~{} ->{ out :: Signal @ out } (
+  out: [0.0] |
+  tone: [0.0] |
+  phase: 0.0 |
+
+  osc: Oscillator[wave: 'Sine', freq: 220.0, amplitude: 0.4, sample_rate: 48000.0, block: 256]
+    ~{phase: phase} ->{phase: phase, sine: tone} |
+
+  speaker: AudioOut[sample_rate: 48000.0, block: 256] ~{input: tone} ->{out: out}
+)

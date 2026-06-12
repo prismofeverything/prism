@@ -1,0 +1,36 @@
+# quantum-superdense.ys — superdense coding: send 2 classical bits with 1 qubit.
+# ──────────────────────────────────────────────────────────────────────────
+#
+# Alice and Bob pre-share a Bell pair |Φ+> = [h(0), cnot(0,1)] on |00> (Alice
+# holds q0, Bob q1). To send a 2-bit message, Alice applies a Pauli to HER qubit:
+#       00 -> I        01 -> X        10 -> Z        11 -> X then Z
+# turning the shared pair into one of the four Bell states. She sends q0 to Bob —
+# ONE qubit — and Bob does a Bell measurement [cnot(0,1), h(0)] to read off BOTH
+# bits, recovering the message with probability 1.
+#
+# Only one qubit crosses the channel, yet two classical bits arrive: the
+# pre-shared entanglement is the other half of the channel (Holevo-saturating).
+# The whole protocol is gates + `prob` — no new primitive; pure `.ys`.
+#
+# Run: `chrysalis run packages/quantum/ys/quantum-superdense.ys --time 0`
+from .circuit import h, x, z, cnot
+
+def init :: Qubits = {'00': 1.0}
+
+# Each line: Bell prep ; Alice's encode ; Bob's Bell-measurement. prob(message) = 1.
+def recv_00 = init.run([h(0), cnot(0, 1),             cnot(0, 1), h(0)]).prob('00')
+def recv_01 = init.run([h(0), cnot(0, 1), x(0),       cnot(0, 1), h(0)]).prob('01')
+def recv_10 = init.run([h(0), cnot(0, 1), z(0),       cnot(0, 1), h(0)]).prob('10')
+def recv_11 = init.run([h(0), cnot(0, 1), x(0), z(0), cnot(0, 1), h(0)]).prob('11')
+
+composite Superdense ~{} ->{
+  recv_00 :: float,
+  recv_01 :: float,
+  recv_10 :: float,
+  recv_11 :: float
+} (
+  recv_00: recv_00 |
+  recv_01: recv_01 |
+  recv_10: recv_10 |
+  recv_11: recv_11
+)

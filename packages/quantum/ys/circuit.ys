@@ -28,3 +28,6 @@ def rz(q, a)    = {op: 'rz', qubits: [q], params: [a]}
 
 # Two-qubit.
 def cnot(c, t) = {op: 'cnot', qubits: [c, t]}
+def cz(c, t)   = {op: 'cz', qubits: [c, t]}
+def cphase(c, t, a) = {op: 'cphase', qubits: [c, t], params: [a]}
+def swap(a, b) = {op: 'swap', qubits: [a, b]}

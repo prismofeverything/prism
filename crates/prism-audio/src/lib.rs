@@ -12,6 +12,7 @@
 //! ring, A3) and the distributed `net:` protocol (A8); the *patch* is
 //! unchanged — only the sink differs.
 
+pub mod audioout;
 pub mod device;
 pub mod envelope;
 pub mod factory;
@@ -62,6 +63,7 @@ pub use signal::{
     register_signal, signal_from_slice, signal_registry, signal_schema, signal_to_vec, signal_type,
     silence, SIGNAL,
 };
+pub use audioout::AudioOut;
 pub use compare::Compare;
 pub use counter::Counter;
 pub use fold::Fold;

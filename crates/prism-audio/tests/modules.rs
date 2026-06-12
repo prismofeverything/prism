@@ -4,8 +4,8 @@
 //! (docs/synthesis-bigraphs.md §V, slice A2).
 
 use prism_audio::{
-    render_voice, signal_from_slice, signal_to_vec, Compare, Counter, Envelope, Fold, LowPass,
-    Noise, Oscillator, RingMod, SampleHold, Sequencer, Slope, Svf, Vca, Wave,
+    render_voice, signal_from_slice, signal_to_vec, AudioOut, Compare, Counter, Envelope, Fold,
+    LowPass, Noise, Oscillator, RingMod, SampleHold, Sequencer, Slope, Svf, Vca, Wave,
 };
 use prism_bigraph::{Process, Value};
 
@@ -581,4 +581,31 @@ fn sequencer_steps_through_the_list() {
     let trig = signal_to_vec(out.get_field("trig").unwrap());
     assert_eq!(trig[20], 1.0, "a trigger pulse on advance");
     assert_eq!(trig[21], 0.0, "the trigger is one sample wide");
+}
+
+// ── the audio device sink (the world-boundary face) ──────────────────────────
+
+#[test]
+fn audioout_passes_the_signal_through() {
+    // In the default (no-realtime) build, AudioOut is a transparent passthrough, so a
+    // patch that wires the device sink still RENDERS the Signal offline (`out = input`).
+    // The realtime build adds the side effect of driving the device + the back-pressure
+    // pacing; the passthrough contract is the same.
+    let ao = AudioOut::from_config(&Value::tree([
+        ("block", Value::Int(BLOCK as i64)),
+        ("sample_rate", Value::float(RATE)),
+    ]));
+    let input: Vec<f32> = (0..BLOCK).map(|i| (i as f32 * 0.05).sin()).collect();
+    let out = ao
+        .update(
+            &Value::tree([("input", signal_from_slice(&input))]),
+            ao.interval(),
+        )
+        .into_value()
+        .unwrap();
+    assert_eq!(
+        signal_to_vec(out.get_field("out").unwrap()),
+        input,
+        "AudioOut passes the Signal through (so a patch renders offline + plays with realtime)"
+    );
 }

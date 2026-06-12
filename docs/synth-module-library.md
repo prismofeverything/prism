@@ -114,10 +114,23 @@ tests + an export", following the pattern above. Modulation inputs listed are th
   flanger; **large buffer state** (a follow-up needs an efficient buffer-on-state strategy).
 - ⬜ **`Reverb`** — FDN/Schroeder over `Delay`s. ⬜ **`Granular`** — grain cloud over a buffer.
 
+### World boundary — sinks & sources (the device as a graph element)
+- ✅ **`AudioOut`** — the output device as a **SINK IN THE GRAPH** (the world-boundary face,
+  `docs/web-bigraphs.md` §9). Wire a `Signal` into its `input`; it writes each block to the device,
+  and the device's real-time drain **back-pressures the engine** — so `chrysalis run patch.ys`
+  *plays* because the sink is wired in, **not** because of a `--play` flag (retired). Passes through
+  (`out = input`) so the same patch renders offline AND plays under `--features realtime`; no device
+  ⇒ silent passthrough. (Impl: the `!Send` `cpal::Stream` lives on a spawned audio thread, `AudioOut`
+  holds the Send ring producer — the ring is the boundary.)
+- ⬜ **`AudioIn`** — the input device as a SOURCE (mic/line/duplex). ⬜ a `web:` served face (a
+  bigraph as a live page) is the *other* world boundary (`mesh` owns it).
+
 ## How it composes (the bigger picture)
 
 Because CV ≡ audio and a patch is a bigraph, these modules cross-patch freely
-(`examples/cross-mod.ys`: one LFO → VCO pitch *and* filter cutoff). And because the device is a
-**sink on the same BSP engine** (`docs/domain-libraries.md` §5), a patch of these modules
-**plays** (`chrysalis run … --play`), runs **parallel** voice composites, streams, and
-distributes over a **`mesh:`** link — the same modules, on the one engine, toward M4.
+(`examples/cross-mod.ys`: one LFO → VCO pitch *and* filter cutoff). And the device is just another
+**boundary element in the graph** — an `AudioOut` sink whose back-pressure paces the engine
+(`docs/web-bigraphs.md` §9; *"if the boundary is wired in, it's live"*). So one patch of these
+modules **plays** (wire in `AudioOut`), **renders** (read its passthrough), runs **parallel** voice
+composites, streams, and distributes over a **`mesh:`** link — the same modules + the same engine,
+toward M4. (`--play` is retired: a wired-in sink IS the play.)

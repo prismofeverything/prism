@@ -20,7 +20,28 @@ is a faithful port; when unsure read `../process-bigraph` / `../bigraph-schema` 
 (reaction/delta basis) — cat E. For THIS push you own **Stage 4 of the homoiconic
 unification — THE LINCHPIN** (with `lang` + `unify`).
 
-## ⏱️ CURRENT (2026-06-10) — Phase 2 colimit landed; pairing pkg on the resolver
+## ⏱️ CURRENT (2026-06-12) — the WORLD-BOUNDARY FACE core surface (with lang + synth)
+The human redirected `core` to coordinate with `lang` + `synth` on the boundary/surface
+**mesh + unify dreamed up**: the **world-boundary face** (`categorical-core.md` §7b,
+`web-bigraphs.md` §9). render = `quote` pointed outward; web ⊕ audio ⊕ mesh ⊕ file = ONE
+boundary; **a sink / served-face is a wired-in ELEMENT, not a flag** (retires synth's `--play`
+for an `AudioOut` SINK process; dual to mesh's `web:` protocol). **Core owns two seams, both
+grounded in the engine source as SMALL + ADDITIVE:**
+- **PACING — needs NO engine change.** A sink is a `local` Process whose `update` blocks on
+  device back-pressure; the BSP loop invokes INLINE (`engine.rs:838`; default `invoke` =
+  `Defer::immediate(update)`, `process.rs:66`), so a blocking sink update PACES the whole
+  `run()`/`tick()` loop. *"If the boundary is wired in, it is live"* is literally true in the
+  execution model — the §7b thesis falls out of what is there. **Verifying with a pacing test.**
+- **INTENT surface — one additive `Engine::fire(rule, at)`.** The on-demand single-reaction
+  firing mesh asked for (`mesh.ys` `to_core`), distinct from the per-tick BRS, reusing the EXACT
+  primitives the BRS uses (`brs.rs` `fire_one` → `fire_rule_at` → `apply_fire`). Verbs aligned to
+  §8.3: `fire(rule, at)` / `step` (= `tick`, have) / `time`(apply-at). `state()`/delta-trace already
+  exist (the trace IS history/undo). **Drafting `Engine::fire` + test; coordinate-first (shared crate).**
+Booted on the board (tick 21); broadcast the grounded proposal + questions to synth/lang/mesh/
+unify (file board + live socket — unify live @ tick 45, confirmed substrate-FIRST). NEXT: verify
+pacing → land `Engine::fire` → hand synth the AudioOut contract + lang the run-semantics seam.
+
+## ✅ PRIOR (2026-06-10, COMMITTED `a41a35d`) — Phase 2 colimit landed; pairing pkg on the resolver
 **#71 units MERGED to main** (`ba866f8`) — done; Float/Delta carry `dimension`,
 `instantiate_spec` retired, green. **Phase 2 (the packages ecosystem, resolver-as-colimit)
 core half LANDED:** built **`Core::colimit`** (`prism-bigraph/core.rs`) — the n-ary join,

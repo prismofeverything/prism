@@ -67,6 +67,10 @@ The bigraph reading of each — and the physics — is in
 | `quantum-circuit.ys` | the **circuit abstraction**: Bell/GHZ as gate-list compositions, run in one tick |
 | `quantum-chsh.ys` | the **CHSH / Bell inequality** violated — S = 2√2 > 2 (entanglement ≠ classical) |
 | `quantum-duality.ys` | `tensor` (join) ↔ `factorize` (split) round-trip, over ℂ |
+| `quantum-deutsch-jozsa.ys` | **Deutsch–Jozsa**: constant vs balanced in ONE query |
+| `quantum-grover.ys` | **Grover's search**: find the marked item with certainty (1 iteration) |
+| `quantum-qft.ys` | the **Quantum Fourier Transform** — genuinely complex amplitudes |
+| `quantum-superdense.ys` | **superdense coding**: 2 classical bits via 1 transmitted qubit |
 | `quantum-bell-measure.ys` | a Bell state (from gates) measured 4× — always `00`/`11` (perfect correlation) |
 | `quantum-interference.ys` | single-qubit interference through a handler (algebraic effects) |
 | `quantum-engine.ys` / `quantum-engine-measure.ys` | gates as engine PROCESSES, wired in a place graph (+ a `Measure` step) |

@@ -50,9 +50,8 @@ abstraction; e.g. Bell = `H ; CNOT` built from library gates, not a hand-rolled 
   (#11). See **Done**.
 - [DONE 2026-06-12] (P) **full `.ys` parity (#13)** — demos re-expressed on the gate layer; the
   Q5-blocked protocols (teleportation/locc) flagged. See **Done**.
-- [NEXT, in order] (c) **explorations**: **Deutsch–Jozsa next** (buildable NOW: H + X + CNOT
-  oracles + the circuit abstraction — the algorithm is `.ys`, per the boundary), then a **CZ /
-  controlled-phase** 2-qubit gate -> Grover + QFT (rides ℂ), then superdense/BB84. (d)
+- [NEXT, in order] **Explorations DONE** (CHSH, Deutsch–Jozsa, Grover, QFT, superdense; BB84 =
+  optional tail — random bases + sifting). The substrate-deepening fronts now: (d)
   **measure-with-collapse + factorize-driven `_divide` (Q5)** — also UNBLOCKS a clean
   teleportation/locc re-expression (the parity tail). (e) **mesh-mode** (LOCC wire -> a `mesh:`
   link; teleportation across machines, M2).
@@ -78,6 +77,35 @@ abstraction; e.g. Bell = `H ; CNOT` built from library gates, not a hand-rolled 
   scope stays joint per physics) — M3; not yet demoed.
 
 ## Done
+- **Superdense coding (#12) — the explorations capstone.** 2026-06-12. Send 2 classical bits with
+  ONE transmitted qubit: Alice Pauli-encodes (00→I, 01→X, 10→Z, 11→XZ) onto her half of a
+  pre-shared Bell pair; Bob Bell-measures `[cnot, h]` and recovers both bits with P=1.
+  `packages/quantum/ys/quantum-superdense.ys` — **ZERO new Rust primitive** (h/x/z/cnot + `prob`):
+  the tool is now expressive enough that a real protocol is pure `.ys`. All 4 messages recovered
+  exactly. 36 suite green. **EXPLORATIONS DONE: CHSH + Deutsch–Jozsa + Grover + QFT + superdense**
+  (BB84 = optional tail — random bases + sifting).
+- **QFT — the Quantum Fourier Transform (#12).** 2026-06-12. The quantum DFT (heart of Shor /
+  phase estimation). Needed one key-permutation primitive — `swap` — plus the `cphase` from Grover.
+  `packages/quantum/ys/quantum-qft.ys` (3-qubit): H + controlled-phase rotations + a bit-reversal
+  swap. Verified: QFT|000⟩ = uniform (P=1/8), and QFT⁻¹∘QFT = identity (round-trip = 1.0). **The
+  first algorithm with genuinely COMPLEX amplitudes** — `qft_001` shows the `e^(2πik/8)` phases as
+  `[re,im]` (i/√8, etc.) — the payoff for the shared `Complex` substrate (#68). 13 quantum lib + 35
+  suite green.
+- **Controlled gates (CZ / controlled-phase) + Grover's search (#12).** 2026-06-12. One new
+  primitive — `apply_controlled_1q(state, c, t, U)`, the generalization of CNOT (a controlled
+  single-qubit unitary) — gives `cz` + `cphase` (the QFT gate) as methods + circuit constructors +
+  `apply_gate_spec` ops. `packages/quantum/ys/quantum-grover.ys`: 2-qubit Grover (oracle =
+  phase-flip |w⟩ via `cz`/`x`; diffusion = inversion about the mean) finds the marked item with
+  CERTAINTY (P=1) in ONE iteration, for three different marks — pure `.ys`. 12 quantum lib + 34
+  suite (incl the Grover behavior test) green.
+- **Deutsch–Jozsa — the second exploration (#12).** 2026-06-12. Decides f:{0,1}ⁿ→{0,1} CONSTANT
+  vs BALANCED in ONE quantum query (classically up to 2ⁿ⁻¹+1). The algorithm is PURE `.ys`
+  (`packages/quantum/ys/quantum-deutsch-jozsa.ys`: H + X + CNOT oracles + the circuit + phase
+  kickback); it needed ONE new PRIMITIVE — `Qubits.prob(pattern)`, the marginal measurement
+  probability `Σ|amp|²` over basis keys matching a `*`-wildcard pattern (`prob('00*')`). The
+  boundary working as designed: a new algorithm = `.ys` + at most one instantly-`.ys`-callable
+  primitive. const → P(00)=1, balanced → 0 (exact). 11 quantum lib + 33 suite (incl the DJ
+  behavior test in `quantum_examples.rs`) green.
 - **Full `.ys` parity — the demos re-expressed on the gate layer (#13).** 2026-06-12. Deleted the
   redundant hand-rollers (`quantum-bell-state`, `quantum-ghz` — `quantum-circuit.ys` covers them).
   Re-expressed the distinct ones to the canonical `Qubits` methods: `quantum-engine` /
