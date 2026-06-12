@@ -48,14 +48,14 @@ abstraction; e.g. Bell = `H ; CNOT` built from library gates, not a hand-rolled 
 - [DONE 2026-06-11] **Complex amplitudes — the foundational unlock.** See **Done** below.
 - [DONE 2026-06-11] (a) complex `tensor`/`factorize` (#10) + (b) the **Circuit** abstraction
   (#11). See **Done**.
-- [NEXT, in order] (P) **full `.ys` parity (#13, human: ALL examples on parity BEFORE new
-  ones)** — re-express the pre-gate-layer demos (bell-state/ghz/engine — hand-rolled amplitudes
-  via `handle`/ast) as gate/circuit compositions so EVERY example rides the primitive layer
-  ([[feedback_rust_ys_boundary]]); some are redundant with `quantum-circuit.ys` (rewrite vs
-  deprecate — ask the human). (c) more **explorations**: Deutsch–Jozsa next (buildable now: H +
-  X + CNOT oracles), then a **CZ / controlled-phase** 2-qubit gate -> Grover + QFT (rides ℂ),
-  then superdense/BB84. (d) measure-with-collapse + factorize-driven `_divide` (Q5). (e)
-  **mesh-mode** (LOCC wire -> a `mesh:` link; teleportation across machines, M2).
+- [DONE 2026-06-12] (P) **full `.ys` parity (#13)** — demos re-expressed on the gate layer; the
+  Q5-blocked protocols (teleportation/locc) flagged. See **Done**.
+- [NEXT, in order] (c) **explorations**: **Deutsch–Jozsa next** (buildable NOW: H + X + CNOT
+  oracles + the circuit abstraction — the algorithm is `.ys`, per the boundary), then a **CZ /
+  controlled-phase** 2-qubit gate -> Grover + QFT (rides ℂ), then superdense/BB84. (d)
+  **measure-with-collapse + factorize-driven `_divide` (Q5)** — also UNBLOCKS a clean
+  teleportation/locc re-expression (the parity tail). (e) **mesh-mode** (LOCC wire -> a `mesh:`
+  link; teleportation across machines, M2).
 - Open design point parked with **unify**: the surface value-method dispatch for `Complex`
   (a bare `array[[2]]` carries no `_type` tag; method dispatch keys off the tag/`Foreign`
   name). Quantum needs only the Rust arithmetic + the type (tag-independent), so this is
@@ -78,6 +78,18 @@ abstraction; e.g. Bell = `H ; CNOT` built from library gates, not a hand-rolled 
   scope stays joint per physics) — M3; not yet demoed.
 
 ## Done
+- **Full `.ys` parity — the demos re-expressed on the gate layer (#13).** 2026-06-12. Deleted the
+  redundant hand-rollers (`quantum-bell-state`, `quantum-ghz` — `quantum-circuit.ys` covers them).
+  Re-expressed the distinct ones to the canonical `Qubits` methods: `quantum-engine` /
+  `-engine-measure` (gates as engine PROCESSES — `state.hadamard(0)` / `.cnot(0,1)` /
+  `.measure(seed)`; intermediate slots need a tagged-Qubits placeholder `def empty :: Qubits`
+  since gate dispatch keys off the `_type` tag, and a bare body-literal map is untagged),
+  `quantum-bell-measure` (Bell from gates + `.measure`), `quantum-two-bells` (FLATTENED to two
+  independent `Qubits` registers — the nested-composite output surfacing was fragile + untested).
+  KEPT: `interference` / `effects-handle` (algebraic-effects demos — a different capability);
+  `teleportation` / `locc` stay hand-rolled because they need **measurement-with-collapse +
+  conditional correction** (Q5 / slice-9) — they are the CONSUMERS that motivate Q5 (the
+  boundary's "add the missing primitive" signal, not laziness). README updated. 32 suite green.
 - **The Rust↔`.ys` boundary + `.ys` examples as the tested source of truth.** 2026-06-11.
   Settled the boundary ([[feedback_rust_ys_boundary]]): Rust = PRIMITIVES (type+algebra, hot
   kernels, irreducible ops — each INSTANTLY `.ys`-callable on registration); `.ys` = COMPOSITIONS

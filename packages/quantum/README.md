@@ -6,10 +6,18 @@ first **pure-`.ys`** domain package: where [`synth`](../synth) depends on a nati
 crate, quantum needs **no native crate** — the whole quantum substrate already rides the
 **std** floor.
 
+The tool is built to **explore quantum systems by composing canonical gates**: complex
+amplitudes (the shared `Complex` sort), the full single-qubit gate set, and a **circuit**
+abstraction (`state.run([h(0), cnot(0,1)])`) — Bell, GHZ, CHSH, and the tensor↔factorize
+duality are all `.ys` compositions, not hand-rolled amplitudes. The Rust↔`.ys` boundary:
+Rust holds the *primitives* (the gate kernel, `Complex`, `measure`, `factorize`), each
+instantly callable from `.ys`; everything composed — circuits, algorithms, examples — is
+`.ys` (see `feedback_rust_ys_boundary`).
+
 ```sh
-chrysalis run packages/quantum/ys/quantum-bell-state.ys      --time 0   # (|00⟩+|11⟩)/√2
-chrysalis run packages/quantum/ys/quantum-teleportation.ys   --time 4   # |ψ⟩ Alice→Bob
-chrysalis run packages/quantum/ys/quantum-ghz.ys             --time 4   # (|000⟩+|111⟩)/√2
+chrysalis run packages/quantum/ys/quantum-circuit.ys         --time 0   # Bell/GHZ as gate circuits
+chrysalis run packages/quantum/ys/quantum-chsh.ys            --time 0   # Bell inequality violated: S = 2√2
+chrysalis run packages/quantum/ys/quantum-teleportation.ys   --time 6   # |ψ⟩ Alice→Bob
 chrysalis run packages/quantum/ys/quantum-lifecycle.ys       --time 2   # entanglement split/merge
 ```
 
@@ -42,7 +50,7 @@ resolves against std, and relative `from .ast` / `from .quantum-system` imports 
 file-locally inside `ys/`.
 
 **`ys/ast.ys`** is a package-local copy of the AST-builder helper library (`var` / `call` /
-`float` / …), imported `from .ast` by the bell / interference / effects demos. It is shared
+`float` / …), imported `from .ast` by the interference / effects demos. It is shared
 with the monolith's `hand-built-*` cell demos; both keep a copy until the planned
 `lang-demos` / `examples` package lands (`docs/packages-decomposition.md` §4), at which
 point the demos depend on it as a path dependency.
@@ -55,12 +63,14 @@ The bigraph reading of each — and the physics — is in
 
 | file | what it shows |
 |---|---|
-| `quantum-bell-state.ys` | the canonical entangled state `(|00⟩+|11⟩)/√2`, built via `handle` |
-| `quantum-bell-measure.ys` | Bell state + a Born-rule measurement collapsing it |
-| `quantum-interference.ys` | single-qubit interference through a handler |
-| `quantum-ghz.ys` | the 3-qubit GHZ state `(|000⟩+|111⟩)/√2` |
-| `quantum-engine.ys` / `quantum-engine-measure.ys` | the Bell physics as engine processes (+ a `Measure` step) |
-| `quantum-two-bells.ys` | two **separable** Bell pairs side-by-side (no link → independent) — Q1 |
+| `quantum-gates.ys` | the canonical single-qubit gate set (X/Y/Z/H/S/T/phase/Rx/Ry/Rz) — incl. complex amplitudes |
+| `quantum-circuit.ys` | the **circuit abstraction**: Bell/GHZ as gate-list compositions, run in one tick |
+| `quantum-chsh.ys` | the **CHSH / Bell inequality** violated — S = 2√2 > 2 (entanglement ≠ classical) |
+| `quantum-duality.ys` | `tensor` (join) ↔ `factorize` (split) round-trip, over ℂ |
+| `quantum-bell-measure.ys` | a Bell state (from gates) measured 4× — always `00`/`11` (perfect correlation) |
+| `quantum-interference.ys` | single-qubit interference through a handler (algebraic effects) |
+| `quantum-engine.ys` / `quantum-engine-measure.ys` | gates as engine PROCESSES, wired in a place graph (+ a `Measure` step) |
+| `quantum-two-bells.ys` | two **separable** Bell pairs side by side (independent systems) — Q1 |
 | `quantum-locc.ys` | a classical wire across composites (Local Ops + Classical Comm) — Q2 |
 | `quantum-tensor.ys` | `tensor`: the structural-composition inverse of `divide` — Q3 |
 | `quantum-factorize.ys` | `factorize`: detect separability; the inverse of `tensor` — Q5 |

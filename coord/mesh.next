@@ -24,9 +24,16 @@ the `protocol`/codec layer, the `.ys` `mesh:` surface, the CRDT `mesh_safety` op
       model). The thesis (for unify): the web is the spine's DISPLAY FACE dual to `quote` —
       HTML *is* a bigraph (nesting=place, id/href=link), render = a FUNCTOR to the markup
       prop, browser = a protocol boundary, interactions = BRS generators, navigation =
-      fold/unfurl, history = the trace/fold, git/self = reflection. **STATUS: plan written +
-      posted to the board (esp. `to_unify`); BRAKES ON CODE until the human + unify talk the
-      spine through.** Then **Slice 0** = `chrysalis serve <file.ys> --web` (transport rungs:
+      fold/unfurl, history = the trace/fold, git/self = reflection. **CONFIRMED by unify
+      (`categorical-core.md` §7b — the WORLD-BOUNDARY FACE: web ⊕ audio ⊕ mesh ⊕ file = ONE
+      boundary; render = `quote` pointed outward; a sink/served-face is a wired-in ELEMENT,
+      not a flag — same recognition that retires synth's `--play` for an `AudioOut` sink).**
+      SUBSTRATE-FIRST (human): build the `web:` protocol in `prism-bigraph/protocols` (beside
+      `mesh.rs`, on `http.rs` — a BOUNDARY, not a domain) + the generic render functor in
+      `prism-viz` (pair viz; ONE `Render` over markup/SVG/3D) + the serve seam in lang; then
+      tetrahedron is a `.ys` package depping it (pkg). Intents = a BRS (`fire`/`step`/`time`).
+      Sharpening: generic `serve --web` = ATTACH a `web:` boundary to the root then run (not a
+      mode). **READY for Slice 0 on the human's go.** Then **Slice 0** (transport rungs:
       poll → SSE → WS → WASM-peer; the serve boundary is MINE, reusing `protocols/http.rs`;
       the render functor is viz/spatial). Driver = **TETRAHEDRON** (`../tetrahedron`;
       `code-collaboration.ys` = the git-as-bigraph explorer). Engine reuse confirmed thin

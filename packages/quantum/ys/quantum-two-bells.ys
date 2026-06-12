@@ -1,89 +1,33 @@
-# Q1 of #36 — two independent quantum systems coexisting.
-# ────────────────────────────────────────────────────────
+# Q1 of #36 — two independent quantum systems, side by side.
+# ──────────────────────────────────────────────────────────
 #
-# A `BellPair` composite is a complete Bell-state-and-measure circuit
-# (H + CNOT + Measure). The outer composite `TwoBellPairs` instantiates
-# TWO of them, named `alice` and `bob`. They share NO links — they are
-# genuinely independent quantum systems running side by side. The
-# bigraph place graph has two disjoint sub-bigraphs; no entanglement
-# between them.
+# Two SEPARATE `Qubits` registers, `alice` and `bob`, each prepared as a Bell
+# pair and measured with its own seed. They share nothing — no link, no joint
+# state: genuinely independent systems (the simplest separable case). Each is
+# internally Bell-correlated (`00`/`11`), but alice's outcome does NOT constrain
+# bob's.
 #
-# `docs/quantum-bigraphs.md` §V: "Separable qubits can live in
-# different processes / composites." This demo is the simplest case —
-# two two-qubit Bell pairs, totally separable across composites.
+# `docs/quantum-bigraphs.md` §V: "Separable qubits can live in different
+# processes / composites." The total state factors as `alice ⊗ bob`; there is no
+# entanglement across the two registers. Each Bell pair is composed from the
+# canonical `Qubits` gate methods.
 #
-# Each gets a different `seed`, so their measurement outcomes are
-# independent. Both observe perfect intra-system correlation (b00 or
-# b11 within each pair) but no cross-system correlation (alice's
-# outcome doesn't constrain bob's).
-#
-# Run: `chrysalis run quantum-two-bells.ys --time 3`
-# Expected: each of alice/bob observes b00 or b11 (perfect Bell
-# correlation within its own composite); the two systems are
-# genuinely separable.
+# Run: `chrysalis run quantum-two-bells.ys --time 0`
 
-from meta import sample
+def alice :: Qubits = {'00': 1.0}
+def bob   :: Qubits = {'00': 1.0}
 
-def zero4 = { amp_00: 0.0, amp_01: 0.0, amp_10: 0.0, amp_11: 0.0 }
-def init_00 = { amp_00: 1.0, amp_01: 0.0, amp_10: 0.0, amp_11: 0.0 }
+def alice_bell = alice.hadamard(0).cnot(0, 1)   # (|00⟩ + |11⟩)/√2
+def bob_bell   = bob.hadamard(0).cnot(0, 1)     # an independent Bell pair
 
-# Gates — defined once at the file level, reusable by both Bell pairs.
-process Hadamard ~{state :: overwrite[any]} ->{state :: overwrite[any]}
-(
-  {state: {
-    amp_00: ((state.amp_00 + state.amp_10) / 1.41421356),
-    amp_01: ((state.amp_01 + state.amp_11) / 1.41421356),
-    amp_10: ((state.amp_00 - state.amp_10) / 1.41421356),
-    amp_11: ((state.amp_01 - state.amp_11) / 1.41421356)
-  }}
-)
-
-process CNOT ~{state :: overwrite[any]} ->{state :: overwrite[any]}
-(
-  {state: {
-    amp_00: state.amp_00, amp_01: state.amp_01,
-    amp_10: state.amp_11, amp_11: state.amp_10
-  }}
-)
-
-process Measure[seed :: Float = 42.0]
-  ~{state :: any}
-  ->{outcome :: overwrite[any]}
-(
-  {outcome: sample({
-    b00: (state.amp_00 * state.amp_00),
-    b01: (state.amp_01 * state.amp_01),
-    b10: (state.amp_10 * state.amp_10),
-    b11: (state.amp_11 * state.amp_11)
-  }, seed)}
-)
-
-# A standalone Bell-pair + measurement circuit. Its state is enclosed;
-# it exposes only `state` and `observed` to whoever instantiates it.
-# (Initial state literals inlined so the composite is self-contained —
-# top-level `def`s aren't visible from inside nested composite bodies.)
-composite BellPair[seed :: Float = 42.0] ~{} ->{
-  state    :: any @ s_after_cnot,
-  observed :: any @ observed
-} (
-  s_init:        { amp_00: 1.0, amp_01: 0.0, amp_10: 0.0, amp_11: 0.0 } |
-  s_after_h:     { amp_00: 0.0, amp_01: 0.0, amp_10: 0.0, amp_11: 0.0 } |
-  s_after_cnot:  { amp_00: 0.0, amp_01: 0.0, amp_10: 0.0, amp_11: 0.0 } |
-  observed:      'unmeasured' |
-  h:  Hadamard ~{state: s_init}       ->{state: s_after_h} |
-  cn: CNOT     ~{state: s_after_h}    ->{state: s_after_cnot} |
-  m:  Measure[seed: seed] ~{state: s_after_cnot} ->{outcome: observed}
-)
-
-# TWO independent Bell pairs. Each has its own enclosed state, runs
-# its own gates, measures with its own seed. NO LINKS BETWEEN THEM.
-# The bigraph place graph is two disjoint sub-bigraphs.
 composite TwoBellPairs ~{} ->{
-  alice_state :: overwrite[any],
-  alice_obs   :: overwrite[any],
-  bob_state   :: overwrite[any],
-  bob_obs     :: overwrite[any]
+  alice_state :: Qubits,
+  bob_state   :: Qubits,
+  alice_obs   :: String,
+  bob_obs     :: String
 } (
-  alice: BellPair[seed: 42.0] ~{} ->{state: alice_state, observed: alice_obs} |
-  bob:   BellPair[seed: 7.0]  ~{} ->{state: bob_state,   observed: bob_obs}
+  alice_state: alice_bell |
+  bob_state:   bob_bell |
+  alice_obs:   alice_bell.measure(42) |
+  bob_obs:     bob_bell.measure(7)
 )

@@ -1,77 +1,54 @@
-# Quantum bigraph through the prism engine — with MEASUREMENT.
-# ─────────────────────────────────────────────────────────────
+# Quantum gates as engine PROCESSES — with MEASUREMENT.
+# ─────────────────────────────────────────────────────────
 #
-# Extends `quantum-engine.ys` with a `Measure` process that collapses
-# the final state to an observed basis outcome. Three gates fire across
-# three BSP ticks; the fourth slot (`observed`) carries the measurement
-# result.
+# Extends `quantum-engine.ys` with a `Measure` process that collapses the final
+# state to an observed basis outcome. Three stages fire across three BSP ticks;
+# the fourth slot (`observed`) carries the result.
 #
-# This is a COMPLETE quantum experiment, running entirely through the
-# prism engine: state prep, gate application, AND measurement. Every
-# step is a `process` definer; every wire is a place-graph edge; the
-# engine schedules and applies.
+# A COMPLETE quantum experiment through the prism engine: state prep, gate
+# application, AND measurement — every step a `process`, every wire a place-graph
+# edge. Each gate calls the canonical `Qubits` method; `Measure` calls
+# `state.measure(seed)` (Born `|amp|²` + deterministic sample, internal).
 #
 # Run: `chrysalis run quantum-engine-measure.ys --time 3`
-# Expected after 3 ticks (deterministic given the seed):
-#   s_after_cnot: { amp_00: 0.707, amp_01: 0, amp_10: 0, amp_11: 0.707 }
-#   observed:     "b11"      ← measured outcome (or "b00", never b01/b10)
+# Expected after 3 ticks: s_after_cnot = { '00': 0.707, '11': 0.707 };
+#   observed = "11" (or "00", never "01"/"10").
 
-from meta import sample
+def init_00 :: Qubits = {'00': 1.0}
+# A tagged-Qubits placeholder for the intermediate slots: gate methods dispatch on
+# the `_type` tag, so a slot a gate READS must start as a `Qubits`, not a bare map.
+def empty :: Qubits = {'00': 0.0}
 
-def zero_state = { amp_00: 0.0, amp_01: 0.0, amp_10: 0.0, amp_11: 0.0 }
-def init_00    = { amp_00: 1.0, amp_01: 0.0, amp_10: 0.0, amp_11: 0.0 }
-
-# Hadamard on q0 (same as quantum-engine.ys).
-process Hadamard ~{state :: overwrite[any]} ->{state :: overwrite[any]}
+process Hadamard ~{state :: Qubits} ->{state :: Qubits}
 (
-  {state: {
-    amp_00: ((state.amp_00 + state.amp_10) / 1.41421356),
-    amp_01: ((state.amp_01 + state.amp_11) / 1.41421356),
-    amp_10: ((state.amp_00 - state.amp_10) / 1.41421356),
-    amp_11: ((state.amp_01 - state.amp_11) / 1.41421356)
-  }}
+  {state: state.hadamard(0)}
 )
 
-# CNOT with q0=control, q1=target.
-process CNOT ~{state :: overwrite[any]} ->{state :: overwrite[any]}
+process CNOT ~{state :: Qubits} ->{state :: Qubits}
 (
-  {state: {
-    amp_00: state.amp_00,
-    amp_01: state.amp_01,
-    amp_10: state.amp_11,
-    amp_11: state.amp_10
-  }}
+  {state: state.cnot(0, 1)}
 )
 
-# Measure: compute Born probabilities, sample one outcome.
-# Uses `meta::sample(distribution, seed)` — works inside process bodies
-# the same as anywhere (native imports thread through eval).
+# Measure: Born-rule sample of the live state. `state.measure(seed)` returns the
+# observed basis bitstring (the `Qubits` method does |amp|² + the sample).
 process Measure[seed :: Float = 42.0]
-  ~{state :: any}
+  ~{state :: Qubits}
   ->{outcome :: overwrite[any]}
 (
-  {outcome: sample({
-    b00: (state.amp_00 * state.amp_00),
-    b01: (state.amp_01 * state.amp_01),
-    b10: (state.amp_10 * state.amp_10),
-    b11: (state.amp_11 * state.amp_11)
-  }, seed)}
+  {outcome: state.measure(seed)}
 )
 
-# The Bell + measure circuit as a composite. Four state slots; each
-# tick propagates one stage. After 3 BSP ticks the full chain has
-# fired: s_init → s_after_h → s_after_cnot → observed.
 composite BellMeasure ~{} ->{
-  s_init        :: any,
-  s_after_h     :: any,
-  s_after_cnot  :: any,
-  observed      :: any
+  s_init       :: Qubits,
+  s_after_h    :: Qubits,
+  s_after_cnot :: Qubits,
+  observed     :: any
 } (
-  s_init:        init_00 |
-  s_after_h:     zero_state |
-  s_after_cnot:  zero_state |
-  observed:      'unmeasured' |
-  h:  Hadamard ~{state: s_init}       ->{state: s_after_h} |
-  cn: CNOT     ~{state: s_after_h}    ->{state: s_after_cnot} |
+  s_init:       init_00 |
+  s_after_h:    empty |
+  s_after_cnot: empty |
+  observed:     'unmeasured' |
+  h:  Hadamard ~{state: s_init}                  ->{state: s_after_h} |
+  cn: CNOT     ~{state: s_after_h}               ->{state: s_after_cnot} |
   m:  Measure[seed: 42.0] ~{state: s_after_cnot} ->{outcome: observed}
 )

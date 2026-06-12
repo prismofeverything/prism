@@ -1,68 +1,44 @@
-# Quantum bigraph through the prism engine — `Hadamard` and `CNOT` as
-# real chrysalis processes, wired into a composite, ticked by the engine.
-# (#35 §XI engine-level integration, first concrete step.)
+# Quantum gates as real prism PROCESSES, wired into a place-graph pipeline and
+# ticked by the engine — the engine-process form of a circuit (vs the one-tick
+# `state.run([…])` of `quantum-circuit.ys`).
 #
-# Same Bell-state physics as `quantum-bell-state.ys`, but now the
-# simulation runs through the prism engine's BSP tick. Each gate is a
-# proper `process` with `~{state}` input + `->{state}` output ports.
-# The composite chains them as a place graph: q-state flows `init →
-# after-H → after-CNOT` across two ticks.
+# Each gate is a `process` with `~{state}` input + `->{state}` output ports; the
+# composite chains them across state slots, so a WIRE between slots IS a
+# correlation. The engine schedules the gates; the algebra applies the overwrites;
+# the BSP tick steps the circuit one gate at a time (`s_init → s_after_h →
+# s_after_cnot`).
 #
-# Bigraph entanglement visible STRUCTURALLY: `s_after_h` is shared
-# between the Hadamard output and the CNOT input — a wire IS a
-# correlation. The engine schedules the gates; the algebra applies the
-# overwrites; the BSP tick steps the circuit one gate at a time.
+# Each gate now calls the canonical `Qubits` METHOD (`state.hadamard(0)` /
+# `state.cnot(0,1)`) — no hand-rolled amplitude bodies. `:: Qubits` carries its own
+# overwrite-apply, so no `overwrite[…]` wrapper is needed: the type knows its law.
 #
 # Run: `chrysalis run quantum-engine.ys --time 2`
-# Expected after 2 ticks (ε ≈ 1e-4):
-#   s_after_cnot: { amp_00: 0.707, amp_01: 0, amp_10: 0, amp_11: 0.707 }
-#   ← the Bell state, computed by the engine tick-by-tick.
+# Expected after 2 ticks: s_after_cnot = { '00': 0.707, '11': 0.707 } — the Bell
+# state, computed by the engine tick-by-tick.
 
-def zero_state = {
-  amp_00: 0.0, amp_01: 0.0,
-  amp_10: 0.0, amp_11: 0.0
-}
+def init_00 :: Qubits = {'00': 1.0}
+# A tagged-Qubits placeholder for the intermediate slots: gate methods dispatch on
+# the `_type` tag, so a slot a gate READS must start as a `Qubits`, not a bare map.
+def empty :: Qubits = {'00': 0.0}
 
-def init_00 = {
-  amp_00: 1.0, amp_01: 0.0,
-  amp_10: 0.0, amp_11: 0.0
-}
-
-# Hadamard on q0 of a two-qubit state — overwrite the input slot with
-# the transformed amplitudes. The `overwrite[any]` schema tells the
-# engine's apply to REPLACE the slot, not additively merge.
-process Hadamard ~{state :: overwrite[any]} ->{state :: overwrite[any]}
+process Hadamard ~{state :: Qubits} ->{state :: Qubits}
 (
-  {state: {
-    amp_00: ((state.amp_00 + state.amp_10) / 1.41421356),
-    amp_01: ((state.amp_01 + state.amp_11) / 1.41421356),
-    amp_10: ((state.amp_00 - state.amp_10) / 1.41421356),
-    amp_11: ((state.amp_01 - state.amp_11) / 1.41421356)
-  }}
+  {state: state.hadamard(0)}
 )
 
-# CNOT with q0=control, q1=target: |10⟩ ↔ |11⟩, others unchanged.
-process CNOT ~{state :: overwrite[any]} ->{state :: overwrite[any]}
+process CNOT ~{state :: Qubits} ->{state :: Qubits}
 (
-  {state: {
-    amp_00: state.amp_00,
-    amp_01: state.amp_01,
-    amp_10: state.amp_11,
-    amp_11: state.amp_10
-  }}
+  {state: state.cnot(0, 1)}
 )
 
-# The Bell circuit as a composite. Three state slots; gates wire
-# `pre-state → post-state` across them. After 2 BSP ticks the chain
-# has propagated: s_init → s_after_h → s_after_cnot = Bell state.
 composite BellCircuit ~{} ->{
-  s_init        :: any,
-  s_after_h     :: any,
-  s_after_cnot  :: any
+  s_init       :: Qubits,
+  s_after_h    :: Qubits,
+  s_after_cnot :: Qubits
 } (
-  s_init:        init_00 |
-  s_after_h:     zero_state |
-  s_after_cnot:  zero_state |
+  s_init:       init_00 |
+  s_after_h:    empty |
+  s_after_cnot: empty |
   h:  Hadamard ~{state: s_init}    ->{state: s_after_h} |
   cn: CNOT     ~{state: s_after_h} ->{state: s_after_cnot}
 )
