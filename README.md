@@ -6,9 +6,9 @@ prism is a Rust runtime for **process bigraph** — Milner's calculus of
 communicating, nesting processes expanded with arbitrary type schemas
 and temporal/numerical dynamics — built so that wildly different domains
 (cell biology, quantum mechanics, audio synthesis, adaptive networks, visual
-dynamics) and instead of a bunch of random programs associated in arbitrary ways,
-they all run on *one* substrate and are unified under a coherent compositional
-theory. From it grew **chrysalis** (`.ys`), a small homoiconic language you write
+dynamics) all run on *one* substrate, communicate through a shared common
+language, and stand unified under a coherent compositional theory. From it grew
+**chrysalis** (`.ys`), a small homoiconic language you write
 the simulations in which then become butterflies (and other entities) in running.
 It began as a faithful port of the
 [vivarium-collective](https://github.com/vivarium-collective) python
